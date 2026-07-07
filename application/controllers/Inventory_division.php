@@ -192,7 +192,16 @@ class Inventory_division extends Purchase
                      dms.profile_name
         ";
 
-        $stockRows = ($r = $this->db->query($sql)) ? $r->result_array() : [];
+        $prevDbDebug = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        $r = $this->db->query($sql);
+        $this->db->db_debug = $prevDbDebug;
+        if (!$r) {
+            $err = $this->db->error();
+            $this->jsonError('Gagal memuat data daily recon bahan baku: ' . (string)($err['message'] ?? 'query database gagal'), 500);
+            return;
+        }
+        $stockRows = $r->result_array();
         $this->attach_material_daily_recon_flags($stockRows, $opnameDate, $divisionId);
 
         // ── Append recipe-only materials (active in recipes but no stock record) ──

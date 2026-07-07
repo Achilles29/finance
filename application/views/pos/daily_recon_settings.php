@@ -1,9 +1,11 @@
 <?php
 $mode = strtoupper(trim((string)($mode ?? 'OPEN_AND_CLOSE')));
-$policy = strtoupper(trim((string)($policy ?? 'WARN_ONLY')));
+$policy = strtoupper(trim((string)($policy ?? 'BLOCK')));
 $confirmMode = strtoupper(trim((string)($confirm_mode ?? 'BULK_ALLOWED')));
-$requiredMaterials = (string)($required_materials ?? '');
-$requiredComponents = (string)($required_components ?? '');
+$requiredMaterialIds = array_flip(array_map('intval', (array)($required_material_ids ?? [])));
+$requiredComponentIds = array_flip(array_map('intval', (array)($required_component_ids ?? [])));
+$materialOptions = is_array($material_options ?? null) ? $material_options : [];
+$componentOptions = is_array($component_options ?? null) ? $component_options : [];
 $canEdit = !empty($can_edit);
 
 $modeLabels = [
@@ -13,11 +15,11 @@ $modeLabels = [
     ],
     'OPEN_ONLY' => [
         'title' => 'Cek saat buka kasir',
-        'desc' => 'Saat kasir dibuka, sistem memberi warning jika daily recon hari itu belum dikonfirmasi.',
+        'desc' => 'Saat kasir dibuka, sistem memblokir proses jika daily recon hari itu belum dikonfirmasi lengkap.',
     ],
     'CLOSE_ONLY' => [
         'title' => 'Cek saat tutup kasir',
-        'desc' => 'Saat kasir ditutup, sistem memberi warning jika daily recon hari itu belum dikonfirmasi.',
+        'desc' => 'Saat kasir ditutup, sistem memblokir proses jika daily recon hari itu belum dikonfirmasi lengkap.',
     ],
     'OPEN_AND_CLOSE' => [
         'title' => 'Cek saat buka dan tutup kasir',
@@ -88,6 +90,42 @@ $confirmModeLabels = [
   padding: .9rem 1rem;
   color: #6b4c37;
 }
+.pos-recon-checklist {
+  border: 1px solid #ead8cc;
+  border-radius: 16px;
+  background: #fffaf8;
+  overflow: hidden;
+}
+.pos-recon-checklist-head {
+  padding: .85rem;
+  border-bottom: 1px solid #f0dfd2;
+  background: linear-gradient(135deg, #fff, #fff4e7);
+}
+.pos-recon-checklist-body {
+  max-height: 320px;
+  overflow: auto;
+  padding: .45rem;
+}
+.pos-recon-check-item {
+  display: flex;
+  gap: .65rem;
+  align-items: flex-start;
+  border-radius: 12px;
+  padding: .55rem .65rem;
+  cursor: pointer;
+}
+.pos-recon-check-item:hover {
+  background: #fff0de;
+}
+.pos-recon-check-title {
+  color: #321d16;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.pos-recon-check-code {
+  color: #8b6f60;
+  font-size: .78rem;
+}
 @media (max-width: 992px) {
   .pos-recon-mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -119,7 +157,7 @@ $confirmModeLabels = [
           <div>
             <h5 class="mb-1">Mode pengecekan saat buka/tutup kasir</h5>
             <div class="text-muted small">
-              Jika recon belum lengkap, kasir mendapat warning. Proses tidak diblokir karena policy saat ini <strong><?php echo html_escape($policy); ?></strong>.
+              Jika gate aktif dan recon belum lengkap, kasir tidak bisa buka/tutup sampai checkpoint recon lengkap. Policy saat ini: <strong><?php echo html_escape($policy); ?></strong>.
             </div>
           </div>
           <button type="submit" class="btn btn-danger" <?php echo !$canEdit ? 'disabled' : ''; ?>>
@@ -168,16 +206,71 @@ $confirmModeLabels = [
         <div class="row g-3">
           <div class="col-lg-6">
             <label class="form-label fw-semibold">Bahan baku wajib recon per baris</label>
-            <textarea class="form-control" name="daily_recon_required_materials" rows="5" <?php echo !$canEdit ? 'disabled' : ''; ?> placeholder="Contoh:&#10;ICE CREAM VANILLA&#10;BB-EXL-...&#10;123"><?php echo html_escape($requiredMaterials); ?></textarea>
-            <div class="form-text">Isi material ID, kode, atau nama. Pisahkan dengan koma atau baris baru.</div>
+            <div class="pos-recon-checklist" data-checklist>
+              <div class="pos-recon-checklist-head">
+                <input type="search" class="form-control form-control-sm" data-checklist-search placeholder="Cari bahan baku...">
+              </div>
+              <div class="pos-recon-checklist-body">
+                <?php foreach ($materialOptions as $row): ?>
+                  <?php
+                    $id = (int)($row['id'] ?? 0);
+                    $title = (string)($row['material_name'] ?? '');
+                    $code = (string)($row['material_code'] ?? '');
+                    $haystack = strtolower(trim($id . ' ' . $title . ' ' . $code));
+                  ?>
+                  <label class="pos-recon-check-item" data-checklist-item="<?php echo html_escape($haystack); ?>">
+                    <input type="checkbox" name="daily_recon_required_materials[]" value="<?php echo $id; ?>" <?php echo isset($requiredMaterialIds[$id]) ? 'checked' : ''; ?> <?php echo !$canEdit ? 'disabled' : ''; ?>>
+                    <span>
+                      <span class="pos-recon-check-title d-block"><?php echo html_escape($title ?: ('Material #' . $id)); ?></span>
+                      <span class="pos-recon-check-code d-block"><?php echo html_escape($code ?: ('ID ' . $id)); ?></span>
+                    </span>
+                  </label>
+                <?php endforeach; ?>
+              </div>
+            </div>
+            <div class="form-text">Checklist material yang tetap wajib dicek per baris walau mode konfirmasi semua aktif.</div>
           </div>
           <div class="col-lg-6">
             <label class="form-label fw-semibold">Component wajib recon per baris</label>
-            <textarea class="form-control" name="daily_recon_required_components" rows="5" <?php echo !$canEdit ? 'disabled' : ''; ?> placeholder="Contoh:&#10;CHICKEN CUBE 40&#10;PREP-DASH-...&#10;77"><?php echo html_escape($requiredComponents); ?></textarea>
-            <div class="form-text">Isi component ID, kode, atau nama. Pisahkan dengan koma atau baris baru.</div>
+            <div class="pos-recon-checklist" data-checklist>
+              <div class="pos-recon-checklist-head">
+                <input type="search" class="form-control form-control-sm" data-checklist-search placeholder="Cari component...">
+              </div>
+              <div class="pos-recon-checklist-body">
+                <?php foreach ($componentOptions as $row): ?>
+                  <?php
+                    $id = (int)($row['id'] ?? 0);
+                    $title = (string)($row['component_name'] ?? '');
+                    $code = (string)($row['component_code'] ?? '');
+                    $haystack = strtolower(trim($id . ' ' . $title . ' ' . $code));
+                  ?>
+                  <label class="pos-recon-check-item" data-checklist-item="<?php echo html_escape($haystack); ?>">
+                    <input type="checkbox" name="daily_recon_required_components[]" value="<?php echo $id; ?>" <?php echo isset($requiredComponentIds[$id]) ? 'checked' : ''; ?> <?php echo !$canEdit ? 'disabled' : ''; ?>>
+                    <span>
+                      <span class="pos-recon-check-title d-block"><?php echo html_escape($title ?: ('Component #' . $id)); ?></span>
+                      <span class="pos-recon-check-code d-block"><?php echo html_escape($code ?: ('ID ' . $id)); ?></span>
+                    </span>
+                  </label>
+                <?php endforeach; ?>
+              </div>
+            </div>
+            <div class="form-text">Checklist component yang tetap wajib dicek per baris walau mode konfirmasi semua aktif.</div>
           </div>
         </div>
       <?php echo form_close(); ?>
     </div>
   </div>
 </div>
+
+<script>
+document.querySelectorAll('[data-checklist]').forEach(function (wrap) {
+  var input = wrap.querySelector('[data-checklist-search]');
+  if (!input) return;
+  input.addEventListener('input', function () {
+    var q = String(input.value || '').trim().toLowerCase();
+    wrap.querySelectorAll('[data-checklist-item]').forEach(function (item) {
+      item.style.display = !q || String(item.dataset.checklistItem || '').indexOf(q) !== -1 ? '' : 'none';
+    });
+  });
+});
+</script>

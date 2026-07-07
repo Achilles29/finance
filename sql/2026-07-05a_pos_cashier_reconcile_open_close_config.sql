@@ -75,8 +75,8 @@ VALUES
   (
     'pos',
     'pos.daily_recon_gate_policy',
-    'WARN_ONLY',
-    'Kebijakan gate daily recon POS. Saat ini WARN_ONLY: kasir diberi warning, proses tidak diblokir.',
+    'BLOCK',
+    'Kebijakan gate daily recon POS. BLOCK: kasir tidak bisa buka/tutup sebelum checkpoint recon lengkap.',
     CURRENT_TIMESTAMP
   ),
   (

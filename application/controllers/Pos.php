@@ -1700,6 +1700,12 @@ public function self_order_tables_print()
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
         $reconStatus = $this->Pos_model->daily_recon_gate_status('OPEN');
+        if (!empty($reconStatus['enabled']) && empty($reconStatus['complete'])) {
+            $this->json_error($this->daily_recon_block_message($reconStatus), 409, [
+                'daily_recon_status' => $reconStatus,
+            ]);
+            return;
+        }
         $result = $this->Pos_model->open_cashier_session($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal membuka kasir POS.'), 422);
@@ -1734,9 +1740,9 @@ public function self_order_tables_print()
             $mode = 'OPEN_AND_CLOSE';
         }
 
-        $policy = strtoupper(trim($this->pos_app_config_value('pos.daily_recon_gate_policy', 'WARN_ONLY')));
+        $policy = strtoupper(trim($this->pos_app_config_value('pos.daily_recon_gate_policy', 'BLOCK')));
         if ($policy === '') {
-            $policy = 'WARN_ONLY';
+            $policy = 'BLOCK';
         }
         $confirmMode = strtoupper(trim($this->pos_app_config_value('pos.daily_recon_confirm_mode', 'BULK_ALLOWED')));
         if (!in_array($confirmMode, ['BULK_ALLOWED', 'ROW_REQUIRED'], true)) {
@@ -1751,6 +1757,10 @@ public function self_order_tables_print()
             'confirm_mode' => $confirmMode,
             'required_materials' => $this->pos_app_config_value('pos.daily_recon_required_materials', ''),
             'required_components' => $this->pos_app_config_value('pos.daily_recon_required_components', ''),
+            'required_material_ids' => $this->daily_recon_selected_ids($this->pos_app_config_value('pos.daily_recon_required_materials', '')),
+            'required_component_ids' => $this->daily_recon_selected_ids($this->pos_app_config_value('pos.daily_recon_required_components', '')),
+            'material_options' => $this->daily_recon_material_options(),
+            'component_options' => $this->daily_recon_component_options(),
             'can_edit' => $this->can($pageCode, 'edit'),
         ]);
     }
@@ -1772,8 +1782,12 @@ public function self_order_tables_print()
             redirect('pos/daily-recon-settings');
             return;
         }
-        $requiredMaterials = trim((string)$this->input->post('daily_recon_required_materials', true));
-        $requiredComponents = trim((string)$this->input->post('daily_recon_required_components', true));
+        $requiredMaterialIds = array_values(array_unique(array_filter(array_map('intval', (array)$this->input->post('daily_recon_required_materials', false)))));
+        $requiredComponentIds = array_values(array_unique(array_filter(array_map('intval', (array)$this->input->post('daily_recon_required_components', false)))));
+        sort($requiredMaterialIds);
+        sort($requiredComponentIds);
+        $requiredMaterials = implode("\n", $requiredMaterialIds);
+        $requiredComponents = implode("\n", $requiredComponentIds);
 
         $this->save_pos_app_config(
             'pos.daily_recon_gate_mode',
@@ -1782,8 +1796,8 @@ public function self_order_tables_print()
         );
         $this->save_pos_app_config(
             'pos.daily_recon_gate_policy',
-            'WARN_ONLY',
-            'Kebijakan gate daily recon POS. WARN_ONLY: kasir diberi warning, proses tidak diblokir.'
+            'BLOCK',
+            'Kebijakan gate daily recon POS. BLOCK: kasir tidak bisa buka/tutup sebelum checkpoint recon lengkap.'
         );
         $this->save_pos_app_config(
             'pos.daily_recon_confirm_mode',
@@ -1793,12 +1807,12 @@ public function self_order_tables_print()
         $this->save_pos_app_config(
             'pos.daily_recon_required_materials',
             $requiredMaterials,
-            'Daftar bahan baku yang wajib recon per baris. Isi material_id, material_code, atau nama; pisahkan baris/koma.'
+            'Daftar material_id yang wajib recon per baris.'
         );
         $this->save_pos_app_config(
             'pos.daily_recon_required_components',
             $requiredComponents,
-            'Daftar component yang wajib recon per baris. Isi component_id, component_code, atau nama; pisahkan baris/koma.'
+            'Daftar component_id yang wajib recon per baris.'
         );
 
         $this->session->set_flashdata('success', 'Pengaturan gate daily recon POS berhasil disimpan.');
@@ -1811,6 +1825,12 @@ public function self_order_tables_print()
         $this->require_permission($pageCode, 'edit');
         $payload = $this->request_payload();
         $reconStatus = $this->Pos_model->daily_recon_gate_status('CLOSE');
+        if (!empty($reconStatus['enabled']) && empty($reconStatus['complete'])) {
+            $this->json_error($this->daily_recon_block_message($reconStatus), 409, [
+                'daily_recon_status' => $reconStatus,
+            ]);
+            return;
+        }
         $result = $this->Pos_model->close_cashier_session($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menutup kasir POS.'), 422);
@@ -4652,6 +4672,81 @@ public function self_order_tables_print()
             ->row_array();
 
         return $row ? (string)($row['config_value'] ?? $default) : $default;
+    }
+
+    private function daily_recon_selected_ids(string $raw): array
+    {
+        $parts = preg_split('/[\r\n,;]+/', $raw) ?: [];
+        $ids = [];
+        foreach ($parts as $part) {
+            $id = (int)trim((string)$part);
+            if ($id > 0) {
+                $ids[$id] = true;
+            }
+        }
+        $result = array_keys($ids);
+        sort($result);
+        return $result;
+    }
+
+    private function daily_recon_material_options(): array
+    {
+        if (!$this->db->table_exists('mst_material')) {
+            return [];
+        }
+
+        $this->db->select('id, material_code, material_name')
+            ->from('mst_material');
+        if ($this->db->field_exists('is_active', 'mst_material')) {
+            $this->db->where('COALESCE(is_active, 1) = 1', null, false);
+        }
+        return $this->db
+            ->order_by('material_name', 'ASC')
+            ->order_by('material_code', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    private function daily_recon_component_options(): array
+    {
+        if (!$this->db->table_exists('mst_component')) {
+            return [];
+        }
+
+        $this->db->select('id, component_code, component_name')
+            ->from('mst_component');
+        if ($this->db->field_exists('is_active', 'mst_component')) {
+            $this->db->where('COALESCE(is_active, 1) = 1', null, false);
+        }
+        return $this->db
+            ->order_by('component_name', 'ASC')
+            ->order_by('component_code', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    private function daily_recon_block_message(array $status): string
+    {
+        $stage = strtoupper((string)($status['stage'] ?? ''));
+        $stageLabel = $stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
+        $missing = is_array($status['missing'] ?? null) ? $status['missing'] : [];
+        $examples = [];
+        foreach (array_slice($missing, 0, 5) as $row) {
+            $division = trim((string)($row['division_code'] ?? $row['division_name'] ?? ''));
+            $domain = trim((string)($row['domain_label'] ?? $row['domain'] ?? 'Recon'));
+            $line = trim((string)($row['line_label'] ?? ''));
+            $reason = trim((string)($row['reason'] ?? ''));
+            $examples[] = trim($division . ' - ' . $domain . ($line !== '' ? ' - ' . $line : '') . ($reason !== '' ? ' (' . $reason . ')' : ''));
+        }
+        $suffix = '';
+        if (!empty($examples)) {
+            $suffix = ' Belum lengkap: ' . implode('; ', $examples);
+            if (count($missing) > count($examples)) {
+                $suffix .= '; dan ' . (count($missing) - count($examples)) . ' item lain';
+            }
+            $suffix .= '.';
+        }
+        return 'Kasir belum bisa ' . $stageLabel . ' karena Gate Daily Recon aktif dan checkpoint recon belum lengkap.' . $suffix;
     }
 
     private function save_pos_app_config(string $key, string $value, string $description = ''): void

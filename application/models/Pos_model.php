@@ -4922,6 +4922,27 @@ class Pos_model extends CI_Model
             }
         }
 
+        if ($this->db->table_exists('inv_daily_recon_checkpoint_line')) {
+            foreach ($requiredDivisions as $division) {
+                $divisionId = (int)($division['id'] ?? 0);
+                if ($divisionId <= 0) {
+                    continue;
+                }
+                foreach ($this->daily_recon_required_material_line_missing($date, $stage, $divisionId) as $line) {
+                    $line['division_id'] = $divisionId;
+                    $line['division_code'] = (string)($division['code'] ?? '');
+                    $line['division_name'] = (string)($division['name'] ?? '');
+                    $missing[] = $line;
+                }
+                foreach ($this->daily_recon_required_component_line_missing($date, $stage, $divisionId) as $line) {
+                    $line['division_id'] = $divisionId;
+                    $line['division_code'] = (string)($division['code'] ?? '');
+                    $line['division_name'] = (string)($division['name'] ?? '');
+                    $missing[] = $line;
+                }
+            }
+        }
+
         $complete = empty($missing);
         $stageLabel = $stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
         return [
@@ -4935,6 +4956,282 @@ class Pos_model extends CI_Model
                 ? 'Daily recon bahan baku dan component sudah lengkap untuk ' . $stageLabel . '.'
                 : 'Daily recon belum lengkap untuk ' . $stageLabel . '. Mohon lakukan konfirmasi di halaman Daily Recon bahan baku dan component.',
         ];
+    }
+
+    private function daily_recon_required_material_line_missing(string $date, string $stage, int $divisionId): array
+    {
+        if (!$this->db->table_exists('inv_division_monthly_stock') || !$this->db->table_exists('inv_daily_recon_checkpoint_line')) {
+            return [];
+        }
+
+        $month = date('Y-m-01', strtotime($date));
+        $confirmMode = strtoupper(trim($this->sys_app_config_value('pos.daily_recon_confirm_mode', 'BULK_ALLOWED')));
+        $requiredTokens = $this->daily_recon_required_tokens('pos.daily_recon_required_materials');
+        $activeMaterialWhere = $this->db->field_exists('is_active', 'mst_material') ? 'AND (m.id IS NULL OR COALESCE(m.is_active,1)=1)' : '';
+        $activeItemWhere = $this->db->field_exists('is_active', 'mst_item') ? 'AND (i.id IS NULL OR COALESCE(i.is_active,1)=1)' : '';
+
+        $lotSub = "
+            SELECT
+              division_id,
+              COALESCE(destination_type, 'OTHER') AS destination_type,
+              item_id,
+              COALESCE(material_id, 0) AS material_id,
+              buy_uom_id,
+              content_uom_id,
+              COALESCE(profile_key, '') AS profile_key,
+              COUNT(*) AS lot_count
+            FROM inv_material_fifo_lot
+            WHERE location_scope = 'DIVISION'
+              AND division_id = " . (int)$divisionId . "
+              AND COALESCE(material_id, 0) > 0
+              AND ABS(COALESCE(qty_balance, 0)) > 0.0001
+              AND (status IS NULL OR status = 'OPEN')
+            GROUP BY
+              division_id,
+              COALESCE(destination_type, 'OTHER'),
+              item_id,
+              COALESCE(material_id, 0),
+              buy_uom_id,
+              content_uom_id,
+              COALESCE(profile_key, '')
+        ";
+
+        $sql = "
+            SELECT
+              s.division_id,
+              COALESCE(s.destination_type, 'OTHER') AS destination_type,
+              s.item_id,
+              COALESCE(s.material_id, i.material_id, 0) AS material_id,
+              s.buy_uom_id,
+              s.content_uom_id,
+              COALESCE(s.identity_key, s.profile_key, '') AS identity_key,
+              COALESCE(s.profile_key, '') AS profile_key,
+              COALESCE(s.profile_name, m.material_name, i.item_name, '') AS label,
+              COALESCE(m.material_code, '') AS material_code,
+              COALESCE(m.material_name, '') AS material_name,
+              COALESCE(i.item_code, '') AS item_code,
+              COALESCE(i.item_name, '') AS item_name,
+              ROUND(COALESCE(s.closing_qty_content, 0), 4) AS closing_qty,
+              COALESCE(lc.lot_count, 0) AS lot_count
+            FROM inv_division_monthly_stock s
+            LEFT JOIN mst_item i ON i.id = s.item_id
+            LEFT JOIN mst_material m ON m.id = COALESCE(s.material_id, i.material_id)
+            LEFT JOIN ({$lotSub}) lc
+              ON lc.division_id = s.division_id
+             AND lc.destination_type = COALESCE(s.destination_type, 'OTHER')
+             AND lc.item_id <=> s.item_id
+             AND lc.material_id <=> COALESCE(s.material_id, i.material_id, 0)
+             AND lc.buy_uom_id <=> s.buy_uom_id
+             AND lc.content_uom_id <=> s.content_uom_id
+             AND lc.profile_key <=> COALESCE(s.profile_key, '')
+            WHERE s.month_key = " . $this->db->escape($month) . "
+              AND s.division_id = " . (int)$divisionId . "
+              AND COALESCE(s.material_id, i.material_id, 0) > 0
+              AND (s.profile_key IS NULL OR COALESCE(s.identity_key, s.profile_key, '') = COALESCE(s.profile_key, ''))
+              {$activeMaterialWhere}
+              {$activeItemWhere}
+        ";
+
+        $oldDebug = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        $query = $this->db->query($sql);
+        $this->db->db_debug = $oldDebug;
+        if (!$query) {
+            return [[
+                'domain' => 'MATERIAL',
+                'domain_label' => 'Bahan baku',
+                'line_label' => 'Audit bahan baku gagal dibaca',
+                'reason' => 'audit_error',
+            ]];
+        }
+
+        $missing = [];
+        foreach ($query->result_array() as $row) {
+            $lineKey = $this->daily_recon_material_line_key($row);
+            $isMinus = (float)($row['closing_qty'] ?? 0) < -0.0001;
+            $isMultiLot = (int)($row['lot_count'] ?? 0) > 1;
+            $isConfigured = $this->daily_recon_token_matches($requiredTokens, [
+                $row['material_id'] ?? '',
+                $row['material_code'] ?? '',
+                $row['material_name'] ?? '',
+                $row['item_code'] ?? '',
+                $row['item_name'] ?? '',
+                $row['label'] ?? '',
+            ]);
+            $mustConfirm = $confirmMode === 'ROW_REQUIRED' || $isMinus || $isMultiLot || $isConfigured;
+            if (!$mustConfirm || $lineKey === '') {
+                continue;
+            }
+            if ($this->daily_recon_line_confirmed($date, 'MATERIAL', $divisionId, $stage, $lineKey)) {
+                continue;
+            }
+            $reason = $isMinus ? 'stok minus' : ($isMultiLot ? 'lebih dari 1 lot' : ($isConfigured ? 'wajib recon' : 'mode satu per satu'));
+            $missing[] = [
+                'domain' => 'MATERIAL',
+                'domain_label' => 'Bahan baku',
+                'line_key' => $lineKey,
+                'line_label' => (string)($row['label'] ?: $row['material_name'] ?: $row['item_name'] ?: 'Bahan baku'),
+                'reason' => $reason,
+            ];
+        }
+        return $missing;
+    }
+
+    private function daily_recon_required_component_line_missing(string $date, string $stage, int $divisionId): array
+    {
+        if (!$this->db->table_exists('inv_component_monthly_stock') || !$this->db->table_exists('inv_daily_recon_checkpoint_line')) {
+            return [];
+        }
+
+        $month = date('Y-m-01', strtotime($date));
+        $confirmMode = strtoupper(trim($this->sys_app_config_value('pos.daily_recon_confirm_mode', 'BULK_ALLOWED')));
+        $requiredTokens = $this->daily_recon_required_tokens('pos.daily_recon_required_components');
+        $activeComponentWhere = $this->db->field_exists('is_active', 'mst_component') ? 'AND (c.id IS NULL OR COALESCE(c.is_active,1)=1)' : '';
+
+        $sql = "
+            SELECT
+              s.division_id,
+              COALESCE(s.location_type, 'OTHER') AS location_type,
+              s.component_id,
+              s.uom_id,
+              ROUND(COALESCE(s.closing_qty, 0), 4) AS closing_qty,
+              COALESCE(c.component_code, '') AS component_code,
+              COALESCE(c.component_name, '') AS component_name,
+              COALESCE(lc.lot_count, 0) AS lot_count
+            FROM inv_component_monthly_stock s
+            LEFT JOIN mst_component c ON c.id = s.component_id
+            LEFT JOIN (
+              SELECT
+                division_id,
+                COALESCE(location_type, 'OTHER') AS location_type,
+                component_id,
+                uom_id,
+                COUNT(*) AS lot_count
+              FROM inv_component_lot
+              WHERE division_id = " . (int)$divisionId . "
+                AND ABS(COALESCE(qty_balance, 0)) > 0.0001
+                AND (status IS NULL OR status = 'OPEN')
+              GROUP BY division_id, COALESCE(location_type, 'OTHER'), component_id, uom_id
+            ) lc
+              ON lc.division_id = s.division_id
+             AND lc.location_type = COALESCE(s.location_type, 'OTHER')
+             AND lc.component_id = s.component_id
+             AND lc.uom_id <=> s.uom_id
+            WHERE s.month_key = " . $this->db->escape($month) . "
+              AND s.division_id = " . (int)$divisionId . "
+              AND COALESCE(s.component_id, 0) > 0
+              {$activeComponentWhere}
+        ";
+
+        $oldDebug = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        $query = $this->db->query($sql);
+        $this->db->db_debug = $oldDebug;
+        if (!$query) {
+            return [[
+                'domain' => 'COMPONENT',
+                'domain_label' => 'Component',
+                'line_label' => 'Audit component gagal dibaca',
+                'reason' => 'audit_error',
+            ]];
+        }
+
+        $missing = [];
+        foreach ($query->result_array() as $row) {
+            $lineKey = $this->daily_recon_component_line_key($row);
+            $isMinus = (float)($row['closing_qty'] ?? 0) < -0.0001;
+            $isMultiLot = (int)($row['lot_count'] ?? 0) > 1;
+            $isConfigured = $this->daily_recon_token_matches($requiredTokens, [
+                $row['component_id'] ?? '',
+                $row['component_code'] ?? '',
+                $row['component_name'] ?? '',
+            ]);
+            $mustConfirm = $confirmMode === 'ROW_REQUIRED' || $isMinus || $isMultiLot || $isConfigured;
+            if (!$mustConfirm || $lineKey === '') {
+                continue;
+            }
+            if ($this->daily_recon_line_confirmed($date, 'COMPONENT', $divisionId, $stage, $lineKey)) {
+                continue;
+            }
+            $reason = $isMinus ? 'stok minus' : ($isMultiLot ? 'lebih dari 1 lot' : ($isConfigured ? 'wajib recon' : 'mode satu per satu'));
+            $missing[] = [
+                'domain' => 'COMPONENT',
+                'domain_label' => 'Component',
+                'line_key' => $lineKey,
+                'line_label' => (string)($row['component_name'] ?: $row['component_code'] ?: 'Component'),
+                'reason' => $reason,
+            ];
+        }
+        return $missing;
+    }
+
+    private function daily_recon_line_confirmed(string $date, string $domain, int $divisionId, string $stage, string $lineKey): bool
+    {
+        $row = $this->db->select('id')
+            ->from('inv_daily_recon_checkpoint_line')
+            ->where('checkpoint_date', $date)
+            ->where('recon_domain', $domain)
+            ->where('division_id', $divisionId)
+            ->where('checkpoint_stage', $stage)
+            ->where('line_key', $lineKey)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        return !empty($row);
+    }
+
+    private function daily_recon_material_line_key(array $row): string
+    {
+        return implode('|', [
+            'M',
+            (int)($row['division_id'] ?? 0),
+            strtoupper(trim((string)($row['destination_type'] ?? 'OTHER'))),
+            (int)($row['item_id'] ?? 0),
+            (int)($row['material_id'] ?? 0),
+            (int)($row['buy_uom_id'] ?? 0),
+            (int)($row['content_uom_id'] ?? 0),
+            trim((string)($row['identity_key'] ?? ($row['profile_key'] ?? ''))),
+        ]);
+    }
+
+    private function daily_recon_component_line_key(array $row): string
+    {
+        return implode('|', [
+            'C',
+            (int)($row['division_id'] ?? 0),
+            strtoupper(trim((string)($row['location_type'] ?? 'OTHER'))),
+            (int)($row['component_id'] ?? 0),
+            (int)($row['uom_id'] ?? 0),
+            0,
+        ]);
+    }
+
+    private function daily_recon_required_tokens(string $configKey): array
+    {
+        $raw = (string)$this->sys_app_config_value($configKey, '');
+        $parts = preg_split('/[\r\n,;]+/', $raw) ?: [];
+        $tokens = [];
+        foreach ($parts as $part) {
+            $token = strtoupper(trim((string)$part));
+            if ($token !== '') {
+                $tokens[$token] = true;
+            }
+        }
+        return $tokens;
+    }
+
+    private function daily_recon_token_matches(array $tokens, array $candidates): bool
+    {
+        if (empty($tokens)) {
+            return false;
+        }
+        foreach ($candidates as $candidate) {
+            $value = strtoupper(trim((string)$candidate));
+            if ($value !== '' && isset($tokens[$value])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function pos_stock_recon_required_divisions(): array

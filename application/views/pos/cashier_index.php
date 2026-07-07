@@ -1002,6 +1002,66 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
     line-height:1.45;
     white-space:pre-line;
   }
+  .cashier-recon-modal .modal-dialog {
+    max-width:720px;
+  }
+  .cashier-recon-modal .modal-content {
+    border-radius:26px;
+    overflow:hidden;
+  }
+  .cashier-recon-hero {
+    border:1px solid rgba(165,15,36,.15);
+    border-radius:20px;
+    background:linear-gradient(135deg,#fff8f4 0%,#fff0dd 100%);
+    padding:1rem;
+  }
+  .cashier-recon-icon {
+    width:42px;
+    height:42px;
+    border-radius:16px;
+    display:grid;
+    place-items:center;
+    color:#fff;
+    background:linear-gradient(135deg,#a50f24,#f59e0b);
+    box-shadow:0 10px 24px rgba(165,15,36,.18);
+    flex:0 0 auto;
+  }
+  .cashier-recon-list {
+    max-height:240px;
+    overflow:auto;
+    border:1px solid #f0dfd2;
+    border-radius:18px;
+    background:#fff;
+  }
+  .cashier-recon-item {
+    display:grid;
+    grid-template-columns: 1fr auto;
+    gap:.75rem;
+    padding:.72rem .9rem;
+    border-bottom:1px solid #f5e7dc;
+  }
+  .cashier-recon-item:last-child {
+    border-bottom:0;
+  }
+  .cashier-recon-item-title {
+    font-weight:800;
+    color:#37251f;
+    line-height:1.2;
+  }
+  .cashier-recon-item-meta {
+    color:#8b7569;
+    font-size:.8rem;
+  }
+  .cashier-recon-reason {
+    align-self:start;
+    border-radius:999px;
+    background:#fff3cd;
+    color:#8a5b00;
+    padding:.22rem .55rem;
+    font-size:.72rem;
+    font-weight:800;
+    white-space:nowrap;
+  }
   .cashier-print-failure-panel {
     border:1px solid rgba(194,69,52,.14);
     border-radius:18px;
@@ -1818,6 +1878,41 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
   </div>
 </div>
 
+<div class="modal fade cashier-recon-modal" id="cashierReconGateModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1" id="cashier_recon_title">Daily Recon belum lengkap</h5>
+          <div class="small text-muted" id="cashier_recon_subtitle">Kasir belum bisa diproses sebelum checkpoint recon selesai.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="cashier-recon-hero d-flex gap-3 align-items-start mb-3">
+          <div class="cashier-recon-icon"><i class="ri-shield-check-line"></i></div>
+          <div>
+            <div class="fw-bold text-danger mb-1">Gate Daily Recon aktif</div>
+            <div class="text-muted" id="cashier_recon_message">Mohon selesaikan recon bahan baku dan component terlebih dahulu.</div>
+          </div>
+        </div>
+        <div class="cashier-recon-list" id="cashier_recon_missing_list"></div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between flex-wrap gap-2">
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-outline-danger" href="<?php echo site_url('inventory/stock/daily-recon/division'); ?>" target="_blank">
+            Buka Recon Bahan Baku
+          </a>
+          <a class="btn btn-outline-danger" href="<?php echo site_url('production/component-daily-recon'); ?>" target="_blank">
+            Buka Recon Component
+          </a>
+        </div>
+        <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Saya mengerti</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade cashier-info-modal" id="cashierInfoModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-0 shadow-lg">
@@ -1933,6 +2028,12 @@ document.addEventListener('DOMContentLoaded', function () {
   const reviewModal = reviewModalEl && window.bootstrap ? new bootstrap.Modal(reviewModalEl) : null;
   const orderReprintModalEl = document.getElementById('cashierOrderReprintModal');
   const orderReprintModal = orderReprintModalEl && window.bootstrap ? new bootstrap.Modal(orderReprintModalEl) : null;
+  const reconGateModalEl = document.getElementById('cashierReconGateModal');
+  const reconGateModal = reconGateModalEl && window.bootstrap ? new bootstrap.Modal(reconGateModalEl) : null;
+  const reconGateTitleEl = document.getElementById('cashier_recon_title');
+  const reconGateSubtitleEl = document.getElementById('cashier_recon_subtitle');
+  const reconGateMessageEl = document.getElementById('cashier_recon_message');
+  const reconGateMissingListEl = document.getElementById('cashier_recon_missing_list');
   const infoModalEl = document.getElementById('cashierInfoModal');
   const infoModal = infoModalEl && window.bootstrap ? new bootstrap.Modal(infoModalEl) : null;
   const infoMessageEl = document.getElementById('cashier_info_message');
@@ -2181,7 +2282,11 @@ document.addEventListener('DOMContentLoaded', function () {
     try { j = JSON.parse(t); } catch (e) {
       throw new Error('Response save bukan JSON. ' + String(t || '').replace(/\s+/g, ' ').trim().slice(0, 240));
     }
-    if (!r.ok || !j.ok) throw new Error(j.message || 'Gagal menyimpan data');
+    if (!r.ok || !j.ok) {
+      const err = new Error(j.message || 'Gagal menyimpan data');
+      err.payload = j;
+      throw err;
+    }
     return j;
   }
 
@@ -2404,7 +2509,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const missing = Array.isArray(status && status.missing) ? status.missing : [];
     const lines = missing.slice(0, 8).map((row) => {
       const division = row.division_code || row.division_name || '-';
-      return `- ${division}: ${row.domain_label || row.domain || '-'}`;
+      const line = row.line_label ? ` - ${row.line_label}` : '';
+      const reason = row.reason ? ` (${row.reason})` : '';
+      return `- ${division}: ${row.domain_label || row.domain || '-'}${line}${reason}`;
     });
     if (missing.length > 8) {
       lines.push(`- dan ${missing.length - 8} item lain`);
@@ -2415,16 +2522,60 @@ document.addEventListener('DOMContentLoaded', function () {
       lines.length ? 'Yang belum dikonfirmasi:' : '',
       ...lines,
       '',
-      'Recon tetap dilakukan di halaman Daily Recon bahan baku dan Component.',
-      'Lanjutkan proses kasir sekarang?'
+      'Recon tetap dilakukan di halaman Daily Recon bahan baku dan Component.'
     ].filter(Boolean).join('\n');
+  }
+
+  function showDailyReconGateModal(status) {
+    const stage = String(status && status.stage || '').toUpperCase();
+    const stageLabel = stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
+    const missing = Array.isArray(status && status.missing) ? status.missing : [];
+    if (reconGateTitleEl) reconGateTitleEl.textContent = 'Daily Recon belum lengkap';
+    if (reconGateSubtitleEl) reconGateSubtitleEl.textContent = 'Kasir belum bisa ' + stageLabel + ' sebelum checkpoint recon lengkap.';
+    if (reconGateMessageEl) reconGateMessageEl.textContent = (status && status.message) || 'Mohon selesaikan recon bahan baku dan component terlebih dahulu.';
+    if (reconGateMissingListEl) {
+      if (!missing.length) {
+        reconGateMissingListEl.innerHTML = '<div class="cashier-recon-item"><div><div class="cashier-recon-item-title">Checkpoint belum ditemukan</div><div class="cashier-recon-item-meta">Buka halaman daily recon bahan baku dan component, lalu konfirmasi recon.</div></div></div>';
+      } else {
+        reconGateMissingListEl.innerHTML = missing.slice(0, 30).map((row) => {
+          const division = escapeHtml(row.division_code || row.division_name || '-');
+          const domain = escapeHtml(row.domain_label || row.domain || 'Recon');
+          const line = escapeHtml(row.line_label || '');
+          const reason = escapeHtml(row.reason || 'belum konfirmasi');
+          return '<div class="cashier-recon-item">'
+            + '<div>'
+            + '<div class="cashier-recon-item-title">' + domain + (line ? ' - ' + line : '') + '</div>'
+            + '<div class="cashier-recon-item-meta">' + division + '</div>'
+            + '</div>'
+            + '<div class="cashier-recon-reason">' + reason + '</div>'
+            + '</div>';
+        }).join('') + (missing.length > 30
+          ? '<div class="cashier-recon-item"><div><div class="cashier-recon-item-title">Dan ' + (missing.length - 30) + ' item lain</div><div class="cashier-recon-item-meta">Buka halaman recon untuk melihat semua item.</div></div></div>'
+          : '');
+      }
+    }
+    if (reconGateModal) {
+      reconGateModal.show();
+      return;
+    }
+    alert(reconWarningText(status));
   }
 
   async function confirmDailyReconGate(stage) {
     const json = await getJson(cashierReconStatusUrl + '?stage=' + encodeURIComponent(stage));
     const status = json.status || {};
     if (!status.enabled || status.complete) return true;
-    return window.confirm(reconWarningText(status));
+    showDailyReconGateModal(status);
+    return false;
+  }
+
+  function handleCashierActionError(err) {
+    const status = err && err.payload && err.payload.daily_recon_status ? err.payload.daily_recon_status : null;
+    if (status && status.enabled && !status.complete) {
+      showDailyReconGateModal(status);
+      return;
+    }
+    alert((err && err.message) || 'Proses kasir gagal.');
   }
 
   async function openCloseModalPreview() {
@@ -5109,13 +5260,13 @@ document.addEventListener('DOMContentLoaded', function () {
     syncCloseCashTotals();
   });
   if (openButton) openButton.addEventListener('click', async () => {
-    try { await openCashierSession(); } catch (e) { alert(e.message); }
+    try { await openCashierSession(); } catch (e) { handleCashierActionError(e); }
   });
   if (closeButton) closeButton.addEventListener('click', async () => {
-    try { await openCloseModalPreview(); } catch (e) { alert(e.message); }
+    try { await openCloseModalPreview(); } catch (e) { handleCashierActionError(e); }
   });
   if (submitCloseButton) submitCloseButton.addEventListener('click', async () => {
-    try { await closeCashierSession(); } catch (e) { alert(e.message); }
+    try { await closeCashierSession(); } catch (e) { handleCashierActionError(e); }
   });
 
   if (serviceType) serviceType.addEventListener('change', syncHeaderToOrder);

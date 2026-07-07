@@ -1368,7 +1368,22 @@ function loadData(showSpinner) {
         + '&destination='   + encodeURIComponent(dest)
         + '&q='             + encodeURIComponent(q),
         { credentials: 'same-origin' })
-    .then(function (r) { return r.json(); })
+    .then(function (r) {
+        return r.text().then(function (text) {
+            try {
+                var parsed = JSON.parse(text);
+                if (!r.ok && parsed && parsed.message) {
+                    parsed.ok = false;
+                }
+                return parsed;
+            } catch (err) {
+                var clean = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                throw new Error(clean
+                    ? ('Response bukan JSON. ' + clean.substring(0, 220))
+                    : 'Response kosong atau sesi login sudah berakhir.');
+            }
+        });
+    })
     .then(function (data) {
         el('opnLoading').classList.add('d-none');
         if (!data.ok) { showAlert('danger', data.message || 'Gagal memuat data.'); return; }
