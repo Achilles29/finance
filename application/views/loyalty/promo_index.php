@@ -138,6 +138,24 @@ $primaryFilterKey = (string)($config['primary_filter_key'] ?? 'mode');
     padding-bottom: .85rem;
     border-bottom-color: #f4e8df;
   }
+  .loyalty-voucher-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 800;
+    color: #7f1d1d;
+    letter-spacing: .02em;
+  }
+  .loyalty-owner-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    border: 1px solid #ead7c8;
+    border-radius: 999px;
+    padding: .25rem .6rem;
+    background: #fffaf6;
+    color: #6f5144;
+    font-size: .78rem;
+    font-weight: 700;
+  }
 </style>
 
 <div class="container-xxl py-3">
@@ -291,6 +309,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const fields = Array.isArray(config.fields) ? config.fields : [];
   const columns = Array.isArray(config.columns) ? config.columns : [];
   const primaryFilterKey = String(config.primary_filter_key || 'mode');
+  const actionMode = String(config.action_mode || 'default');
   const initialFilters = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const state = {
     q: initialFilters.q || '',
@@ -390,7 +409,38 @@ document.addEventListener('DOMContentLoaded', function () {
       if (voucherType === 'FREE_PRODUCT') return 'Produk gratis';
       return money(row.amount_snapshot || 0);
     }
+    if (key === 'voucher_code') {
+      return `<span class="loyalty-voucher-code">${escapeHtml(value == null || value === '' ? '-' : String(value))}</span>`;
+    }
+    if (key === 'member_name') {
+      const raw = value == null || value === '' ? 'Umum / non-member' : String(value);
+      const isPublic = raw === 'Umum / non-member';
+      return `<span class="loyalty-owner-chip"><i class="ri ${isPublic ? 'ri-user-add-line' : 'ri-user-star-line'}"></i>${escapeHtml(raw)}</span>`;
+    }
     return escapeHtml(value == null || value === '' ? '-' : String(value));
+  }
+  function rowActionButtons(row) {
+    const id = Number(row.id || 0);
+    if (actionMode === 'voucher_issue') {
+      const status = String(row.voucher_status || '').toUpperCase();
+      const toggleButton = status === 'OPEN'
+        ? `<button type="button" class="btn btn-outline-danger btn-toggle" data-id="${id}">Nonaktifkan</button>`
+        : (status === 'VOID' ? `<button type="button" class="btn btn-outline-success btn-toggle" data-id="${id}">Aktifkan</button>` : '');
+      return `
+        <div class="btn-group btn-group-sm">
+          <button type="button" class="btn btn-outline-primary btn-edit" data-row="${encodeURIComponent(JSON.stringify(row))}">Edit</button>
+          ${toggleButton}
+          <button type="button" class="btn btn-outline-dark btn-delete" data-id="${id}">Hapus</button>
+        </div>
+      `;
+    }
+    return `
+      <div class="btn-group btn-group-sm">
+        <button type="button" class="btn btn-outline-primary btn-edit" data-row="${encodeURIComponent(JSON.stringify(row))}">Edit</button>
+        <button type="button" class="btn btn-outline-${Number(row.is_active || 0) === 1 ? 'danger' : 'success'} btn-toggle" data-id="${id}">${Number(row.is_active || 0) === 1 ? 'Nonaktifkan' : 'Aktifkan'}</button>
+        <button type="button" class="btn btn-outline-dark btn-delete" data-id="${id}">Hapus</button>
+      </div>
+    `;
   }
   function renderAjaxSelected(box, row) {
     const preview = box.querySelector('[data-selected-preview]');
@@ -420,11 +470,7 @@ document.addEventListener('DOMContentLoaded', function () {
       <tr>
         ${columns.map((column) => `<td>${formatCell(row, column)}</td>`).join('')}
         <td class="text-center">
-          <div class="btn-group btn-group-sm">
-            <button type="button" class="btn btn-outline-primary btn-edit" data-row="${encodeURIComponent(JSON.stringify(row))}">Edit</button>
-            <button type="button" class="btn btn-outline-${Number(row.is_active || 0) === 1 ? 'danger' : 'success'} btn-toggle" data-id="${Number(row.id || 0)}">${Number(row.is_active || 0) === 1 ? 'Nonaktifkan' : 'Aktifkan'}</button>
-            <button type="button" class="btn btn-outline-dark btn-delete" data-id="${Number(row.id || 0)}">Hapus</button>
-          </div>
+          ${rowActionButtons(row)}
         </td>
       </tr>
     `).join('');

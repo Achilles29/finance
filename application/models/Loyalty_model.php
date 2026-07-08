@@ -134,6 +134,18 @@ class Loyalty_model extends CI_Model
             $params[] = $tier;
         }
 
+        $sortBy = strtolower(trim((string)($filters['sort_by'] ?? 'member_name')));
+        $sortDir = strtolower(trim((string)($filters['sort_dir'] ?? 'asc'))) === 'desc' ? 'DESC' : 'ASC';
+        $sortMap = [
+            'member_no' => 'm.member_no',
+            'member_name' => 'm.member_name',
+            'contact' => 'm.mobile_phone',
+            'joined_at' => 'm.joined_at',
+            'point' => 'point_balance',
+            'stamp' => 'stamp_balance',
+        ];
+        $sortColumn = $sortMap[$sortBy] ?? 'm.member_name';
+
         $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
         $total = (int)$this->db->query("SELECT COUNT(*) AS n FROM crm_member m $w", $params)->row()->n;
@@ -142,12 +154,13 @@ class Loyalty_model extends CI_Model
         $sql = "
             SELECT m.*,
                 COALESCE((SELECT pl.balance_after FROM pos_point_ledger pl WHERE pl.member_id = m.id ORDER BY pl.id DESC LIMIT 1), m.point_balance_cache) AS point_balance,
-                COALESCE((SELECT sl.balance_after FROM pos_stamp_ledger sl WHERE sl.member_id = m.id ORDER BY sl.id DESC LIMIT 1), m.stamp_balance_cache) AS stamp_balance,
+                COALESCE((SELECT sl.balance_after FROM pos_stamp_ledger sl WHERE sl.member_id = m.id ORDER BY sl.id DESC LIMIT 1), 0) AS stamp_balance,
+                CASE WHEN EXISTS (SELECT 1 FROM pos_stamp_ledger slx WHERE slx.member_id = m.id) THEN 1 ELSE 0 END AS stamp_has_ledger,
                 (SELECT COUNT(*) FROM pos_voucher_issue vi WHERE vi.member_id = m.id AND vi.voucher_status = 'OPEN') AS open_voucher_count,
                 (SELECT COUNT(*) FROM pos_order po WHERE po.member_id = m.id AND po.status IN ('PAID','PAID_PARTIAL','SERVED')) AS order_count
             FROM crm_member m
             $w
-            ORDER BY m.member_name ASC, m.member_no ASC
+            ORDER BY $sortColumn $sortDir, m.member_no ASC
             LIMIT $limit OFFSET $offset
         ";
 
@@ -177,10 +190,134 @@ class Loyalty_model extends CI_Model
             ->order_by('po.ordered_at', 'DESC')
             ->limit($limit, $offset)
             ->get()->result_array();
+
+        $orderIds = array_values(array_filter(array_map(static function (array $row): int {
+            return (int)($row['id'] ?? 0);
+        }, $rows)));
+        if (!empty($orderIds) && $this->db->table_exists('pos_order_line')) {
+            $lineRows = $this->db
+                ->select('ol.id, ol.order_id, ol.line_no, ol.qty, ol.unit_price, ol.discount_amount, ol.net_amount, ol.notes, ol.line_status, p.product_name')
+                ->from('pos_order_line ol')
+                ->join('mst_product p', 'p.id = ol.product_id', 'left')
+                ->where_in('ol.order_id', $orderIds)
+                ->order_by('ol.order_id', 'DESC')
+                ->order_by('ol.line_no', 'ASC')
+                ->order_by('ol.id', 'ASC')
+                ->get()
+                ->result_array();
+            $lineIds = array_values(array_filter(array_map(static function (array $line): int {
+                return (int)($line['id'] ?? 0);
+            }, $lineRows)));
+            $extrasByLine = [];
+            if (!empty($lineIds) && $this->db->table_exists('pos_order_line_extra')) {
+                $extraRows = $this->db
+                    ->select('oxe.order_line_id, oxe.qty, oxe.unit_price, oxe.net_amount, oxe.notes, ex.extra_name')
+                    ->from('pos_order_line_extra oxe')
+                    ->join('mst_extra ex', 'ex.id = oxe.extra_id', 'left')
+                    ->where_in('oxe.order_line_id', $lineIds)
+                    ->order_by('oxe.line_no', 'ASC')
+                    ->order_by('oxe.id', 'ASC')
+                    ->get()
+                    ->result_array();
+                foreach ($extraRows as $extra) {
+                    $extrasByLine[(int)($extra['order_line_id'] ?? 0)][] = $extra;
+                }
+            }
+
+            $itemsByOrder = [];
+            foreach ($lineRows as $line) {
+                $lineId = (int)($line['id'] ?? 0);
+                $itemsByOrder[(int)($line['order_id'] ?? 0)][] = [
+                    'line_id' => $lineId,
+                    'item_name' => (string)($line['product_name'] ?? 'Produk'),
+                    'qty' => (float)($line['qty'] ?? 0),
+                    'unit_price' => (float)($line['unit_price'] ?? 0),
+                    'discount_amount' => (float)($line['discount_amount'] ?? 0),
+                    'net_amount' => (float)($line['net_amount'] ?? 0),
+                    'line_status' => (string)($line['line_status'] ?? ''),
+                    'notes' => (string)($line['notes'] ?? ''),
+                    'extras' => array_map(static function (array $extra): array {
+                        return [
+                            'extra_name' => (string)($extra['extra_name'] ?? 'Extra'),
+                            'qty' => (float)($extra['qty'] ?? 0),
+                            'unit_price' => (float)($extra['unit_price'] ?? 0),
+                            'net_amount' => (float)($extra['net_amount'] ?? 0),
+                            'notes' => (string)($extra['notes'] ?? ''),
+                        ];
+                    }, $extrasByLine[$lineId] ?? []),
+                ];
+            }
+            foreach ($rows as &$row) {
+                $row['items'] = $itemsByOrder[(int)($row['id'] ?? 0)] ?? [];
+                $row['item_count'] = count($row['items']);
+            }
+            unset($row);
+        }
+
         return [
             'rows' => $rows,
             'meta' => ['total' => $total, 'page' => $page, 'limit' => $limit, 'total_pages' => $totalPages],
         ];
+    }
+
+    public function member_point_rows(int $memberId, int $page = 1, int $limit = 15): array
+    {
+        if (!$this->db->table_exists('pos_point_ledger')) {
+            return ['rows' => [], 'meta' => ['total' => 0, 'page' => 1, 'limit' => $limit, 'total_pages' => 1]];
+        }
+        $db = $this->db->from('pos_point_ledger pl')
+            ->join('pos_order po', 'po.id = pl.order_id', 'left')
+            ->where('pl.member_id', $memberId);
+        $total = (int)$db->count_all_results('', false);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+        $rows = $db
+            ->select('pl.id, pl.ledger_type, pl.points_in, pl.points_out, pl.balance_after, pl.expired_at, pl.notes, pl.created_at, po.order_no')
+            ->order_by('pl.created_at', 'DESC')
+            ->order_by('pl.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+        return ['rows' => $rows, 'meta' => ['total' => $total, 'page' => $page, 'limit' => $limit, 'total_pages' => $totalPages]];
+    }
+
+    public function member_stamp_rows(int $memberId, int $page = 1, int $limit = 15): array
+    {
+        if (!$this->db->table_exists('pos_stamp_ledger')) {
+            return ['rows' => [], 'meta' => ['total' => 0, 'page' => 1, 'limit' => $limit, 'total_pages' => 1]];
+        }
+        $db = $this->db->from('pos_stamp_ledger sl')
+            ->join('pos_stamp_campaign sc', 'sc.id = sl.campaign_id', 'left')
+            ->join('pos_order po', 'po.id = sl.order_id', 'left')
+            ->where('sl.member_id', $memberId);
+        $total = (int)$db->count_all_results('', false);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+        $rows = $db
+            ->select('sl.id, sl.ledger_type, sl.stamp_in, sl.stamp_out, sl.balance_after, sl.expired_at, sl.notes, sl.created_at, sc.campaign_name, po.order_no')
+            ->order_by('sl.created_at', 'DESC')
+            ->order_by('sl.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+        return ['rows' => $rows, 'meta' => ['total' => $total, 'page' => $page, 'limit' => $limit, 'total_pages' => $totalPages]];
+    }
+
+    public function member_voucher_rows(int $memberId, int $page = 1, int $limit = 15): array
+    {
+        if (!$this->db->table_exists('pos_voucher_issue')) {
+            return ['rows' => [], 'meta' => ['total' => 0, 'page' => 1, 'limit' => $limit, 'total_pages' => 1]];
+        }
+        $this->expire_elapsed_vouchers();
+        $db = $this->db->from('pos_voucher_issue vi')
+            ->join('pos_voucher_campaign vc', 'vc.id = vi.campaign_id', 'left')
+            ->join('pos_order po', 'po.id = vi.source_order_id', 'left')
+            ->where('vi.member_id', $memberId);
+        $total = (int)$db->count_all_results('', false);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+        $rows = $db
+            ->select('vi.id, vi.voucher_issue_no, vi.voucher_code, vi.voucher_status, vi.amount_snapshot, vi.percent_snapshot, vi.issued_at, vi.expired_at, vi.redeemed_at, vc.campaign_name, vc.voucher_type, po.order_no')
+            ->order_by('vi.issued_at', 'DESC')
+            ->order_by('vi.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()->result_array();
+        return ['rows' => $rows, 'meta' => ['total' => $total, 'page' => $page, 'limit' => $limit, 'total_pages' => $totalPages]];
     }
 
     public function find_member(int $id): ?array
@@ -403,21 +540,47 @@ class Loyalty_model extends CI_Model
 
     public function voucher_issue_rows(array $filters): array
     {
+        $this->expire_elapsed_vouchers();
+
         $db = $this->db->from('pos_voucher_issue v')
             ->join('pos_voucher_campaign c', 'c.id = v.campaign_id', 'left')
             ->join('crm_member m', 'm.id = v.member_id', 'left');
         $this->apply_search_filter($db, trim((string)($filters['q'] ?? '')), ['v.voucher_issue_no', 'v.voucher_code', 'c.campaign_name', 'm.member_name', 'm.mobile_phone']);
 
+        $activeFilter = strtoupper(trim((string)($filters['status'] ?? 'ACTIVE')));
+        if ($activeFilter === 'ACTIVE') {
+            $db->where('v.voucher_status', 'OPEN')
+                ->group_start()
+                    ->where('v.expired_at IS NULL', null, false)
+                    ->or_where('v.expired_at >=', date('Y-m-d H:i:s'))
+                ->group_end();
+        } elseif ($activeFilter === 'INACTIVE') {
+            $db->group_start()
+                ->where('v.voucher_status !=', 'OPEN')
+                ->or_group_start()
+                    ->where('v.voucher_status', 'OPEN')
+                    ->where('v.expired_at IS NOT NULL', null, false)
+                    ->where('v.expired_at <', date('Y-m-d H:i:s'))
+                ->group_end()
+            ->group_end();
+        }
+
         $status = strtoupper(trim((string)($filters['voucher_status'] ?? 'ALL')));
         if (in_array($status, ['OPEN', 'REDEEMED', 'EXPIRED', 'VOID'], true)) {
             $db->where('v.voucher_status', $status);
+            if ($status === 'OPEN') {
+                $db->group_start()
+                    ->where('v.expired_at IS NULL', null, false)
+                    ->or_where('v.expired_at >=', date('Y-m-d H:i:s'))
+                ->group_end();
+            }
         }
 
         return $this->paginate_rows($db, [
             'v.*',
             'c.campaign_name',
             'c.voucher_type',
-            'm.member_name',
+            "COALESCE(m.member_name, 'Umum / non-member') AS member_name",
             'm.mobile_phone',
             "CASE v.voucher_status
                 WHEN 'OPEN' THEN 'Siap dipakai'
@@ -427,6 +590,17 @@ class Loyalty_model extends CI_Model
                 ELSE v.voucher_status
              END AS voucher_status_label",
         ], ['v.issued_at' => 'DESC', 'v.id' => 'DESC'], max(1, (int)($filters['page'] ?? 1)), max(1, min(200, (int)($filters['limit'] ?? 25))));
+    }
+
+    private function expire_elapsed_vouchers(): void
+    {
+        if (!$this->db->table_exists('pos_voucher_issue')) {
+            return;
+        }
+        $this->db->where('voucher_status', 'OPEN')
+            ->where('expired_at IS NOT NULL', null, false)
+            ->where('expired_at <', date('Y-m-d H:i:s'))
+            ->update('pos_voucher_issue', ['voucher_status' => 'EXPIRED']);
     }
 
     public function save_voucher_campaign(array $data): array
@@ -981,7 +1155,7 @@ class Loyalty_model extends CI_Model
         $member = $this->db->query(
             "SELECT m.*,
                 COALESCE((SELECT pl.balance_after FROM pos_point_ledger pl WHERE pl.member_id = m.id ORDER BY pl.id DESC LIMIT 1), m.point_balance_cache) AS point_balance,
-                COALESCE((SELECT sl.balance_after FROM pos_stamp_ledger sl WHERE sl.member_id = m.id ORDER BY sl.id DESC LIMIT 1), m.stamp_balance_cache) AS stamp_balance
+                COALESCE((SELECT sl.balance_after FROM pos_stamp_ledger sl WHERE sl.member_id = m.id ORDER BY sl.id DESC LIMIT 1), 0) AS stamp_balance
              FROM crm_member m WHERE m.id = ? LIMIT 1",
             [$memberId]
         )->row_array();
