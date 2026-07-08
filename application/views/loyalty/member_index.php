@@ -641,6 +641,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const fmtN = v => Number(v||0).toLocaleString('id-ID',{maximumFractionDigits:0});
   const fmtM = v => 'Rp ' + Number(v||0).toLocaleString('id-ID',{maximumFractionDigits:0});
   const fmtD = v => v ? new Date(v.replace(' ','T')).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const fmtQty = v => Number(v||0).toLocaleString('id-ID',{maximumFractionDigits:2});
 
   const ORDER_STATUS = {
     PAID:'<span class="badge bg-success-subtle text-success-emphasis">Lunas</span>',
@@ -929,7 +930,8 @@ document.addEventListener('DOMContentLoaded', function () {
         <table class="table table-sm table-hover mb-0" style="font-size:.82rem">
           <thead style="background:#f8f5f2;position:sticky;top:0">
             <tr>
-              <th class="ps-3" style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">No. Order</th>
+              <th class="ps-3 text-center" style="width:46px;font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em"></th>
+              <th style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">No. Order</th>
               <th style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">Tanggal</th>
               <th style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">Status</th>
               <th class="text-end" style="font-size:.7rem;color:#4a6080;text-transform:uppercase;letter-spacing:.03em">Subtotal</th>

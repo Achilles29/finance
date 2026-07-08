@@ -97,9 +97,10 @@ class Dashboard extends MY_Controller
             return;
         }
 
-        // Kumpulkan kombinasi (material_id, division_id) dan (component_id, division_id) yang dibutuhkan
+        // Kumpulkan kombinasi (material_id, division_id) dan (component_id, division_id) yang dibutuhkan.
         $matDivPairs  = []; // [materialId => [divId, ...]]
         $compDivPairs = []; // [componentId => [divId, ...]]
+        $componentParentDiv = []; // [componentId => fallback divId from product recipe]
         foreach ($recipeRows->result_array() as $r) {
             $divId = (int)$r['source_division_id'] > 0 ? (int)$r['source_division_id'] : $defaultDivId;
             if ($r['line_type'] === 'MATERIAL' && !empty($r['material_id'])) {
@@ -108,6 +109,79 @@ class Dashboard extends MY_Controller
             } elseif ($r['line_type'] === 'COMPONENT' && !empty($r['component_id'])) {
                 $cmpId = (int)$r['component_id'];
                 $compDivPairs[$cmpId][$divId] = true;
+                $componentParentDiv[$cmpId] = $divId;
+            }
+        }
+
+        // Untuk source BASE/PREPARE, tampilkan bahan pembentuknya juga.
+        $formulaRowsByComponent = [];
+        if ($this->dashboard_table_ready('mst_component_formula') && !empty($componentParentDiv)) {
+            $cmpIds = array_map('intval', array_keys($componentParentDiv));
+            $cmpIdList = implode(',', $cmpIds);
+            $formulaMaterialExpr = $this->db->field_exists('material_id', 'mst_component_formula')
+                ? 'COALESCE(f.material_id, mi.material_id)'
+                : 'mi.material_id';
+            $formulaSourceDivisionExpr = $this->db->field_exists('source_division_id', 'mst_component_formula')
+                ? 'COALESCE(f.source_division_id, 0)'
+                : '0';
+            $formulaSql = "
+                SELECT
+                    f.id,
+                    f.component_id AS parent_component_id,
+                    f.line_type,
+                    f.qty,
+                    {$formulaSourceDivisionExpr} AS source_division_id,
+                    {$formulaMaterialExpr} AS material_id,
+                    f.material_item_id,
+                    f.sub_component_id,
+                    COALESCE(m.material_name, sc.component_name, 'Unknown') AS ingredient_name,
+                    COALESCE(m.material_code, '') AS material_code,
+                    COALESCE(sc.component_type, '') AS sub_component_type,
+                    COALESCE(sc.operational_division_id, 0) AS sub_component_division_id,
+                    COALESCE(pc.operational_division_id, 0) AS parent_component_division_id,
+                    COALESCE(mu.code, cu.code, '') AS uom_code
+                FROM mst_component_formula f
+                LEFT JOIN mst_item mi ON mi.id = f.material_item_id
+                LEFT JOIN mst_material m ON m.id = {$formulaMaterialExpr}
+                LEFT JOIN mst_component sc ON sc.id = f.sub_component_id
+                LEFT JOIN mst_component pc ON pc.id = f.component_id
+                LEFT JOIN mst_uom mu ON mu.id = m.content_uom_id
+                LEFT JOIN mst_uom cu ON cu.id = sc.uom_id
+                WHERE f.component_id IN ({$cmpIdList})
+                ORDER BY f.component_id, f.sort_order, f.line_no
+            ";
+            $formulaResult = $this->dashboard_safe_query($formulaSql);
+            if ($formulaResult) {
+                foreach ($formulaResult->result_array() as $fr) {
+                    $parentComponentId = (int)($fr['parent_component_id'] ?? 0);
+                    if ($parentComponentId <= 0) {
+                        continue;
+                    }
+
+                    $parentDivId = (int)($componentParentDiv[$parentComponentId] ?? 0);
+                    $formulaDivId = (int)($fr['source_division_id'] ?? 0);
+                    if ($formulaDivId <= 0) {
+                        $formulaDivId = (int)($fr['sub_component_division_id'] ?? 0);
+                    }
+                    if ($formulaDivId <= 0) {
+                        $formulaDivId = (int)($fr['parent_component_division_id'] ?? 0);
+                    }
+                    if ($formulaDivId <= 0) {
+                        $formulaDivId = $parentDivId;
+                    }
+                    if ($formulaDivId <= 0) {
+                        $formulaDivId = $defaultDivId;
+                    }
+
+                    $fr['resolved_division_id'] = $formulaDivId;
+                    $formulaRowsByComponent[$parentComponentId][] = $fr;
+
+                    if (strtoupper((string)($fr['line_type'] ?? '')) === 'MATERIAL' && !empty($fr['material_id'])) {
+                        $matDivPairs[(int)$fr['material_id']][$formulaDivId] = true;
+                    } elseif (strtoupper((string)($fr['line_type'] ?? '')) === 'COMPONENT' && !empty($fr['sub_component_id'])) {
+                        $compDivPairs[(int)$fr['sub_component_id']][$formulaDivId] = true;
+                    }
+                }
             }
         }
 
@@ -210,6 +284,60 @@ class Dashboard extends MY_Controller
             } else {
                 $sourceType = strtolower($lineType);
             }
+            $children = [];
+            if ($lineType === 'COMPONENT' && !empty($r['component_id'])) {
+                $parentComponentId = (int)$r['component_id'];
+                foreach (($formulaRowsByComponent[$parentComponentId] ?? []) as $fr) {
+                    $childLineType = strtoupper((string)($fr['line_type'] ?? ''));
+                    $childDivId = (int)($fr['resolved_division_id'] ?? 0);
+                    $childStockQty = 0.0;
+                    $childSourceType = strtolower($childLineType);
+
+                    if ($childLineType === 'MATERIAL' && !empty($fr['material_id'])) {
+                        $childMatId = (int)$fr['material_id'];
+                        $byDiv = $materialStockMap[$childMatId] ?? [];
+                        if ($childDivId > 0 && isset($byDiv[$childDivId])) {
+                            $childStockQty = (float)$byDiv[$childDivId];
+                        } elseif ($childDivId <= 0) {
+                            $childStockQty = array_sum($byDiv);
+                        }
+                        $childSourceType = 'bahan baku';
+                    } elseif ($childLineType === 'COMPONENT' && !empty($fr['sub_component_id'])) {
+                        $childCmpId = (int)$fr['sub_component_id'];
+                        $byDiv = $componentStockMap[$childCmpId] ?? [];
+                        if ($childDivId > 0 && isset($byDiv[$childDivId])) {
+                            $childStockQty = (float)$byDiv[$childDivId];
+                        } elseif ($childDivId <= 0) {
+                            $childStockQty = array_sum($byDiv);
+                        }
+
+                        $subComponentType = strtoupper((string)($fr['sub_component_type'] ?? ''));
+                        if ($subComponentType === 'BASE') {
+                            $childSourceType = 'base';
+                        } elseif ($subComponentType === 'PREPARE') {
+                            $childSourceType = 'prepare';
+                        } else {
+                            $childSourceType = 'component';
+                        }
+                    }
+
+                    $childQty = (float)($fr['qty'] ?? 0);
+                    $children[] = [
+                        'ingredient_name' => (string)($fr['ingredient_name'] ?? 'Unknown'),
+                        'line_type'       => (string)($fr['line_type'] ?? ''),
+                        'source_type'     => $childSourceType,
+                        'qty_per_batch'   => $childQty,
+                        'uom_code'        => (string)($fr['uom_code'] ?? ''),
+                        'stock_qty'       => $childStockQty,
+                        'available_batches' => $childQty > 0
+                            ? max(0, floor($childStockQty / $childQty))
+                            : null,
+                        'division_id'     => $childDivId,
+                        'is_bottleneck'   => $childStockQty <= 0,
+                    ];
+                }
+            }
+
             $recipe[] = [
                 'ingredient_name' => (string)$r['ingredient_name'],
                 'line_type'       => (string)$r['line_type'],
@@ -223,6 +351,7 @@ class Dashboard extends MY_Controller
                     : null,
                 'division_id'     => $divId,
                 'is_bottleneck'   => $stockQty <= 0,
+                'children'        => $children,
             ];
         }
 

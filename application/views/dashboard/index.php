@@ -135,6 +135,13 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
   .fd-recipe-stock { font-weight:800; }
   .fd-recipe-stock.ok { color:#2e7d32; }
   .fd-recipe-stock.bad { color:#c62828; }
+  .fd-recipe-expand { border:0; background:#fff7ea; color:#9a5a00; border:1px solid rgba(226,150,39,.25); border-radius:999px; padding:.18rem .52rem; font-size:.68rem; font-weight:800; cursor:pointer; }
+  .fd-recipe-expand:hover { background:#ffeccc; }
+  .fd-recipe-child-row { display:none; background:#fffaf2; }
+  .fd-recipe-child-row.open { display:table-row; }
+  .fd-recipe-child-box { border:1px dashed rgba(170,95,78,.22); border-radius:14px; padding:.65rem .75rem; background:linear-gradient(135deg,#fffdf8,#fff7ed); }
+  .fd-recipe-child-title { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:.45rem; font-size:.76rem; font-weight:900; color:#6f2119; text-transform:uppercase; letter-spacing:.04em; }
+  .fd-recipe-child-note { font-size:.72rem; color:#8b7772; text-transform:none; letter-spacing:0; font-weight:700; }
   .fd-prod-summ { display:grid; grid-template-columns:repeat(4,1fr); gap:.6rem; margin-bottom:.9rem; }
   .fd-prod-summ-card { border-radius:14px; padding:.7rem; text-align:center; border:1px solid rgba(170,95,78,.14); }
   .fd-prod-summ-val { font-size:1.5rem; font-weight:800; color:#6f2119; }
@@ -1265,6 +1272,27 @@ window.addEventListener('load', function () {
 
   // ─── Product recipe expand ────────────────────────────────
   const recipeCache = {};
+  function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = String(value ?? '');
+    return div.innerHTML;
+  }
+  function fdRecipeSourcePill(srcType) {
+    const color = srcType === 'bahan baku'
+      ? 'background:#e8f5e9;color:#1b5e20'
+      : (srcType === 'base'
+        ? 'background:#e3f2fd;color:#0d47a1'
+        : (srcType === 'prepare'
+          ? 'background:#fff3e0;color:#e65100'
+          : 'background:#f5f5f5;color:#555'));
+    return '<span class="fd-pill" style="font-size:.7rem;' + color + '">' + escapeHtml(srcType || '-') + '</span>';
+  }
+  function fdRecipeQty(value, digits) {
+    return Number(value || 0).toLocaleString('id-ID', {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+  }
   window.fdToggleRecipe = function (head) {
     const pid = head.dataset.pid;
     const body = document.getElementById('recipe-' + pid);
@@ -1285,22 +1313,54 @@ window.addEventListener('load', function () {
           return;
         }
         let html = '<table style="width:100%;font-size:.83rem;border-collapse:collapse">';
-        html += '<tr style="color:#8b7772;font-weight:700"><th style="padding:.3rem 0;text-align:left">Bahan</th><th style="padding:.3rem;text-align:center">Jenis Sumber</th><th style="padding:.3rem;text-align:center">Peran</th><th style="padding:.3rem;text-align:right">Per Saji</th><th style="padding:.3rem;text-align:right">Stok Live</th><th style="padding:.3rem;text-align:right">Sisa Produk</th></tr>';
-        data.data.recipe.forEach(function(r) {
+        html += '<tr style="color:#8b7772;font-weight:700"><th style="padding:.3rem 0;text-align:left">Bahan</th><th style="padding:.3rem;text-align:center">Jenis Sumber</th><th style="padding:.3rem;text-align:center">Peran</th><th style="padding:.3rem;text-align:right">Per Saji</th><th style="padding:.3rem;text-align:right">Stok Live</th><th style="padding:.3rem;text-align:right">Sisa Produk</th><th style="padding:.3rem;text-align:center">Detail</th></tr>';
+        data.data.recipe.forEach(function(r, idx) {
           const stockCls = r.stock_qty <= 0 ? 'bad' : 'ok';
-          const stockFmt = Number(r.stock_qty).toLocaleString('id-ID', {minimumFractionDigits:2,maximumFractionDigits:2});
+          const stockFmt = fdRecipeQty(r.stock_qty, 2);
           const servingFmt = (r.available_servings === null || typeof r.available_servings === 'undefined')
             ? '-'
             : Number(r.available_servings).toLocaleString('id-ID', {maximumFractionDigits:0});
           const srcType  = r.source_type || '-';
+          const children = Array.isArray(r.children) ? r.children : [];
+          const childId = 'recipe-child-' + pid + '-' + idx;
           html += '<tr style="border-top:1px solid rgba(170,95,78,.1)">';
-          html += '<td style="padding:.32rem 0"><span class="fd-item-title">' + (r.ingredient_name||'-') + '</span></td>';
-          html += '<td style="padding:.32rem;text-align:center"><span class="fd-pill" style="font-size:.7rem;' + (srcType==='bahan baku'?'background:#e8f5e9;color:#1b5e20':srcType==='base'?'background:#e3f2fd;color:#0d47a1':srcType==='prepare'?'background:#fff3e0;color:#e65100':'') + '">' + srcType + '</span></td>';
-          html += '<td style="padding:.32rem;text-align:center"><span class="fd-pill" style="font-size:.7rem">' + (r.ingredient_role||'-') + '</span></td>';
-          html += '<td style="padding:.32rem;text-align:right">' + Number(r.qty_per_serve).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ' + (r.uom_code||'') + '</td>';
+          html += '<td style="padding:.32rem 0"><span class="fd-item-title">' + escapeHtml(r.ingredient_name || '-') + '</span></td>';
+          html += '<td style="padding:.32rem;text-align:center">' + fdRecipeSourcePill(srcType) + '</td>';
+          html += '<td style="padding:.32rem;text-align:center"><span class="fd-pill" style="font-size:.7rem">' + escapeHtml(r.ingredient_role || '-') + '</span></td>';
+          html += '<td style="padding:.32rem;text-align:right">' + fdRecipeQty(r.qty_per_serve, 2) + ' ' + escapeHtml(r.uom_code || '') + '</td>';
           html += '<td style="padding:.32rem;text-align:right"><span class="fd-recipe-stock ' + stockCls + '">' + stockFmt + '</span></td>';
           html += '<td style="padding:.32rem;text-align:right"><span class="fd-recipe-stock ' + stockCls + '">' + servingFmt + '</span></td>';
+          html += '<td style="padding:.32rem;text-align:center">';
+          if ((srcType === 'base' || srcType === 'prepare') && children.length) {
+            html += '<button type="button" class="fd-recipe-expand" onclick="fdToggleRecipeChild(\'' + childId + '\', this)">Bahan produksi</button>';
+          } else if (srcType === 'base' || srcType === 'prepare') {
+            html += '<span class="fd-item-meta">Belum ada formula</span>';
+          } else {
+            html += '-';
+          }
+          html += '</td>';
           html += '</tr>';
+          if ((srcType === 'base' || srcType === 'prepare') && children.length) {
+            html += '<tr class="fd-recipe-child-row" id="' + childId + '"><td colspan="7" style="padding:.45rem 0 .75rem">';
+            html += '<div class="fd-recipe-child-box">';
+            html += '<div class="fd-recipe-child-title"><span>Komposit ' + escapeHtml(r.ingredient_name || '-') + '</span><span class="fd-recipe-child-note">Cek apakah bahan cukup untuk produksi batch</span></div>';
+            html += '<table style="width:100%;font-size:.79rem;border-collapse:collapse">';
+            html += '<tr style="color:#8b7772;font-weight:800"><th style="padding:.25rem;text-align:left">Bahan / Sub Component</th><th style="padding:.25rem;text-align:center">Sumber</th><th style="padding:.25rem;text-align:right">Kebutuhan</th><th style="padding:.25rem;text-align:right">Stok</th><th style="padding:.25rem;text-align:right">Estimasi Batch</th></tr>';
+            children.forEach(function(c) {
+              const cStockCls = Number(c.stock_qty || 0) <= 0 ? 'bad' : 'ok';
+              const cBatch = (c.available_batches === null || typeof c.available_batches === 'undefined')
+                ? '-'
+                : Number(c.available_batches).toLocaleString('id-ID', {maximumFractionDigits:0});
+              html += '<tr style="border-top:1px solid rgba(170,95,78,.1)">';
+              html += '<td style="padding:.28rem"><span class="fd-item-title">' + escapeHtml(c.ingredient_name || '-') + '</span></td>';
+              html += '<td style="padding:.28rem;text-align:center">' + fdRecipeSourcePill(c.source_type || '-') + '</td>';
+              html += '<td style="padding:.28rem;text-align:right">' + fdRecipeQty(c.qty_per_batch, 2) + ' ' + escapeHtml(c.uom_code || '') + '</td>';
+              html += '<td style="padding:.28rem;text-align:right"><span class="fd-recipe-stock ' + cStockCls + '">' + fdRecipeQty(c.stock_qty, 2) + '</span></td>';
+              html += '<td style="padding:.28rem;text-align:right"><span class="fd-recipe-stock ' + cStockCls + '">' + cBatch + '</span></td>';
+              html += '</tr>';
+            });
+            html += '</table></div></td></tr>';
+          }
         });
         html += '</table>';
         body.innerHTML = html;
@@ -1309,6 +1369,15 @@ window.addEventListener('load', function () {
       .catch(function() {
         body.innerHTML = '<div style="color:#c62828">Gagal memuat resep.</div>';
       });
+  };
+
+  window.fdToggleRecipeChild = function (id, btn) {
+    const row = document.getElementById(id);
+    if (!row) return;
+    row.classList.toggle('open');
+    if (btn) {
+      btn.textContent = row.classList.contains('open') ? 'Tutup bahan' : 'Bahan produksi';
+    }
   };
 
   // ─── Adjustment Cepat Stok Negatif ─────────────────────────

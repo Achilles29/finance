@@ -389,9 +389,3 @@ cek self order kasir nya harus nya sesuai kasir aktif, verifikasi kalau sudah PA
 
 
 
-
-self order belum generate poin saat verifikasi
-member di finance belum sesai
-
-
-
