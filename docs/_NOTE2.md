@@ -374,13 +374,6 @@ tambahkan ringkasan adjustment gudang, kitchen, bar di dashboard
 cek self order kasir nya harus nya sesuai kasir aktif, verifikasi kalau sudah PAID ya statusnya harusnya PAID
 
 
-https://core.namuacoffee.com/pos/reports/payment-accounts?q=&outlet_id=0&status=PAID&payment_type=ALL&date_from=2026-07-01&date_to=2026-07-03 ada pembayaran midtrans, tapi kok nggak masuk kas midtrans https://core.namuacoffee.com/finance/accounts , lalu masuk mana?
-
-
-/order tambahkan kolom catatan. 
-
-perbaiki juga logika tampilan core /pos/self-order/orders dan verifikasinya agar catatn masuk ke database pos order line saat verifikasi
-
 /order tampilan extra belum memperhatikan urutan grup extra
 
 
@@ -400,29 +393,5 @@ perbaiki juga logika tampilan core /pos/self-order/orders dan verifikasinya agar
 self order belum generate poin saat verifikasi
 member di finance belum sesai
 
-
-
-modul pengaturad untuk mengaktifkan dan menontaktifkan confignya dimana?
-dan apakah sudah masuk rbac?
-
-/inventory/stock/daily-recon/division
-
-
-
-
-modifikasi:
-- ketika pengaturan diaktifkan, maka tutup / buka kasir belum bisa dilakukan setelah di recon sesuai pengaturan 
-- gunakan cek list untuk memilih bahan yang wajib di recon
-- tambahkan modul di pos cashier untuk menampilkan modal alret warning, jika setelah simpan order ada stok bahan baku dan component habis atau minus. dan untuk segera menindaklanjutinya. tambahkan di pengaturan untuk mengangktifkan / menonaktifkan. 
-
-
-/inventory/stock/daily-recon/division
-
-
-
-Error memuat data: Response bukan JSON. A PHP Error was encountered Severity: Warning Message: preg_match(): Compilation failed: regular expression is too large at offset 49881 Filename: database/DB_query_builder.php Line Number: 2424 Backtrace: File: /www/www
-Tanggal
-Divisi
-Tujuan
 
 

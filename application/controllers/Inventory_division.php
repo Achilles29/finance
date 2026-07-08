@@ -783,41 +783,72 @@ class Inventory_division extends Purchase
 
         $lotCounts = [];
         if (!empty($materialIds) && $this->db->table_exists('inv_material_fifo_lot')) {
-            $lotRows = $this->db->select("
-                    division_id,
-                    COALESCE(destination_type, 'OTHER') AS destination_type,
-                    COALESCE(item_id, 0) AS item_id,
-                    COALESCE(material_id, 0) AS material_id,
-                    COALESCE(buy_uom_id, 0) AS buy_uom_id,
-                    COALESCE(content_uom_id, 0) AS content_uom_id,
-                    COALESCE(profile_key, '') AS profile_key,
-                    COUNT(*) AS lot_count
-                ", false)
-                ->from('inv_material_fifo_lot')
-                ->where('location_scope', 'DIVISION')
-                ->where('status', 'OPEN')
-                ->where('ABS(COALESCE(qty_balance, 0)) > 0.0001', null, false)
-                ->where_in('material_id', array_values($materialIds));
-            if ($divisionId > 0) {
-                $lotRows->where('division_id', $divisionId);
-            }
-            foreach ($lotRows
-                ->group_by(['division_id', 'destination_type', 'item_id', 'material_id', 'buy_uom_id', 'content_uom_id', 'profile_key'])
-                ->get()->result_array() as $lotRow) {
-                $lotCounts[$this->material_lot_count_key($lotRow)] = (int)($lotRow['lot_count'] ?? 0);
+            // Jangan pakai Query Builder where_in untuk daftar besar. CI3 akan memproses
+            // SQL panjang dengan regex internal dan bisa gagal "regular expression is too large".
+            foreach (array_chunk(array_values($materialIds), 120) as $materialChunk) {
+                $materialChunk = array_values(array_filter(array_map('intval', $materialChunk), static function (int $id): bool {
+                    return $id > 0;
+                }));
+                if (empty($materialChunk)) {
+                    continue;
+                }
+
+                $divWhere = $divisionId > 0 ? 'AND division_id = ' . (int)$divisionId : '';
+                $lotSql = "
+                    SELECT
+                        division_id,
+                        COALESCE(destination_type, 'OTHER') AS destination_type,
+                        COALESCE(item_id, 0) AS item_id,
+                        COALESCE(material_id, 0) AS material_id,
+                        COALESCE(buy_uom_id, 0) AS buy_uom_id,
+                        COALESCE(content_uom_id, 0) AS content_uom_id,
+                        COALESCE(profile_key, '') AS profile_key,
+                        COUNT(*) AS lot_count
+                    FROM inv_material_fifo_lot
+                    WHERE location_scope = 'DIVISION'
+                      AND status = 'OPEN'
+                      AND ABS(COALESCE(qty_balance, 0)) > 0.0001
+                      AND material_id IN (" . implode(',', $materialChunk) . ")
+                      {$divWhere}
+                    GROUP BY
+                        division_id,
+                        COALESCE(destination_type, 'OTHER'),
+                        COALESCE(item_id, 0),
+                        COALESCE(material_id, 0),
+                        COALESCE(buy_uom_id, 0),
+                        COALESCE(content_uom_id, 0),
+                        COALESCE(profile_key, '')
+                ";
+                $lotQuery = $this->db->query($lotSql);
+                foreach ($lotQuery ? $lotQuery->result_array() : [] as $lotRow) {
+                    $lotCounts[$this->material_lot_count_key($lotRow)] = (int)($lotRow['lot_count'] ?? 0);
+                }
             }
         }
 
         $confirmed = [];
         if (!empty($lineKeys) && $this->db->table_exists('inv_daily_recon_checkpoint_line')) {
-            foreach (array_chunk(array_values($lineKeys), 120) as $lineKeyChunk) {
-                foreach ($this->db->select('line_key, checkpoint_stage')
-                    ->from('inv_daily_recon_checkpoint_line')
-                    ->where('checkpoint_date', $date)
-                    ->where('recon_domain', 'MATERIAL')
-                    ->where('division_id', $divisionId)
-                    ->where_in('line_key', $lineKeyChunk)
-                    ->get()->result_array() as $lineRow) {
+            foreach (array_chunk(array_values($lineKeys), 40) as $lineKeyChunk) {
+                $lineKeyChunk = array_values(array_filter(array_map(static function ($key): string {
+                    return trim((string)$key);
+                }, $lineKeyChunk), static function (string $key): bool {
+                    return $key !== '';
+                }));
+                if (empty($lineKeyChunk)) {
+                    continue;
+                }
+
+                $lineKeySql = implode(',', array_map([$this->db, 'escape'], $lineKeyChunk));
+                $lineSql = "
+                    SELECT line_key, checkpoint_stage
+                    FROM inv_daily_recon_checkpoint_line
+                    WHERE checkpoint_date = " . $this->db->escape($date) . "
+                      AND recon_domain = 'MATERIAL'
+                      AND division_id = " . (int)$divisionId . "
+                      AND line_key IN ({$lineKeySql})
+                ";
+                $lineQuery = $this->db->query($lineSql);
+                foreach ($lineQuery ? $lineQuery->result_array() : [] as $lineRow) {
                     $confirmed[(string)$lineRow['line_key'] . '|' . strtoupper((string)$lineRow['checkpoint_stage'])] = true;
                 }
             }

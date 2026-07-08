@@ -1111,6 +1111,10 @@ class Pos_model extends CI_Model
 
         $paymentMode = strtoupper(trim((string)($context['payment_mode'] ?? 'KASIR')));
         $isPaid = !empty($context['is_paid']);
+        $paymentContext = (array)($context['payment'] ?? []);
+        $memberIdForLoyalty = !empty($row['member_id'])
+            ? (int)$row['member_id']
+            : (!empty($paymentContext['member_id']) ? (int)$paymentContext['member_id'] : 0);
         $verifyDestination = strtoupper(trim((string)($context['verify_destination'] ?? '')));
         if (!in_array($verifyDestination, ['ACTIVE_CASHIER', 'PAID_ORDER'], true)) {
             $verifyDestination = $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
@@ -1133,6 +1137,7 @@ class Pos_model extends CI_Model
                 'status' => $targetStatus,
                 'stock_commit_status' => $stockCommitStatus,
             ];
+            $loyaltySummary = ['point_earned' => 0.0, 'stamp_earned' => 0.0, 'issued_vouchers' => []];
             if (empty($row['confirmed_at'])) {
                 $payload['confirmed_at'] = date('Y-m-d H:i:s');
             }
@@ -1142,6 +1147,9 @@ class Pos_model extends CI_Model
             if ($isPaid && empty($row['paid_at'])) {
                 $payload['paid_at'] = date('Y-m-d H:i:s');
                 $payload['paid_total'] = (float)($row['grand_total'] ?? 0);
+            }
+            if ($memberIdForLoyalty > 0 && empty($row['member_id']) && $this->db->field_exists('member_id', 'pos_order')) {
+                $payload['member_id'] = $memberIdForLoyalty;
             }
             if ($actorEmployeeId > 0 && $this->db->field_exists('cashier_employee_id', 'pos_order')) {
                 $payload['cashier_employee_id'] = $actorEmployeeId;
@@ -1177,6 +1185,9 @@ class Pos_model extends CI_Model
                         ? $payload['cashier_session_id']
                         : (!empty($row['cashier_session_id']) ? (int)$row['cashier_session_id'] : null);
                 }
+                if ($memberIdForLoyalty > 0 && $this->db->field_exists('member_id', 'pos_payment')) {
+                    $paymentPayload['member_id'] = $memberIdForLoyalty;
+                }
                 if ($isPaid) {
                     if ($this->db->field_exists('payment_status', 'pos_payment')) {
                         $paymentPayload['payment_status'] = 'PAID';
@@ -1191,6 +1202,29 @@ class Pos_model extends CI_Model
                         ->update('pos_payment', $this->filter_table_payload('pos_payment', $paymentPayload));
                 }
             }
+
+            if ($isPaid && $this->db->table_exists('pos_payment')) {
+                $paymentRow = $this->db->from('pos_payment')
+                    ->where('order_id', $orderId)
+                    ->where('payment_type', 'FINAL')
+                    ->order_by('id', 'DESC')
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                $paymentId = (int)($paymentRow['id'] ?? 0);
+                if ($paymentId > 0) {
+                    $updatedOrder = $this->db->from('pos_order')->where('id', $orderId)->limit(1)->get()->row_array() ?: $row;
+                    if (empty($updatedOrder['member_id'])) {
+                        $updatedOrder['member_id'] = $memberIdForLoyalty;
+                    }
+                    $paidAt = (string)($paymentRow['paid_at'] ?? ($payload['paid_at'] ?? date('Y-m-d H:i:s')));
+                    if (trim($paidAt) === '') {
+                        $paidAt = date('Y-m-d H:i:s');
+                    }
+                    $loyaltySummary = $this->apply_cashier_payment_loyalty((array)$updatedOrder, $paymentId, $paidAt);
+                }
+            }
+
             if ($isPaid && $verifyDestination === 'ACTIVE_CASHIER') {
                 $note = 'Self order QRIS diverifikasi ke order aktif meski pembayaran sudah diterima.';
             } elseif ($isPaid) {
@@ -1225,6 +1259,7 @@ class Pos_model extends CI_Model
                 'workspace_bucket' => $verifyDestination,
                 'payment_mode' => $paymentMode,
                 'is_paid' => $isPaid ? 1 : 0,
+                'loyalty' => $loyaltySummary,
             ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
@@ -2015,7 +2050,7 @@ class Pos_model extends CI_Model
         $memberId = !empty($header['member_id']) ? (int)$header['member_id'] : 0;
         $memberRow = $memberId > 0 ? $this->find_member($memberId) : null;
         $memberPointBalance = round((float)($memberRow['point_balance_cache'] ?? 0), 4);
-        $memberStampBalance = round((float)($memberRow['stamp_balance_cache'] ?? 0), 4);
+        $memberStampBalance = $memberId > 0 ? $this->current_member_stamp_balance($memberId) : 0.0;
         $memberVoucherRows = $this->cashier_member_voucher_rows($memberId, $order, $baseTotal);
         $depositPreview = $this->cashier_member_deposit_preview($memberId, $dueTotal);
 
@@ -2349,7 +2384,7 @@ class Pos_model extends CI_Model
             }
 
             $loyaltySummary = ['point_earned' => 0.0, 'stamp_earned' => 0.0, 'issued_vouchers' => []];
-            if ($isFullyPaid && !empty($orderRow['member_id'])) {
+            if ($isFullyPaid) {
                 $updatedOrder = $this->db->from('pos_order')->where('id', $orderId)->limit(1)->get()->row_array() ?: $orderRow;
                 $loyaltySummary = $this->apply_cashier_payment_loyalty((array)$updatedOrder, $paymentId, $now);
             }
@@ -2952,15 +2987,21 @@ class Pos_model extends CI_Model
     {
         $memberId = (int)($orderRow['member_id'] ?? 0);
         $orderId = (int)($orderRow['id'] ?? 0);
-        if ($memberId <= 0 || $orderId <= 0) {
+        if ($orderId <= 0 || $paymentId <= 0) {
             return ['point_earned' => 0.0, 'stamp_earned' => 0.0, 'issued_vouchers' => []];
         }
 
-        $pointEarned = $this->award_cashier_payment_points($memberId, $orderId, $paymentId, $paidAt, $orderRow);
-        $stampEarned = $this->award_cashier_payment_stamps($memberId, $orderId, $paymentId, $paidAt, $orderRow);
+        $pointEarned = $memberId > 0
+            ? $this->award_cashier_payment_points($memberId, $orderId, $paymentId, $paidAt, $orderRow)
+            : 0.0;
+        $stampEarned = $memberId > 0
+            ? $this->award_cashier_payment_stamps($memberId, $orderId, $paymentId, $paidAt, $orderRow)
+            : 0.0;
         $issuedVouchers = $this->issue_cashier_payment_vouchers($memberId, $orderId, $paymentId, $paidAt, $orderRow);
-        $this->sync_member_loyalty_cache($memberId);
-        $this->sync_member_total_spending_cache($memberId);
+        if ($memberId > 0) {
+            $this->sync_member_loyalty_cache($memberId);
+            $this->sync_member_total_spending_cache($memberId);
+        }
 
         return [
             'point_earned' => round((float)$pointEarned, 4),
@@ -8671,6 +8712,19 @@ class Pos_model extends CI_Model
             ->get()
             ->result_array();
 
+        $issuedVouchers = [];
+        if ($this->db->table_exists('pos_voucher_issue')) {
+            $issuedVouchers = $this->db
+                ->select('vi.voucher_code, vi.voucher_issue_no, vi.voucher_status, vi.amount_snapshot, vi.percent_snapshot, vi.issued_at, vi.expired_at, vi.notes, vc.campaign_name, vc.voucher_type, vc.discount_value, vc.max_discount_amount')
+                ->from('pos_voucher_issue vi')
+                ->join('pos_voucher_campaign vc', 'vc.id = vi.campaign_id', 'left')
+                ->where('vi.source_payment_id', $paymentId)
+                ->order_by('vi.issued_at', 'ASC')
+                ->order_by('vi.id', 'ASC')
+                ->get()
+                ->result_array();
+        }
+
         $cashPaidNow = 0.0;
         foreach ($paymentLines as $paymentLine) {
             $cashPaidNow += (float)($paymentLine['amount'] ?? 0);
@@ -8699,6 +8753,7 @@ class Pos_model extends CI_Model
             'header' => $header,
             'lines' => $lines,
             'payment_lines' => $paymentLines,
+            'issued_vouchers' => $issuedVouchers,
         ];
     }
 
@@ -9396,6 +9451,7 @@ class Pos_model extends CI_Model
         $header = (array)($document['header'] ?? []);
         $lines = (array)($document['lines'] ?? []);
         $paymentLines = (array)($document['payment_lines'] ?? []);
+        $issuedVouchers = (array)($document['issued_vouchers'] ?? []);
         $customerName = $this->resolve_order_customer_name($header['customer_name'] ?? '', $header['member_name'] ?? '');
         $cashierLabel = trim((string)($header['cashier_username'] ?? ''));
         if ($cashierLabel === '') {
@@ -9510,6 +9566,46 @@ class Pos_model extends CI_Model
                 $referenceNo = trim((string)($paymentLine['reference_no'] ?? ''));
                 if ($referenceNo !== '') {
                     $chunks[] = '  REF: ' . $referenceNo;
+                }
+            }
+        }
+
+        if (!empty($issuedVouchers)) {
+            $voucherLimit = max(1, min(5, (int)($payload['customer_voucher_limit'] ?? count($issuedVouchers))));
+            $voucherAlign = strtoupper((string)($payload['customer_voucher_align'] ?? 'CENTER'));
+            $voucherTemplate = trim((string)($payload['customer_voucher_message_template'] ?? ''));
+            if ($voucherTemplate === '') {
+                $voucherTemplate = 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.';
+            }
+            $chunks[] = $dash;
+            $chunks[] = $this->align_text_line('VOUCHER BARU', $width, $voucherAlign ?: 'CENTER');
+            foreach (array_slice($issuedVouchers, 0, $voucherLimit) as $voucher) {
+                $voucherCode = trim((string)($voucher['voucher_code'] ?? $voucher['voucher_issue_no'] ?? ''));
+                if ($voucherCode === '') {
+                    continue;
+                }
+                $voucherType = strtoupper(trim((string)($voucher['voucher_type'] ?? '')));
+                if ($voucherType === 'PERCENT') {
+                    $benefit = rtrim(rtrim(number_format((float)($voucher['percent_snapshot'] ?? $voucher['discount_value'] ?? 0), 2, ',', '.'), '0'), ',') . '%';
+                    $maxDiscount = (float)($voucher['max_discount_amount'] ?? 0);
+                    if ($maxDiscount > 0) {
+                        $benefit .= ' maks ' . $this->format_number_print($maxDiscount);
+                    }
+                } elseif ($voucherType === 'FREE_PRODUCT') {
+                    $benefit = 'produk gratis';
+                } else {
+                    $benefit = $this->format_number_print((float)($voucher['amount_snapshot'] ?? $voucher['discount_value'] ?? 0));
+                }
+                $expiry = !empty($voucher['expired_at']) ? date('d-m-Y', strtotime((string)$voucher['expired_at'])) : 'tanpa batas';
+                $message = strtr($voucherTemplate, [
+                    '{voucher_code}' => $voucherCode,
+                    '{voucher_benefit}' => $benefit,
+                    '{voucher_expiry}' => $expiry,
+                    '{campaign_name}' => (string)($voucher['campaign_name'] ?? 'Voucher'),
+                ]);
+                $chunks[] = $this->align_text_line($voucherCode, $width, $voucherAlign ?: 'CENTER');
+                foreach ($this->wrap_print_text($message, $width) as $messageLine) {
+                    $chunks[] = $this->align_text_line($messageLine, $width, $voucherAlign ?: 'CENTER');
                 }
             }
         }

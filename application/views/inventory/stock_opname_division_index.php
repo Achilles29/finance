@@ -226,6 +226,7 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform: rotate(90deg); color: #3b
 .opn-mat-link:hover { text-decoration:underline; color:#1d4ed8; }
 .opn-div-cell { font-size:.72rem; color:#1e40af; font-weight:600; white-space:nowrap; max-width:110px; vertical-align:middle; }
 #btnFilterMinus.filter-on { background:#dc3545; border-color:#dc3545; color:#fff; }
+#btnFilterConfirm.filter-on { background:#2563eb; border-color:#2563eb; color:#fff; }
 </style>
 
 <!-- Page header -->
@@ -383,6 +384,10 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform: rotate(90deg); color: #3b
             <i class="ri ri-door-closed-line me-1"></i>Konfirmasi Tutup
           </button>
         <?php endif; ?>
+        <button class="btn btn-sm btn-light" id="btnFilterConfirm" style="display:none;font-size:.74rem">
+          <i class="ri ri-checkbox-circle-line me-1"></i>Perlu Konfirmasi
+          <span id="opnConfirmBadge" class="badge bg-primary ms-1" style="display:none">0</span>
+        </button>
         <button class="btn btn-sm btn-light" id="btnFilterMinus" style="display:none;font-size:.74rem">
           <i class="ri ri-arrow-down-circle-line me-1"></i>Hanya Minus
         </button>
@@ -468,6 +473,7 @@ let currentData   = [];
 let saveTimers    = {};
 let divFilterId   = null;
 let showOnlyMinus = false;
+let showOnlyConfirm = false;
 let reconConfirmMode = 'BULK_ALLOWED';
 const profileMap  = {};
 const materialGroupMap = {};
@@ -478,6 +484,9 @@ const fmt4  = v  => v == null ? '—' : Number(v).toLocaleString('id-ID', { mini
 const fmtRp = v  => 'Rp ' + Number(v || 0).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 function cssid(s) { return String(s || '').replace(/[^a-zA-Z0-9_-]/g, '_'); }
 function buildProfileToken(v) { return String(v || '').trim() === '' ? '__EMPTY_PROFILE__' : String(v || ''); }
+function opnNeedsConfirm(row) {
+    return !!(row && row.must_row_confirm && (!row.confirmed_open || !row.confirmed_close));
+}
 
 function initTooltips(root) {
     (root || document).querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (e) {
@@ -850,6 +859,7 @@ function renderTable(divisions) {
 
     var html = '';
     var minusCount = 0;
+    var confirmNeedCount = 0;
 
     divisions.forEach(function (div) {
         div.materials.forEach(function (mat) {
@@ -862,6 +872,9 @@ function renderTable(divisions) {
                 var selTotal  = physTotal !== null ? physTotal - sysTotal : null;
                 var grpNeg    = mat.profiles.some(function (profileRow) {
                     return parseFloat(profileRow.system_qty_content || 0) < -0.001;
+                });
+                var grpNeedConfirm = mat.profiles.some(function (profileRow) {
+                    return opnNeedsConfirm(profileRow);
                 });
                 if (grpNeg) minusCount++;
                 materialGroupMap[grpIid] = {
@@ -886,6 +899,7 @@ function renderTable(divisions) {
                     : '';
                 html += '<tr id="grp-row-' + grpIid + '" class="opn-grp-header expanded' + (grpNeg ? ' opn-row-minus' : '') + '"'
                     + ' data-system-val="' + sysTotal + '" data-div-id="' + esc(String(div.division_id)) + '"'
+                    + ' data-confirm-required="' + (grpNeedConfirm ? '1' : '0') + '"'
                     + ' onclick="opnToggleGrp(\'' + grpIid + '\')">'
                     + '<td class="opn-div-cell">' + esc(div.division_name)
                     + (mat.profiles.length ? '<div style="margin-top:2px">' + tipeBadge(mat.profiles[0].destination_type) + '</div>' : '')
@@ -931,10 +945,12 @@ function renderTable(divisions) {
                 var matLabel  = !multiProf ? buildLabelSingle(p, contentUom) : buildLabelSub(p);
                 var profNeg   = parseFloat(p.system_qty_content) < -0.001;
                 if (profNeg && !multiProf) minusCount++;
+                var profNeedConfirm = opnNeedsConfirm(p);
+                if (profNeedConfirm) confirmNeedCount++;
                 var profClass = profNeg ? 'opn-row-minus' : '';
                 var profAttrs = multiProf
-                    ? 'class="' + profClass + '" data-grp="' + grpIid + '" data-system-val="' + p.system_qty_content + '" data-div-id="' + esc(String(div.division_id)) + '"'
-                    : 'class="' + profClass + '" data-system-val="' + p.system_qty_content + '" data-div-id="' + esc(String(div.division_id)) + '"';
+                    ? 'class="' + profClass + '" data-grp="' + grpIid + '" data-system-val="' + p.system_qty_content + '" data-div-id="' + esc(String(div.division_id)) + '" data-confirm-required="' + (profNeedConfirm ? '1' : '0') + '"'
+                    : 'class="' + profClass + '" data-system-val="' + p.system_qty_content + '" data-div-id="' + esc(String(div.division_id)) + '" data-confirm-required="' + (profNeedConfirm ? '1' : '0') + '"';
 
                 if (p.is_recipe_only) {
                     html += '<tr id="row-' + iid + '" ' + profAttrs + '>'
@@ -977,10 +993,15 @@ function renderTable(divisions) {
 
     var minusBadge = el('opnMinusBadge');
     var filterBtn  = el('btnFilterMinus');
+    var confirmBadge = el('opnConfirmBadge');
+    var confirmBtn = el('btnFilterConfirm');
     if (minusBadge) { minusBadge.textContent = minusCount + ' stok minus'; minusBadge.style.display = minusCount > 0 ? '' : 'none'; }
     if (filterBtn)  filterBtn.style.display = minusCount > 0 ? '' : 'none';
+    if (confirmBadge) { confirmBadge.textContent = confirmNeedCount; confirmBadge.style.display = confirmNeedCount > 0 ? '' : 'none'; }
+    if (confirmBtn) confirmBtn.style.display = confirmNeedCount > 0 ? '' : 'none';
 
     renderDivHeatmap(divisions);
+    applyReconFilters();
 }
 
 /* ── Live calc ────────────────────────────────────────────── */
@@ -1116,17 +1137,14 @@ window.opnToggleGrp = function (grpIid) {
     if (!children.length) return;
     var willExpand = children[0].style.display === 'none';
     children.forEach(function (row) {
-        if (showOnlyMinus && willExpand) {
-            row.style.display = parseFloat(row.dataset.systemVal || 0) < -0.001 ? '' : 'none';
-        } else {
-            row.style.display = willExpand ? '' : 'none';
-        }
+        row.style.display = willExpand ? '' : 'none';
     });
     if (icon) {
         icon.className = 'ri opn-grp-arrow me-1 ' + (willExpand ? 'ri-arrow-down-s-line text-primary' : 'ri-arrow-right-s-line text-muted');
         icon.style.fontSize = '1.05rem';
     }
     if (hdrRow) hdrRow.classList.toggle('expanded', willExpand);
+    if (showOnlyMinus || showOnlyConfirm) applyReconFilters();
 };
 
 /* ── Adj type change ──────────────────────────────────────── */
@@ -1295,15 +1313,28 @@ if (opnProfileMergeSubmit) {
 }
 
 /* ── Minus filter ─────────────────────────────────────────── */
-function applyMinusFilter() {
+function opnRowPassesFilters(row) {
+    if (showOnlyMinus && !(parseFloat(row.dataset.systemVal || 0) < -0.001)) {
+        return false;
+    }
+    if (showOnlyConfirm && row.dataset.confirmRequired !== '1') {
+        return false;
+    }
+    return true;
+}
+
+function applyReconFilters() {
     var tbody = el('opnTbody');
     if (!tbody) return;
-    var rows  = Array.from(tbody.querySelectorAll('tr'));
-    var btn   = el('btnFilterMinus');
-    var badge = el('opnMinusBadge');
-    if (btn)   btn.classList.toggle('filter-on', showOnlyMinus);
+    var rows       = Array.from(tbody.querySelectorAll('tr'));
+    var minusBtn   = el('btnFilterMinus');
+    var confirmBtn = el('btnFilterConfirm');
+    var badge      = el('opnMinusBadge');
+    if (minusBtn) minusBtn.classList.toggle('filter-on', showOnlyMinus);
+    if (confirmBtn) confirmBtn.classList.toggle('filter-on', showOnlyConfirm);
     if (badge) badge.style.fontWeight = showOnlyMinus ? '700' : '';
-    if (!showOnlyMinus) {
+
+    if (!showOnlyMinus && !showOnlyConfirm) {
         rows.forEach(function (r) {
             if (r.classList.contains('opn-grp-header')) { r.style.display = ''; return; }
             if (r.dataset.grp) {
@@ -1315,13 +1346,15 @@ function applyMinusFilter() {
         });
         return;
     }
+
     var visibleGrps = new Set();
     rows.forEach(function (r) {
         if (r.classList.contains('opn-grp-header')) return;
-        var v = parseFloat(r.dataset.systemVal || 0);
-        r.style.display = v < -0.001 ? '' : 'none';
-        if (v < -0.001 && r.dataset.grp) visibleGrps.add(r.dataset.grp);
+        var pass = opnRowPassesFilters(r);
+        r.style.display = pass ? '' : 'none';
+        if (pass && r.dataset.grp) visibleGrps.add(r.dataset.grp);
     });
+
     rows.forEach(function (r) {
         if (!r.classList.contains('opn-grp-header')) return;
         var grpIid = r.id.replace('grp-row-', '');
@@ -1331,15 +1364,20 @@ function applyMinusFilter() {
             if (icon) icon.className = 'ri opn-grp-arrow me-1 ri-arrow-down-s-line text-primary';
             r.classList.add('expanded');
         } else {
-            r.style.display = parseFloat(r.dataset.systemVal || 0) < -0.001 ? '' : 'none';
+            r.style.display = opnRowPassesFilters(r) ? '' : 'none';
         }
     });
 }
 
 document.addEventListener('click', function (e) {
+    if (e.target.closest('#btnFilterConfirm') || e.target.closest('#opnConfirmBadge')) {
+        showOnlyConfirm = !showOnlyConfirm;
+        applyReconFilters();
+        return;
+    }
     if (e.target.closest('#btnFilterMinus') || e.target.closest('#opnMinusBadge')) {
         showOnlyMinus = !showOnlyMinus;
-        applyMinusFilter();
+        applyReconFilters();
     }
 });
 
@@ -1355,7 +1393,9 @@ function loadData(showSpinner) {
     el('opnNoResult').classList.add('d-none');
     if (showSpinner !== false) {
         showOnlyMinus = false;
+        showOnlyConfirm = false;
         var fb = el('btnFilterMinus'); if (fb) fb.classList.remove('filter-on');
+        var cb = el('btnFilterConfirm'); if (cb) cb.classList.remove('filter-on');
         el('opnLoading').classList.remove('d-none');
         el('opnTableWrap').style.display  = 'none';
         el('opnKpiRow').style.display     = 'none';

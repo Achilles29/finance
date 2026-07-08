@@ -39,6 +39,115 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
   @keyframes loyaltyMemberSpin {
     to { transform: rotate(360deg); }
   }
+  .member-sort {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    font-weight: 800;
+    text-transform: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+  }
+  .member-sort i {
+    color: #b89a88;
+    font-size: .9rem;
+  }
+  .member-sort.is-active i {
+    color: #8f353a;
+  }
+  .member-name-link {
+    color: #7b1d2a;
+    font-weight: 800;
+    text-decoration: none;
+    border-bottom: 1px dashed rgba(123, 29, 42, .45);
+  }
+  .member-name-link:hover {
+    color: #b4233c;
+    border-bottom-color: #b4233c;
+  }
+  .member-stamp-historic {
+    display: block;
+    margin-top: .08rem;
+    font-size: .62rem;
+    font-weight: 700;
+    color: #8b7a70;
+  }
+  #histModal .modal-content {
+    border-radius: 22px !important;
+    overflow: hidden;
+    border: 1px solid rgba(143,53,58,.12);
+    box-shadow: 0 24px 70px rgba(31, 24, 20, .22);
+  }
+  #histModal .modal-header {
+    background:
+      radial-gradient(circle at 94% 18%, rgba(255,255,255,.22), transparent 20%),
+      linear-gradient(135deg, #6f1f2c, #193a5a) !important;
+    padding: 1rem 1.25rem !important;
+  }
+  #histModal .hist-tab {
+    border: 1px solid rgba(143,53,58,.14) !important;
+    background: #fff !important;
+    color: #7d675e !important;
+    border-radius: 999px !important;
+    padding: .42rem .75rem;
+  }
+  #histModal .hist-tab.active {
+    background: #8f353a !important;
+    border-color: #8f353a !important;
+    color: #fff !important;
+    box-shadow: 0 10px 20px rgba(143,53,58,.14);
+  }
+  #histModal .history-table-wrap {
+    max-height: 58vh;
+    overflow: auto;
+  }
+  #histModal thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #a70f22 !important;
+    color: #fff !important;
+    border-color: #a70f22 !important;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-size: .72rem;
+  }
+  .member-order-toggle {
+    width: 28px;
+    height: 28px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 9px;
+  }
+  .member-order-detail-row.d-none {
+    display: none;
+  }
+  .member-order-detail {
+    background: linear-gradient(180deg, #fffaf6, #fff);
+    border: 1px solid #ecd8ca;
+    border-radius: 14px;
+    padding: .75rem;
+    margin: .25rem .75rem .75rem;
+  }
+  .member-order-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 70px 105px;
+    gap: .75rem;
+    padding: .55rem 0;
+    border-bottom: 1px dashed #ead9ce;
+    align-items: start;
+  }
+  .member-order-item:last-child {
+    border-bottom: 0;
+  }
+  .member-order-extra {
+    margin-top: .3rem;
+    color: #7f6d63;
+    font-size: .76rem;
+  }
 </style>
 
 <div class="container-xxl py-3">
@@ -99,15 +208,15 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
         <table class="table table-sm table-hover align-middle">
           <thead>
             <tr>
-              <th>No Member</th>
-              <th>Nama</th>
-              <th>Kontak</th>
+              <th><button type="button" class="member-sort" data-sort="member_no">No Member <i class="ri ri-expand-up-down-line"></i></button></th>
+              <th><button type="button" class="member-sort" data-sort="member_name">Nama <i class="ri ri-expand-up-down-line"></i></button></th>
+              <th><button type="button" class="member-sort" data-sort="contact">Kontak <i class="ri ri-expand-up-down-line"></i></button></th>
               <th>Tier</th>
-              <th>Joined</th>
+              <th><button type="button" class="member-sort" data-sort="joined_at">Joined <i class="ri ri-expand-up-down-line"></i></button></th>
               <th>Expired</th>
               <th class="text-center" style="width:110px">Status</th>
-              <th class="text-end" style="width:90px" title="Saldo Poin"><i class="ri ri-star-line"></i> Poin</th>
-              <th class="text-end" style="width:80px" title="Saldo Stamp"><i class="ri ri-stamp-line"></i> Stamp</th>
+              <th class="text-end" style="width:90px" title="Saldo Poin"><button type="button" class="member-sort" data-sort="point"><i class="ri ri-star-line"></i> Poin <i class="ri ri-expand-up-down-line"></i></button></th>
+              <th class="text-end" style="width:88px" title="Saldo stamp historis dari ledger/cache member"><button type="button" class="member-sort" data-sort="stamp"><i class="ri ri-stamp-line"></i> Stamp <i class="ri ri-expand-up-down-line"></i></button></th>
               <th class="text-center" style="width:65px" title="Voucher Aktif"><i class="ri ri-coupon-3-line"></i></th>
               <th class="text-center" style="width:120px">Aksi</th>
             </tr>
@@ -208,6 +317,8 @@ document.addEventListener('DOMContentLoaded', function () {
     status: initialFilters.status || 'ACTIVE',
     member_status: initialFilters.member_status || 'ALL',
     tier: initialFilters.tier || '',
+    sort_by: initialFilters.sort_by || 'member_name',
+    sort_dir: initialFilters.sort_dir || 'asc',
     page: parseInt(initialFilters.page || 1, 10),
     limit: parseInt(initialFilters.limit || 50, 10) || 50
   };
@@ -249,6 +360,8 @@ document.addEventListener('DOMContentLoaded', function () {
     p.set('status', state.status);
     p.set('member_status', state.member_status);
     p.set('tier', state.tier);
+    p.set('sort_by', state.sort_by);
+    p.set('sort_dir', state.sort_dir);
     p.set('page', String(state.page || 1));
     p.set('limit', String(state.limit || 50));
     return p.toString();
@@ -260,6 +373,16 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('limit').value = String(state.limit || 50);
     document.querySelectorAll('.pos-status-tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.status === state.status));
     document.querySelectorAll('.pos-member-status-tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.memberStatus === state.member_status));
+    document.querySelectorAll('.member-sort').forEach((btn) => {
+      const active = btn.dataset.sort === state.sort_by;
+      btn.classList.toggle('is-active', active);
+      const icon = btn.querySelector('i:last-child');
+      if (icon) {
+        icon.className = active
+          ? (state.sort_dir === 'desc' ? 'ri ri-sort-desc' : 'ri ri-sort-asc')
+          : 'ri ri-expand-up-down-line';
+      }
+    });
   }
 
   async function getJson(url) {
@@ -293,14 +416,24 @@ document.addEventListener('DOMContentLoaded', function () {
     emptyState.classList.add('d-none');
     tableBody.innerHTML = rows.map((r) => {
       const poin    = Number(r.point_balance  || r.point_balance_cache  || 0).toLocaleString('id-ID', {maximumFractionDigits:0});
-      const stamp   = Number(r.stamp_balance  || r.stamp_balance_cache  || 0).toLocaleString('id-ID', {maximumFractionDigits:0});
+      const rawStamp = Number(r.stamp_balance || 0);
+      const stamp   = rawStamp.toLocaleString('id-ID', {maximumFractionDigits:0});
+      const hasStampLedger = Number(r.stamp_has_ledger || 0) === 1;
       const voucher = Number(r.open_voucher_count   || 0);
       const isActive = Number(r.is_active || 0) === 1;
       return `<tr>
         <td class="text-nowrap">
           <div>${escapeHtml(r.member_no || '-')}</div>
         </td>
-        <td>${escapeHtml(r.member_name || '-')}</td>
+        <td>
+          <a href="#"
+             class="member-name-link btn-history"
+             data-id="${Number(r.id||0)}"
+             data-name="${escapeHtml(r.member_name||'')}"
+             title="Buka riwayat transaksi, poin, stamp, dan voucher">
+            ${escapeHtml(r.member_name || '-')}
+          </a>
+        </td>
         <td>
           <div>${escapeHtml(r.mobile_phone || '-')}</div>
           <div class="small text-muted mt-1">${escapeHtml(r.email || '-')}</div>
@@ -310,7 +443,9 @@ document.addEventListener('DOMContentLoaded', function () {
         <td class="text-nowrap">${fmtDateTime(r.expired_at)}</td>
         <td class="text-center">${memberStatusBadge(r.member_status, r.is_active)}</td>
         <td class="text-end text-nowrap" style="font-size:.8rem;font-weight:600;color:#7a5800">${poin}</td>
-        <td class="text-end text-nowrap" style="font-size:.8rem;font-weight:600;color:#1a4a7a">${stamp}</td>
+        <td class="text-end text-nowrap" style="font-size:.8rem;font-weight:600;color:#1a4a7a" title="Saldo historis dari pos_stamp_ledger/cache member">
+          ${stamp}${hasStampLedger && rawStamp > 0 ? '<span class="member-stamp-historic">ledger</span>' : ''}
+        </td>
         <td class="text-center">
           ${voucher > 0 ? `<span class="badge rounded-pill bg-success-subtle text-success-emphasis">${voucher}</span>` : '<span class="text-muted" style="font-size:.75rem">—</span>'}
         </td>
@@ -405,12 +540,25 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('limit').addEventListener('change', (e) => { state.limit = parseInt(e.target.value || '50', 10) || 50; state.page = 1; loadRows().catch((err) => alert(err.message)); });
   document.querySelectorAll('.pos-status-tab').forEach((btn) => btn.addEventListener('click', () => { state.status = btn.dataset.status; state.page = 1; loadRows().catch((err) => alert(err.message)); }));
   document.querySelectorAll('.pos-member-status-tab').forEach((btn) => btn.addEventListener('click', () => { state.member_status = btn.dataset.memberStatus; state.page = 1; loadRows().catch((err) => alert(err.message)); }));
+  document.querySelectorAll('.member-sort').forEach((btn) => btn.addEventListener('click', () => {
+    const key = btn.dataset.sort || 'member_name';
+    if (state.sort_by === key) {
+      state.sort_dir = state.sort_dir === 'asc' ? 'desc' : 'asc';
+    } else {
+      state.sort_by = key;
+      state.sort_dir = key === 'joined_at' || key === 'point' || key === 'stamp' ? 'desc' : 'asc';
+    }
+    state.page = 1;
+    loadRows().catch((err) => alert(err.message));
+  }));
 
   document.getElementById('btn-clear-filter').addEventListener('click', () => {
     state.q = '';
     state.status = 'ACTIVE';
     state.member_status = 'ALL';
     state.tier = '';
+    state.sort_by = 'member_name';
+    state.sort_dir = 'asc';
     state.page = 1;
     state.limit = 50;
     loadRows().catch((err) => alert(err.message));
@@ -426,6 +574,7 @@ document.addEventListener('DOMContentLoaded', function () {
   tableBody.addEventListener('click', async (e) => {
     const histBtn = e.target.closest('.btn-history');
     if (histBtn) {
+      e.preventDefault();
       openHistory(histBtn.dataset.id, histBtn.dataset.name);
       return;
     }
@@ -506,6 +655,12 @@ document.addEventListener('DOMContentLoaded', function () {
     STAMP:'<span class="badge bg-primary-subtle text-primary-emphasis">Stamp</span>',
     VOUCHER:'<span class="badge bg-success-subtle text-success-emphasis">Voucher</span>',
   };
+  const VOUCHER_STATUS = {
+    OPEN:'<span class="badge bg-success-subtle text-success-emphasis">Siap dipakai</span>',
+    REDEEMED:'<span class="badge bg-primary-subtle text-primary-emphasis">Sudah dipakai</span>',
+    EXPIRED:'<span class="badge bg-secondary-subtle text-secondary-emphasis">Kadaluarsa</span>',
+    VOID:'<span class="badge bg-danger-subtle text-danger-emphasis">Dibatalkan</span>',
+  };
 
   function setPg(pgEl, meta, loader) {
     pgEl.innerHTML = '';
@@ -522,33 +677,75 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  function orderDetailHtml(row) {
+    const items = Array.isArray(row.items) ? row.items : [];
+    if (!items.length) {
+      return '<div class="member-order-detail text-muted">Belum ada detail item untuk transaksi ini.</div>';
+    }
+    return `<div class="member-order-detail">${items.map((item) => {
+      const extras = Array.isArray(item.extras) && item.extras.length
+        ? `<div class="member-order-extra">${item.extras.map((extra) => `<div>+ ${esc(extra.extra_name || 'Extra')} <span class="text-muted">x ${fmtQty(extra.qty)}</span> <strong>${fmtM(extra.net_amount)}</strong></div>`).join('')}</div>`
+        : '';
+      const notes = item.notes ? `<div class="small text-muted mt-1">Catatan: ${esc(item.notes)}</div>` : '';
+      return `<div class="member-order-item">
+        <div>
+          <div class="fw-bold">${esc(item.item_name || 'Produk')}</div>
+          <div class="small text-muted">Status ${esc(item.line_status || '-')}${notes}</div>
+          ${extras}
+        </div>
+        <div class="text-end">
+          <div class="small text-muted">Qty</div>
+          <div class="fw-bold">${fmtQty(item.qty)}</div>
+        </div>
+        <div class="text-end">
+          <div class="small text-muted">Net</div>
+          <div class="fw-bold">${fmtM(item.net_amount)}</div>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+  }
   async function loadOrders(pg) {
     const tbody = document.getElementById('hist-orders-body');
     const info  = document.getElementById('hist-orders-info');
     const pgEl  = document.getElementById('hist-orders-pg');
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Memuat…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Memuat...</td></tr>';
     try {
       const d    = await getJson(`${baseUrl}/${histMemberId}/orders?page=${pg}`);
       const rows = d.rows || [], meta = d.meta || {};
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Belum ada transaksi</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Belum ada transaksi</td></tr>';
       } else {
-        tbody.innerHTML = rows.map(r => `<tr>
-          <td class="ps-3"><span style="font-size:.78rem;font-weight:600">${esc(r.order_no||'')}</span></td>
-          <td style="font-size:.78rem">${fmtD(r.ordered_at)}</td>
-          <td>${ORDER_STATUS[r.status] || `<span class="badge bg-secondary-subtle text-secondary-emphasis">${esc(r.status)}</span>`}</td>
-          <td class="text-end" style="font-size:.78rem">${fmtM(r.subtotal_amount)}</td>
-          <td class="text-end" style="font-size:.78rem;color:#c0434d">${r.discount_amount > 0 ? '-'+fmtM(r.discount_amount) : '—'}</td>
-          <td class="text-end pe-3" style="font-size:.8rem;font-weight:700">${fmtM(r.grand_total)}</td>
-        </tr>`).join('');
+        tbody.innerHTML = rows.map(r => {
+          const orderId = Number(r.id || 0);
+          return `<tr class="member-order-row" data-order-id="${orderId}">
+            <td class="ps-3 text-center"><button type="button" class="btn btn-sm btn-outline-secondary member-order-toggle" data-order-toggle="${orderId}" title="Lihat detail transaksi"><i class="ri ri-arrow-down-s-line"></i></button></td>
+            <td><span style="font-size:.78rem;font-weight:600">${esc(r.order_no||'')}</span></td>
+            <td style="font-size:.78rem">${fmtD(r.ordered_at)}</td>
+            <td>${ORDER_STATUS[r.status] || `<span class="badge bg-secondary-subtle text-secondary-emphasis">${esc(r.status)}</span>`}</td>
+            <td class="text-end" style="font-size:.78rem">${fmtM(r.subtotal_amount)}</td>
+            <td class="text-end" style="font-size:.78rem;color:#c0434d">${r.discount_amount > 0 ? '-'+fmtM(r.discount_amount) : '-'}</td>
+            <td class="text-end pe-3" style="font-size:.8rem;font-weight:700">${fmtM(r.grand_total)}</td>
+          </tr><tr class="member-order-detail-row d-none" data-order-detail="${orderId}"><td colspan="7">${orderDetailHtml(r)}</td></tr>`;
+        }).join('');
       }
       info.textContent = `${rows.length} dari ${(meta.total||0).toLocaleString('id-ID')} transaksi`;
       setPg(pgEl, meta, loadOrders);
     } catch(e) {
-      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3" style="font-size:.8rem">Gagal: ${esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-3" style="font-size:.8rem">Gagal: ${esc(e.message)}</td></tr>`;
     }
   }
 
+  document.getElementById('hist-orders-body').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-order-toggle]');
+    if (!btn) return;
+    const orderId = btn.dataset.orderToggle;
+    const detail = document.querySelector(`[data-order-detail="${orderId}"]`);
+    if (!detail) return;
+    const isOpen = !detail.classList.contains('d-none');
+    detail.classList.toggle('d-none', isOpen);
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = isOpen ? 'ri ri-arrow-down-s-line' : 'ri ri-arrow-up-s-line';
+  });
   async function loadRedeem(pg) {
     const tbody = document.getElementById('hist-redeem-body');
     const info  = document.getElementById('hist-redeem-info');
@@ -578,6 +775,76 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  async function loadPoints(pg) {
+    const tbody = document.getElementById('hist-points-body');
+    const info  = document.getElementById('hist-points-info');
+    const pgEl  = document.getElementById('hist-points-pg');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Memuat...</td></tr>';
+    try {
+      const d = await getJson(`${baseUrl}/${histMemberId}/points?page=${pg}`);
+      const rows = d.rows || [], meta = d.meta || {};
+      tbody.innerHTML = rows.length ? rows.map(r => `<tr>
+        <td class="ps-3">${esc(r.order_no || '-')}</td>
+        <td>${esc(r.ledger_type || '-')}</td>
+        <td class="text-end text-success">${fmtN(r.points_in)}</td>
+        <td class="text-end text-danger">${fmtN(r.points_out)}</td>
+        <td class="text-end fw-bold">${fmtN(r.balance_after)}</td>
+        <td>${fmtD(r.created_at)}</td>
+      </tr>`).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">Belum ada riwayat poin</td></tr>';
+      info.textContent = `${rows.length} dari ${(meta.total||0).toLocaleString('id-ID')} baris`;
+      setPg(pgEl, meta, loadPoints);
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3">Gagal: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  async function loadStamps(pg) {
+    const tbody = document.getElementById('hist-stamps-body');
+    const info  = document.getElementById('hist-stamps-info');
+    const pgEl  = document.getElementById('hist-stamps-pg');
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Memuat...</td></tr>';
+    try {
+      const d = await getJson(`${baseUrl}/${histMemberId}/stamps?page=${pg}`);
+      const rows = d.rows || [], meta = d.meta || {};
+      tbody.innerHTML = rows.length ? rows.map(r => `<tr>
+        <td class="ps-3">${esc(r.order_no || '-')}</td>
+        <td>${esc(r.campaign_name || '-')}</td>
+        <td>${esc(r.ledger_type || '-')}</td>
+        <td class="text-end text-success">${fmtN(r.stamp_in)}</td>
+        <td class="text-end text-danger">${fmtN(r.stamp_out)}</td>
+        <td class="text-end fw-bold">${fmtN(r.balance_after)}</td>
+        <td>${fmtD(r.created_at)}</td>
+      </tr>`).join('') : '<tr><td colspan="7" class="text-center text-muted py-3">Belum ada riwayat stamp</td></tr>';
+      info.textContent = `${rows.length} dari ${(meta.total||0).toLocaleString('id-ID')} baris`;
+      setPg(pgEl, meta, loadStamps);
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger py-3">Gagal: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  async function loadVouchers(pg) {
+    const tbody = document.getElementById('hist-vouchers-body');
+    const info  = document.getElementById('hist-vouchers-info');
+    const pgEl  = document.getElementById('hist-vouchers-pg');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Memuat...</td></tr>';
+    try {
+      const d = await getJson(`${baseUrl}/${histMemberId}/vouchers?page=${pg}`);
+      const rows = d.rows || [], meta = d.meta || {};
+      tbody.innerHTML = rows.length ? rows.map(r => `<tr>
+        <td class="ps-3 fw-bold">${esc(r.voucher_code || r.voucher_issue_no || '-')}</td>
+        <td>${esc(r.campaign_name || '-')}</td>
+        <td>${VOUCHER_STATUS[String(r.voucher_status || '').toUpperCase()] || esc(r.voucher_status || '-')}</td>
+        <td class="text-end">${String(r.voucher_type || '').toUpperCase() === 'PERCENT' ? fmtN(r.percent_snapshot) + '%' : fmtM(r.amount_snapshot)}</td>
+        <td>${fmtD(r.issued_at)}</td>
+        <td>${fmtD(r.expired_at)}</td>
+      </tr>`).join('') : '<tr><td colspan="6" class="text-center text-muted py-3">Belum ada voucher member</td></tr>';
+      info.textContent = `${rows.length} dari ${(meta.total||0).toLocaleString('id-ID')} voucher`;
+      setPg(pgEl, meta, loadVouchers);
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3">Gagal: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
   // Tab switching
   document.querySelectorAll('.hist-tab').forEach(btn => {
     btn.addEventListener('click', function() {
@@ -590,7 +857,13 @@ document.addEventListener('DOMContentLoaded', function () {
       });
       document.getElementById('htab-orders').classList.toggle('d-none', activeHTab !== 'orders');
       document.getElementById('htab-redeem').classList.toggle('d-none', activeHTab !== 'redeem');
+      document.getElementById('htab-points').classList.toggle('d-none', activeHTab !== 'points');
+      document.getElementById('htab-stamps').classList.toggle('d-none', activeHTab !== 'stamps');
+      document.getElementById('htab-vouchers').classList.toggle('d-none', activeHTab !== 'vouchers');
       if (activeHTab === 'redeem') loadRedeem(1);
+      if (activeHTab === 'points') loadPoints(1);
+      if (activeHTab === 'stamps') loadStamps(1);
+      if (activeHTab === 'vouchers') loadVouchers(1);
     });
   });
 
@@ -608,6 +881,9 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     document.getElementById('htab-orders').classList.remove('d-none');
     document.getElementById('htab-redeem').classList.add('d-none');
+    document.getElementById('htab-points').classList.add('d-none');
+    document.getElementById('htab-stamps').classList.add('d-none');
+    document.getElementById('htab-vouchers').classList.add('d-none');
     histModal.show();
     loadOrders(1);
   }
@@ -636,6 +912,15 @@ document.addEventListener('DOMContentLoaded', function () {
           </button>
           <button class="btn btn-sm hist-tab" data-htab="redeem" style="border-radius:8px 8px 0 0;font-size:.8rem;font-weight:600;border-bottom:2px solid transparent;color:#888;background:none">
             <i class="ri ri-gift-2-line me-1"></i>Riwayat Redeem
+          </button>
+          <button class="btn btn-sm hist-tab" data-htab="points" style="border-radius:8px 8px 0 0;font-size:.8rem;font-weight:600;border-bottom:2px solid transparent;color:#888;background:none">
+            <i class="ri ri-star-line me-1"></i>Poin
+          </button>
+          <button class="btn btn-sm hist-tab" data-htab="stamps" style="border-radius:8px 8px 0 0;font-size:.8rem;font-weight:600;border-bottom:2px solid transparent;color:#888;background:none">
+            <i class="ri ri-stamp-line me-1"></i>Stamp
+          </button>
+          <button class="btn btn-sm hist-tab" data-htab="vouchers" style="border-radius:8px 8px 0 0;font-size:.8rem;font-weight:600;border-bottom:2px solid transparent;color:#888;background:none">
+            <i class="ri ri-coupon-3-line me-1"></i>Voucher
           </button>
         </div>
       </div>
@@ -682,6 +967,64 @@ document.addEventListener('DOMContentLoaded', function () {
           <div id="hist-redeem-pg" class="d-flex gap-1"></div>
         </div>
       </div>
+      <div id="htab-points" class="modal-body p-0 d-none">
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem">
+          <thead style="background:#f8f5f2;position:sticky;top:0">
+            <tr>
+              <th class="ps-3">Order</th>
+              <th>Tipe</th>
+              <th class="text-end">Masuk</th>
+              <th class="text-end">Keluar</th>
+              <th class="text-end">Saldo</th>
+              <th>Tanggal</th>
+            </tr>
+          </thead>
+          <tbody id="hist-points-body"><tr><td colspan="6" class="text-center text-muted py-3">Memuat...</td></tr></tbody>
+        </table>
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top" style="background:#fafafa">
+          <small id="hist-points-info" class="text-muted"></small>
+          <div id="hist-points-pg" class="d-flex gap-1"></div>
+        </div>
+      </div>
+      <div id="htab-stamps" class="modal-body p-0 d-none">
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem">
+          <thead style="background:#f8f5f2;position:sticky;top:0">
+            <tr>
+              <th class="ps-3">Order</th>
+              <th>Campaign</th>
+              <th>Tipe</th>
+              <th class="text-end">Masuk</th>
+              <th class="text-end">Keluar</th>
+              <th class="text-end">Saldo</th>
+              <th>Tanggal</th>
+            </tr>
+          </thead>
+          <tbody id="hist-stamps-body"><tr><td colspan="7" class="text-center text-muted py-3">Memuat...</td></tr></tbody>
+        </table>
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top" style="background:#fafafa">
+          <small id="hist-stamps-info" class="text-muted"></small>
+          <div id="hist-stamps-pg" class="d-flex gap-1"></div>
+        </div>
+      </div>
+      <div id="htab-vouchers" class="modal-body p-0 d-none">
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem">
+          <thead style="background:#f8f5f2;position:sticky;top:0">
+            <tr>
+              <th class="ps-3">Kode</th>
+              <th>Campaign</th>
+              <th>Status</th>
+              <th class="text-end">Benefit</th>
+              <th>Terbit</th>
+              <th>Kadaluarsa</th>
+            </tr>
+          </thead>
+          <tbody id="hist-vouchers-body"><tr><td colspan="6" class="text-center text-muted py-3">Memuat...</td></tr></tbody>
+        </table>
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top" style="background:#fafafa">
+          <small id="hist-vouchers-info" class="text-muted"></small>
+          <div id="hist-vouchers-pg" class="d-flex gap-1"></div>
+        </div>
+      </div>
       <div class="modal-footer" style="border-top:1px solid #e8ddd6;padding:.55rem 1.2rem;justify-content:flex-end">
         <a id="hist-detail-link" href="#" class="btn btn-sm btn-outline-secondary">
           <i class="ri ri-external-link-line me-1"></i>Profil &amp; Redeem Lengkap
@@ -690,5 +1033,8 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
   </div>
 </div>
+
+
+
 
 

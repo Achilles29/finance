@@ -44,7 +44,7 @@ $REASONS = function_exists('component_adjustment_reason_options')
 ]); ?>
 
 <style>
-#cmpTableWrap table  { border-collapse:collapse; width:100%; }
+#cmpTableWrap table  { border-collapse:collapse; width:100%; table-layout:fixed; }
 #cmpTableWrap thead th {
     position:sticky; top:0; z-index:2;
     font-size:.73rem; font-weight:700; color:#334155;
@@ -59,17 +59,31 @@ $REASONS = function_exists('component_adjustment_reason_options')
 .cmp-row-minus > td          { background:#fff1f2 !important; }
 .cmp-row-minus > td:first-child { border-left:3px solid #f87171; }
 
-.cmp-div-cell  { font-size:.72rem; color:#1e40af; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:90px; }
+.cmp-div-cell  { font-size:.7rem; color:#1e40af; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:86px; }
 .cmp-tipe-reguler { background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .cmp-tipe-event   { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .cmp-jenis-base { background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .cmp-jenis-prep { background:#ede9fe; color:#6d28d9; border:1px solid #c4b5fd; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .cmp-name-cell  { display:flex; align-items:flex-start; }
 .cmp-name-body  { min-width:0; }
-.cmp-adj-col    { min-width:200px; }
+.cmp-adj-col    { width:150px; max-width:150px; }
+.cmp-action-col { width:78px; max-width:78px; }
 .filter-on      { background:#2563eb !important; color:#fff !important; border-color:#2563eb !important; }
 .cmp-cost-cell  { font-size:.76rem; white-space:nowrap; }
 .cmp-value-cell { font-size:.76rem; white-space:nowrap; }
+#cmpTableWrap th:last-child,
+#cmpTableWrap td[id^="acell-"] {
+    position: sticky;
+    right: 0;
+    z-index: 3;
+    background: inherit;
+    box-shadow: -8px 0 14px rgba(15,23,42,.06);
+}
+#cmpTableWrap thead th:last-child {
+    z-index: 5;
+    background:#e2e8f0;
+}
+.cmp-row-confirm .btn { font-size:.66rem; padding:.05rem .28rem; }
 .cmp-flash { border-radius:12px; border:1px solid #c7e7d3; background:#edf9f1; color:#166534; padding:.65rem .85rem; font-size:.82rem; }
 .cmp-flash.error { border-color:#f3c1c1; background:#fff1f2; color:#b42318; }
 .cmp-required-warning {
@@ -213,6 +227,10 @@ $REASONS = function_exists('component_adjustment_reason_options')
         <i class="ri ri-door-closed-line me-1"></i>Konfirmasi Tutup
       </button>
     <?php endif; ?>
+    <button id="btnFilterConfirm" type="button" class="btn btn-sm btn-outline-primary" style="display:none">
+      <i class="ri ri-checkbox-circle-line me-1"></i>Perlu Konfirmasi
+      <span id="cmpConfirmBadge" class="badge bg-primary ms-1" style="display:none">0</span>
+    </button>
     <button id="btnFilterMinus" class="btn btn-sm btn-outline-danger" style="display:none">
       <i class="ri ri-arrow-down-line me-1"></i>Tampilkan Minus
       <span id="cmpMinusBadge" class="badge bg-danger ms-1" style="display:none">0</span>
@@ -229,15 +247,15 @@ $REASONS = function_exists('component_adjustment_reason_options')
         <tr>
           <th style="width:100px">Divisi / Lokasi</th>
           <th style="width:68px">Jenis</th>
-          <th class="text-start" style="min-width:190px">Nama Component</th>
+          <th class="text-start" style="width:170px">Nama Component</th>
           <th style="width:54px">UOM</th>
-          <th class="text-end" style="width:94px">Stok</th>
-          <th class="text-end" style="width:92px">HPP Live</th>
-          <th class="text-end" style="width:112px">Nilai Sistem</th>
-          <th class="text-end" style="width:100px">Fisik</th>
-                    <th class="text-end" style="width:80px">Selisih</th>
+          <th class="text-end" style="width:82px">Stok</th>
+          <th class="text-end" style="width:82px">HPP Live</th>
+          <th class="text-end" style="width:96px">Nilai Sistem</th>
+          <th class="text-end" style="width:88px">Fisik</th>
+          <th class="text-end" style="width:74px">Selisih</th>
           <th class="cmp-adj-col">Jenis &amp; Alasan</th>
-          <th style="width:88px">Aksi</th>
+          <th class="cmp-action-col">Aksi</th>
         </tr>
       </thead>
       <tbody id="cmpTbody">
@@ -489,22 +507,22 @@ function adjColHtml(row, iid) {
 }
 
 function actionCell(row, iid) {
-    if (!CAN_CREATE) return `<td id="acell-${iid}"></td>`;
+    if (!CAN_CREATE) return `<td id="acell-${iid}" class="cmp-action-col"></td>`;
     const reconHtml = reconRowButtons(row, iid);
-    if (row.adjustment_id) return `<td id="acell-${iid}">${reconHtml}</td>`;
+    if (row.adjustment_id) return `<td id="acell-${iid}" class="cmp-action-col">${reconHtml}</td>`;
     const sel = row.selisih;
     if (sel !== null && Math.abs(Number(sel)) >= 0.001) {
-        return `<td id="acell-${iid}">
+        return `<td id="acell-${iid}" class="cmp-action-col">
             <div class="d-flex flex-column gap-1">
             <button class="btn btn-sm btn-danger w-100" id="adjbtn-${iid}"
                     onclick="cmpPostAdj('${iid}')">
-                <i class="ri ri-upload-2-line me-1"></i>Posting
+                <i class="ri ri-upload-2-line"></i>
             </button>
             ${reconHtml}
             </div>
         </td>`;
     }
-    return `<td id="acell-${iid}">${reconHtml}</td>`;
+    return `<td id="acell-${iid}" class="cmp-action-col">${reconHtml}</td>`;
 }
 
 function reconRowButtons(row, iid) {
@@ -521,6 +539,10 @@ function reconRowButtons(row, iid) {
     return `<div class="cmp-row-confirm d-flex flex-column gap-1">${reason}<div class="d-flex gap-1 justify-content-center">${openBtn}${closeBtn}</div></div>`;
 }
 
+function cmpNeedsConfirm(row) {
+    return !!(row && row.must_row_confirm && (!row.confirmed_open || !row.confirmed_close));
+}
+
 // ── Expand / collapse lots ────────────────────────────────────
 window.cmpToggleLots = function (iid) {
     const btn  = el('expand-' + iid);
@@ -534,6 +556,9 @@ window.cmpToggleLots = function (iid) {
             ? '<i class="ri ri-arrow-right-s-line"></i> ' + btn.dataset.lotCount + ' lot'
             : '<i class="ri ri-arrow-down-s-line"></i> ' + btn.dataset.lotCount + ' lot';
     }
+    if (showOnlyMinus || showOnlyConfirm) {
+        applyCmpFilters();
+    }
 };
 
 // ── Render table ──────────────────────────────────────────────
@@ -542,7 +567,7 @@ function renderTable(groups) {
     if (!tbody) return;
 
     let html = '';
-    let total = 0, base = 0, prep = 0, counted = 0, minus = 0;
+    let total = 0, base = 0, prep = 0, counted = 0, minus = 0, confirmNeed = 0;
     Object.keys(profileMap).forEach(function (key) { delete profileMap[key]; });
 
     groups.forEach(function (grp) {
@@ -563,8 +588,10 @@ function renderTable(groups) {
                         return sum + (parseFloat(lot.physical_qty) || 0);
                     }, 0);
                 }
+                const parentNeedConfirm = cmpNeedsConfirm(row) || row.lots.some(function (lot) { return cmpNeedsConfirm(lot); });
+                if (parentNeedConfirm) confirmNeed++;
 
-                html += `<tr id="row-${iid}" data-system-val="${row.system_qty}" data-div-id="${row.division_id}" style="background:#fdf6f0">
+                html += `<tr id="row-${iid}" data-system-val="${row.system_qty}" data-div-id="${row.division_id}" data-confirm-required="${parentNeedConfirm ? '1' : '0'}" data-has-lots="1" style="background:#fdf6f0">
                     <td class="cmp-div-cell">
                         <div>${esc(row.division_name)}</div>
                         <div class="mt-1">${tipeBadge(row.location_type)}</div>
@@ -578,7 +605,7 @@ function renderTable(groups) {
                     <td class="text-end cmp-value-cell text-muted">${parentPhysicalQty === null ? '-' : fmt4(parentPhysicalQty)}</td>
                     <td class="text-end text-muted small">Lot detail</td>
                     <td class="cmp-adj-col"></td>
-                    <td id="acell-${iid}" class="text-center">
+                    <td id="acell-${iid}" class="text-center cmp-action-col">
                         <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
                                 id="expand-${iid}" data-expanded="true" data-lot-count="${row.lot_count}"
                                 onclick="cmpToggleLots('${iid}')">
@@ -616,12 +643,13 @@ function renderTable(groups) {
 
                     if (lot.physical_qty !== null) counted++;
                     if (parseFloat(lot.system_qty) < -0.001) minus++;
+                    if (cmpNeedsConfirm(profileMap[lotIid])) confirmNeed++;
 
                     const lotPhysVal = lot.physical_qty !== null ? lot.physical_qty : '';
                     const lotCls = parseFloat(lot.system_qty) < -0.001 ? 'cmp-row-minus' : '';
 
                     html += `<tr id="row-${lotIid}" class="lot-child lot-child-${iid} ${lotCls}"
-                                 data-system-val="${lot.system_qty}" data-div-id="${row.division_id}">
+                                 data-system-val="${lot.system_qty}" data-div-id="${row.division_id}" data-parent="${iid}" data-confirm-required="${cmpNeedsConfirm(profileMap[lotIid]) ? '1' : '0'}">
                         <td class="cmp-div-cell" style="padding-left:20px;border-left:3px solid #e2e8f0">
                             <div class="text-muted fw-semibold" style="font-size:.72rem">Lot ${esc(lot.lot_no)}</div>
                             <div class="text-muted" style="font-size:.67rem">${esc(lot.receipt_date || '')}</div>
@@ -649,12 +677,13 @@ function renderTable(groups) {
             } else {
                 if (row.physical_qty !== null) counted++;
                 if (parseFloat(row.system_qty) < -0.001) minus++;
+                if (cmpNeedsConfirm(row)) confirmNeed++;
 
                 const rowCls = parseFloat(row.system_qty) < -0.001 ? 'cmp-row-minus' : '';
                 const physVal = row.physical_qty !== null ? row.physical_qty : '';
 
                 html += `<tr id="row-${iid}" class="${rowCls}"
-                             data-system-val="${row.system_qty}" data-div-id="${row.division_id}">
+                             data-system-val="${row.system_qty}" data-div-id="${row.division_id}" data-confirm-required="${cmpNeedsConfirm(row) ? '1' : '0'}">
                     <td class="cmp-div-cell">
                         <div>${esc(row.division_name)}</div>
                         <div class="mt-1">${tipeBadge(row.location_type)}</div>
@@ -694,8 +723,13 @@ function renderTable(groups) {
 
     const minusBadge = el('cmpMinusBadge');
     const filterBtn = el('btnFilterMinus');
+    const confirmBadge = el('cmpConfirmBadge');
+    const confirmBtn = el('btnFilterConfirm');
     if (minusBadge) { minusBadge.textContent = minus; minusBadge.style.display = minus > 0 ? '' : 'none'; }
     if (filterBtn) filterBtn.style.display = minus > 0 ? '' : 'none';
+    if (confirmBadge) { confirmBadge.textContent = confirmNeed; confirmBadge.style.display = confirmNeed > 0 ? '' : 'none'; }
+    if (confirmBtn) confirmBtn.style.display = confirmNeed > 0 ? '' : 'none';
+    applyCmpFilters();
 }
 
 // ?????? Type / reason change ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????? ──────────────────────────────────────
@@ -868,13 +902,41 @@ window.cmpPostAdj = function (iid) {
 
 // ?????? Minus filter ?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????? ──────────────────────────────────────────────
 let showOnlyMinus = false;
-function applyMinusFilter() {
-    const btn  = el('btnFilterMinus');
-    if (btn) btn.classList.toggle('filter-on', showOnlyMinus);
-    document.querySelectorAll('#cmpTbody tr').forEach(function (r) {
-        r.style.display = !showOnlyMinus || parseFloat(r.dataset.systemVal || 0) < -0.001 ? '' : 'none';
+let showOnlyConfirm = false;
+
+function cmpRowPassesFilters(row) {
+    if (showOnlyMinus && !(parseFloat(row.dataset.systemVal || 0) < -0.001)) {
+        return false;
+    }
+    if (showOnlyConfirm && row.dataset.confirmRequired !== '1') {
+        return false;
+    }
+    return true;
+}
+
+function applyCmpFilters() {
+    const minusBtn = el('btnFilterMinus');
+    const confirmBtn = el('btnFilterConfirm');
+    if (minusBtn) minusBtn.classList.toggle('filter-on', showOnlyMinus);
+    if (confirmBtn) confirmBtn.classList.toggle('filter-on', showOnlyConfirm);
+
+    const rows = Array.from(document.querySelectorAll('#cmpTbody tr'));
+    rows.forEach(function (row) {
+        if (!row.dataset.hasLots) {
+            row.style.display = cmpRowPassesFilters(row) ? '' : 'none';
+        }
+    });
+
+    rows.forEach(function (row) {
+        if (!row.dataset.hasLots) return;
+        const parentId = row.id.replace('row-', '');
+        const children = rows.filter(function (child) { return child.dataset.parent === parentId; });
+        const hasVisibleChild = children.some(function (child) { return child.style.display !== 'none'; });
+        const parentPass = cmpRowPassesFilters(row);
+        row.style.display = (parentPass || hasVisibleChild) ? '' : 'none';
     });
 }
+
 document.addEventListener('click', function (e) {
     if (e.target.closest('#btnConfirmOpenRecon')) {
         confirmDailyRecon('OPEN');
@@ -884,9 +946,14 @@ document.addEventListener('click', function (e) {
         confirmDailyRecon('CLOSE');
         return;
     }
+    if (e.target.closest('#btnFilterConfirm') || e.target.closest('#cmpConfirmBadge')) {
+        showOnlyConfirm = !showOnlyConfirm;
+        applyCmpFilters();
+        return;
+    }
     if (e.target.closest('#btnFilterMinus') || e.target.closest('#cmpMinusBadge')) {
         showOnlyMinus = !showOnlyMinus;
-        applyMinusFilter();
+        applyCmpFilters();
     }
 });
 
@@ -920,7 +987,7 @@ function loadData() {
             currentGroups = data.rows || [];
             reconConfirmMode = (data.meta && data.meta.confirm_mode) || 'BULK_ALLOWED';
             renderTable(currentGroups);
-            if (showOnlyMinus) applyMinusFilter();
+            applyCmpFilters();
         })
         .catch(err => {
             if (spinner) spinner.style.display = 'none';

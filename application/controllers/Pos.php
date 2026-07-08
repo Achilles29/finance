@@ -4141,6 +4141,7 @@ public function self_order_tables_print()
                 'payment_mode' => (string)($context['payment_mode'] ?? 'KASIR'),
                 'payment_status' => (string)($context['payment_status'] ?? 'PENDING'),
                 'is_paid' => !empty($context['is_paid']),
+                'payment' => (array)($context['payment'] ?? []),
                 'stock_commit_status' => 'NOT_REQUIRED',
                 'verify_destination' => $verifyDestination,
             ]);
@@ -4170,6 +4171,7 @@ public function self_order_tables_print()
                 'workspace_bucket' => (string)($finalize['workspace_bucket'] ?? ''),
                 'target_status' => (string)($finalize['target_status'] ?? ''),
                 'payment_mode' => (string)($context['payment_mode'] ?? 'KASIR'),
+                'loyalty' => (array)($finalize['loyalty'] ?? []),
                 'direct_print_targets' => [],
                 'warning_message' => $warningMessage,
             ]);
@@ -4205,6 +4207,7 @@ public function self_order_tables_print()
             'payment_mode' => (string)($context['payment_mode'] ?? 'KASIR'),
             'payment_status' => (string)($context['payment_status'] ?? 'PENDING'),
             'is_paid' => !empty($context['is_paid']),
+            'payment' => (array)($context['payment'] ?? []),
             'stock_commit_status' => 'QUEUED',
             'verify_destination' => $verifyDestination,
         ]);
@@ -4254,6 +4257,7 @@ public function self_order_tables_print()
             'workspace_bucket' => (string)($finalize['workspace_bucket'] ?? ''),
             'target_status' => (string)($finalize['target_status'] ?? ''),
             'payment_mode' => (string)($context['payment_mode'] ?? 'KASIR'),
+            'loyalty' => (array)($finalize['loyalty'] ?? []),
             'direct_print_targets' => (array)($directPrint['targets'] ?? []),
             'warning_message' => $warningMessage,
         ]);

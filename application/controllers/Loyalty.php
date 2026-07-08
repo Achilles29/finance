@@ -151,6 +151,36 @@ class Loyalty extends MY_Controller
         ));
     }
 
+    public function member_points($id)
+    {
+        $this->require_permission('loyalty.member.index', 'view');
+        $this->json_ok($this->Loyalty_model->member_point_rows(
+            (int)$id,
+            max(1, (int)$this->input->get('page', true)),
+            15
+        ));
+    }
+
+    public function member_stamps($id)
+    {
+        $this->require_permission('loyalty.member.index', 'view');
+        $this->json_ok($this->Loyalty_model->member_stamp_rows(
+            (int)$id,
+            max(1, (int)$this->input->get('page', true)),
+            15
+        ));
+    }
+
+    public function member_vouchers($id)
+    {
+        $this->require_permission('loyalty.member.index', 'view');
+        $this->json_ok($this->Loyalty_model->member_voucher_rows(
+            (int)$id,
+            max(1, (int)$this->input->get('page', true)),
+            15
+        ));
+    }
+
     // ── Point rules ───────────────────────────────────────────
 
     public function point_rules()
@@ -521,6 +551,8 @@ class Loyalty extends MY_Controller
             'status' => strtoupper(trim((string)$this->input->get('status', true) ?: 'ACTIVE')),
             'member_status' => strtoupper(trim((string)$this->input->get('member_status', true) ?: 'ALL')),
             'tier' => trim((string)$this->input->get('tier', true)),
+            'sort_by' => strtolower(trim((string)$this->input->get('sort_by', true) ?: 'member_name')),
+            'sort_dir' => strtolower(trim((string)$this->input->get('sort_dir', true) ?: 'asc')),
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 50)),
         ];
@@ -682,10 +714,11 @@ class Loyalty extends MY_Controller
                         ['value' => 'EXPIRED', 'label' => 'Kadaluarsa'],
                         ['value' => 'VOID', 'label' => 'Dibatalkan'],
                     ],
+                    'action_mode' => 'voucher_issue',
                     'columns' => [
                         ['key' => 'voucher_code', 'label' => 'Kode Voucher'],
                         ['key' => 'campaign_name', 'label' => 'Sumber Aturan'],
-                        ['key' => 'member_name', 'label' => 'Khusus Member'],
+                        ['key' => 'member_name', 'label' => 'Pemilik'],
                         ['key' => 'voucher_status_label', 'label' => 'Status'],
                         ['key' => 'amount_snapshot', 'label' => 'Benefit', 'type' => 'voucher_issue_benefit'],
                         ['key' => 'expired_at', 'label' => 'Kadaluarsa', 'type' => 'date'],
