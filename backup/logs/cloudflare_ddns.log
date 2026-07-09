@@ -4008,3 +4008,32 @@
 [2026-07-09 08:50:31] [ERROR] Tidak bisa mendapatkan IPv4 publik yang valid.
 [2026-07-09 08:55:31] [ERROR] Tidak bisa mendapatkan IPv4 publik yang valid.
 [2026-07-09 09:00:01] [INFO] IPv4 publik: 113.11.179.66 -> 113.11.179.187
+[2026-07-09 09:00:05] [OK] absen.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:06] [OK] bbm.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:07] [OK] cloud.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:08] [OK] core2.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:08] [OK] core.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:09] [OK] dashboard.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:09] [OK] dev.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:10] [OK] efin.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:11] [OK] faceapi.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:11] [OK] finance.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:12] [OK] game.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:13] [OK] kasir.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:13] [OK] literasi.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:14] [OK] login.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:14] [OK] member.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:15] [OK] namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:15] [OK] nextcloud.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:16] [OK] pos.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:17] [OK] ptsp.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:17] [OK] vs.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:18] [OK] wabot.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:19] [OK] www.namuacoffee.com -> 113.11.179.187
+[2026-07-09 09:00:19] [DONE] updated=22 skipped=0 failed=0
+[2026-07-09 09:05:01] [INFO] IPv4 publik belum berubah (113.11.179.187).
+[2026-07-09 09:10:01] [INFO] IPv4 publik belum berubah (113.11.179.187).
+[2026-07-09 09:15:01] [INFO] IPv4 publik belum berubah (113.11.179.187).
+[2026-07-09 09:20:02] [INFO] IPv4 publik belum berubah (113.11.179.187).
+[2026-07-09 09:25:02] [INFO] IPv4 publik belum berubah (113.11.179.187).
+[2026-07-09 09:30:01] [INFO] IPv4 publik belum berubah (113.11.179.187).
