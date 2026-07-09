@@ -22571,9 +22571,13 @@ class Purchase_model extends CI_Model
             $adjustmentQty = round($this->resolveDailyMatrixAdjustmentQtyContent($row), 4);
             $rollupClosingQty = round((float)($row['closing_qty_content'] ?? 0), 4);
             $computedClosingQty = round($openingQty + $inQty - $outQty + $adjustmentQty, 4);
-            $closingQty = abs($rollupClosingQty - $computedClosingQty) > 0.0001
-                ? $computedClosingQty
-                : $rollupClosingQty;
+            // Daily matrix rows that come from monthly-base rebuild already carry the intended
+            // closing balance per day. Recomputing here can resurrect stale opening values
+            // after an adjustment/variance was already folded into the backend row.
+            $closingQty = $rollupClosingQty;
+            if (!array_key_exists('closing_qty_content', $row)) {
+                $closingQty = $computedClosingQty;
+            }
 
             $entry = [
                 'opening' => round($openingQty, 2),

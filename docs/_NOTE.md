@@ -148,3 +148,5 @@ perbaiki directory member /order . ketersediaan stok produk agar membaca mst_pro
 
 
 produk dengan stock mode auto, yang sesuai resep habis kasih badge "Sold Out" ,  produk yang stok sesuai resepnya dibawah 5 kasih badge "Limited"
+
+

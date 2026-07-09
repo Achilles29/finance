@@ -397,3 +397,7 @@ pastikan terbaca sebagai stok keluar masuk di halaman iventory seperti inventory
 jangan lupa masukkan ke template rumpun tab bertingkat stok bahan bakudan sidebar nya
 
 masukkan ke database role matrix dan sidebar akses nya
+
+
+
+cek
