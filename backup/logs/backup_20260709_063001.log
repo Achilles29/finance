@@ -3,3 +3,6 @@
 [2026-07-09 06:30:01] Output   : /www/wwwroot/finance/backup/dumps/backup_db_finance_20260709_063001.sql.gz
 [2026-07-09 06:30:05] Dump OK  : 8.8M
 [2026-07-09 06:30:05] Cleanup  : 1 file lama dihapus (> 3 hari)
+[2026-07-09 06:30:26] [WARN] Git fetch gagal. Skip push. Backup lokal tersimpan.
+[2026-07-09 06:30:26] ====== Backup SELESAI ======
+[2026-07-09 06:30:26] 
