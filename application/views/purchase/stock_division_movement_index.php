@@ -222,7 +222,7 @@ $formatDivLabel = static function (array $r): string {
 <!-- Header -->
 <div class="d-flex flex-wrap justify-content-between align-items-start mb-2 gap-2">
   <div>
-    <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape((string)($title ?? 'Mutasi Bahan Baku')); ?></h4>
+    <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape((string)($title ?? 'Log Bahan Baku')); ?></h4>
     <small class="text-muted">Log pergerakan stok per baris dari <code>inv_stock_movement_log</code> — setiap transfer, penerimaan, adjustment, dan POS usage tercatat di sini.</small>
   </div>
   <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary align-self-start">

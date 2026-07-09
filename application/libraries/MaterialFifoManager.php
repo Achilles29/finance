@@ -474,6 +474,220 @@ class MaterialFifoManager
         ];
     }
 
+    public function transferDivisionToDivision(array $payload): array
+    {
+        $ensure = $this->ensureSchema();
+        if (!($ensure['ok'] ?? false)) {
+            return $ensure;
+        }
+
+        $fromDivisionId = $this->nullableInt($payload['division_id'] ?? null);
+        $fromDestinationType = $this->normalizeDestinationType((string)($payload['destination_type'] ?? ''));
+        $toDivisionId = $this->nullableInt($payload['target_division_id'] ?? null);
+        $toDestinationType = $this->normalizeDestinationType((string)($payload['target_destination_type'] ?? ''));
+        $issueDate = $this->normalizeDate((string)($payload['issue_date'] ?? ($payload['movement_date'] ?? '')));
+        $qtyNeed = round((float)($payload['qty_content_out'] ?? 0), 4);
+
+        if ($fromDivisionId === null || $fromDestinationType === null || $fromDestinationType === 'GUDANG' || $issueDate === null) {
+            return ['ok' => false, 'message' => 'Transfer divisi membutuhkan sumber division_id, destination_type, dan issue_date yang valid.'];
+        }
+        if ($toDivisionId === null || $toDestinationType === null || $toDestinationType === 'GUDANG') {
+            return ['ok' => false, 'message' => 'Transfer divisi membutuhkan tujuan division_id dan destination_type yang valid.'];
+        }
+        if ($fromDivisionId === $toDivisionId && $fromDestinationType === $toDestinationType) {
+            return ['ok' => false, 'message' => 'Sumber dan tujuan transfer tidak boleh sama.'];
+        }
+        if ($qtyNeed <= 0) {
+            return ['ok' => false, 'message' => 'qty_content_out wajib lebih besar dari nol.'];
+        }
+
+        $identity = $this->normalizeLotIdentity(array_merge($payload, [
+            'location_scope' => 'DIVISION',
+            'division_id' => $fromDivisionId,
+            'destination_type' => $fromDestinationType,
+        ]), false);
+        if (!($identity['ok'] ?? false)) {
+            return $identity;
+        }
+
+        $divisionLots = $this->findIssueSourceLots($identity, [
+            'allow_any_item_id' => false,
+            'allow_any_buy_uom' => false,
+            'allow_any_content_uom' => false,
+            'allow_any_profile_key' => false,
+        ]);
+        if ($this->lastBuilderQueryError !== null) {
+            return ['ok' => false, 'message' => $this->lastBuilderQueryError];
+        }
+
+        $available = 0.0;
+        foreach ($divisionLots as $lot) {
+            $available += round((float)($lot['qty_balance'] ?? 0), 4);
+        }
+        $available = round($available, 4);
+        if ($available + 0.0001 < $qtyNeed) {
+            return [
+                'ok' => false,
+                'message' => 'Saldo lot sumber tidak cukup. Dibutuhkan ' . number_format($qtyNeed, 4, '.', '') . ', tersedia ' . number_format($available, 4, '.', '') . '.',
+            ];
+        }
+
+        $issueNo = $this->generateIssueNo($issueDate);
+        $issueData = [
+            'issue_no' => $issueNo,
+            'issue_date' => $issueDate,
+            'issue_datetime' => date('Y-m-d H:i:s'),
+            'location_scope' => 'DIVISION',
+            'division_id' => $fromDivisionId,
+            'destination_type' => $fromDestinationType,
+            'target_scope' => 'DIVISION',
+            'target_division_id' => $toDivisionId,
+            'target_destination_type' => $toDestinationType,
+            'item_id' => $identity['item_id'],
+            'material_id' => $identity['material_id'],
+            'buy_uom_id' => $identity['buy_uom_id'],
+            'content_uom_id' => $identity['content_uom_id'],
+            'profile_key' => $identity['profile_key'],
+            'issue_qty' => $qtyNeed,
+            'total_cost' => 0,
+            'source_module' => $this->nullableString($payload['source_module'] ?? 'INVENTORY_TRANSFER'),
+            'source_table' => $this->nullableString($payload['source_table'] ?? null),
+            'source_id' => $this->nullableInt($payload['source_id'] ?? null),
+            'source_line_id' => $this->nullableInt($payload['source_line_id'] ?? null),
+            'notes' => $this->nullableString($payload['notes'] ?? null),
+            'status' => 'POSTED',
+        ];
+        $this->ci->db->insert('inv_material_fifo_issue_log', $issueData);
+        $issueId = (int)$this->ci->db->insert_id();
+        if ($issueId <= 0) {
+            return ['ok' => false, 'message' => 'Gagal membuat log transfer FIFO divisi.'];
+        }
+
+        $remaining = $qtyNeed;
+        $totalCost = 0.0;
+        $allocations = [];
+
+        foreach ($divisionLots as $lot) {
+            if ($remaining <= 0.0001) {
+                break;
+            }
+
+            $lotId = (int)($lot['id'] ?? 0);
+            $lotBalance = round((float)($lot['qty_balance'] ?? 0), 4);
+            if ($lotId <= 0 || $lotBalance <= 0) {
+                continue;
+            }
+
+            $takeQty = round(min($remaining, $lotBalance), 4);
+            if ($takeQty <= 0) {
+                continue;
+            }
+
+            $sourceLotPayload = [
+                'lot_id' => $lotId,
+                'location_scope' => 'DIVISION',
+                'division_id' => $fromDivisionId,
+                'destination_type' => $fromDestinationType,
+                'item_id' => $this->nullableInt($lot['item_id'] ?? null),
+                'material_id' => $this->nullableInt($lot['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($lot['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($lot['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($lot['profile_key'] ?? null),
+                'lot_no' => (string)($lot['lot_no'] ?? ''),
+                'receipt_date' => (string)($lot['receipt_date'] ?? $issueDate),
+                'expiry_date' => $this->normalizeDate((string)($lot['expiry_date'] ?? '')),
+                'unit_cost' => max(0, round((float)($lot['unit_cost'] ?? 0), 6)),
+                'source_table' => $this->nullableString($lot['source_table'] ?? null),
+                'source_id' => $this->nullableInt($lot['source_id'] ?? null),
+                'source_line_id' => $this->nullableInt($lot['source_line_id'] ?? null),
+                'receipt_id' => $this->nullableInt($lot['receipt_id'] ?? null),
+                'receipt_line_id' => $this->nullableInt($lot['receipt_line_id'] ?? null),
+                'parent_lot_id' => $this->nullableInt($lot['parent_lot_id'] ?? null),
+            ];
+            $sourceMutation = $this->applyLotMutation($sourceLotPayload, 0.0, $takeQty);
+            if (!($sourceMutation['ok'] ?? false)) {
+                return $sourceMutation;
+            }
+
+            $targetIdentity = [
+                'location_scope' => 'DIVISION',
+                'division_id' => $toDivisionId,
+                'destination_type' => $toDestinationType,
+                'item_id' => $this->nullableInt($lot['item_id'] ?? null),
+                'material_id' => $this->nullableInt($lot['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($lot['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($lot['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($lot['profile_key'] ?? null),
+                'lot_no' => (string)($lot['lot_no'] ?? ''),
+                'receipt_date' => (string)($lot['receipt_date'] ?? $issueDate),
+                'expiry_date' => $this->normalizeDate((string)($lot['expiry_date'] ?? '')),
+                'unit_cost' => max(0, round((float)($lot['unit_cost'] ?? 0), 6)),
+                'source_table' => $this->nullableString($payload['source_table'] ?? null),
+                'source_id' => $this->nullableInt($payload['source_id'] ?? null),
+                'source_line_id' => $this->nullableInt($payload['source_line_id'] ?? null),
+                'receipt_id' => null,
+                'receipt_line_id' => null,
+                'parent_lot_id' => $lotId > 0 ? $lotId : null,
+            ];
+            $targetBefore = $this->findLotForUpdate($targetIdentity);
+            $targetBalanceBefore = round((float)($targetBefore['qty_balance'] ?? 0), 4);
+            $targetMutation = $this->applyLotMutation($targetIdentity, $takeQty, 0.0);
+            if (!($targetMutation['ok'] ?? false)) {
+                return $targetMutation;
+            }
+
+            $unitCost = max(0, round((float)($lot['unit_cost'] ?? 0), 6));
+            $lineCost = round($takeQty * $unitCost, 2);
+            $this->ci->db->insert('inv_material_fifo_issue_line', [
+                'issue_id' => $issueId,
+                'lot_id' => $lotId,
+                'target_lot_id' => (int)($targetMutation['data']['lot_id'] ?? 0) > 0 ? (int)($targetMutation['data']['lot_id'] ?? 0) : null,
+                'qty_out' => $takeQty,
+                'unit_cost' => $unitCost,
+                'total_cost' => $lineCost,
+                'source_balance_before' => $lotBalance,
+                'source_balance_after' => round((float)($sourceMutation['data']['qty_balance'] ?? 0), 4),
+                'target_balance_before' => $targetBalanceBefore,
+                'target_balance_after' => round((float)($targetMutation['data']['qty_balance'] ?? 0), 4),
+            ]);
+            if ((int)($this->ci->db->insert_id() ?? 0) <= 0) {
+                return ['ok' => false, 'message' => 'Gagal menyimpan detail transfer FIFO divisi.'];
+            }
+
+            $allocations[] = [
+                'source_lot_id' => $lotId,
+                'source_lot_no' => (string)($lot['lot_no'] ?? ''),
+                'target_lot_id' => (int)($targetMutation['data']['lot_id'] ?? 0),
+                'target_lot_no' => (string)($targetMutation['data']['lot_no'] ?? ($lot['lot_no'] ?? '')),
+                'qty_content' => $takeQty,
+                'unit_cost' => $unitCost,
+                'total_cost' => $lineCost,
+            ];
+
+            $totalCost = round($totalCost + $lineCost, 2);
+            $remaining = round($remaining - $takeQty, 4);
+        }
+
+        if ($remaining > 0.0001) {
+            return ['ok' => false, 'message' => 'Transfer FIFO divisi tidak selesai karena lot sumber tidak cukup setelah alokasi.'];
+        }
+
+        $this->ci->db->where('id', $issueId)->update('inv_material_fifo_issue_log', [
+            'total_cost' => $totalCost,
+        ]);
+
+        return [
+            'ok' => true,
+            'data' => [
+                'issue_id' => $issueId,
+                'issue_no' => $issueNo,
+                'allocations' => $allocations,
+                'total_cost' => $totalCost,
+                'avg_unit_cost' => $qtyNeed > 0 ? round($totalCost / $qtyNeed, 6) : 0.0,
+            ],
+        ];
+    }
+
     public function consumeWarehouseUsage(array $payload): array
     {
         $ensure = $this->ensureSchema();

@@ -11,6 +11,7 @@ class Purchase extends MY_Controller
     const PAGE_STOCK_OPENING = 'purchase.stock.opening.index';
     const PAGE_STOCK_ADJUSTMENT_WAREHOUSE = 'purchase.stock.adjustment.warehouse.index';
     const PAGE_STOCK_ADJUSTMENT_DIVISION = 'purchase.stock.adjustment.division.index';
+    const PAGE_STOCK_TRANSFER_DIVISION = 'purchase.stock.transfer.division.index';
     const PAGE_STOCK_WAREHOUSE_MATRIX = 'purchase.stock.warehouse.matrix.index';
     const PAGE_STOCK_MATERIAL_MATRIX = 'purchase.stock.material.matrix.index';
     const PAGE_RECEIPT = 'purchase.receipt.index';
@@ -1802,6 +1803,239 @@ class Purchase extends MY_Controller
             ->set_output(json_encode($result));
     }
 
+    public function stock_transfer_division_index()
+    {
+        $this->require_permission(self::PAGE_STOCK_TRANSFER_DIVISION, 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        $q = trim((string)$this->input->get('q', true));
+        $dateFrom = trim((string)$this->input->get('date_from', true));
+        $dateTo = trim((string)$this->input->get('date_to', true));
+        $fromDivisionId = (int)$this->input->get('from_division_id', true);
+        $fromDestination = strtoupper(trim((string)$this->input->get('from_destination', true)));
+        $toDivisionId = (int)$this->input->get('to_division_id', true);
+        $toDestination = strtoupper(trim((string)$this->input->get('to_destination', true)));
+        if ($fromDestination === '') { $fromDestination = 'ALL'; }
+        if ($toDestination === '') { $toDestination = 'ALL'; }
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 100;
+        }
+
+        if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom) !== 1) { $dateFrom = ''; }
+        if ($dateTo !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) !== 1) { $dateTo = ''; }
+        if ($dateFrom === '' && $dateTo === '' && $month === '') {
+            $dateFrom = date('Y-m-01');
+            $dateTo = date('Y-m-d');
+        }
+
+        $divisions = $this->Purchase_model->list_active_operational_divisions();
+        $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
+        $fromDestination = $this->normalizeDestinationForDivisionFilter($fromDestination, $fromDivisionId, $destinationGuardMap);
+        $toDestination = $this->normalizeDestinationForDivisionFilter($toDestination, $toDivisionId, $destinationGuardMap);
+
+        $this->render('purchase/stock_transfer_index', [
+            'title' => 'Mutasi Bahan Baku',
+            'active_menu' => 'purchase.stock.transfer.division',
+            'active_tab' => 'transfer',
+            'month' => $month,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'q' => $q,
+            'from_division_id' => $fromDivisionId,
+            'from_destination' => $fromDestination,
+            'to_division_id' => $toDivisionId,
+            'to_destination' => $toDestination,
+            'limit' => $limit,
+            'rows' => $this->Purchase_model->list_stock_transfers(
+                $month,
+                $q,
+                $limit,
+                $fromDivisionId > 0 ? $fromDivisionId : null,
+                $fromDestination,
+                $toDivisionId > 0 ? $toDivisionId : null,
+                $toDestination,
+                $dateFrom,
+                $dateTo
+            ),
+            'divisions' => $divisions,
+            'destination_guard_map' => $destinationGuardMap,
+        ]);
+    }
+
+    public function stock_transfer_item_search()
+    {
+        $canTransfer = $this->can(self::PAGE_STOCK_TRANSFER_DIVISION, 'view') || $this->can(self::PAGE_STOCK_TRANSFER_DIVISION, 'create');
+        if (!$canTransfer) {
+            $this->jsonError('Anda tidak memiliki izin untuk pencarian item transfer.', 403);
+            return;
+        }
+
+        $q = trim((string)$this->input->get('q', true));
+        $limit = (int)$this->input->get('limit', true);
+        if ($limit <= 0 || $limit > 50) {
+            $limit = 20;
+        }
+
+        $rows = $this->Purchase_model->search_stock_transfer_items([
+            'division_id' => (int)$this->input->get('division_id', true),
+            'destination_type' => (string)$this->input->get('destination', true),
+        ], $q, $limit);
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => true,
+                'items' => $rows,
+                'meta' => [
+                    'q' => $q,
+                    'limit' => $limit,
+                    'count' => count($rows),
+                ],
+            ]));
+    }
+
+    public function stock_transfer_store()
+    {
+        $this->require_permission(self::PAGE_STOCK_TRANSFER_DIVISION, 'create');
+
+        $payload = $this->requestPayload();
+        $autoPost = !empty($payload['auto_post']);
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->save_stock_transfer([
+                'id' => (int)($payload['id'] ?? 0),
+                'transfer_no' => (string)($payload['transfer_no'] ?? ''),
+                'transfer_date' => (string)($payload['transfer_date'] ?? date('Y-m-d')),
+                'from_division_id' => !empty($payload['from_division_id']) ? (int)$payload['from_division_id'] : null,
+                'from_destination_type' => (string)($payload['from_destination_type'] ?? ''),
+                'to_division_id' => !empty($payload['to_division_id']) ? (int)$payload['to_division_id'] : null,
+                'to_destination_type' => (string)($payload['to_destination_type'] ?? ''),
+                'notes' => (string)($payload['notes'] ?? ''),
+            ], (array)($payload['lines'] ?? []), (int)($this->current_user['id'] ?? 0));
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal menyimpan transfer stok.'), 422);
+            return;
+        }
+
+        if ($autoPost) {
+            $this->require_permission(self::PAGE_STOCK_TRANSFER_DIVISION, 'edit');
+            $transferId = (int)($result['id'] ?? 0);
+            $posted = null;
+            $dbDebugBefore = (bool)$this->db->db_debug;
+            $this->db->db_debug = false;
+            try {
+                $posted = $this->Purchase_model->post_stock_transfer($transferId, (int)($this->current_user['id'] ?? 0), (string)$this->input->ip_address());
+                if (!($posted['ok'] ?? false) && $transferId > 0) {
+                    $this->Purchase_model->delete_draft_stock_transfer($transferId);
+                }
+            } finally {
+                $this->db->db_debug = $dbDebugBefore;
+            }
+
+            if (!($posted['ok'] ?? false)) {
+                $this->jsonError((string)($posted['message'] ?? 'Gagal posting transfer stok.'), 422);
+                return;
+            }
+
+            $result['posted'] = true;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function stock_transfer_post($id)
+    {
+        $header = $this->Purchase_model->get_stock_transfer((int)$id);
+        if (!$header) {
+            $this->jsonError('Transfer tidak ditemukan.', 404);
+            return;
+        }
+
+        $this->require_permission(self::PAGE_STOCK_TRANSFER_DIVISION, 'edit');
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->post_stock_transfer((int)$id, (int)($this->current_user['id'] ?? 0), (string)$this->input->ip_address());
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal posting transfer stok.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function stock_transfer_delete($id)
+    {
+        $header = $this->Purchase_model->get_stock_transfer((int)$id);
+        if (!$header) {
+            $this->jsonError('Transfer tidak ditemukan.', 404);
+            return;
+        }
+
+        $this->require_permission(self::PAGE_STOCK_TRANSFER_DIVISION, 'delete');
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->delete_draft_stock_transfer((int)$id);
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal menghapus draft transfer stok.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
+    public function stock_transfer_void($id)
+    {
+        $header = $this->Purchase_model->get_stock_transfer((int)$id);
+        if (!$header) {
+            $this->jsonError('Transfer tidak ditemukan.', 404);
+            return;
+        }
+
+        $this->require_permission(self::PAGE_STOCK_TRANSFER_DIVISION, 'delete');
+
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Purchase_model->void_posted_stock_transfer((int)$id, (int)($this->current_user['id'] ?? 0), (string)$this->input->ip_address());
+        } finally {
+            $this->db->db_debug = $dbDebugBefore;
+        }
+
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Gagal VOID transfer stok.'), 422);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/json')
+            ->set_output(json_encode($result));
+    }
+
     public function stock_opname_generate()
     {
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'create') && !$this->can(self::PAGE_STOCK_DIVISION, 'create')) {
@@ -2023,7 +2257,7 @@ class Purchase extends MY_Controller
         $page = max(1, (int)$this->input->get('page', true));
 
         $data = [
-            'title'        => 'Mutasi Bahan Baku',
+            'title'        => 'Log Bahan Baku',
             'active_menu'  => 'purchase.stock.division',
             'q'            => $q,
             'date_from'    => $dateFrom,

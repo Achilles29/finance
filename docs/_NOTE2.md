@@ -389,3 +389,11 @@ cek self order kasir nya harus nya sesuai kasir aktif, verifikasi kalau sudah PA
 
 
 
+masuk ke bahan baku divisi. sekarang buatkan halaman dan modul transfer bahan antar divisi dan antar lokasi. misal mau transfer gula dari BAR Reguler ke Bar event, BAR reguler ke Kitchen reguler, dan seterusnya
+perpindahan stok harus tercatat di log,sesuai lot dan profilnya. kalau tujuan transfer sudah ada bahan yang identik berarti tinggal tambah kuantiti di monthly stok dan lot serta log nya.
+buatkan sekalian modul void untuk rollbacknya.
+pastikan terbaca sebagai stok keluar masuk di halaman iventory seperti inventory-material-daily, /inventory/stock/division, dan lainnya yang memang harus ada.
+
+jangan lupa masukkan ke template rumpun tab bertingkat stok bahan bakudan sidebar nya
+
+masukkan ke database role matrix dan sidebar akses nya

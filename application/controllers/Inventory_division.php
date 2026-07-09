@@ -10,6 +10,7 @@ class Inventory_division extends Purchase
     public function index()     { parent::stock_division_index(); }
     public function opening()   { parent::stock_opening_division_index(); }
     public function adjustment(){ parent::stock_adjustment_division_index(); }
+    public function transfer()  { parent::stock_transfer_division_index(); }
     public function daily()     { parent::stock_division_daily_index(); }
     public function compare()   { parent::stock_division_reconcile_index(); }
     public function reconcile_audit()  { parent::stock_division_reconcile_audit(); }

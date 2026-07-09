@@ -9462,6 +9462,586 @@ class Purchase_model extends CI_Model
         ];
     }
 
+    public function list_stock_transfers(string $month, string $q, int $limit, ?int $fromDivisionId = null, ?string $fromDestination = null, ?int $toDivisionId = null, ?string $toDestination = null, string $dateFrom = '', string $dateTo = ''): array
+    {
+        if (!$this->db->table_exists('inv_stock_transfer')) {
+            return [];
+        }
+
+        $month = trim($month);
+        if ($month !== '' && preg_match('/^\d{4}\-\d{2}$/', $month) !== 1) {
+            $month = '';
+        }
+        $dateFrom = trim($dateFrom);
+        $dateTo = trim($dateTo);
+        if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom) !== 1) { $dateFrom = ''; }
+        if ($dateTo !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) !== 1) { $dateTo = ''; }
+        $q = trim($q);
+        $limit = max(1, min(500, $limit));
+
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $fromDivisionSelect = $divisionNameColumn !== null ? ('df.' . $divisionNameColumn . ' AS from_division_name') : 'NULL AS from_division_name';
+        $toDivisionSelect = $divisionNameColumn !== null ? ('dt.' . $divisionNameColumn . ' AS to_division_name') : 'NULL AS to_division_name';
+
+        $this->db
+            ->select('h.*, ' . $fromDivisionSelect . ', ' . $toDivisionSelect, false)
+            ->select('COUNT(l.id) AS line_count', false)
+            ->select('SUM(COALESCE(l.qty_transfer_content, 0)) AS total_qty_transfer_content', false)
+            ->select('SUM(COALESCE(l.total_cost, COALESCE(l.qty_transfer_content, 0) * COALESCE(l.unit_cost, 0))) AS total_transfer_value', false)
+            ->from('inv_stock_transfer h')
+            ->join('inv_stock_transfer_line l', 'l.transfer_id = h.id', 'left')
+            ->join('mst_operational_division df', 'df.id = h.from_division_id', 'left')
+            ->join('mst_operational_division dt', 'dt.id = h.to_division_id', 'left');
+
+        if ($dateFrom !== '' && $dateTo !== '') {
+            $this->db->where('h.transfer_date >=', $dateFrom)->where('h.transfer_date <=', $dateTo);
+        } elseif ($month !== '') {
+            $this->db->where("DATE_FORMAT(h.transfer_date, '%Y-%m') =", $month, false);
+        }
+
+        if ($fromDivisionId !== null && $fromDivisionId > 0) {
+            $this->db->where('h.from_division_id', $fromDivisionId);
+        }
+        $fromDestination = $this->normalizeStockAdjustmentDestination($fromDestination, false);
+        if ($fromDestination !== null && $fromDestination !== 'ALL') {
+            $this->db->where('COALESCE(h.from_destination_type, "OTHER") =', $fromDestination, false);
+        }
+        if ($toDivisionId !== null && $toDivisionId > 0) {
+            $this->db->where('h.to_division_id', $toDivisionId);
+        }
+        $toDestination = $this->normalizeStockAdjustmentDestination($toDestination, false);
+        if ($toDestination !== null && $toDestination !== 'ALL') {
+            $this->db->where('COALESCE(h.to_destination_type, "OTHER") =', $toDestination, false);
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('h.transfer_no', $q)
+                ->or_like('h.notes', $q)
+                ->or_like('h.status', $q)
+                ->or_like('l.profile_name', $q)
+                ->or_like('l.profile_brand', $q)
+                ->or_like('l.profile_description', $q)
+                ->or_like('l.profile_key', $q);
+            if ($divisionNameColumn !== null) {
+                $this->db->or_like('df.' . $divisionNameColumn, $q)
+                    ->or_like('dt.' . $divisionNameColumn, $q);
+            }
+            $this->db->group_end();
+        }
+
+        return $this->db
+            ->group_by('h.id')
+            ->order_by('h.transfer_date', 'DESC')
+            ->order_by('h.id', 'DESC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_stock_transfer(int $id): ?array
+    {
+        if ($id <= 0 || !$this->db->table_exists('inv_stock_transfer')) {
+            return null;
+        }
+
+        $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
+            ? 'division_name'
+            : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
+        $fromDivisionSelect = $divisionNameColumn !== null ? ('df.' . $divisionNameColumn . ' AS from_division_name') : 'NULL AS from_division_name';
+        $toDivisionSelect = $divisionNameColumn !== null ? ('dt.' . $divisionNameColumn . ' AS to_division_name') : 'NULL AS to_division_name';
+
+        $row = $this->db
+            ->select('h.*, ' . $fromDivisionSelect . ', ' . $toDivisionSelect, false)
+            ->from('inv_stock_transfer h')
+            ->join('mst_operational_division df', 'df.id = h.from_division_id', 'left')
+            ->join('mst_operational_division dt', 'dt.id = h.to_division_id', 'left')
+            ->where('h.id', $id)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return $row ?: null;
+    }
+
+    public function get_stock_transfer_lines(int $transferId): array
+    {
+        if ($transferId <= 0 || !$this->db->table_exists('inv_stock_transfer_line')) {
+            return [];
+        }
+
+        return $this->db
+            ->select('l.*, i.item_code, i.item_name, m.material_code, m.material_name')
+            ->from('inv_stock_transfer_line l')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = l.material_id', 'left')
+            ->where('l.transfer_id', $transferId)
+            ->order_by('l.line_no', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    public function search_stock_transfer_items(array $context, string $q, int $limit = 20): array
+    {
+        $rows = $this->search_stock_adjustment_items([
+            'stock_scope' => 'DIVISION',
+            'division_id' => !empty($context['division_id']) ? (int)$context['division_id'] : 0,
+            'destination_type' => (string)($context['destination_type'] ?? ''),
+        ], $q, $limit);
+
+        $filtered = [];
+        foreach ($rows as $row) {
+            if (($row['source_type'] ?? '') !== 'PROFILE_DIVISION_STOCK') {
+                continue;
+            }
+            if ((int)($row['material_id'] ?? 0) <= 0) {
+                continue;
+            }
+            if (round((float)($row['available_qty_content'] ?? 0), 4) <= 0) {
+                continue;
+            }
+            $filtered[] = $row;
+            if (count($filtered) >= $limit) {
+                break;
+            }
+        }
+
+        return $filtered;
+    }
+
+    public function save_stock_transfer(array $header, array $lines, int $userId): array
+    {
+        if (!$this->db->table_exists('inv_stock_transfer') || !$this->db->table_exists('inv_stock_transfer_line')) {
+            return ['ok' => false, 'message' => 'Tabel transfer stok belum tersedia.'];
+        }
+
+        $transferDate = $this->normalizeDate((string)($header['transfer_date'] ?? date('Y-m-d')));
+        if ($transferDate === null) {
+            return ['ok' => false, 'message' => 'Tanggal transfer tidak valid.'];
+        }
+
+        $fromDivisionId = !empty($header['from_division_id']) ? (int)$header['from_division_id'] : null;
+        $fromDestinationType = $this->normalizeStockAdjustmentDestination((string)($header['from_destination_type'] ?? ''), true);
+        $toDivisionId = !empty($header['to_division_id']) ? (int)$header['to_division_id'] : null;
+        $toDestinationType = $this->normalizeStockAdjustmentDestination((string)($header['to_destination_type'] ?? ''), true);
+
+        if ($fromDivisionId === null || $fromDestinationType === null) {
+            return ['ok' => false, 'message' => 'Sumber transfer wajib diisi lengkap.'];
+        }
+        if ($toDivisionId === null || $toDestinationType === null) {
+            return ['ok' => false, 'message' => 'Tujuan transfer wajib diisi lengkap.'];
+        }
+        if ($fromDivisionId === $toDivisionId && $fromDestinationType === $toDestinationType) {
+            return ['ok' => false, 'message' => 'Sumber dan tujuan transfer tidak boleh sama.'];
+        }
+
+        $preparedLines = [];
+        foreach ($lines as $line) {
+            $prepared = $this->normalizeStockTransferLine($fromDivisionId, $fromDestinationType, $toDivisionId, $toDestinationType, $line);
+            if (is_array($prepared) && !empty($prepared['_validation_error'])) {
+                return ['ok' => false, 'message' => (string)$prepared['_validation_error']];
+            }
+            if ($prepared === null) {
+                continue;
+            }
+            $preparedLines[] = $prepared;
+        }
+        if (empty($preparedLines)) {
+            return ['ok' => false, 'message' => 'Baris transfer belum diisi atau tidak valid.'];
+        }
+
+        $id = !empty($header['id']) ? (int)$header['id'] : 0;
+        $payload = [
+            'transfer_no' => $id > 0 ? (string)($header['transfer_no'] ?? '') : $this->generateStockTransferNo($transferDate),
+            'transfer_date' => $transferDate,
+            'from_division_id' => $fromDivisionId,
+            'from_destination_type' => $fromDestinationType,
+            'to_division_id' => $toDivisionId,
+            'to_destination_type' => $toDestinationType,
+            'notes' => $this->nullableString($header['notes'] ?? null),
+        ];
+
+        $this->db->trans_begin();
+
+        if ($id > 0) {
+            $existing = $this->get_stock_transfer($id);
+            if (!$existing || strtoupper((string)($existing['status'] ?? '')) !== 'DRAFT') {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Hanya draft transfer yang bisa diubah.'];
+            }
+            unset($payload['transfer_no']);
+            $this->db->where('id', $id)->update('inv_stock_transfer', $payload);
+            $this->db->where('transfer_id', $id)->delete('inv_stock_transfer_line');
+        } else {
+            $payload['status'] = 'DRAFT';
+            $payload['created_by'] = $userId > 0 ? $userId : null;
+            $inserted = $this->db->insert('inv_stock_transfer', $payload);
+            if (!$inserted) {
+                $dbError = $this->db->error();
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal menyimpan header transfer: ' . (string)($dbError['message'] ?? 'unknown error')];
+            }
+            $id = (int)$this->db->insert_id();
+        }
+
+        $lineNo = 1;
+        foreach ($preparedLines as $preparedLine) {
+            $preparedLine['transfer_id'] = $id;
+            $preparedLine['line_no'] = $lineNo++;
+            $inserted = $this->db->insert('inv_stock_transfer_line', $preparedLine);
+            if (!$inserted) {
+                $dbError = $this->db->error();
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal menyimpan line transfer: ' . (string)($dbError['message'] ?? 'unknown error')];
+            }
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal menyimpan draft transfer.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'id' => $id, 'transfer_no' => $payload['transfer_no'] ?? ($header['transfer_no'] ?? '')];
+    }
+
+    public function post_stock_transfer(int $id, int $userId, string $sourceIp = ''): array
+    {
+        $header = $this->get_stock_transfer($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Dokumen transfer tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? '')) !== 'DRAFT') {
+            return ['ok' => false, 'message' => 'Hanya draft transfer yang bisa diposting.'];
+        }
+
+        $lines = $this->get_stock_transfer_lines($id);
+        if (empty($lines)) {
+            return ['ok' => false, 'message' => 'Dokumen transfer belum punya baris.'];
+        }
+
+        $this->load->library('MaterialFifoManager');
+        $fifoReady = $this->materialfifomanager->ensureReady();
+        if (!($fifoReady['ok'] ?? false)) {
+            return $fifoReady;
+        }
+
+        $this->db->trans_begin();
+        $postedLineIds = [];
+
+        foreach ($lines as $line) {
+            $contentPerBuy = round((float)($line['profile_content_per_buy'] ?? 1), 6);
+            if ($contentPerBuy <= 0) {
+                $contentPerBuy = 1.0;
+            }
+
+            $qtyContent = round((float)($line['qty_transfer_content'] ?? 0), 4);
+            if ($qtyContent <= 0) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Qty transfer harus lebih besar dari nol.'];
+            }
+
+            $lineNote = $this->buildStockTransferMovementNote(
+                (string)($header['transfer_no'] ?? ''),
+                'TRANSFER',
+                (string)($line['note'] ?? ''),
+                (string)($header['notes'] ?? ''),
+                (string)($header['from_destination_type'] ?? ''),
+                (string)($header['to_destination_type'] ?? '')
+            );
+
+            $fifo = $this->materialfifomanager->transferDivisionToDivision([
+                'division_id' => (int)$header['from_division_id'],
+                'destination_type' => (string)$header['from_destination_type'],
+                'target_division_id' => (int)$header['to_division_id'],
+                'target_destination_type' => (string)$header['to_destination_type'],
+                'issue_date' => (string)$header['transfer_date'],
+                'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
+                'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+                'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+                'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
+                'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                'qty_content_out' => $qtyContent,
+                'source_module' => 'INVENTORY_TRANSFER',
+                'source_table' => 'inv_stock_transfer',
+                'source_id' => $id,
+                'source_line_id' => (int)($line['id'] ?? 0),
+                'notes' => $lineNote,
+            ]);
+            if (!($fifo['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return $fifo;
+            }
+
+            $qtyBuy = $this->convertStockAdjustmentQtyBuy($qtyContent, $contentPerBuy, !empty($line['buy_uom_id']));
+            $unitCost = round((float)($fifo['data']['avg_unit_cost'] ?? ($line['unit_cost'] ?? 0)), 6);
+            $totalCost = round($qtyContent * $unitCost, 2);
+
+            $basePayload = [
+                'manage_transaction' => false,
+                'movement_scope' => 'DIVISION',
+                'movement_date' => (string)$header['transfer_date'],
+                'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
+                'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+                'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+                'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
+                'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+                'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+                'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+                'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+                'profile_content_per_buy' => $contentPerBuy,
+                'profile_buy_uom_code' => $this->nullableString($line['profile_buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->nullableString($line['profile_content_uom_code'] ?? null),
+                'unit_cost' => $unitCost,
+                'ref_table' => 'inv_stock_transfer',
+                'ref_id' => $id,
+                'created_by' => $userId > 0 ? $userId : null,
+            ];
+
+            $sourceLedger = $this->postInventoryLedgerEntry($basePayload + [
+                'division_id' => (int)$header['from_division_id'],
+                'destination_type' => (string)$header['from_destination_type'],
+                'movement_type' => 'TRANSFER_OUT',
+                'qty_buy_delta' => $qtyBuy * -1,
+                'qty_content_delta' => $qtyContent * -1,
+                'notes' => $lineNote . ' | OUT',
+            ]);
+            if (!($sourceLedger['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => (string)($sourceLedger['message'] ?? 'Gagal posting transfer keluar.')];
+            }
+
+            $targetLedger = $this->postInventoryLedgerEntry($basePayload + [
+                'division_id' => (int)$header['to_division_id'],
+                'destination_type' => (string)$header['to_destination_type'],
+                'movement_type' => 'TRANSFER_IN',
+                'qty_buy_delta' => $qtyBuy,
+                'qty_content_delta' => $qtyContent,
+                'mutation_value_override' => $totalCost,
+                'notes' => $lineNote . ' | IN',
+            ]);
+            if (!($targetLedger['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => (string)($targetLedger['message'] ?? 'Gagal posting transfer masuk.')];
+            }
+
+            $this->db->where('id', (int)$line['id'])->update('inv_stock_transfer_line', [
+                'unit_cost' => $unitCost,
+                'total_cost' => $totalCost,
+                'transfer_issue_id' => (int)($fifo['data']['issue_id'] ?? 0) > 0 ? (int)$fifo['data']['issue_id'] : null,
+            ]);
+            $postedLineIds[] = (int)$line['id'];
+        }
+
+        $this->db->where('id', $id)->update('inv_stock_transfer', [
+            'status' => 'POSTED',
+            'posted_at' => date('Y-m-d H:i:s'),
+            'posted_by' => $userId > 0 ? $userId : null,
+        ]);
+
+        if ($this->db->table_exists('aud_transaction_log')) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'INVENTORY',
+                'action_code' => 'DIVISION_TRANSFER',
+                'entity_table' => 'inv_stock_transfer',
+                'entity_id' => $id,
+                'transaction_no' => (string)($header['transfer_no'] ?? ''),
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                'after_payload' => json_encode([
+                    'header' => [
+                        'id' => $id,
+                        'transfer_no' => (string)($header['transfer_no'] ?? ''),
+                        'transfer_date' => (string)($header['transfer_date'] ?? ''),
+                        'from_division_id' => (int)($header['from_division_id'] ?? 0),
+                        'from_destination_type' => (string)($header['from_destination_type'] ?? ''),
+                        'to_division_id' => (int)($header['to_division_id'] ?? 0),
+                        'to_destination_type' => (string)($header['to_destination_type'] ?? ''),
+                    ],
+                    'line_ids' => $postedLineIds,
+                ]),
+                'notes' => 'Transfer bahan baku antar divisi/lokasi diposting ke live balance, movement log, dan lot FIFO',
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal memposting transfer stok.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'id' => $id];
+    }
+
+    public function delete_draft_stock_transfer(int $id): array
+    {
+        $header = $this->get_stock_transfer($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Dokumen transfer tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? '')) !== 'DRAFT') {
+            return ['ok' => false, 'message' => 'Hanya draft transfer yang bisa dihapus.'];
+        }
+
+        $this->db->trans_begin();
+        $this->db->where('transfer_id', $id)->delete('inv_stock_transfer_line');
+        $this->db->where('id', $id)->delete('inv_stock_transfer');
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal menghapus draft transfer.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'id' => $id];
+    }
+
+    public function void_posted_stock_transfer(int $id, int $userId, string $sourceIp = ''): array
+    {
+        $header = $this->get_stock_transfer($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Dokumen transfer tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? 'DRAFT')) !== 'POSTED') {
+            return ['ok' => false, 'message' => 'Hanya transfer POSTED yang bisa di-void.'];
+        }
+
+        $lines = $this->get_stock_transfer_lines($id);
+        if (empty($lines)) {
+            return ['ok' => false, 'message' => 'Dokumen transfer tidak memiliki line untuk di-void.'];
+        }
+
+        $this->load->library('MaterialFifoManager');
+        $fifoReady = $this->materialfifomanager->ensureReady();
+        if (!($fifoReady['ok'] ?? false)) {
+            return $fifoReady;
+        }
+
+        $voidNote = 'VOID transfer membatalkan dokumen posted';
+        $rebuildTargets = [];
+        $transferDate = $this->normalizeDate((string)($header['transfer_date'] ?? date('Y-m-d')));
+        if ($transferDate === null) {
+            $transferDate = date('Y-m-d');
+        }
+
+        $this->db->trans_begin();
+
+        foreach ($lines as $line) {
+            $rollback = $this->materialfifomanager->rollbackTransferLotsBySource(
+                'inv_stock_transfer',
+                $id,
+                (int)($line['id'] ?? 0),
+                $voidNote
+            );
+            if (!($rollback['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'VOID transfer ditolak: ' . (string)($rollback['message'] ?? 'gagal rollback transfer FIFO'),
+                ];
+            }
+
+            $sourceIdentity = [
+                'stock_domain' => 'ITEM',
+                'division_id' => (int)($header['from_division_id'] ?? 0),
+                'destination_type' => (string)($header['from_destination_type'] ?? 'OTHER'),
+                'item_id' => $this->nullableInt($line['item_id'] ?? null),
+                'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+                'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+                'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+                'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+                'profile_content_per_buy' => (float)($line['profile_content_per_buy'] ?? 0),
+                'profile_buy_uom_code' => $this->nullableString($line['profile_buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->nullableString($line['profile_content_uom_code'] ?? null),
+            ];
+            $targetIdentity = $sourceIdentity;
+            $targetIdentity['division_id'] = (int)($header['to_division_id'] ?? 0);
+            $targetIdentity['destination_type'] = (string)($header['to_destination_type'] ?? 'OTHER');
+
+            $this->registerVoidRollbackRebuildTarget($rebuildTargets, 'DIVISION', $transferDate, $sourceIdentity);
+            $this->registerVoidRollbackRebuildTarget($rebuildTargets, 'DIVISION', $transferDate, $targetIdentity);
+        }
+
+        if ($this->db->table_exists('inv_stock_movement_log')) {
+            $this->db
+                ->where('ref_table', 'inv_stock_transfer')
+                ->where('ref_id', $id)
+                ->delete('inv_stock_movement_log');
+            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal menghapus histori movement transfer.'];
+            }
+        }
+
+        $update = ['status' => 'VOID'];
+        if ($this->db->field_exists('voided_at', 'inv_stock_transfer')) {
+            $update['voided_at'] = date('Y-m-d H:i:s');
+        }
+        if ($this->db->field_exists('voided_by', 'inv_stock_transfer')) {
+            $update['voided_by'] = $userId > 0 ? $userId : null;
+        }
+        if ($this->db->field_exists('notes', 'inv_stock_transfer')) {
+            $existingNotes = trim((string)($header['notes'] ?? ''));
+            $update['notes'] = $existingNotes !== '' ? ($existingNotes . ' | ' . $voidNote) : $voidNote;
+        }
+        $this->db->where('id', $id)->update('inv_stock_transfer', $update);
+        if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal update status VOID transfer.'];
+        }
+
+        foreach ($rebuildTargets as $target) {
+            $identity = (array)($target['identity'] ?? []);
+            $sync = $this->materialfifomanager->syncDivisionMonthlyStockFromLots([
+                'movement_date' => (string)$transferDate,
+                'division_id' => $this->nullableInt($identity['division_id'] ?? null),
+                'destination_type' => (string)($identity['destination_type'] ?? 'OTHER'),
+                'item_id' => $this->nullableInt($identity['item_id'] ?? null),
+                'material_id' => $this->nullableInt($identity['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($identity['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($identity['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($identity['profile_key'] ?? null),
+                'sync_note' => 'Synced from FIFO lots after VOID transfer',
+            ]);
+            if (!($sync['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => (string)($sync['message'] ?? 'Gagal sinkron stok bulanan setelah VOID transfer.')];
+            }
+        }
+
+        if ($this->db->table_exists('aud_transaction_log')) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'INVENTORY',
+                'action_code' => 'DIVISION_TRANSFER_VOID',
+                'entity_table' => 'inv_stock_transfer',
+                'entity_id' => $id,
+                'transaction_no' => (string)($header['transfer_no'] ?? ''),
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                'after_payload' => json_encode([
+                    'transfer_id' => $id,
+                    'transfer_no' => (string)($header['transfer_no'] ?? ''),
+                    'void_line_count' => count($lines),
+                ]),
+                'notes' => 'Transfer bahan baku di-void dan histori stok direbuild',
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal VOID transfer stok.'];
+        }
+
+        $this->db->trans_commit();
+        return ['ok' => true, 'id' => $id];
+    }
+
     public function list_stock_adjustments(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null, string $dateFrom = '', string $dateTo = ''): array
     {
         if (!$this->db->table_exists('inv_stock_adjustment')) {
@@ -10665,6 +11245,128 @@ class Purchase_model extends CI_Model
         }
 
         return ['ok' => true, 'data' => ['sync_count' => count($targets)]];
+    }
+
+    private function normalizeStockTransferLine(?int $fromDivisionId, ?string $fromDestinationType, ?int $toDivisionId, ?string $toDestinationType, array $line): ?array
+    {
+        $itemId = !empty($line['item_id']) ? (int)$line['item_id'] : null;
+        $materialId = !empty($line['material_id']) ? (int)$line['material_id'] : null;
+        $buyUomId = !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null;
+        $contentUomId = !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null;
+        $profileKey = $this->nullableString($line['profile_key'] ?? null);
+
+        if ($itemId === null && $materialId === null) {
+            return null;
+        }
+        if ($materialId === null || $materialId <= 0) {
+            return ['_validation_error' => 'Transfer bahan baku hanya boleh untuk item yang memiliki material_id.'];
+        }
+        if ($contentUomId === null) {
+            return ['_validation_error' => 'content_uom_id transfer wajib diisi.'];
+        }
+
+        $contentPerBuy = round((float)($line['profile_content_per_buy'] ?? $line['default_content_per_buy'] ?? 1), 6);
+        if ($contentPerBuy <= 0) {
+            $contentPerBuy = 1.0;
+        }
+
+        $sourceBalance = $this->fetchStockAdjustmentCurrentBalance([
+            'stock_scope' => 'DIVISION',
+            'division_id' => $fromDivisionId,
+            'destination_type' => $fromDestinationType,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'buy_uom_id' => $buyUomId,
+            'content_uom_id' => $contentUomId,
+            'profile_key' => $profileKey,
+            'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+            'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+            'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+            'profile_content_per_buy' => $contentPerBuy,
+        ]);
+        $targetBalance = $this->fetchStockAdjustmentCurrentBalance([
+            'stock_scope' => 'DIVISION',
+            'division_id' => $toDivisionId,
+            'destination_type' => $toDestinationType,
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'buy_uom_id' => $buyUomId,
+            'content_uom_id' => $contentUomId,
+            'profile_key' => $profileKey,
+            'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+            'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+            'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+            'profile_content_per_buy' => $contentPerBuy,
+        ]);
+
+        $qtyContent = round((float)($line['qty_transfer_content'] ?? 0), 4);
+        if ($qtyContent <= 0) {
+            return ['_validation_error' => 'Qty transfer harus lebih besar dari nol.'];
+        }
+
+        $availableQtyContent = round((float)($sourceBalance['qty_content_balance'] ?? 0), 4);
+        if ($availableQtyContent <= 0) {
+            return ['_validation_error' => 'Saldo sumber untuk item/profil yang dipilih sudah habis.'];
+        }
+        if ($qtyContent - $availableQtyContent > 0.0001) {
+            return ['_validation_error' => 'Qty transfer melebihi stok sumber yang tersedia.'];
+        }
+
+        return [
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'buy_uom_id' => $buyUomId,
+            'content_uom_id' => $contentUomId,
+            'profile_key' => $profileKey,
+            'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+            'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+            'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+            'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+            'profile_content_per_buy' => $contentPerBuy,
+            'profile_buy_uom_code' => $this->nullableString($line['profile_buy_uom_code'] ?? $line['default_buy_uom_code'] ?? null),
+            'profile_content_uom_code' => $this->nullableString($line['profile_content_uom_code'] ?? $line['default_content_uom_code'] ?? null),
+            'available_qty_buy' => round((float)($sourceBalance['qty_buy_balance'] ?? 0), 4),
+            'available_qty_content' => $availableQtyContent,
+            'target_existing_qty_content' => round((float)($targetBalance['qty_content_balance'] ?? 0), 4),
+            'unit_cost' => round(max(0, (float)($sourceBalance['avg_cost_per_content'] ?? 0)), 6),
+            'qty_transfer_content' => $qtyContent,
+            'note' => $this->nullableString($line['note'] ?? null),
+        ];
+    }
+
+    private function buildStockTransferMovementNote(string $transferNo, string $category, string $lineNote, string $headerNote, string $fromDestination, string $toDestination): string
+    {
+        $parts = [];
+        if ($transferNo !== '') {
+            $parts[] = $transferNo;
+        }
+        $parts[] = strtoupper($category);
+        $routeLabel = trim($fromDestination) !== '' || trim($toDestination) !== ''
+            ? strtoupper(trim($fromDestination)) . ' -> ' . strtoupper(trim($toDestination))
+            : '';
+        if ($routeLabel !== '') {
+            $parts[] = $routeLabel;
+        }
+        if (trim($lineNote) !== '') {
+            $parts[] = trim($lineNote);
+        } elseif (trim($headerNote) !== '') {
+            $parts[] = trim($headerNote);
+        }
+        return implode(' | ', $parts);
+    }
+
+    private function generateStockTransferNo(string $date): string
+    {
+        $prefix = 'ITD';
+        $dayKey = date('Ymd', strtotime($date));
+        do {
+            $candidate = $prefix . $dayKey . '-' . str_pad((string)random_int(1, 9999), 4, '0', STR_PAD_LEFT);
+            $exists = (int)$this->db->where('transfer_no', $candidate)->count_all_results('inv_stock_transfer');
+        } while ($exists > 0);
+
+        return $candidate;
     }
 
     private function normalizeStockAdjustmentLine(string $scope, ?int $divisionId, ?string $destinationType, array $line): ?array

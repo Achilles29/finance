@@ -96,6 +96,7 @@ if (!function_exists('_get_ri_icon')) {
             'grp.purchase'          => 'ri-shopping-cart-2-line',
             'purchase.stock.adjustment.warehouse' => 'ri-scales-3-line',
             'purchase.stock.adjustment.division' => 'ri-scales-3-line',
+            'purchase.stock.transfer.division' => 'ri-share-forward-2-line',
             'purchase.stock.opname.division'     => 'ri-check-double-line',
             'grp.finance'           => 'ri-bank-line',
             'finance.payable'       => 'ri-hand-coin-line',
@@ -460,6 +461,7 @@ if (!function_exists('_regroup_inventory_children')) {
           'purchase.stock.opening.division',
           'purchase.stock.material.matrix',
           'purchase.stock.adjustment.division',
+          'purchase.stock.transfer.division',
         ],
       ],
     ];
