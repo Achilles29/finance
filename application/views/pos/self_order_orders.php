@@ -241,12 +241,10 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       <div class="modal-body">
         <div class="self-order-detail-grid mb-3" id="self_order_verify_grid"></div>
         <div class="mb-3 d-none" id="self_order_verify_destination_wrap">
-          <label class="form-label small text-muted mb-1" for="self_order_verify_destination">Tujuan Verifikasi</label>
-          <select class="form-select" id="self_order_verify_destination">
-            <option value="ACTIVE_CASHIER">Masuk Order Aktif Dulu</option>
-            <option value="PAID_ORDER">Langsung ke Pesanan Terbayar</option>
-          </select>
-          <div class="small text-muted mt-2" id="self_order_verify_destination_note">Order QRIS yang sudah lunas tetap bisa masuk order aktif dulu agar kasir sempat cek stok dan penyesuaian.</div>
+          <div class="self-order-modal-note">
+            <div class="fw-semibold text-dark mb-1">Tujuan Verifikasi</div>
+            <div id="self_order_verify_destination_note">Order QRIS yang sudah lunas akan langsung masuk ke workspace pesanan terbayar setelah diverifikasi.</div>
+          </div>
         </div>
         <div class="self-order-section-label mb-2">Preview Line Order</div>
         <div class="self-order-line-preview" id="self_order_verify_lines">
@@ -887,7 +885,6 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   async function openVerify(row) {
     verifyRow = row;
     const destinationWrap = document.getElementById('self_order_verify_destination_wrap');
-    const destinationEl = document.getElementById('self_order_verify_destination');
     const verifyLinesEl = document.getElementById('self_order_verify_lines');
     const hasPaidQris = row.payment_mode === 'QRIS' && Number(row.is_paid || 0) === 1;
     document.getElementById('self_order_verify_meta').textContent = `${row.order_no || '-'} | ${row.customer_name_display || 'Walk in'} | ${row.payment_mode === 'QRIS' ? 'QRIS' : 'Bayar di Kasir'}`;
@@ -897,12 +894,9 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     if (destinationWrap) {
       destinationWrap.classList.toggle('d-none', !hasPaidQris);
     }
-    if (destinationEl) {
-      destinationEl.value = hasPaidQris ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
-    }
     syncVerifyDestinationSummary();
     document.getElementById('self_order_verify_hint').textContent = hasPaidQris
-      ? 'Order sudah terbayar. Pilih dulu apakah order masuk ke order aktif untuk cek stok dan penyesuaian, atau langsung ke pesanan terbayar.'
+      ? 'Order QRIS yang sudah lunas akan langsung masuk ke workspace pesanan terbayar beserta metode pembayaran yang sudah dipilih customer.'
       : (row.payment_mode === 'QRIS'
       ? 'Order QRIS belum bisa diverifikasi sebelum pembayaran diterima.'
       : 'Order akan masuk ke workspace order aktif. Kasir tetap bisa menagih customer di payment panel setelah pesanan diverifikasi.');
@@ -921,13 +915,12 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
 
   function syncVerifyDestinationSummary() {
     if (!verifyRow) return;
-    const destinationEl = document.getElementById('self_order_verify_destination');
-    const destination = destinationEl ? String(destinationEl.value || 'ACTIVE_CASHIER') : 'ACTIVE_CASHIER';
+    const destination = (verifyRow.payment_mode === 'QRIS' && Number(verifyRow.is_paid || 0) === 1)
+      ? 'PAID_ORDER'
+      : 'ACTIVE_CASHIER';
     const destinationNoteEl = document.getElementById('self_order_verify_destination_note');
     if (destinationNoteEl) {
-      destinationNoteEl.textContent = destination === 'PAID_ORDER'
-        ? 'Order QRIS yang sudah lunas akan langsung masuk ke workspace pesanan terbayar setelah diverifikasi.'
-        : 'Order QRIS yang sudah lunas akan masuk order aktif dulu agar kasir sempat cek stok, edit item, atau tagih selisih bila total berubah.';
+      destinationNoteEl.textContent = 'Order QRIS yang sudah lunas akan langsung masuk ke workspace pesanan terbayar setelah diverifikasi.';
     }
     document.getElementById('self_order_verify_grid').innerHTML = [
       ['Customer', verifyRow.customer_name_display || 'Walk in'],
@@ -961,9 +954,8 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     if (verifyBusy || !verifyRow) return;
     verifyBusy = true;
     const btn = document.getElementById('self_order_submit_verify');
-    const destinationEl = document.getElementById('self_order_verify_destination');
-    const verifyDestination = (verifyRow.payment_mode === 'QRIS' && Number(verifyRow.is_paid || 0) === 1 && destinationEl)
-      ? String(destinationEl.value || 'PAID_ORDER')
+    const verifyDestination = (verifyRow.payment_mode === 'QRIS' && Number(verifyRow.is_paid || 0) === 1)
+      ? 'PAID_ORDER'
       : 'ACTIVE_CASHIER';
     const originalHtml = btn.innerHTML;
     btn.disabled = true;

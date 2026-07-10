@@ -27,7 +27,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   :root {
     --pwd-sticky-top: 0px;
     --pwd-col-kind: 92px;
-    --pwd-col-item-profile: 420px;
+    --pwd-col-item-profile: 360px;
     --pwd-col-summary: 240px;
     --pwd-left-1: 0px;
     --pwd-left-2: var(--pwd-col-kind);
@@ -991,7 +991,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     var c3 = freezeHeaderRow.children[2];
 
     var w1 = Math.max(64, Math.ceil(c1.getBoundingClientRect().width));
-    var w2 = Math.max(260, Math.ceil(c2.getBoundingClientRect().width));
+    var w2 = Math.max(220, Math.ceil(c2.getBoundingClientRect().width));
     var w3 = Math.max(150, Math.ceil(c3.getBoundingClientRect().width));
 
     var rootStyle = document.documentElement.style;
@@ -1411,7 +1411,13 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
         adjQty = Number(raw.adjustment || 0);
         var rawClosing = Number(raw.closing || opening);
         var computedClosing = opening + inQty - outQty + adjQty;
-        closing = Math.abs(rawClosing - computedClosing) > 0.0001 ? computedClosing : rawClosing;
+        // Matrix API already sends per-day closing rebuilt from monthly stock + movement log.
+        // If we recompute again here, rows that already carry corrected monthly closing
+        // can jump back to stale opening values in the browser.
+        closing = rawClosing;
+        if (!Object.prototype.hasOwnProperty.call(raw, 'closing')) {
+          closing = computedClosing;
+        }
         mutations = Number(raw.mutations || 0);
         totalValue = Number(raw.total_value || totalValue);
       }

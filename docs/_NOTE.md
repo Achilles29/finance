@@ -82,8 +82,6 @@ v laporan daily sales seperti core /pos-reports/daily-sales , kemudian cetak
 - halaman item yang sering dibeli
 
 
-- buatkan modul generate stok opname dan stok awal Gudang, divisi, component. siapkan dulu database stok opaname. lalu buatkan modul generate dan tambahkan tombolnya di semua halaman stok (modul harus sama). ketika klik generate maka menggenerate sesuai stok pada montly_stock masing masing sampai dengan profile (line terkecil), lalu menggenerate stok opening untuk bulan berikutnya. untuk stok opening hanya ambil cukup ambil yang stok akhir / stok awal bulan berikutnya tidak sama dengan 0. genertae stok awal berarti menggenerate data di tabel opening dan tabel monthly_stock bulan berikutnya.
-dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua halaman yang serumpun dan masukkan sidebar sesuai rumpun
 
 
 
@@ -99,14 +97,6 @@ cek server
 cek halaman dan database legacy dari bahan baku, gudang , dan component
 
 
-
-ulangi lagi, tadi ada masalah di git. sekarang sudah terupdate
-
-/inventory-warehouse-daily sto akhir seharusnya sesuai dengan closing qty dari monthly stock.
-
-coba cek CUP ICE
-
-lalu kolom Item / Bahan Baku dan Profil jadikan 1 kolom
 
 
 

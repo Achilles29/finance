@@ -1116,11 +1116,15 @@ class Pos_model extends CI_Model
             ? (int)$row['member_id']
             : (!empty($paymentContext['member_id']) ? (int)$paymentContext['member_id'] : 0);
         $verifyDestination = strtoupper(trim((string)($context['verify_destination'] ?? '')));
-        if (!in_array($verifyDestination, ['ACTIVE_CASHIER', 'PAID_ORDER'], true)) {
-            $verifyDestination = $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
-        }
-        if ($paymentMode !== 'QRIS' || !$isPaid) {
-            $verifyDestination = 'ACTIVE_CASHIER';
+        if ($paymentMode === 'QRIS' && $isPaid) {
+            $verifyDestination = 'PAID_ORDER';
+        } else {
+            if (!in_array($verifyDestination, ['ACTIVE_CASHIER', 'PAID_ORDER'], true)) {
+                $verifyDestination = $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
+            }
+            if ($paymentMode !== 'QRIS' || !$isPaid) {
+                $verifyDestination = 'ACTIVE_CASHIER';
+            }
         }
         $targetStatus = $verifyDestination === 'PAID_ORDER' ? 'PAID' : 'CONFIRMED';
         $stockCommitStatus = strtoupper(trim((string)($context['stock_commit_status'] ?? 'QUEUED')));
@@ -1225,9 +1229,7 @@ class Pos_model extends CI_Model
                 }
             }
 
-            if ($isPaid && $verifyDestination === 'ACTIVE_CASHIER') {
-                $note = 'Self order QRIS diverifikasi ke order aktif meski pembayaran sudah diterima.';
-            } elseif ($isPaid) {
+            if ($isPaid) {
                 $note = 'Self order diverifikasi setelah pembayaran diterima.';
             } else {
                 $note = 'Self order diverifikasi untuk dibayar di kasir.';
@@ -1242,7 +1244,7 @@ class Pos_model extends CI_Model
                 (string)($row['status'] ?? 'PENDING'),
                 $targetStatus,
                 $isPaid
-                    ? ($verifyDestination === 'ACTIVE_CASHIER' ? 'SELF_ORDER_VERIFY_PAID_ACTIVE' : 'SELF_ORDER_VERIFY_PAID')
+                    ? 'SELF_ORDER_VERIFY_PAID'
                     : 'SELF_ORDER_VERIFY_CASHIER',
                 $actorEmployeeId,
                 $note
@@ -3016,19 +3018,10 @@ class Pos_model extends CI_Model
             return 0.0;
         }
 
-        $paidDate = date('Y-m-d', strtotime($paidAt));
         $grossAmount = round((float)($orderRow['subtotal_amount'] ?? 0), 2);
         $netAmount = round((float)($orderRow['grand_total'] ?? 0), 2);
         $productQtyMap = $this->order_product_qty_map($orderId);
-        $rules = $this->db->from('pos_point_rule')
-            ->where('is_active', 1)
-            ->group_start()
-                ->where('required_product_id IS NULL', null, false)
-                ->or_where_in('required_product_id', array_keys($productQtyMap ?: [0 => 0]))
-            ->group_end()
-            ->order_by('id', 'ASC')
-            ->get()
-            ->result_array();
+        $rules = $this->active_cashier_point_rules($productQtyMap);
         if (empty($rules)) {
             return 0.0;
         }
@@ -3077,10 +3070,7 @@ class Pos_model extends CI_Model
                 continue;
             }
 
-            $expiresAt = null;
-            if ((int)($rule['point_expiry_days'] ?? 0) > 0) {
-                $expiresAt = date('Y-m-d H:i:s', strtotime($paidDate . ' +' . (int)$rule['point_expiry_days'] . ' days'));
-            }
+            $expiresAt = $this->cashier_loyalty_expired_at($paidAt, (int)($rule['point_expiry_days'] ?? 0));
             $runningBalance = round($runningBalance + $points, 4);
             $this->db->insert('pos_point_ledger', [
                 'member_id' => $memberId,
@@ -3107,23 +3097,10 @@ class Pos_model extends CI_Model
             return 0.0;
         }
 
-        $paidDate = date('Y-m-d', strtotime($paidAt));
         $grossAmount = round((float)($orderRow['subtotal_amount'] ?? 0), 2);
         $netAmount = round((float)($orderRow['grand_total'] ?? 0), 2);
         $productQtyMap = $this->order_product_qty_map($orderId);
-        $campaigns = $this->db->from('pos_stamp_campaign')
-            ->where('is_active', 1)
-            ->group_start()
-                ->where('start_date IS NULL', null, false)
-                ->or_where('start_date <=', $paidDate)
-            ->group_end()
-            ->group_start()
-                ->where('end_date IS NULL', null, false)
-                ->or_where('end_date >=', $paidDate)
-            ->group_end()
-            ->order_by('id', 'ASC')
-            ->get()
-            ->result_array();
+        $campaigns = $this->active_cashier_stamp_campaigns($paidAt);
         if (empty($campaigns)) {
             return 0.0;
         }
@@ -3171,10 +3148,7 @@ class Pos_model extends CI_Model
                 continue;
             }
 
-            $expiresAt = null;
-            if ((int)($campaign['stamp_expiry_days'] ?? 0) > 0) {
-                $expiresAt = date('Y-m-d H:i:s', strtotime($paidDate . ' +' . (int)$campaign['stamp_expiry_days'] . ' days'));
-            }
+            $expiresAt = $this->cashier_loyalty_expired_at($paidAt, (int)($campaign['stamp_expiry_days'] ?? 0));
             $runningBalance = round($runningBalance + $stamps, 4);
             $this->db->insert('pos_stamp_ledger', [
                 'member_id' => $memberId,
@@ -3201,23 +3175,9 @@ class Pos_model extends CI_Model
             return [];
         }
 
-        $paidDate = date('Y-m-d', strtotime($paidAt));
         $netAmount = round((float)($orderRow['grand_total'] ?? 0), 2);
         $productQtyMap = $this->order_product_qty_map($orderId);
-        $campaigns = $this->db->from('pos_voucher_campaign')
-            ->where('is_active', 1)
-            ->where('issue_mode', 'AUTO_FROM_TXN')
-            ->group_start()
-                ->where('start_date IS NULL', null, false)
-                ->or_where('start_date <=', $paidDate)
-            ->group_end()
-            ->group_start()
-                ->where('end_date IS NULL', null, false)
-                ->or_where('end_date >=', $paidDate)
-            ->group_end()
-            ->order_by('id', 'ASC')
-            ->get()
-            ->result_array();
+        $campaigns = $this->active_cashier_auto_voucher_campaigns($paidAt);
         if (empty($campaigns)) {
             return [];
         }
@@ -3267,6 +3227,108 @@ class Pos_model extends CI_Model
         }
 
         return $issuedCodes;
+    }
+
+    private function active_cashier_point_rules(array $productQtyMap = []): array
+    {
+        if (!$this->db->table_exists('pos_point_rule')) {
+            return [];
+        }
+
+        $rows = $this->db->from('pos_point_rule')
+            ->where('is_active', 1)
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+        if (empty($rows)) {
+            return [];
+        }
+
+        $allowed = [];
+        foreach ($rows as $row) {
+            $requiredProductId = (int)($row['required_product_id'] ?? 0);
+            if ($requiredProductId > 0 && round((float)($productQtyMap[$requiredProductId] ?? 0), 4) <= 0) {
+                continue;
+            }
+            $allowed[] = $row;
+        }
+
+        return $allowed;
+    }
+
+    private function active_cashier_stamp_campaigns(string $paidAt): array
+    {
+        if (!$this->db->table_exists('pos_stamp_campaign')) {
+            return [];
+        }
+
+        $paidDate = date('Y-m-d', strtotime($paidAt));
+        $rows = $this->db->from('pos_stamp_campaign')
+            ->where('is_active', 1)
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+        if (empty($rows)) {
+            return [];
+        }
+
+        $allowed = [];
+        foreach ($rows as $row) {
+            $startDate = trim((string)($row['start_date'] ?? ''));
+            $endDate = trim((string)($row['end_date'] ?? ''));
+            if ($startDate !== '' && $startDate > $paidDate) {
+                continue;
+            }
+            if ($endDate !== '' && $endDate < $paidDate) {
+                continue;
+            }
+            $allowed[] = $row;
+        }
+
+        return $allowed;
+    }
+
+    private function active_cashier_auto_voucher_campaigns(string $paidAt): array
+    {
+        if (!$this->db->table_exists('pos_voucher_campaign')) {
+            return [];
+        }
+
+        $paidDate = date('Y-m-d', strtotime($paidAt));
+        $rows = $this->db->from('pos_voucher_campaign')
+            ->where('is_active', 1)
+            ->where('issue_mode', 'AUTO_FROM_TXN')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+        if (empty($rows)) {
+            return [];
+        }
+
+        $allowed = [];
+        foreach ($rows as $row) {
+            $startDate = trim((string)($row['start_date'] ?? ''));
+            $endDate = trim((string)($row['end_date'] ?? ''));
+            if ($startDate !== '' && $startDate > $paidDate) {
+                continue;
+            }
+            if ($endDate !== '' && $endDate < $paidDate) {
+                continue;
+            }
+            $allowed[] = $row;
+        }
+
+        return $allowed;
+    }
+
+    private function cashier_loyalty_expired_at(string $paidAt, int $expiryDays): ?string
+    {
+        if ($expiryDays <= 0) {
+            return null;
+        }
+
+        $paidDate = date('Y-m-d', strtotime($paidAt));
+        return date('Y-m-d H:i:s', strtotime($paidDate . ' +' . $expiryDays . ' days'));
     }
 
     private function order_product_qty_map(int $orderId): array
