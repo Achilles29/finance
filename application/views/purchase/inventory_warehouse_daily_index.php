@@ -27,13 +27,11 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   :root {
     --pwd-sticky-top: 0px;
     --pwd-col-kind: 92px;
-    --pwd-col-item: 236px;
-    --pwd-col-profile: 260px;
+    --pwd-col-item-profile: 420px;
     --pwd-col-summary: 240px;
     --pwd-left-1: 0px;
     --pwd-left-2: var(--pwd-col-kind);
-    --pwd-left-3: calc(var(--pwd-col-kind) + var(--pwd-col-item));
-    --pwd-left-4: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile));
+    --pwd-left-3: calc(var(--pwd-col-kind) + var(--pwd-col-item-profile));
     --pwd-date-col: 172px;
     --pwd-header-row-1: 44px;
   }
@@ -90,7 +88,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   }
   .pwd-matrix-shell {
     display: grid;
-    grid-template-columns: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile) + var(--pwd-col-summary)) minmax(0, 1fr);
+    grid-template-columns: calc(var(--pwd-col-kind) + var(--pwd-col-item-profile) + var(--pwd-col-summary)) minmax(0, 1fr);
     align-items: start;
   }
   .pwd-freeze-pane {
@@ -124,8 +122,8 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     display: none;
   }
   .pwd-freeze-table {
-    width: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile) + var(--pwd-col-summary));
-    min-width: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile) + var(--pwd-col-summary));
+    width: calc(var(--pwd-col-kind) + var(--pwd-col-item-profile) + var(--pwd-col-summary));
+    min-width: calc(var(--pwd-col-kind) + var(--pwd-col-item-profile) + var(--pwd-col-summary));
     margin-bottom: 0;
     border-collapse: separate;
     border-spacing: 0;
@@ -151,9 +149,8 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     box-shadow: inset -2px 0 0 #e6c9bd;
   }
   .pwd-freeze-col-1 { width: var(--pwd-col-kind); min-width: var(--pwd-col-kind); max-width: var(--pwd-col-kind); }
-  .pwd-freeze-col-2 { width: var(--pwd-col-item); min-width: var(--pwd-col-item); max-width: var(--pwd-col-item); }
-  .pwd-freeze-col-3 { width: var(--pwd-col-profile); min-width: var(--pwd-col-profile); max-width: var(--pwd-col-profile); }
-  .pwd-freeze-col-4 { width: var(--pwd-col-summary); min-width: var(--pwd-col-summary); max-width: var(--pwd-col-summary); }
+  .pwd-freeze-col-2 { width: var(--pwd-col-item-profile); min-width: var(--pwd-col-item-profile); max-width: var(--pwd-col-item-profile); }
+  .pwd-freeze-col-3 { width: var(--pwd-col-summary); min-width: var(--pwd-col-summary); max-width: var(--pwd-col-summary); }
   .pwd-scroll-table {
     min-width: 920px;
     margin-bottom: 0;
@@ -252,6 +249,18 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     display: grid;
     gap: 0.18rem;
   }
+  .pwd-item-profile-stack {
+    display: grid;
+    gap: 0.52rem;
+    min-width: 0;
+  }
+  .pwd-item-profile-stack .pwd-profile-stack {
+    padding-top: 0.46rem;
+    border-top: 1px dashed #ead6c9;
+  }
+  .pwd-item-profile-stack.is-child {
+    padding-left: 0.32rem;
+  }
   .pwd-profile-stack {
     display: grid;
     gap: 0.22rem;
@@ -334,8 +343,8 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     background: linear-gradient(180deg, #fffdfb 0%, #fff8f4 100%);
     box-shadow: inset -2px 0 0 #edd6ca;
   }
-  .pwd-freeze-table tbody tr.pwd-child-row td.pwd-freeze-col-3,
-  .pwd-freeze-table tbody tr.pwd-child-row td.pwd-freeze-col-4 {
+  .pwd-freeze-table tbody tr.pwd-child-row td.pwd-freeze-col-2,
+  .pwd-freeze-table tbody tr.pwd-child-row td.pwd-freeze-col-3 {
     border-left: 3px solid #efd8cc;
   }
   .pwd-scroll-table tbody tr.pwd-group-row td.pwd-metric-cell {
@@ -631,12 +640,11 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   @media (max-width: 991.98px) {
     :root {
       --pwd-col-kind: 84px;
-      --pwd-col-item: 210px;
-      --pwd-col-profile: 228px;
+      --pwd-col-item-profile: 360px;
       --pwd-col-summary: 216px;
       --pwd-date-col: 162px;
     }
-    .pwd-matrix-shell { grid-template-columns: calc(var(--pwd-col-kind) + var(--pwd-col-item) + var(--pwd-col-profile) + var(--pwd-col-summary)) minmax(0, 1fr); }
+    .pwd-matrix-shell { grid-template-columns: calc(var(--pwd-col-kind) + var(--pwd-col-item-profile) + var(--pwd-col-summary)) minmax(0, 1fr); }
     .pwd-date-card { min-height: 142px; }
   }
 </style>
@@ -704,7 +712,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
         </table>
       </div>
       <table class="table pwd-freeze-table align-middle mb-0 pwd-freeze-body-table">
-        <tbody id="pwdFreezeBody"><tr><td colspan="4" class="pwd-loading">Memuat data...</td></tr></tbody>
+        <tbody id="pwdFreezeBody"><tr><td colspan="3" class="pwd-loading">Memuat data...</td></tr></tbody>
       </table>
     </div>
     <div class="pwd-scroll-pane">
@@ -976,23 +984,20 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
 
   function applyStickyLayout(){
     var freezeHeaderRow = freezeHead.querySelector('tr:first-child');
-    if (!freezeHeaderRow || freezeHeaderRow.children.length < 4) { return; }
+    if (!freezeHeaderRow || freezeHeaderRow.children.length < 3) { return; }
 
     var c1 = freezeHeaderRow.children[0];
     var c2 = freezeHeaderRow.children[1];
     var c3 = freezeHeaderRow.children[2];
-    var c4 = freezeHeaderRow.children[3];
 
     var w1 = Math.max(64, Math.ceil(c1.getBoundingClientRect().width));
-    var w2 = Math.max(140, Math.ceil(c2.getBoundingClientRect().width));
-    var w3 = Math.max(140, Math.ceil(c3.getBoundingClientRect().width));
-    var w4 = Math.max(150, Math.ceil(c4.getBoundingClientRect().width));
+    var w2 = Math.max(260, Math.ceil(c2.getBoundingClientRect().width));
+    var w3 = Math.max(150, Math.ceil(c3.getBoundingClientRect().width));
 
     var rootStyle = document.documentElement.style;
     rootStyle.setProperty('--pwd-col-kind', w1 + 'px');
-    rootStyle.setProperty('--pwd-col-item', w2 + 'px');
-    rootStyle.setProperty('--pwd-col-profile', w3 + 'px');
-    rootStyle.setProperty('--pwd-col-summary', w4 + 'px');
+    rootStyle.setProperty('--pwd-col-item-profile', w2 + 'px');
+    rootStyle.setProperty('--pwd-col-summary', w3 + 'px');
     var firstHeaderRow = tableHead.querySelector('tr');
     var firstHeaderHeight = firstHeaderRow ? Math.max(0, Math.ceil(firstHeaderRow.getBoundingClientRect().height)) : 0;
     if (firstHeaderHeight > 0) {
@@ -1006,7 +1011,6 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     rootStyle.setProperty('--pwd-left-1', '0px');
     rootStyle.setProperty('--pwd-left-2', w1 + 'px');
     rootStyle.setProperty('--pwd-left-3', (w1 + w2) + 'px');
-    rootStyle.setProperty('--pwd-left-4', (w1 + w2 + w3) + 'px');
   }
 
   function syncStickyTopOffset(){
@@ -1030,8 +1034,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     var rootStyle = getComputedStyle(document.documentElement);
     return (
       Number.parseFloat(rootStyle.getPropertyValue('--pwd-col-kind')) +
-      Number.parseFloat(rootStyle.getPropertyValue('--pwd-col-item')) +
-      Number.parseFloat(rootStyle.getPropertyValue('--pwd-col-profile')) +
+      Number.parseFloat(rootStyle.getPropertyValue('--pwd-col-item-profile')) +
       Number.parseFloat(rootStyle.getPropertyValue('--pwd-col-summary'))
     ) || 0;
   }
@@ -1779,9 +1782,8 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     return '' +
       '<tr>' +
         '<th class="pwd-freeze-col-1">Jenis</th>' +
-        '<th class="pwd-freeze-col-2">Item / Bahan Baku</th>' +
-        '<th class="pwd-freeze-col-3">Profil</th>' +
-        '<th class="pwd-freeze-col-4">Ringkasan</th>' +
+        '<th class="pwd-freeze-col-2">Item / Bahan Baku &amp; Profil</th>' +
+        '<th class="pwd-freeze-col-3">Ringkasan</th>' +
       '</tr>' +
       '';
   }
@@ -1900,13 +1902,17 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       +   '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseProfileAuditUrl(singleProfile)) + '">Audit Profil</a></div>'
         + '</div>';
     }
+    var itemProfileHtml = ''
+      + '<div class="pwd-item-profile-stack">'
+      +   '<div class="pwd-name-stack"><div class="pwd-name">' + esc(group.object_name || '-') + '</div><div class="pwd-code">' + esc(group.object_code || '-') + '</div></div>'
+      +   profileHtml
+      + '</div>';
     var rowClass = expandable ? 'pwd-group-row pwd-group-expandable' : 'pwd-group-row pwd-group-single';
     return '' +
       '<tr class="' + rowClass + '">' +
         '<td class="pwd-freeze-col-1">' + toggleHtml + '<span class="pwd-kind-pill">' + esc(kind) + '</span></td>' +
-        '<td class="pwd-freeze-col-2"><div class="pwd-name-stack"><div class="pwd-name">' + esc(group.object_name || '-') + '</div><div class="pwd-code">' + esc(group.object_code || '-') + '</div></div></td>' +
-        '<td class="pwd-freeze-col-3">' + profileHtml + '</td>' +
-        '<td class="pwd-freeze-col-4">' + summaryParentHtml(group.metrics || {}) + '</td>' +
+        '<td class="pwd-freeze-col-2">' + itemProfileHtml + '</td>' +
+        '<td class="pwd-freeze-col-3">' + summaryParentHtml(group.metrics || {}) + '</td>' +
       '</tr>';
   }
 
@@ -1921,22 +1927,24 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     var profileText = profile.profile_name || '-';
     var detail = [profile.profile_brand || '-', profile.profile_description || '-'].join(' | ');
     var unitInfo = num(profile.profile_content_per_buy || 0) + ' ' + (profile.profile_content_uom_code || '') + ' / ' + (profile.profile_buy_uom_code || '-');
+    var itemProfileHtml = ''
+      + '<div class="pwd-item-profile-stack is-child">'
+      +   '<div class="pwd-code">Profil Item</div>'
+      +   '<div class="pwd-profile-stack is-child">'
+      +     '<div class="pwd-profile-line">' + esc(profileText) + '</div>'
+      +     '<div class="pwd-profile-line">' + esc(detail) + '</div>'
+      +     '<div class="pwd-profile-meta is-child">' + esc(unitInfo) + '</div>'
+      +     '<div class="pwd-profile-meta is-child">Harga satuan ' + esc(money((profile.metrics && profile.metrics.unit_price) || 0)) + '</div>'
+      +     '<div class="pwd-profile-meta is-child">Harga / pack ' + esc(money((profile.metrics && profile.metrics.unit_price_pack) || 0)) + '</div>'
+      +     '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseProfileAuditUrl(profile)) + '">Audit Profil</a></div>'
+      +   '</div>'
+      + '</div>';
 
     return '' +
       '<tr class="pwd-child-row">' +
         '<td class="pwd-freeze-col-1"></td>' +
-        '<td class="pwd-freeze-col-2"><div class="pwd-code">Profil Item</div></td>' +
-        '<td class="pwd-freeze-col-3">'
-          + '<div class="pwd-profile-stack is-child">'
-          +   '<div class="pwd-profile-line">' + esc(profileText) + '</div>'
-          +   '<div class="pwd-profile-line">' + esc(detail) + '</div>'
-          +   '<div class="pwd-profile-meta is-child">' + esc(unitInfo) + '</div>'
-          +   '<div class="pwd-profile-meta is-child">Harga satuan ' + esc(money((profile.metrics && profile.metrics.unit_price) || 0)) + '</div>'
-          +   '<div class="pwd-profile-meta is-child">Harga / pack ' + esc(money((profile.metrics && profile.metrics.unit_price_pack) || 0)) + '</div>'
-          +   '<div class="pwd-profile-unit"><a href="' + esc(buildWarehouseProfileAuditUrl(profile)) + '">Audit Profil</a></div>'
-          + '</div>' +
-        '</td>' +
-        '<td class="pwd-freeze-col-4">' + summaryChildHtml(profile.metrics || {}) + '</td>' +
+        '<td class="pwd-freeze-col-2">' + itemProfileHtml + '</td>' +
+        '<td class="pwd-freeze-col-3">' + summaryChildHtml(profile.metrics || {}) + '</td>' +
       '</tr>';
   }
 
@@ -1968,7 +1976,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     syncStickyLayout();
 
     if (!state.groups.length) {
-      freezeBody.innerHTML = '<tr><td colspan="4" class="pwd-empty">Belum ada data untuk filter ini.</td></tr>';
+      freezeBody.innerHTML = '<tr><td colspan="3" class="pwd-empty">Belum ada data untuk filter ini.</td></tr>';
       tableBody.innerHTML = '<tr><td colspan="' + Math.max(1, state.dates.length) + '" class="pwd-empty"></td></tr>';
       requestAnimationFrame(function(){
         syncStickyLayout();
@@ -2132,7 +2140,7 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       .catch(function(err){
         freezeHead.innerHTML = '';
         tableHead.innerHTML = '';
-        freezeBody.innerHTML = '<tr><td colspan="4" class="pwd-empty">Gagal memuat matrix harian.</td></tr>';
+        freezeBody.innerHTML = '<tr><td colspan="3" class="pwd-empty">Gagal memuat matrix harian.</td></tr>';
         tableBody.innerHTML = '<tr><td colspan="1" class="pwd-empty"></td></tr>';
         showMessage(false, err && err.message ? err.message : 'Terjadi kesalahan saat memuat data.');
       });

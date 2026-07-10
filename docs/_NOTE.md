@@ -92,61 +92,29 @@ dan jangan lupa buatkan halaman stok opname dan masukkan tab bertingkat semua ha
 ===============
 
 
-
-setelah join, maka terjadi gap.
-- data yang ditampilkan (gambar 2) tidak ada selisih kolom stock dan kolom movement, tapi gambar 1 ada seliish gap movement.
-- pada kondisi seperti ini sumber bagaimana saya bisa memilih sumber kebenaran dan melakukan penyesuaian untuk yang lain. misal yang benar adalah stock, dan saya ingin movement log menyesuakan stock. buatkan modulnya
-
-
-
-/inventory/stock/daily-recon/division, /inventory-material-daily, /inventory/stock/adjustment/division, /inventory/stock/division/reconcile
-4 halaman itu ada modul adjustmen. 
-ketika stok minus kemudian di adjustmen menjadi 0 atau lebih dari 0, lot nya juga ikut naik sejumlah kenaikan stock sehingga ada perbedaan antara stock dan lot.
-Periksa apakah kondisi saat ini sesuai dengan analisaku>?
-
-nah seharusnya ada guarding adjustmen di ke 4 halaman itu, jika adjustmen dari minus, maka menyesuaikan kenaikan mulai dari 0 saja. misal JERUK NIPIS stock -5, di adj jadi 0, maka lot tidak ikut bertambah. jika JERUK NIPIS stock -5 di adj jadi 3, maka lot hanya naik 3.
-lakukan penyesuaian jika analisaku benar. bantah jika tidak tepat
-
-
-sekarang halaman /inventory/stock/division/reconcile produk yang tidak ada stock tapi ada lot aktif, tetap dimunculkan dengan stock 0 dan lot ada. sehingga dapat dilakukan adj lot
-nah sekarang jadi kelihatan dan lebih lebar lagi missmatchnya. ini penting karena miss lot ini juga harus di repair.
-perbaiki:
-- kolom pencarian belum berfungsi
-- button "repair lot semua" seharusnya juga langsung me repair lot yang aktif tapi stok nya 0
-
-
-sekarang pindah ke component. apakah 4 halamana adjustmen component /production/component-daily-recon, /production/component-daily, /production/component-reconcile, dan /production/component-adjustments juga ketika stok minus kemudian di adjustmen menjadi 0 atau lebih dari 0, lot nya juga ikut naik sejumlah kenaikan stock sehingga ada perbedaan antara stock dan lot?
-Periksa, kalau iya maka lakukan penyesuaian seperti bahan baku, guarding adjustmen di ke 4 halaman itu, jika adjustmen dari minus, maka menyesuaikan kenaikan mulai dari 0 saja.
-
-lalu di /production/component-reconcile component yang tidak ada stock tapi ada lot aktif, tetap dimunculkan dengan stock 0 dan lot ada. sehingga dapat dilakukan adj lot. buatkan repair lot per child dan repair lot semmua untuk kasus serupa
-
-
-
-lakukan pengecekan di halaman adjustmen seperti daily matrix, daily recon, reconcile, adjustment , yang mungkin bisa mempengaruhi bahan baku juga
-
-buat halaman cost berdasarkan stok component, bukan resep, karena beda, kalau ini untuk cost produk
-
-
-/master/product divisi, klasifikasi dan kategori jadikan 1 kolom, mode stok dan status  jadikan 1 kolom, % hpp dan estimasi profit jadikan  1 kolom, icon kolom aksi jadikan 2 baris
-
-
-
-
 cek backup git
 cek ganti ip
 cek server
 
-finalkan generate stok gudang, bahan baku. component. pastikan cutoff dan membuat data baru stok dan lot nya sesuai
-finalkan generate keuangan
-
-
 cek halaman dan database legacy dari bahan baku, gudang , dan component
 
 
-perbaiki directory member /order . ketersediaan stok produk agar membaca mst_product.stock_mode. jika AUTO maka seperti resep sekarang , sepeti pada directory core /product/availability dan atau /pos/stock-live. jika MANUAL_AVAILABLE maka pakasa tersedia, jika MANUAL_AVAILABLE maka paksa habis
+
+ulangi lagi, tadi ada masalah di git. sekarang sudah terupdate
+
+/inventory-warehouse-daily sto akhir seharusnya sesuai dengan closing qty dari monthly stock.
+
+coba cek CUP ICE
+
+lalu kolom Item / Bahan Baku dan Profil jadikan 1 kolom
 
 
 
-produk dengan stock mode auto, yang sesuai resep habis kasih badge "Sold Out" ,  produk yang stok sesuai resepnya dibawah 5 kasih badge "Limited"
+periksa ulang proses verifikasi penidng order pada /pos/self-order/orders.
+disana ada 2 jenis, 
+1. customer pilih pembayaran di kasir, maka saat verifikasi orderan masuk orderan aktif di pos/cashier, lalu kasir melakukan payment seperti biasa.
+2. ketika customer payment menggunakan qris maka saat verifikasi orderan langsung masuk ke pesanan terbayar.
 
 
+1. pastikan langkah 2 sudah benar
+2. cek apakah ketika customer (member) payment qris, lalu kasir melakukan verifikasi, apakah di proses verifikasi itu sudah mengadopsi modul modul promo seperti poin dan stamp seperti pada pos/cashier?
