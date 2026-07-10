@@ -170,7 +170,7 @@ $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== ''
 
 /* ── Table ── */
 .rec-table-wrap { overflow-x:auto; overflow-y:auto; max-height:65vh; }
-.rec-table-wrap table { min-width:1360px; border-collapse:separate; border-spacing:0; }
+.rec-table-wrap table { min-width:1240px; border-collapse:separate; border-spacing:0; }
 .rec-table-wrap thead th {
   position:sticky; top:0; z-index:4;
   background:linear-gradient(180deg,#312028 0%,#4a2f3a 100%);
@@ -188,6 +188,23 @@ $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== ''
 .rec-chip-warn { background:#fff4e5; color:#e67700; border:1px solid #ffd8a8; }
 .rec-delta-ok  { color:#2f9e44; font-weight:800; }
 .rec-delta-bad { color:#b42318; font-weight:800; }
+.rec-col-selisih {
+  width:132px;
+  min-width:132px !important;
+  max-width:132px;
+  white-space:normal;
+  word-break:normal;
+  overflow-wrap:anywhere;
+  line-height:1.25;
+}
+.rec-col-selisih-child {
+  width:116px;
+  min-width:116px !important;
+  max-width:116px;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  line-height:1.2;
+}
 
 /* ── Material audit drawer ── */
 .rec-audit-drawer {
@@ -471,7 +488,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
           <th class="text-end" style="min-width:100px">Material Daily</th>
           <th class="text-end" style="min-width:100px">Snapshot Harian</th>
           <th class="text-end" style="min-width:100px">Movement</th>
-          <th style="min-width:180px">Selisih</th>
+          <th class="rec-col-selisih">Selisih</th>
           <th style="min-width:100px;max-width:160px;white-space:normal">Status</th>
           <th style="min-width:140px">Aksi</th>
         </tr>
@@ -687,7 +704,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <div><?php echo $fmtQty($row['movement_qty_content'] ?? 0); ?></div>
                 <div class="text-muted" style="font-size:.68rem"><?php echo $fmtQty($row['movement_qty_pack'] ?? 0); ?> pack</div>
               </td>
-              <td class="small" style="font-size:.68rem">
+              <td class="small rec-col-selisih" style="font-size:.66rem">
                 <?php if ($parentSelisihText === '-'): ?>
                   <span class="rec-delta-ok">-</span>
                 <?php else: ?>
@@ -769,7 +786,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Mat. Daily</th>
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px">Movement</th>
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px" title="Selisih closing monthly_stock vs (opening + Σ movement_log). Bukan nol = ada movement phantom atau hilang.">Log Gap</th>
-                        <th style="font-weight:700;padding:.3rem .4rem;min-width:140px">Selisih</th>
+                        <th class="rec-col-selisih-child" style="font-weight:700;padding:.3rem .4rem">Selisih</th>
                         <th class="text-center" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Status</th>
                         <th class="text-center" style="font-weight:700;padding:.3rem .4rem;min-width:64px">Aksi</th>
                       </tr>
@@ -851,7 +868,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                               <?php echo ($pbLogGap > 0 ? '+' : '') . $fmtQty($pbLogGap); ?>
                             <?php else: ?>–<?php endif; ?>
                           </td>
-                          <td style="padding:.3rem .4rem;font-size:.65rem">
+                          <td class="rec-col-selisih-child" style="padding:.3rem .4rem;font-size:.63rem">
                             <?php if (!$pbMis): ?>
                               <span style="color:#2f9e44">–</span>
                             <?php else: ?>

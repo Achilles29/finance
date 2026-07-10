@@ -44,7 +44,18 @@ $REASONS = function_exists('component_adjustment_reason_options')
 ]); ?>
 
 <style>
-#cmpTableWrap table  { border-collapse:collapse; width:100%; table-layout:fixed; }
+#cmpTableWrap {
+    width:100%;
+    max-width:100%;
+    overflow:auto;
+    scrollbar-gutter:stable both-edges;
+}
+#cmpTableWrap table  {
+    border-collapse:collapse;
+    width:max-content;
+    min-width:1180px;
+    table-layout:fixed;
+}
 #cmpTableWrap thead th {
     position:sticky; top:0; z-index:2;
     font-size:.73rem; font-weight:700; color:#334155;
@@ -59,15 +70,15 @@ $REASONS = function_exists('component_adjustment_reason_options')
 .cmp-row-minus > td          { background:#fff1f2 !important; }
 .cmp-row-minus > td:first-child { border-left:3px solid #f87171; }
 
-.cmp-div-cell  { font-size:.7rem; color:#1e40af; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:86px; }
+.cmp-div-cell  { font-size:.7rem; color:#1e40af; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:104px; }
 .cmp-tipe-reguler { background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .cmp-tipe-event   { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .cmp-jenis-base { background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .cmp-jenis-prep { background:#ede9fe; color:#6d28d9; border:1px solid #c4b5fd; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
-.cmp-name-cell  { display:flex; align-items:flex-start; }
+.cmp-name-cell  { display:flex; align-items:flex-start; min-width:0; }
 .cmp-name-body  { min-width:0; }
-.cmp-adj-col    { width:150px; max-width:150px; }
-.cmp-action-col { width:78px; max-width:78px; }
+.cmp-adj-col    { width:168px; min-width:168px; max-width:168px; }
+.cmp-action-col { width:104px; min-width:104px; max-width:104px; }
 .filter-on      { background:#2563eb !important; color:#fff !important; border-color:#2563eb !important; }
 .cmp-cost-cell  { font-size:.76rem; white-space:nowrap; }
 .cmp-value-cell { font-size:.76rem; white-space:nowrap; }
@@ -76,14 +87,38 @@ $REASONS = function_exists('component_adjustment_reason_options')
     position: sticky;
     right: 0;
     z-index: 3;
-    background: inherit;
-    box-shadow: -8px 0 14px rgba(15,23,42,.06);
+    background:#fff;
+    box-shadow: -10px 0 18px rgba(15,23,42,.10);
 }
 #cmpTableWrap thead th:last-child {
     z-index: 5;
-    background:#e2e8f0;
+    background:#a70f25;
+    color:#fff;
 }
+#cmpTbody tr:nth-child(even) > td[id^="acell-"] { background:#f8fafc; }
+#cmpTbody tr:nth-child(odd) > td[id^="acell-"]  { background:#ffffff; }
+#cmpTbody tr:hover > td[id^="acell-"]           { background:#eff6ff !important; }
+.cmp-row-minus > td[id^="acell-"]               { background:#fff1f2 !important; }
 .cmp-row-confirm .btn { font-size:.66rem; padding:.05rem .28rem; }
+.cmp-action-stack {
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+    gap:.35rem;
+}
+.cmp-action-stack .btn {
+    min-height:30px;
+    white-space:nowrap;
+}
+.cmp-lot-toggle-btn {
+    width:100%;
+    min-height:30px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:.2rem;
+    line-height:1.1;
+}
 .cmp-flash { border-radius:12px; border:1px solid #c7e7d3; background:#edf9f1; color:#166534; padding:.65rem .85rem; font-size:.82rem; }
 .cmp-flash.error { border-color:#f3c1c1; background:#fff1f2; color:#b42318; }
 .cmp-required-warning {
@@ -241,19 +276,19 @@ $REASONS = function_exists('component_adjustment_reason_options')
   <div id="cmpFlash" class="cmp-flash mb-2" style="display:none"></div>
 
   <!-- Table -->
-  <div id="cmpTableWrap" class="table-responsive rounded border shadow-sm" style="max-height:68vh;overflow-y:auto">
+  <div id="cmpTableWrap" class="table-responsive rounded border shadow-sm" style="max-height:68vh;overflow:auto">
     <table class="table table-sm mb-0">
       <thead>
         <tr>
-          <th style="width:100px">Divisi / Lokasi</th>
-          <th style="width:68px">Jenis</th>
-          <th class="text-start" style="width:170px">Nama Component</th>
-          <th style="width:54px">UOM</th>
-          <th class="text-end" style="width:82px">Stok</th>
-          <th class="text-end" style="width:82px">HPP Live</th>
-          <th class="text-end" style="width:96px">Nilai Sistem</th>
-          <th class="text-end" style="width:88px">Fisik</th>
-          <th class="text-end" style="width:74px">Selisih</th>
+          <th style="width:112px">Divisi / Lokasi</th>
+          <th style="width:74px">Jenis</th>
+          <th class="text-start" style="width:218px">Nama Component</th>
+          <th style="width:58px">UOM</th>
+          <th class="text-end" style="width:88px">Stok</th>
+          <th class="text-end" style="width:92px">HPP Live</th>
+          <th class="text-end" style="width:112px">Nilai Sistem</th>
+          <th class="text-end" style="width:92px">Fisik</th>
+          <th class="text-end" style="width:82px">Selisih</th>
           <th class="cmp-adj-col">Jenis &amp; Alasan</th>
           <th class="cmp-action-col">Aksi</th>
         </tr>
@@ -509,20 +544,20 @@ function adjColHtml(row, iid) {
 function actionCell(row, iid) {
     if (!CAN_CREATE) return `<td id="acell-${iid}" class="cmp-action-col"></td>`;
     const reconHtml = reconRowButtons(row, iid);
-    if (row.adjustment_id) return `<td id="acell-${iid}" class="cmp-action-col">${reconHtml}</td>`;
+    if (row.adjustment_id) return `<td id="acell-${iid}" class="cmp-action-col"><div class="cmp-action-stack">${reconHtml}</div></td>`;
     const sel = row.selisih;
     if (sel !== null && Math.abs(Number(sel)) >= 0.001) {
         return `<td id="acell-${iid}" class="cmp-action-col">
-            <div class="d-flex flex-column gap-1">
+            <div class="cmp-action-stack">
             <button class="btn btn-sm btn-danger w-100" id="adjbtn-${iid}"
-                    onclick="cmpPostAdj('${iid}')">
-                <i class="ri ri-upload-2-line"></i>
+                    onclick="cmpPostAdj('${iid}')" title="Posting adjustment">
+                <i class="ri ri-upload-2-line me-1"></i>Post
             </button>
             ${reconHtml}
             </div>
         </td>`;
     }
-    return `<td id="acell-${iid}" class="cmp-action-col">${reconHtml}</td>`;
+    return `<td id="acell-${iid}" class="cmp-action-col"><div class="cmp-action-stack">${reconHtml}</div></td>`;
 }
 
 function reconRowButtons(row, iid) {
@@ -606,12 +641,14 @@ function renderTable(groups) {
                     <td class="text-end text-muted small">Lot detail</td>
                     <td class="cmp-adj-col"></td>
                     <td id="acell-${iid}" class="text-center cmp-action-col">
-                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                        <div class="cmp-action-stack">
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 cmp-lot-toggle-btn"
                                 id="expand-${iid}" data-expanded="true" data-lot-count="${row.lot_count}"
                                 onclick="cmpToggleLots('${iid}')">
                             <i class="ri ri-arrow-down-s-line"></i> ${row.lot_count} lot
                         </button>
                         ${reconRowButtons(row, iid)}
+                        </div>
                     </td>
                 </tr>`;
 

@@ -2856,14 +2856,45 @@ class Purchase extends MY_Controller
         $buyUomId     = (int)($matRow['buy_uom_id'] ?? 0);
         $contentUomId = (int)($payload['content_uom_id'] ?? $matRow['content_uom_id'] ?? 0);
 
-        $divRow = $this->db->select('id, destination_type')->from('mst_operational_division')
+        $divisionCodeColumn = $this->db->field_exists('code', 'mst_operational_division')
+            ? 'code'
+            : ($this->db->field_exists('division_code', 'mst_operational_division') ? 'division_code' : null);
+        $divisionNameColumn = $this->db->field_exists('name', 'mst_operational_division')
+            ? 'name'
+            : ($this->db->field_exists('division_name', 'mst_operational_division') ? 'division_name' : null);
+        $divisionSelect = 'id';
+        if ($divisionCodeColumn !== null) {
+            $divisionSelect .= ', ' . $divisionCodeColumn . ' AS division_code';
+        }
+        if ($divisionNameColumn !== null) {
+            $divisionSelect .= ', ' . $divisionNameColumn . ' AS division_name';
+        }
+        if ($this->db->field_exists('destination_type', 'mst_operational_division')) {
+            $divisionSelect .= ', destination_type';
+        }
+        $divRow = $this->db->select($divisionSelect, false)->from('mst_operational_division')
             ->where('id', $divisionId)->get()->row_array();
         if (empty($divRow)) {
             $this->output->set_status_header(422)->set_content_type('application/json')
                 ->set_output(json_encode(['ok' => false, 'message' => 'Division tidak ditemukan.']));
             return;
         }
-        $destType = $destination ?: strtoupper(trim((string)($divRow['destination_type'] ?? 'OTHER')));
+        $divisionCode = strtoupper(trim((string)($divRow['division_code'] ?? $divRow['division_name'] ?? '')));
+        $rawDivisionDest = trim((string)($divRow['destination_type'] ?? ''));
+        $divisionDestType = strtoupper($rawDivisionDest !== '' ? $rawDivisionDest : ($divisionCode !== '' ? $divisionCode : 'OTHER'));
+        if (in_array($divisionDestType, ['BEVERAGE'], true)) {
+            $divisionDestType = 'BAR';
+        } elseif (in_array($divisionDestType, ['FOOD'], true)) {
+            $divisionDestType = 'KITCHEN';
+        }
+        $destType = $destination ?: $divisionDestType;
+        if (in_array($destType, ['REGULER', 'REGULAR', 'ALL'], true)) {
+            $destType = $divisionDestType;
+        }
+        $allowedDestTypes = ['GUDANG', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+        if (!in_array($destType, $allowedDestTypes, true)) {
+            $destType = in_array($divisionDestType, $allowedDestTypes, true) ? $divisionDestType : 'OTHER';
+        }
 
         // Fetch profile info if profile_key given
         $profileName = null;
@@ -2899,6 +2930,12 @@ class Purchase extends MY_Controller
         $prevAfter = round((float)($lastRow['qty_content_after'] ?? 0), 4);
         $newAfter  = round($prevAfter + $correctionQty, 4);
 
+        if ($contentUomId <= 0) {
+            $this->output->set_status_header(422)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'UOM isi material tidak valid. Cek master material / payload reconcile.']));
+            return;
+        }
+
         $logEntry = [
             'movement_no'          => $movementNo,
             'movement_date'        => $adjustDate,
@@ -2906,8 +2943,6 @@ class Purchase extends MY_Controller
             'division_id'          => $divisionId,
             'destination_type'     => $destType,
             'movement_type'        => $movementType,
-            'adjustment_category'  => 'ADJUSTMENT_PLUS',
-            'adjustment_reason_code' => 'LOG_GAP_REPAIR',
             'ref_table'            => 'div_log_repair',
             'material_id'          => $materialId,
             'buy_uom_id'           => $buyUomId ?: null,
@@ -2919,13 +2954,30 @@ class Purchase extends MY_Controller
             'profile_key'          => $profileKey ?: null,
             'profile_name'         => $profileName,
             'unit_cost'            => $unitCost > 0 ? $unitCost : 0,
-            'notes'                => 'Log gap repair: ' . ($notes ?: 'Adj manual dari reconcile audit'),
+            'notes'                => substr('Log gap repair: ' . ($notes ?: 'Adj manual dari reconcile audit'), 0, 255),
             'created_by'           => $this->auth->get_user_id() ?: null,
         ];
 
-        if (!$this->db->insert('inv_stock_movement_log', $logEntry)) {
+        if ($this->db->field_exists('adjustment_category', 'inv_stock_movement_log')) {
+            $logEntry['adjustment_category'] = 'ADJUSTMENT_PLUS';
+        }
+        if ($this->db->field_exists('adjustment_reason_code', 'inv_stock_movement_log')) {
+            $logEntry['adjustment_reason_code'] = 'LOG_GAP_REPAIR';
+        }
+
+        $oldDbDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        $inserted = $this->db->insert('inv_stock_movement_log', $logEntry);
+        $dbError = $this->db->error();
+        $this->db->db_debug = $oldDbDebug;
+
+        if (!$inserted) {
+            $errMsg = trim((string)($dbError['message'] ?? ''));
             $this->output->set_status_header(500)->set_content_type('application/json')
-                ->set_output(json_encode(['ok' => false, 'message' => 'Gagal insert movement log.']));
+                ->set_output(json_encode([
+                    'ok' => false,
+                    'message' => 'Gagal insert movement log.' . ($errMsg !== '' ? ' Detail: ' . $errMsg : ''),
+                ]));
             return;
         }
 

@@ -313,6 +313,7 @@ $route['inventory/stock/division/reconcile/lot-repair'] = 'inventory_division/re
 $route['inventory/stock/division/reconcile/lot-profile-sync'] = 'inventory_division/reconcile_lot_profile_sync';
 $route['inventory/stock/division/reconcile/lot-repair-all']  = 'inventory_division/reconcile_lot_repair_all';
 $route['inventory/stock/division/reconcile/gap-repair-all']  = 'inventory_division/reconcile_gap_repair_all';
+$route['inventory/stock/division/reconcile/log-repair']      = 'inventory_division/reconcile_log_repair';
 $route['inventory/stock/division/reconcile/repair-material-id'] = 'inventory_division/reconcile_repair_material_id';
 $route['inventory/stock/division/reconcile/profile-repair']     = 'inventory_division/reconcile_profile_repair';
 $route['inventory/stock/division/reconcile/profile-merge']      = 'inventory_division/reconcile_profile_merge';
