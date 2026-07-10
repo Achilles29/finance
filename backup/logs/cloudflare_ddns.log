@@ -4319,3 +4319,37 @@
 [2026-07-10 08:50:01] [INFO] IPv4 publik belum berubah (113.11.179.187).
 [2026-07-10 08:55:01] [INFO] IPv4 publik belum berubah (113.11.179.187).
 [2026-07-10 09:00:01] [INFO] IPv4 publik belum berubah (113.11.179.187).
+[2026-07-10 09:05:02] [INFO] IPv4 publik belum berubah (113.11.179.187).
+[2026-07-10 09:10:01] [INFO] IPv4 publik belum berubah (113.11.179.187).
+[2026-07-10 09:15:01] [INFO] IPv4 publik belum berubah (113.11.179.187).
+[2026-07-10 09:25:05] [INFO] IPv4 publik: 113.11.179.187 -> 113.11.179.75
+[2026-07-10 09:25:08] [OK] absen.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:09] [OK] bbm.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:10] [OK] cloud.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:10] [OK] core2.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:11] [OK] core.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:11] [OK] dashboard.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:13] [OK] dev.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:13] [OK] efin.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:14] [OK] faceapi.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:14] [OK] finance.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:15] [OK] game.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:16] [OK] kasir.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:16] [OK] literasi.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:17] [OK] login.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:17] [OK] member.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:18] [OK] namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:18] [OK] nextcloud.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:19] [OK] pos.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:20] [OK] ptsp.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:20] [OK] vs.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:21] [OK] wabot.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:21] [OK] www.namuacoffee.com -> 113.11.179.75
+[2026-07-10 09:25:21] [DONE] updated=22 skipped=0 failed=0
+[2026-07-10 09:30:01] [INFO] IPv4 publik belum berubah (113.11.179.75).
+[2026-07-10 09:35:01] [INFO] IPv4 publik belum berubah (113.11.179.75).
+[2026-07-10 09:40:01] [INFO] IPv4 publik belum berubah (113.11.179.75).
+[2026-07-10 09:45:02] [INFO] IPv4 publik belum berubah (113.11.179.75).
+[2026-07-10 09:50:02] [INFO] IPv4 publik belum berubah (113.11.179.75).
+[2026-07-10 09:55:02] [INFO] IPv4 publik belum berubah (113.11.179.75).
+[2026-07-10 10:00:01] [INFO] IPv4 publik belum berubah (113.11.179.75).
