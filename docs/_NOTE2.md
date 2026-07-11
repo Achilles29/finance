@@ -400,4 +400,7 @@ masukkan ke database role matrix dan sidebar akses nya
 
 
 
-cek
+tombol repair log di inventory/stock/division/reconcile kok hilang? banyak button yang overlab juga, buat responsiv jika tidak muat agar tidak tumpang tindih
+
+
+/inventory/stock/division/reconcile

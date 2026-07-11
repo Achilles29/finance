@@ -26,7 +26,7 @@ $prodLiveHiddenCats  = is_array($prod_live_hidden_cats  ?? null) ? $prod_live_hi
 $cur = static fn($v): string => 'Rp ' . number_format((float)$v, 0, ',', '.');
 $fmtGap = static function ($v): string {
     $num = (float)$v;
-    if (abs($num) < 0.0001) {
+    if (abs($num) <= 0.01) {
         return '0,00';
     }
     return ($num > 0 ? '+' : '') . number_format($num, 2, ',', '.');
