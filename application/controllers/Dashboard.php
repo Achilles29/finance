@@ -76,6 +76,7 @@ class Dashboard extends MY_Controller
                 r.line_type,
                 r.ingredient_role,
                 r.qty,
+                COALESCE(r.uom_id, 0) AS recipe_uom_id,
                 COALESCE(r.source_division_id, 0) AS source_division_id,
                 COALESCE(u.code, '') AS uom_code,
                 COALESCE(m.material_name, c.component_name, 'Unknown') AS ingredient_name,
@@ -99,14 +100,15 @@ class Dashboard extends MY_Controller
         }
 
         // Kumpulkan kombinasi (material_id, division_id) dan (component_id, division_id) yang dibutuhkan.
-        $matDivPairs  = []; // [materialId => [divId, ...]]
+        $matDivPairs  = []; // [materialId => [divId => [uomId, ...]]]
         $compDivPairs = []; // [componentId => [divId, ...]]
         $componentParentDiv = []; // [componentId => fallback divId from product recipe]
         foreach ($recipeRows->result_array() as $r) {
             $divId = (int)$r['source_division_id'] > 0 ? (int)$r['source_division_id'] : $defaultDivId;
             if ($r['line_type'] === 'MATERIAL' && !empty($r['material_id'])) {
                 $matId = (int)$r['material_id'];
-                $matDivPairs[$matId][$divId] = true;
+                $uomId = (int)($r['recipe_uom_id'] ?? 0);
+                $matDivPairs[$matId][$divId][$uomId] = true;
             } elseif ($r['line_type'] === 'COMPONENT' && !empty($r['component_id'])) {
                 $cmpId = (int)$r['component_id'];
                 $compDivPairs[$cmpId][$divId] = true;
@@ -133,6 +135,7 @@ class Dashboard extends MY_Controller
                     f.qty,
                     {$formulaSourceDivisionExpr} AS source_division_id,
                     {$formulaMaterialExpr} AS material_id,
+                    COALESCE(m.content_uom_id, 0) AS material_uom_id,
                     f.material_item_id,
                     f.sub_component_id,
                     COALESCE(m.material_name, sc.component_name, 'Unknown') AS ingredient_name,
@@ -178,7 +181,7 @@ class Dashboard extends MY_Controller
                     $formulaRowsByComponent[$parentComponentId][] = $fr;
 
                     if (strtoupper((string)($fr['line_type'] ?? '')) === 'MATERIAL' && !empty($fr['material_id'])) {
-                        $matDivPairs[(int)$fr['material_id']][$formulaDivId] = true;
+                        $matDivPairs[(int)$fr['material_id']][$formulaDivId][(int)($fr['material_uom_id'] ?? 0)] = true;
                     } elseif (strtoupper((string)($fr['line_type'] ?? '')) === 'COMPONENT' && !empty($fr['sub_component_id'])) {
                         $compDivPairs[(int)$fr['sub_component_id']][$formulaDivId] = true;
                     }
@@ -186,8 +189,8 @@ class Dashboard extends MY_Controller
             }
         }
 
-        // Query stok material per (material_id, division_id) — hormati source division resep
-        $materialStockMap = []; // [matId][divId] => qty
+        // Query stok material per (material_id, division_id, content_uom_id) — sama dengan cache POS.
+        $materialStockMap = []; // [matId][divId][uomId] => qty
         if ($hasMaterial && !empty($matDivPairs)) {
             $matIds = array_map('intval', array_keys($matDivPairs));
             $matIdList = implode(',', $matIds);
@@ -195,6 +198,7 @@ class Dashboard extends MY_Controller
                 SELECT
                     COALESCE(s.material_id, mi2.material_id) AS material_id,
                     s.division_id,
+                    COALESCE(s.content_uom_id, 0) AS content_uom_id,
                     ROUND(SUM(s.closing_qty_content), 4) AS total_qty
                 FROM inv_division_monthly_stock s
                 LEFT JOIN mst_item mi2 ON mi2.id = s.item_id
@@ -208,12 +212,12 @@ class Dashboard extends MY_Controller
                     AND lm.identity_key = s.identity_key
                     AND lm.max_month = s.month_key
                 WHERE COALESCE(s.material_id, mi2.material_id) IN ({$matIdList})
-                GROUP BY COALESCE(s.material_id, mi2.material_id), s.division_id
+                GROUP BY COALESCE(s.material_id, mi2.material_id), s.division_id, COALESCE(s.content_uom_id, 0)
             ";
             $matResult = $this->dashboard_safe_query($matSql);
             if ($matResult) {
                 foreach ($matResult->result_array() as $row) {
-                    $materialStockMap[(int)$row['material_id']][(int)$row['division_id']] = (float)$row['total_qty'];
+                    $materialStockMap[(int)$row['material_id']][(int)$row['division_id']][(int)($row['content_uom_id'] ?? 0)] = (float)$row['total_qty'];
                 }
             }
         }
@@ -256,12 +260,18 @@ class Dashboard extends MY_Controller
             if ($r['line_type'] === 'MATERIAL' && !empty($r['material_id'])) {
                 $matId    = (int)$r['material_id'];
                 $byDiv    = $materialStockMap[$matId] ?? [];
+                $uomId    = (int)($r['recipe_uom_id'] ?? 0);
                 if ($divId > 0 && isset($byDiv[$divId])) {
                     // Ambil stok dari division yang ditentukan resep
-                    $stockQty = $byDiv[$divId];
+                    $stockQty = $uomId > 0
+                        ? (float)($byDiv[$divId][$uomId] ?? 0)
+                        : array_sum($byDiv[$divId]);
                 } elseif ($divId <= 0) {
                     // Tidak ada filter division — jumlah semua (fallback kompatibilitas)
-                    $stockQty = array_sum($byDiv);
+                    $stockQty = 0.0;
+                    foreach ($byDiv as $uomBuckets) {
+                        $stockQty += $uomId > 0 ? (float)($uomBuckets[$uomId] ?? 0) : array_sum($uomBuckets);
+                    }
                 }
                 // Jika divId > 0 tapi tidak ada stok di division itu → 0 (benar)
             } elseif ($r['line_type'] === 'COMPONENT' && !empty($r['component_id'])) {
@@ -297,10 +307,15 @@ class Dashboard extends MY_Controller
                     if ($childLineType === 'MATERIAL' && !empty($fr['material_id'])) {
                         $childMatId = (int)$fr['material_id'];
                         $byDiv = $materialStockMap[$childMatId] ?? [];
+                        $childUomId = (int)($fr['material_uom_id'] ?? 0);
                         if ($childDivId > 0 && isset($byDiv[$childDivId])) {
-                            $childStockQty = (float)$byDiv[$childDivId];
+                            $childStockQty = $childUomId > 0
+                                ? (float)($byDiv[$childDivId][$childUomId] ?? 0)
+                                : array_sum($byDiv[$childDivId]);
                         } elseif ($childDivId <= 0) {
-                            $childStockQty = array_sum($byDiv);
+                            foreach ($byDiv as $uomBuckets) {
+                                $childStockQty += $childUomId > 0 ? (float)($uomBuckets[$childUomId] ?? 0) : array_sum($uomBuckets);
+                            }
                         }
                         $childSourceType = 'bahan baku';
                     } elseif ($childLineType === 'COMPONENT' && !empty($fr['sub_component_id'])) {

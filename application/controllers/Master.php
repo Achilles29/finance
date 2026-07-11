@@ -1315,6 +1315,29 @@ class Master extends MY_Controller
                 return null;
             }
 
+            if ($itemId > 0 && $this->db->table_exists('mst_item')) {
+                $itemRow = $this->db->select('i.material_id, i.content_uom_id AS item_content_uom_id, m.content_uom_id AS material_content_uom_id')
+                    ->from('mst_item i')
+                    ->join('mst_material m', 'm.id = i.material_id', 'left')
+                    ->where('i.id', $itemId)
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                $canonicalMaterialId = (int)($itemRow['material_id'] ?? 0);
+                if ($canonicalMaterialId > 0) {
+                    $materialId = $canonicalMaterialId;
+                    $data['material_id'] = $canonicalMaterialId;
+
+                    $canonicalContentUomId = (int)($itemRow['material_content_uom_id'] ?? 0);
+                    if ($canonicalContentUomId <= 0) {
+                        $canonicalContentUomId = (int)($itemRow['item_content_uom_id'] ?? 0);
+                    }
+                    if ($canonicalContentUomId > 0) {
+                        $contentUomId = $canonicalContentUomId;
+                    }
+                }
+            }
+
             if ($itemId <= 0) {
                 $data['item_id'] = null;
             }
