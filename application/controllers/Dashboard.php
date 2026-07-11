@@ -35,6 +35,7 @@ class Dashboard extends MY_Controller
             'pos_scope_rows' => $this->dashboard_pos_scope_rows($filters),
             'stock_breakdown' => $this->dashboard_stock_breakdown(),
             'stock_product_live' => $this->dashboard_stock_product_live(),
+            'reconcile_mismatch' => $this->dashboard_reconcile_mismatch_summary(),
             'adjustment_summary' => $this->dashboard_adjustment_summary(),
             'top_selling_products' => $this->dashboard_top_selling_products(),
             'prod_live_hidden_cats' => $this->dashboard_load_prod_live_hidden_cats(),
@@ -1346,6 +1347,247 @@ class Dashboard extends MY_Controller
 
         $result = $this->dashboard_safe_query($sql);
         return $result ? (float)$result->row('total') : 0.0;
+    }
+
+    private function dashboard_reconcile_mismatch_summary(): array
+    {
+        $asOfDate = date('Y-m-d');
+        $monthStart = date('Y-m-01', strtotime($asOfDate));
+        $summary = [
+            'as_of_date' => $asOfDate,
+            'material' => [
+                'total' => 0,
+                'locations' => [],
+                'rows' => [],
+                'url' => site_url('inventory/stock/division/reconcile') . '?' . http_build_query([
+                    'as_of_date' => $asOfDate,
+                    'per_page' => 25,
+                ]),
+            ],
+            'component' => [
+                'total' => 0,
+                'locations' => [],
+                'rows' => [],
+                'url' => site_url('production/component-reconcile') . '?' . http_build_query([
+                    'as_of_date' => $asOfDate,
+                    'date_from' => $monthStart,
+                    'date_to' => $asOfDate,
+                    'per_page' => 25,
+                ]),
+            ],
+        ];
+
+        try {
+            $summary['material'] = $this->dashboard_material_reconcile_mismatch($asOfDate, $summary['material']);
+        } catch (Throwable $e) {
+            log_message('error', 'Dashboard material reconcile mismatch failed: ' . $e->getMessage());
+            $summary['material']['error'] = 'Ringkasan bahan baku belum bisa dimuat.';
+        }
+
+        try {
+            $summary['component'] = $this->dashboard_component_reconcile_mismatch($asOfDate, $monthStart, $summary['component']);
+        } catch (Throwable $e) {
+            log_message('error', 'Dashboard component reconcile mismatch failed: ' . $e->getMessage());
+            $summary['component']['error'] = 'Ringkasan component belum bisa dimuat.';
+        }
+
+        return $summary;
+    }
+
+    private function dashboard_material_reconcile_mismatch(string $asOfDate, array $bucket): array
+    {
+        if (!$this->dashboard_table_ready('inv_division_monthly_stock')) {
+            return $bucket;
+        }
+
+        $this->load->model('Purchase_model');
+        $compare = $this->Purchase_model->list_division_material_stock_compare($asOfDate, '', null, 2000, 'ALL');
+        $rows = is_array($compare['rows'] ?? null) ? $compare['rows'] : [];
+        $locations = [];
+        $topRows = [];
+
+        foreach ($rows as $row) {
+            if (!empty($row['is_match'])) {
+                continue;
+            }
+
+            $divisionId = (int)($row['division_id'] ?? 0);
+            $destination = strtoupper(trim((string)($row['destination_type'] ?? $row['destination_group'] ?? 'ALL')));
+            if ($destination === '') {
+                $destination = 'ALL';
+            }
+
+            $divisionName = trim((string)($row['division_name'] ?? $row['division_code'] ?? ('Divisi #' . $divisionId)));
+            $locationName = trim((string)($row['destination_name'] ?? $destination));
+            $locationLabel = $this->dashboard_reconcile_location_label($divisionName, $locationName);
+            $locationKey = $divisionId . '|' . $destination;
+            $locationUrl = site_url('inventory/stock/division/reconcile') . '?' . http_build_query([
+                'as_of_date' => $asOfDate,
+                'division_id' => $divisionId,
+                'destination' => $destination,
+                'per_page' => 25,
+            ]);
+
+            if (!isset($locations[$locationKey])) {
+                $locations[$locationKey] = [
+                    'label' => $locationLabel,
+                    'division_id' => $divisionId,
+                    'location' => $destination,
+                    'total' => 0,
+                    'url' => $locationUrl,
+                ];
+            }
+            $locations[$locationKey]['total']++;
+
+            $gap = $this->dashboard_material_reconcile_gap($row);
+            $topRows[] = [
+                'name' => (string)($row['material_name'] ?? 'Bahan baku'),
+                'code' => (string)($row['material_code'] ?? ''),
+                'location' => $locationLabel,
+                'gap' => $gap,
+                'url' => site_url('inventory/stock/division/reconcile') . '?' . http_build_query([
+                    'as_of_date' => $asOfDate,
+                    'division_id' => $divisionId,
+                    'destination' => $destination,
+                    'q' => (string)($row['material_name'] ?? ''),
+                    'per_page' => 25,
+                ]),
+            ];
+        }
+
+        uasort($locations, static function ($a, $b) {
+            return ((int)$b['total'] <=> (int)$a['total']) ?: strcmp((string)$a['label'], (string)$b['label']);
+        });
+        usort($topRows, static fn($a, $b) => abs((float)$b['gap']) <=> abs((float)$a['gap']));
+
+        $bucket['total'] = count($topRows);
+        $bucket['locations'] = array_slice(array_values($locations), 0, 6);
+        $bucket['rows'] = array_slice($topRows, 0, 6);
+        return $bucket;
+    }
+
+    private function dashboard_component_reconcile_mismatch(string $asOfDate, string $monthStart, array $bucket): array
+    {
+        if (!$this->dashboard_table_ready('inv_component_monthly_stock')) {
+            return $bucket;
+        }
+
+        $this->load->model('Production_model');
+        $compare = $this->Production_model->component_reconcile_rows([
+            'as_of_date' => $asOfDate,
+            'date_from' => $monthStart,
+            'date_to' => $asOfDate,
+            'location_type' => '',
+            'division_id' => null,
+            'type' => '',
+            'q' => '',
+        ], 2000);
+        $rows = is_array($compare['rows'] ?? null) ? $compare['rows'] : [];
+        $locations = [];
+        $topRows = [];
+
+        foreach ($rows as $row) {
+            $balanceQty = (float)($row['balance_qty'] ?? 0);
+            $lotQty = (float)($row['lot_qty'] ?? $balanceQty);
+            $lotMismatch = abs($balanceQty - $lotQty) > 0.0001;
+            if (!empty($row['is_match']) && !$lotMismatch) {
+                continue;
+            }
+
+            $divisionId = (int)($row['division_id'] ?? 0);
+            $locationType = strtoupper(trim((string)($row['location_type'] ?? 'REGULER')));
+            if ($locationType === '') {
+                $locationType = 'REGULER';
+            }
+
+            $divisionName = trim((string)($row['division_name'] ?? ('Divisi #' . $divisionId)));
+            $locationLabel = $this->dashboard_reconcile_location_label($divisionName, $locationType);
+            $locationKey = $divisionId . '|' . $locationType;
+            $locationUrl = site_url('production/component-reconcile') . '?' . http_build_query([
+                'as_of_date' => $asOfDate,
+                'date_from' => $monthStart,
+                'date_to' => $asOfDate,
+                'division_id' => $divisionId,
+                'location_type' => $locationType,
+                'per_page' => 25,
+            ]);
+
+            if (!isset($locations[$locationKey])) {
+                $locations[$locationKey] = [
+                    'label' => $locationLabel,
+                    'division_id' => $divisionId,
+                    'location' => $locationType,
+                    'total' => 0,
+                    'url' => $locationUrl,
+                ];
+            }
+            $locations[$locationKey]['total']++;
+
+            $gap = $this->dashboard_component_reconcile_gap($row);
+            $topRows[] = [
+                'name' => (string)($row['component_name'] ?? 'Component'),
+                'code' => (string)($row['component_code'] ?? ''),
+                'location' => $locationLabel,
+                'gap' => $gap,
+                'url' => site_url('production/component-reconcile') . '?' . http_build_query([
+                    'as_of_date' => $asOfDate,
+                    'date_from' => $monthStart,
+                    'date_to' => $asOfDate,
+                    'division_id' => $divisionId,
+                    'location_type' => $locationType,
+                    'q' => (string)($row['component_name'] ?? ''),
+                    'per_page' => 25,
+                ]),
+            ];
+        }
+
+        uasort($locations, static function ($a, $b) {
+            return ((int)$b['total'] <=> (int)$a['total']) ?: strcmp((string)$a['label'], (string)$b['label']);
+        });
+        usort($topRows, static fn($a, $b) => abs((float)$b['gap']) <=> abs((float)$a['gap']));
+
+        $bucket['total'] = count($topRows);
+        $bucket['locations'] = array_slice(array_values($locations), 0, 6);
+        $bucket['rows'] = array_slice($topRows, 0, 6);
+        return $bucket;
+    }
+
+    private function dashboard_reconcile_location_label(string $divisionName, string $locationName): string
+    {
+        $divisionName = trim($divisionName) !== '' ? trim($divisionName) : 'Tanpa Divisi';
+        $locationName = trim($locationName) !== '' ? trim($locationName) : 'Reguler';
+        if (strcasecmp($divisionName, $locationName) === 0) {
+            return $divisionName;
+        }
+        return $divisionName . ' - ' . $locationName;
+    }
+
+    private function dashboard_material_reconcile_gap(array $row): float
+    {
+        $candidates = [
+            (float)($row['delta_balance_vs_movement'] ?? 0),
+            (float)($row['delta_daily_vs_movement'] ?? 0),
+            (float)($row['delta_matrix_vs_movement'] ?? 0),
+            (float)($row['daily_log_gap_content'] ?? 0),
+            (float)($row['profile_lot_delta_content'] ?? 0),
+            (float)($row['lot_delta_content'] ?? 0),
+        ];
+        usort($candidates, static fn($a, $b) => abs($b) <=> abs($a));
+        return (float)($candidates[0] ?? 0);
+    }
+
+    private function dashboard_component_reconcile_gap(array $row): float
+    {
+        $balanceQty = (float)($row['balance_qty'] ?? 0);
+        $lotQty = (float)($row['lot_qty'] ?? $balanceQty);
+        $candidates = [
+            (float)($row['delta_balance_daily'] ?? 0),
+            (float)($row['delta_balance_movement'] ?? 0),
+            (float)($row['delta_daily_movement'] ?? 0),
+            $balanceQty - $lotQty,
+        ];
+        usort($candidates, static fn($a, $b) => abs($b) <=> abs($a));
+        return (float)($candidates[0] ?? 0);
     }
 
     private function dashboard_stock_breakdown(): array

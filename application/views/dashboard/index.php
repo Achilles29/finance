@@ -19,10 +19,18 @@ $topSellingProducts = is_array($top_selling_products ?? null) ? $top_selling_pro
 ];
 $criticalStockRows  = is_array($critical_stock_rows   ?? null) ? $critical_stock_rows   : [];
 $negativeStockRows   = is_array($negative_stock_rows    ?? null) ? $negative_stock_rows    : [];
+$reconcileMismatch   = is_array($reconcile_mismatch    ?? null) ? $reconcile_mismatch    : ['material' => [], 'component' => [], 'as_of_date' => date('Y-m-d')];
 $recentActivity      = is_array($recent_activity        ?? null) ? $recent_activity        : [];
 $prodLiveHiddenCats  = is_array($prod_live_hidden_cats  ?? null) ? $prod_live_hidden_cats  : [];
 
 $cur = static fn($v): string => 'Rp ' . number_format((float)$v, 0, ',', '.');
+$fmtGap = static function ($v): string {
+    $num = (float)$v;
+    if (abs($num) < 0.0001) {
+        return '0,00';
+    }
+    return ($num > 0 ? '+' : '') . number_format($num, 2, ',', '.');
+};
 
 $statusPalette = [
     'PAID'=>'#2e7d32','SERVED'=>'#2e7d32','READY'=>'#0288d1','IN_KITCHEN'=>'#7b1fa2',
@@ -103,6 +111,27 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
   .fd-item.kritis { background:#fffaf5; border-color:rgba(239,108,0,.18); }
   .fd-item-title { font-weight:800; color:#6f2119; }
   .fd-item-meta { margin-top:.16rem; color:#8b7772; font-size:.84rem; }
+  .fd-recon-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+  .fd-recon-card { position:relative; overflow:hidden; padding:1rem; background:linear-gradient(145deg,#fff 0%,#fff9f5 100%); }
+  .fd-recon-card::after { content:""; position:absolute; width:150px; height:150px; right:-52px; top:-66px; border-radius:50%; background:rgba(168,35,44,.08); pointer-events:none; }
+  .fd-recon-head { position:relative; z-index:1; display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.9rem; }
+  .fd-recon-kicker { font-size:.7rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; color:#a65a45; }
+  .fd-recon-title { margin:.18rem 0 0; font-size:1.08rem; line-height:1.2; font-weight:900; color:#6f2119; }
+  .fd-recon-count { min-width:82px; text-align:right; font-size:2.1rem; line-height:1; font-weight:900; color:#c62828; }
+  .fd-recon-count small { display:block; margin-top:.22rem; color:#8b7772; font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+  .fd-recon-locs { position:relative; z-index:1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.5rem; margin-bottom:.85rem; }
+  .fd-recon-loc { display:flex; align-items:center; justify-content:space-between; gap:.55rem; padding:.55rem .65rem; border-radius:14px; background:#fff; border:1px solid rgba(170,95,78,.15); color:inherit; text-decoration:none; }
+  .fd-recon-loc:hover { border-color:rgba(168,35,44,.36); box-shadow:0 8px 16px rgba(109,47,30,.08); }
+  .fd-recon-loc strong { color:#6f2119; font-size:.82rem; line-height:1.15; }
+  .fd-recon-loc span { flex-shrink:0; color:#c62828; font-size:.78rem; font-weight:900; }
+  .fd-recon-list { position:relative; z-index:1; display:grid; gap:.45rem; }
+  .fd-recon-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.75rem; padding:.58rem .65rem; border-radius:14px; background:#fffaf7; border:1px solid rgba(170,95,78,.12); color:inherit; text-decoration:none; }
+  .fd-recon-row:hover { background:#fff2eb; border-color:rgba(168,35,44,.28); }
+  .fd-recon-row-name { font-weight:900; color:#4a2c2a; font-size:.86rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fd-recon-row-meta { margin-top:.12rem; color:#8b7772; font-size:.74rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fd-recon-gap { color:#c62828; font-size:.82rem; font-weight:900; white-space:nowrap; }
+  .fd-recon-action { position:relative; z-index:1; display:inline-flex; align-items:center; gap:.35rem; margin-top:.8rem; color:#8f2d23; font-size:.8rem; font-weight:900; text-decoration:none; }
+  .fd-recon-action:hover { color:#c62828; }
   .fd-pill { display:inline-flex; align-items:center; padding:.3rem .62rem; border-radius:999px; background:#fff0ea; color:#8f2d23; border:1px solid rgba(170,95,78,.16); font-size:.75rem; font-weight:800; }
   .fd-pill.minus { background:#fff0f0; color:#c62828; border-color:rgba(198,40,40,.2); }
   .fd-pill.kritis { background:#fff8f0; color:#e65100; border-color:rgba(239,108,0,.2); }
@@ -195,11 +224,11 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
     .fd-topprod-period-grid { grid-template-columns:1fr; }
   }
   @media (max-width:991.98px) {
-    .fd-chart-grid, .fd-2col, .fd-adjust-grid { grid-template-columns:1fr; }
+    .fd-chart-grid, .fd-2col, .fd-adjust-grid, .fd-recon-grid { grid-template-columns:1fr; }
     .fd-2scope { grid-template-columns:1fr; }
     .fd-adjust-panel-summary, .fd-adjust-panel-list { height:auto; }
   }
-  @media (max-width:767.98px) { .fd-kpi { grid-template-columns:1fr; } }
+  @media (max-width:767.98px) { .fd-kpi, .fd-recon-locs { grid-template-columns:1fr; } }
   /* Category filter */
   .fd-cat-cb { width:.85rem; height:.85rem; cursor:pointer; accent-color:#8f2d23; }
   #prodCatFilterBtn.active { background:#8f2d23; color:#fff; border-color:#8f2d23; }
@@ -474,6 +503,96 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
       </div>
     </div>
   </div>
+
+  <!-- Reconcile Mismatch -->
+  <?php
+  $materialRecon = is_array($reconcileMismatch['material'] ?? null) ? $reconcileMismatch['material'] : [];
+  $componentRecon = is_array($reconcileMismatch['component'] ?? null) ? $reconcileMismatch['component'] : [];
+  $reconCards = [
+      [
+          'key' => 'material',
+          'icon' => 'ri-seedling-line',
+          'kicker' => 'Bahan baku',
+          'title' => 'Mismatch Stok Divisi',
+          'desc' => 'Reconcile bahan baku per divisi dan lokasi.',
+          'data' => $materialRecon,
+      ],
+      [
+          'key' => 'component',
+          'icon' => 'ri-stack-line',
+          'kicker' => 'Component',
+          'title' => 'Mismatch Component',
+          'desc' => 'Reconcile component per divisi dan lokasi.',
+          'data' => $componentRecon,
+      ],
+  ];
+  ?>
+  <section class="fd-recon-grid">
+    <?php foreach ($reconCards as $card): ?>
+      <?php
+      $block = is_array($card['data'] ?? null) ? $card['data'] : [];
+      $total = (int)($block['total'] ?? 0);
+      $locations = is_array($block['locations'] ?? null) ? $block['locations'] : [];
+      $rows = is_array($block['rows'] ?? null) ? $block['rows'] : [];
+      $mainUrl = (string)($block['url'] ?? '#');
+      ?>
+      <article class="fd-card fd-recon-card">
+        <div class="fd-recon-head">
+          <div>
+            <div class="fd-recon-kicker"><i class="<?= htmlspecialchars($card['icon']) ?>"></i> <?= htmlspecialchars($card['kicker']) ?></div>
+            <h2 class="fd-recon-title"><?= htmlspecialchars($card['title']) ?></h2>
+            <p class="fd-sec-sub mb-0"><?= htmlspecialchars($card['desc']) ?></p>
+          </div>
+          <div class="fd-recon-count">
+            <?= number_format($total, 0, ',', '.') ?>
+            <small>Mismatch</small>
+          </div>
+        </div>
+
+        <?php if (!empty($block['error'])): ?>
+          <div class="fd-empty" style="position:relative;z-index:1;text-align:left;color:#c62828;background:#fff5f5;border:1px solid rgba(198,40,40,.18);border-radius:14px;">
+            <?= htmlspecialchars((string)$block['error']) ?>
+          </div>
+        <?php elseif ($total <= 0): ?>
+          <div class="fd-item" style="position:relative;z-index:1;background:#f4fff6;border-color:rgba(46,125,50,.18);">
+            <div>
+              <div class="fd-item-title" style="color:#2e7d32;">Clear</div>
+              <div class="fd-item-meta">Tidak ada mismatch terdeteksi hari ini.</div>
+            </div>
+            <span class="fd-pill ok">Aman</span>
+          </div>
+        <?php else: ?>
+          <div class="fd-recon-locs">
+            <?php foreach ($locations as $loc): ?>
+              <a class="fd-recon-loc" href="<?= htmlspecialchars((string)($loc['url'] ?? $mainUrl)) ?>">
+                <strong><?= htmlspecialchars((string)($loc['label'] ?? '-')) ?></strong>
+                <span><?= number_format((int)($loc['total'] ?? 0), 0, ',', '.') ?></span>
+              </a>
+            <?php endforeach; ?>
+          </div>
+
+          <div class="fd-recon-list">
+            <?php foreach ($rows as $row): ?>
+              <a class="fd-recon-row" href="<?= htmlspecialchars((string)($row['url'] ?? $mainUrl)) ?>">
+                <div style="min-width:0">
+                  <div class="fd-recon-row-name"><?= htmlspecialchars((string)($row['name'] ?? '-')) ?></div>
+                  <div class="fd-recon-row-meta">
+                    <?= htmlspecialchars((string)($row['location'] ?? '-')) ?>
+                    <?php if (!empty($row['code'])): ?> &middot; <?= htmlspecialchars((string)$row['code']) ?><?php endif; ?>
+                  </div>
+                </div>
+                <div class="fd-recon-gap"><?= $fmtGap($row['gap'] ?? 0) ?></div>
+              </a>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+
+        <a class="fd-recon-action" href="<?= htmlspecialchars($mainUrl) ?>">
+          Buka halaman reconcile <i class="ri-arrow-right-line"></i>
+        </a>
+      </article>
+    <?php endforeach; ?>
+  </section>
 
   <!-- Stok Produk (Live POS) -->
   <section class="fd-card p-3">

@@ -87,6 +87,34 @@ $mismatchToggleUrl  = $baseUrl . '?' . http_build_query($mismatchToggleBase);
 
 $fmtQty     = static fn($v): string => number_format((float)$v, 2, ',', '.');
 $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== '' ? trim((string)$v) : $fb;
+$renderSelisih = static function (string $text): string {
+    $text = trim($text);
+    if ($text === '' || $text === '-' || $text === 'â€“') {
+        return '<span class="rec-selisih-ok">-</span>';
+    }
+    $shortMap = [
+        'Lot vs Stok:' => 'Lot-Stok',
+        'Nilai Lot vs Stok:' => 'Nilai Lot',
+        'Stok vs Mvt:' => 'Stok-Mvt',
+        'Mat. Daily vs Mvt:' => 'Daily-Mvt',
+        'Snapshot vs Mvt:' => 'Snap-Mvt',
+        'Gap Histori:' => 'Histori',
+        'Log Gap:' => 'Log',
+    ];
+    $parts = array_values(array_filter(array_map('trim', explode(';', $text)), static fn($v): bool => $v !== ''));
+    $html = '<div class="rec-selisih-stack">';
+    foreach ($parts as $part) {
+        $label = $part;
+        foreach ($shortMap as $from => $to) {
+            if (stripos($part, $from) === 0) {
+                $label = $to . ': ' . trim(substr($part, strlen($from)));
+                break;
+            }
+        }
+        $html .= '<span class="rec-selisih-chip">' . html_escape($label) . '</span>';
+    }
+    return $html . '</div>';
+};
 ?>
 
 <style>
@@ -171,6 +199,17 @@ $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== ''
 /* ── Table ── */
 .rec-table-wrap { overflow-x:auto; overflow-y:auto; max-height:65vh; }
 .rec-table-wrap table { min-width:1240px; border-collapse:separate; border-spacing:0; }
+.rec-table-wrap > table > thead > tr > th:nth-child(7),
+.rec-table-wrap > table > tbody > tr:not(.rec-profile-breakdown-row) > td:nth-child(7) {
+  width:118px;
+  max-width:118px;
+}
+.rec-table-wrap > table > thead > tr > th:nth-child(9),
+.rec-table-wrap > table > tbody > tr:not(.rec-profile-breakdown-row) > td:nth-child(9) {
+  width:132px;
+  min-width:132px;
+  max-width:132px;
+}
 .rec-table-wrap thead th {
   position:sticky; top:0; z-index:4;
   background:linear-gradient(180deg,#312028 0%,#4a2f3a 100%);
@@ -189,21 +228,85 @@ $fmtText    = static fn($v, string $fb = '-'): string => trim((string)$v) !== ''
 .rec-delta-ok  { color:#2f9e44; font-weight:800; }
 .rec-delta-bad { color:#b42318; font-weight:800; }
 .rec-col-selisih {
-  width:132px;
-  min-width:132px !important;
-  max-width:132px;
+  width:112px;
+  min-width:112px !important;
+  max-width:112px;
   white-space:normal;
   word-break:normal;
   overflow-wrap:anywhere;
   line-height:1.25;
 }
 .rec-col-selisih-child {
-  width:116px;
-  min-width:116px !important;
-  max-width:116px;
+  width:126px;
+  min-width:126px !important;
+  max-width:126px;
   white-space:normal;
   overflow-wrap:anywhere;
   line-height:1.2;
+}
+.rec-selisih-stack {
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:.18rem;
+}
+.rec-selisih-chip {
+  display:inline-flex;
+  max-width:100%;
+  padding:.12rem .38rem;
+  border-radius:999px;
+  background:#fff1f2;
+  border:1px solid #fecdd3;
+  color:#b42318;
+  font-weight:800;
+  font-size:.6rem;
+  line-height:1.12;
+  text-align:right;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.rec-selisih-ok {
+  display:inline-flex;
+  color:#2f9e44;
+  font-weight:800;
+}
+.rec-breakdown-table {
+  min-width:1120px !important;
+  table-layout:auto;
+}
+.rec-breakdown-actions,
+.rec-action-cell {
+  min-width:178px;
+  white-space:normal;
+}
+.rec-breakdown-actions .btn,
+.rec-action-cell .btn {
+  line-height:1.15;
+}
+.rec-action-stack {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:center;
+  gap:.28rem;
+  max-width:100%;
+}
+.rec-action-stack .rec-icon-btn {
+  flex:0 0 auto;
+}
+.rec-action-stack .btn {
+  flex:0 0 auto;
+  max-width:100%;
+  white-space:nowrap;
+}
+.rec-action-btn {
+  min-height:1.55rem;
+  border-radius:.5rem;
+  font-size:.59rem !important;
+  padding:.12rem .38rem !important;
+}
+.rec-action-btn i {
+  margin-right:.12rem;
 }
 
 /* ── Material audit drawer ── */
@@ -705,11 +808,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <div class="text-muted" style="font-size:.68rem"><?php echo $fmtQty($row['movement_qty_pack'] ?? 0); ?> pack</div>
               </td>
               <td class="small rec-col-selisih" style="font-size:.66rem">
-                <?php if ($parentSelisihText === '-'): ?>
-                  <span class="rec-delta-ok">-</span>
-                <?php else: ?>
-                  <span class="rec-delta-bad" style="font-weight:600"><?php echo html_escape($parentSelisihText); ?></span>
-                <?php endif; ?>
+                <?php echo $renderSelisih($parentSelisihText); ?>
               </td>
               <td style="max-width:160px;word-break:break-word">
                 <span class="rec-chip <?php echo $isMatch ? 'rec-chip-ok' : 'rec-chip-bad'; ?>"><?php echo $isMatch ? 'Match' : 'Mismatch'; ?></span>
@@ -717,7 +816,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <?php if (!empty($row['daily_log_has_gap'])): ?><div class="text-muted" style="font-size:.66rem;margin-top:.2rem" title="Closing saat ini sudah match. Yang masih gap adalah histori opening + delta movement bulan berjalan terhadap closing monthly.">Gap histori log</div><?php endif; ?>
               </td>
               <td>
-                <div class="d-flex gap-1" style="flex-wrap:wrap">
+                <div class="rec-action-stack">
                   <button type="button" class="rec-icon-btn btn-outline-primary src-material-audit-btn"
                     data-as-of-date="<?php echo $asOf; ?>"
                     data-division-id="<?php echo $dataDivId; ?>"
@@ -777,7 +876,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                 <td colspan="9" style="padding:.2rem .5rem .5rem 1.8rem;background:#f0f4f8;border-top:none;">
                   <div style="font-size:.62rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;padding:.3rem 0 .2rem">Breakdown per Profil</div>
                   <div style="overflow-x:auto">
-                  <table class="table table-sm table-borderless mb-0" style="font-size:.68rem;min-width:720px;">
+                  <table class="table table-sm table-borderless mb-0 rec-breakdown-table" style="font-size:.68rem;">
                     <thead>
                       <tr style="border-bottom:2px solid #cbd5e1;background:#e2e8f0;">
                         <th style="min-width:140px;font-weight:700;padding:.3rem .5rem">Profil</th>
@@ -788,7 +887,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                         <th class="text-end" style="font-weight:700;padding:.3rem .4rem;min-width:82px" title="Selisih closing monthly_stock vs (opening + Σ movement_log). Bukan nol = ada movement phantom atau hilang.">Log Gap</th>
                         <th class="rec-col-selisih-child" style="font-weight:700;padding:.3rem .4rem">Selisih</th>
                         <th class="text-center" style="font-weight:700;padding:.3rem .4rem;min-width:72px">Status</th>
-                        <th class="text-center" style="font-weight:700;padding:.3rem .4rem;min-width:64px">Aksi</th>
+                        <th class="text-center rec-action-cell" style="font-weight:700;padding:.3rem .4rem">Aksi</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -869,19 +968,15 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                             <?php else: ?>–<?php endif; ?>
                           </td>
                           <td class="rec-col-selisih-child" style="padding:.3rem .4rem;font-size:.63rem">
-                            <?php if (!$pbMis): ?>
-                              <span style="color:#2f9e44">–</span>
-                            <?php else: ?>
-                              <span style="color:#b42318;font-weight:600"><?php echo html_escape($selisihText); ?></span>
-                            <?php endif; ?>
+                            <?php echo $renderSelisih($selisihText); ?>
                           </td>
-                          <td class="text-center" style="padding:.3rem .4rem">
+                          <td class="text-center rec-breakdown-actions" style="padding:.3rem .4rem">
                             <span class="rec-chip <?php echo $pbStatusCls; ?>" style="font-size:.59rem"><?php echo $pbStatusLbl; ?></span>
                           </td>
-                          <td class="text-center" style="padding:.3rem .4rem">
-                            <div class="d-flex gap-1 justify-content-center flex-wrap">
+                          <td class="text-center rec-action-cell" style="padding:.3rem .4rem">
+                            <div class="rec-action-stack">
                             <?php if ($pbMis): ?>
-                            <button type="button" class="btn btn-xs btn-outline-warning src-profile-repair-btn"
+                            <button type="button" class="btn btn-xs btn-outline-warning rec-action-btn src-profile-repair-btn"
                               data-as-of-date="<?php echo html_escape($asOfDate); ?>"
                               data-division-id="<?php echo $dataDivId; ?>"
                               data-material-id="<?php echo $dataMatId; ?>"
@@ -901,7 +996,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                               title="<?php echo html_escape($profileRepairTitle); ?>"
                               style="font-size:.59rem;padding:.1rem .35rem"><?php echo html_escape($profileRepairLabel); ?></button>
                             <?php endif; ?>
-                            <button type="button" class="btn btn-xs btn-outline-primary src-quick-adj-btn"
+                            <button type="button" class="btn btn-xs btn-outline-primary rec-action-btn src-quick-adj-btn"
                               data-division-id="<?php echo $dataDivId; ?>"
                               data-item-id="<?php echo $dataItemId; ?>"
                               data-material-id="<?php echo $dataMatId; ?>"
@@ -915,7 +1010,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                               data-profile-name="<?php echo html_escape($pbLabel); ?>"
                               title="Adjustment manual profil ini"
                               style="font-size:.59rem;padding:.1rem .35rem"><i class="ri ri-scales-3-line"></i> Adj</button>
-                            <button type="button" class="btn btn-xs btn-outline-dark src-lot-adj-btn"
+                            <button type="button" class="btn btn-xs btn-outline-dark rec-action-btn src-lot-adj-btn"
                               data-division-id="<?php echo $dataDivId; ?>"
                               data-material-id="<?php echo $dataMatId; ?>"
                               data-destination="<?php echo html_escape($dataDest); ?>"
@@ -928,7 +1023,7 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
                               title="Adjustment lot FIFO saja untuk profil ini (monthly stock tidak berubah)"
                               style="font-size:.59rem;padding:.1rem .35rem"><i class="ri ri-stack-line"></i> Lot</button>
                             <?php if ($pbLogBad): ?>
-                            <button type="button" class="btn btn-xs btn-outline-danger src-log-repair-btn"
+                            <button type="button" class="btn btn-xs btn-outline-danger rec-action-btn src-log-repair-btn"
                               data-division-id="<?php echo $dataDivId; ?>"
                               data-material-id="<?php echo $dataMatId; ?>"
                               data-destination="<?php echo html_escape($dataDest); ?>"
@@ -2372,3 +2467,4 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
   </div>
 </div>
+

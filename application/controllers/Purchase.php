@@ -2845,8 +2845,16 @@ class Purchase extends MY_Controller
             return;
         }
 
-        // Resolve material + division data
-        $matRow = $this->db->select('id, buy_uom_id, content_uom_id')->from('mst_material')
+        // Resolve material + division data. Some deployments keep buy UOM only on item/monthly rows,
+        // so select material columns defensively to avoid CI returning an HTML DB error.
+        $materialSelect = 'id';
+        if ($this->db->field_exists('buy_uom_id', 'mst_material')) {
+            $materialSelect .= ', buy_uom_id';
+        }
+        if ($this->db->field_exists('content_uom_id', 'mst_material')) {
+            $materialSelect .= ', content_uom_id';
+        }
+        $matRow = $this->db->select($materialSelect, false)->from('mst_material')
             ->where('id', $materialId)->get()->row_array();
         if (empty($matRow)) {
             $this->output->set_status_header(422)->set_content_type('application/json')
@@ -2896,16 +2904,56 @@ class Purchase extends MY_Controller
             $destType = in_array($divisionDestType, $allowedDestTypes, true) ? $divisionDestType : 'OTHER';
         }
 
-        // Fetch profile info if profile_key given
-        $profileName = null;
-        if ($profileKey !== '') {
-            $pkRow = $this->db->select('profile_name, profile_content_per_buy')
+        $monthlyRow = [];
+        if ($this->db->table_exists('inv_division_monthly_stock')) {
+            $monthKey = date('Y-m-01', strtotime($adjustDate ?: date('Y-m-d')));
+            $monthlyQb = $this->db
+                ->select('destination_type, item_id, buy_uom_id, content_uom_id, profile_key, profile_name, profile_brand, profile_description, profile_expired_date, profile_content_per_buy, profile_buy_uom_code, profile_content_uom_code, closing_qty_buy, closing_qty_content, avg_cost_per_content')
                 ->from('inv_division_monthly_stock')
-                ->where('division_id', $divisionId)->where('material_id', $materialId)
-                ->where('profile_key', $profileKey)
-                ->order_by('month_key', 'DESC')->limit(1)->get()->row_array();
-            $profileName = $pkRow['profile_name'] ?? null;
+                ->where('month_key', $monthKey)
+                ->where('division_id', $divisionId)
+                ->where('material_id', $materialId)
+                ->where('destination_type', $destType);
+            if ($profileKey !== '') {
+                $monthlyQb->where('profile_key', $profileKey);
+            }
+            $monthlyRow = $monthlyQb->order_by('id', 'DESC')->limit(1)->get()->row_array() ?: [];
+
+            // A log-gap repair is tied to one monthly/profile identity. If the UI row was
+            // produced by an orphan movement with the wrong destination, recover the real
+            // monthly destination from profile_key instead of creating another orphan row.
+            if (empty($monthlyRow) && $profileKey !== '') {
+                $monthlyRow = $this->db
+                    ->select('destination_type, item_id, buy_uom_id, content_uom_id, profile_key, profile_name, profile_brand, profile_description, profile_expired_date, profile_content_per_buy, profile_buy_uom_code, profile_content_uom_code, closing_qty_buy, closing_qty_content, avg_cost_per_content')
+                    ->from('inv_division_monthly_stock')
+                    ->where('month_key', $monthKey)
+                    ->where('division_id', $divisionId)
+                    ->where('material_id', $materialId)
+                    ->where('profile_key', $profileKey)
+                    ->order_by('id', 'DESC')
+                    ->limit(1)
+                    ->get()
+                    ->row_array() ?: [];
+                if (!empty($monthlyRow['destination_type'])) {
+                    $destType = strtoupper((string)$monthlyRow['destination_type']);
+                }
+            }
         }
+
+        if ($profileKey !== '' && empty($monthlyRow)) {
+            $this->output->set_status_header(422)->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Profile monthly stock tidak ditemukan untuk repair log. Refresh halaman lalu pilih baris profil yang benar.']));
+            return;
+        }
+
+        $itemId = (int)($monthlyRow['item_id'] ?? 0);
+        if ($buyUomId <= 0) {
+            $buyUomId = (int)($monthlyRow['buy_uom_id'] ?? 0);
+        }
+        if ($contentUomId <= 0) {
+            $contentUomId = (int)($monthlyRow['content_uom_id'] ?? 0);
+        }
+        $profileName = $profileKey !== '' ? ($monthlyRow['profile_name'] ?? null) : null;
 
         // Generate movement_no
         $timestamp  = date('YmdHis');
@@ -2920,7 +2968,14 @@ class Purchase extends MY_Controller
             ->from('inv_stock_movement_log')
             ->where('division_id', $divisionId)
             ->where('material_id', $materialId)
-            ->where('movement_scope', 'DIVISION');
+            ->where('movement_scope', 'DIVISION')
+            ->where('destination_type', $destType);
+        if ($itemId > 0) {
+            $lastRow = $lastRow->where('item_id', $itemId);
+        }
+        if ($contentUomId > 0) {
+            $lastRow = $lastRow->where('content_uom_id', $contentUomId);
+        }
         if ($profileKey !== '') {
             $lastRow = $lastRow->where('profile_key', $profileKey);
         }
@@ -2928,12 +2983,22 @@ class Purchase extends MY_Controller
             ->order_by('movement_date', 'DESC')->order_by('id', 'DESC')
             ->limit(1)->get()->row_array();
         $prevAfter = round((float)($lastRow['qty_content_after'] ?? 0), 4);
-        $newAfter  = round($prevAfter + $correctionQty, 4);
+        // Log-gap repair is a delta-history correction. Keep closing balance unchanged;
+        // only the delta history is adjusted so opening + sum(delta) can foot to monthly closing.
+        $newAfter  = round((float)($monthlyRow['closing_qty_content'] ?? $prevAfter), 4);
 
         if ($contentUomId <= 0) {
             $this->output->set_status_header(422)->set_content_type('application/json')
                 ->set_output(json_encode(['ok' => false, 'message' => 'UOM isi material tidak valid. Cek master material / payload reconcile.']));
             return;
+        }
+
+        $currentUserId = (int)($this->current_user['id'] ?? 0);
+        if ($currentUserId <= 0) {
+            $sessionUser = $this->session->userdata('auth_user');
+            if (is_array($sessionUser)) {
+                $currentUserId = (int)($sessionUser['id'] ?? 0);
+            }
         }
 
         $logEntry = [
@@ -2944,18 +3009,25 @@ class Purchase extends MY_Controller
             'destination_type'     => $destType,
             'movement_type'        => $movementType,
             'ref_table'            => 'div_log_repair',
+            'item_id'              => $itemId > 0 ? $itemId : null,
             'material_id'          => $materialId,
             'buy_uom_id'           => $buyUomId ?: null,
             'content_uom_id'       => $contentUomId,
             'qty_buy_delta'        => 0,
             'qty_content_delta'    => $correctionQty,
-            'qty_buy_after'        => 0,
+            'qty_buy_after'        => round((float)($monthlyRow['closing_qty_buy'] ?? 0), 4),
             'qty_content_after'    => $newAfter,
             'profile_key'          => $profileKey ?: null,
             'profile_name'         => $profileName,
-            'unit_cost'            => $unitCost > 0 ? $unitCost : 0,
+            'profile_brand'        => $profileKey !== '' ? ($monthlyRow['profile_brand'] ?? null) : null,
+            'profile_description'  => $profileKey !== '' ? ($monthlyRow['profile_description'] ?? null) : null,
+            'profile_expired_date' => $profileKey !== '' ? ($monthlyRow['profile_expired_date'] ?? null) : null,
+            'profile_content_per_buy' => $profileKey !== '' ? ($monthlyRow['profile_content_per_buy'] ?? null) : null,
+            'profile_buy_uom_code' => $profileKey !== '' ? ($monthlyRow['profile_buy_uom_code'] ?? null) : null,
+            'profile_content_uom_code' => $profileKey !== '' ? ($monthlyRow['profile_content_uom_code'] ?? null) : null,
+            'unit_cost'            => $unitCost > 0 ? $unitCost : (float)($monthlyRow['avg_cost_per_content'] ?? 0),
             'notes'                => substr('Log gap repair: ' . ($notes ?: 'Adj manual dari reconcile audit'), 0, 255),
-            'created_by'           => $this->auth->get_user_id() ?: null,
+            'created_by'           => $currentUserId > 0 ? $currentUserId : null,
         ];
 
         if ($this->db->field_exists('adjustment_category', 'inv_stock_movement_log')) {
