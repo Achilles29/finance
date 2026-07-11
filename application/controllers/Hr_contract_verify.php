@@ -25,6 +25,7 @@ class Hr_contract_verify extends CI_Controller
 
         $proof = $this->Hr_contract_model->refresh_document_verification((int)$row['id']);
         if (!empty($proof['final_document_hash'])) {
+            $row = $this->Hr_contract_model->get_contract_detail((int)$row['id']) ?: $row;
             $row['final_document_hash'] = $proof['final_document_hash'];
             $row['document_issued_at'] = $proof['document_issued_at'];
         }

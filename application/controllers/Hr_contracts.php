@@ -56,21 +56,35 @@ class Hr_contracts extends MY_Controller
     {
         $this->require_permission(self::PAGE_CONTRACT, 'view');
 
+        $rawStatus = strtoupper(trim((string)$this->input->get('status', true)));
+        if ($rawStatus === '') {
+            $rawStatus = 'ACTIVE';
+        }
+        if ($rawStatus === 'ALL') {
+            $rawStatus = '';
+        }
+
         $filters = [
             'q' => trim((string)$this->input->get('q', true)),
             'employee_id' => (int)$this->input->get('employee_id', true),
             'template_id' => (int)$this->input->get('template_id', true),
-            'status' => strtoupper(trim((string)$this->input->get('status', true))),
+            'status' => $rawStatus,
             'contract_type' => strtoupper(trim((string)$this->input->get('contract_type', true))),
             'date_start' => trim((string)$this->input->get('date_start', true)),
             'date_end' => trim((string)$this->input->get('date_end', true)),
         ];
+
+        $statusOptions = ['DRAFT', 'GENERATED', 'SIGNED', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED'];
+        if ($filters['status'] !== '' && !in_array($filters['status'], $statusOptions, true)) {
+            $filters['status'] = '';
+        }
 
         $perPage = $this->per_page();
         $page = $this->page();
         $total = $this->Hr_contract_model->count_contracts($filters);
         $pg = $this->build_pagination($total, $perPage, $page);
         $rows = $this->Hr_contract_model->list_contracts($filters, $pg['per_page'], $pg['offset']);
+        $statusCounts = $this->Hr_contract_model->count_contracts_by_status($filters, $statusOptions);
 
         $data = [
             'title' => 'Operasional Kontrak Pegawai',
@@ -79,7 +93,8 @@ class Hr_contracts extends MY_Controller
             'filters' => $filters,
             'rows' => $rows,
             'pg' => $pg,
-            'status_options' => ['DRAFT', 'GENERATED', 'SIGNED', 'ACTIVE', 'EXPIRED', 'TERMINATED', 'CANCELLED'],
+            'status_options' => $statusOptions,
+            'status_counts' => $statusCounts,
             'contract_type_options' => ['K1', 'K2', 'K3', 'CUSTOM'],
             'employee_options' => $this->Hr_contract_model->get_employee_options(),
             'template_options' => $this->Hr_contract_model->get_template_options(),
@@ -160,7 +175,7 @@ class Hr_contracts extends MY_Controller
                 'template_name' => '',
                 'contract_type' => 'K1',
                 'duration_months' => 3,
-                'body_html' => '<p>Isi template kontrak. Gunakan placeholder: {{EMPLOYEE_NAME}}, {{EMPLOYEE_CODE}}, {{POSITION_NAME}}, {{DIVISION_NAME}}, {{START_DATE}}, {{END_DATE}}, {{BASIC_SALARY}}, {{POSITION_ALLOWANCE}}, {{OTHER_ALLOWANCE}}, {{MEAL_RATE}}, {{OVERTIME_RATE}}, {{FIXED_TOTAL}}.</p>',
+                'body_html' => '<p>Isi template kontrak. Gunakan placeholder: {{NAMA_PEGAWAI}}, {{JABATAN}}, {{DIVISI}}, {{OUTLET}}, {{TANGGAL_KONTRAK}}, {{TANGGAL_MULAI}}, {{TANGGAL_AKHIR}}, {{DURASI_KONTRAK}}, {{GAJI_POKOK_DASAR}}, {{TUNJANGAN_JABATAN}}, {{TUNJANGAN_OBJEKTIF}}, {{UANG_MAKAN}}, {{TARIF_LEMBUR}}, {{TOTAL_KOMPENSASI_TETAP}}.</p>',
                 'is_active' => 1,
             ];
         }

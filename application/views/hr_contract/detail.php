@@ -32,6 +32,30 @@ $verifyUrl = !empty($row['verification_token']) ? site_url('hr-contracts/verify/
     border: 0;
     box-shadow: 0 2px 12px rgba(31, 41, 55, 0.08);
   }
+  .signature-pad-wrap {
+    border: 1px dashed #cfd4dc;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+    padding: 12px;
+  }
+  .signature-pad {
+    width: 100%;
+    height: 220px;
+    display: block;
+    border: 1px solid #dfe3ea;
+    border-radius: 10px;
+    background: #fff;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .signature-preview {
+    max-width: 100%;
+    max-height: 120px;
+    border: 1px solid #dfe3ea;
+    border-radius: 10px;
+    background: #fff;
+    padding: 6px;
+  }
 </style>
 
 <div class="hr-contract-detail">
@@ -178,6 +202,53 @@ $verifyUrl = !empty($row['verification_token']) ? site_url('hr-contracts/verify/
             Legacy signature data masih tersimpan untuk arsip, namun tidak dijadikan acuan validasi utama dokumen.
           </div>
         <?php endif; ?>
+
+        <div class="mt-4 pt-3 border-top">
+          <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+            <div>
+              <h6 class="mb-1">Tanda Tangan Perusahaan</h6>
+              <div class="text-muted small">Dipakai untuk pengesahan pihak perusahaan. Tanda tangan ini akan tersimpan dengan role <code>COMPANY</code>.</div>
+            </div>
+            <?php if (!empty($signatureMap['COMPANY']['signature_data'])): ?>
+              <img src="<?php echo html_escape((string)$signatureMap['COMPANY']['signature_data']); ?>" alt="Signature Company" class="signature-preview">
+            <?php endif; ?>
+          </div>
+
+          <?php if (!$canEdit || !in_array($status, ['GENERATED', 'SIGNED'], true)): ?>
+            <div class="alert alert-warning mb-0">
+              <?php if (!$canEdit): ?>
+                Akun ini belum memiliki izin untuk menandatangani kontrak sebagai perusahaan.
+              <?php else: ?>
+                Kontrak hanya bisa ditandatangani pihak perusahaan saat statusnya `GENERATED` atau `SIGNED`.
+              <?php endif; ?>
+            </div>
+          <?php else: ?>
+            <form method="post" action="<?php echo site_url('hr/contracts/' . (int)$row['id'] . '/sign?' . http_build_query(['ctx' => $ctx])); ?>" id="company-contract-sign-form">
+              <input type="hidden" name="signer_role" value="COMPANY">
+              <div class="row g-3 align-items-start">
+                <div class="col-lg-7">
+                  <label class="form-label fw-semibold">Tanda Tangan Elektronik Perusahaan</label>
+                  <div class="signature-pad-wrap">
+                    <canvas id="company-signature-pad" class="signature-pad"></canvas>
+                    <input type="hidden" name="signature_data" id="company-signature-data">
+                    <div class="d-flex justify-content-between align-items-center mt-2 flex-wrap gap-2">
+                      <small class="text-muted">Gambar tanda tangan di area putih. Tanda tangan ini akan disimpan sebagai pengesahan elektronik perusahaan.</small>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-company-signature">Bersihkan</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-lg-5">
+                  <div class="border rounded p-3 bg-light-subtle h-100">
+                    <div class="small text-muted mb-2">Penandatangan</div>
+                    <input type="text" name="signer_name" class="form-control form-control-sm mb-3" value="<?php echo html_escape((string)($currentUser['username'] ?? 'SYSTEM')); ?>">
+                    <div class="small text-muted mb-3">Nama ini akan disimpan pada data tanda tangan perusahaan.</div>
+                    <button type="submit" class="btn btn-primary w-100">Simpan Tanda Tangan Perusahaan</button>
+                  </div>
+                </div>
+              </div>
+            </form>
+          <?php endif; ?>
+        </div>
       </div>
     </div>
   </div>
@@ -206,14 +277,99 @@ $verifyUrl = !empty($row['verification_token']) ? site_url('hr-contracts/verify/
 </div>
 <?php endif; ?>
 
-<?php if (!empty($row['body_html'])): ?>
+<?php $contractBodyHtml = (string)($row['body_html_rendered'] ?? $row['body_html'] ?? ''); ?>
+<?php if ($contractBodyHtml !== ''): ?>
 <div class="card">
   <div class="card-body">
     <h6 class="mb-2">Dokumen Kontrak</h6>
     <div class="border rounded p-3" style="max-height: 540px; overflow:auto; background:#fff;">
-      <?php echo (string)$row['body_html']; ?>
+      <?php echo $contractBodyHtml; ?>
     </div>
   </div>
 </div>
 <?php endif; ?>
 </div>
+
+<?php if ($canEdit && in_array($status, ['GENERATED', 'SIGNED'], true)): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var form = document.getElementById('company-contract-sign-form');
+  var canvas = document.getElementById('company-signature-pad');
+  var hidden = document.getElementById('company-signature-data');
+  var clearBtn = document.getElementById('clear-company-signature');
+
+  if (!form || !canvas || !hidden || !clearBtn) {
+    return;
+  }
+
+  var ctx = canvas.getContext('2d');
+  var drawing = false;
+  var hasStroke = false;
+
+  function resizeCanvas() {
+    var ratio = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.max(320, Math.floor(rect.width * ratio));
+    canvas.height = Math.floor(220 * ratio);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#111827';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, rect.width, 220);
+    hasStroke = false;
+    hidden.value = '';
+  }
+
+  function pointFromEvent(event) {
+    var rect = canvas.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  }
+
+  function beginDraw(event) {
+    drawing = true;
+    hasStroke = true;
+    var point = pointFromEvent(event);
+    ctx.beginPath();
+    ctx.moveTo(point.x, point.y);
+    event.preventDefault();
+  }
+
+  function draw(event) {
+    if (!drawing) return;
+    var point = pointFromEvent(event);
+    ctx.lineTo(point.x, point.y);
+    ctx.stroke();
+    event.preventDefault();
+  }
+
+  function endDraw() {
+    if (!drawing) return;
+    drawing = false;
+    hidden.value = hasStroke ? canvas.toDataURL('image/png') : '';
+  }
+
+  clearBtn.addEventListener('click', function () {
+    resizeCanvas();
+  });
+
+  canvas.addEventListener('pointerdown', beginDraw);
+  canvas.addEventListener('pointermove', draw);
+  canvas.addEventListener('pointerup', endDraw);
+  canvas.addEventListener('pointerleave', endDraw);
+  canvas.addEventListener('pointercancel', endDraw);
+
+  form.addEventListener('submit', function (event) {
+    hidden.value = hasStroke ? canvas.toDataURL('image/png') : '';
+    if (!hidden.value) {
+      event.preventDefault();
+      window.alert('Tanda tangan perusahaan belum diisi.');
+    }
+  });
+
+  resizeCanvas();
+});
+</script>
+<?php endif; ?>

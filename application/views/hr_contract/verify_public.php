@@ -18,6 +18,13 @@ $signatureMap = $signature_map ?? [];
     .ok { color:#1b7f3a; font-weight:bold; }
     .bad { color:#b42318; font-weight:bold; }
     .badge { display:inline-block; padding:4px 8px; border:1px solid #ccc; border-radius:999px; font-size:11px; }
+    .doc { font-family:"Times New Roman", Times, serif; font-size:14px; line-height:1.75; color:#000; border:1px solid #ddd; border-radius:8px; padding:18px; overflow:auto; background:#fff; }
+    .sign-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .sign-box { border:1px solid #e4e5e8; border-radius:8px; padding:10px; min-height:110px; }
+    .sign-img { max-width:220px; max-height:80px; display:block; margin:8px 0; }
+    @media (max-width: 720px) {
+      .grid, .sign-grid { grid-template-columns:1fr; }
+    }
   </style>
 </head>
 <body>
@@ -44,15 +51,28 @@ $signatureMap = $signature_map ?? [];
         </div>
       </div>
 
+      <?php $contractBodyHtml = (string)($row['body_html_rendered'] ?? $row['body_html'] ?? ''); ?>
+      <?php if ($contractBodyHtml !== ''): ?>
+        <div class="card">
+          <h4 style="margin-top:0;">Dokumen Kontrak</h4>
+          <div class="doc">
+            <?php echo $contractBodyHtml; ?>
+          </div>
+        </div>
+      <?php endif; ?>
+
       <div class="card">
         <h4 style="margin-top:0;">Approval & Tanda Tangan</h4>
-        <div class="grid">
+        <div class="sign-grid">
           <?php foreach (['EMPLOYEE', 'COMPANY'] as $role): ?>
             <?php $approval = $approvalMap[$role] ?? null; $signature = $signatureMap[$role] ?? null; ?>
-            <div style="border:1px solid #e4e5e8; border-radius:8px; padding:10px;">
+            <div class="sign-box">
               <div><strong><?php echo htmlspecialchars($role, ENT_QUOTES, 'UTF-8'); ?></strong></div>
               <div style="font-size:13px;">Approval: <?php echo htmlspecialchars((string)($approval['approval_status'] ?? 'PENDING'), ENT_QUOTES, 'UTF-8'); ?></div>
               <div style="font-size:13px;">Signed: <?php echo !empty($signature) ? 'YA' : 'BELUM'; ?></div>
+              <?php if (!empty($signature['signature_data'])): ?>
+                <img class="sign-img" src="<?php echo htmlspecialchars((string)$signature['signature_data'], ENT_QUOTES, 'UTF-8'); ?>" alt="Signature <?php echo htmlspecialchars($role, ENT_QUOTES, 'UTF-8'); ?>">
+              <?php endif; ?>
               <?php if (!empty($signature['signer_name'])): ?>
                 <div style="font-size:12px; color:#666;"><?php echo htmlspecialchars((string)$signature['signer_name'], ENT_QUOTES, 'UTF-8'); ?> - <?php echo htmlspecialchars((string)($signature['signed_at'] ?? '-'), ENT_QUOTES, 'UTF-8'); ?></div>
               <?php endif; ?>

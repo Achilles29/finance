@@ -153,7 +153,7 @@ $qrFooterUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=' . $qrFooterSi
     </div>
 
     <div class="doc">
-      <?php echo (string)($row['body_html'] ?? ''); ?>
+      <?php echo (string)($row['body_html_rendered'] ?? $row['body_html'] ?? ''); ?>
     </div>
 
     <div class="tte-note">

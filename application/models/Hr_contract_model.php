@@ -179,6 +179,33 @@ class Hr_contract_model extends CI_Model
         return (int)$this->db->count_all_results();
     }
 
+    public function count_contracts_by_status(array $filters, array $statuses): array
+    {
+        $filtersWithoutStatus = $filters;
+        unset($filtersWithoutStatus['status']);
+
+        $this->build_contract_list_query($filtersWithoutStatus, false);
+        $rows = $this->db->select('c.status, COUNT(*) AS cnt', false)
+            ->group_by('c.status')
+            ->get()->result_array();
+
+        $counts = ['ALL' => 0];
+        foreach ($statuses as $status) {
+            $counts[(string)$status] = 0;
+        }
+
+        foreach ($rows as $row) {
+            $status = strtoupper((string)($row['status'] ?? ''));
+            $cnt = (int)($row['cnt'] ?? 0);
+            if ($status !== '') {
+                $counts[$status] = $cnt;
+            }
+            $counts['ALL'] += $cnt;
+        }
+
+        return $counts;
+    }
+
     public function list_contracts(array $filters, int $limit, int $offset): array
     {
         $this->build_contract_list_query($filters, true);
@@ -236,12 +263,13 @@ class Hr_contract_model extends CI_Model
             return null;
         }
 
-        $row = $this->db->select('c.*, e.employee_code, e.employee_name, e.employee_nip, e.email, e.mobile_phone, d.division_name, p.position_name, t.template_name, t.template_code, uc.username AS created_by_username, ug.username AS generated_by_username')
+        $row = $this->db->select('c.*, e.employee_code, e.employee_name, e.employee_nip, e.email, e.mobile_phone, d.division_name, p.position_name, t.template_name, t.template_code, t.duration_months AS template_duration_months, t.body_html AS template_body_html, pc.contract_number AS previous_contract_number, uc.username AS created_by_username, ug.username AS generated_by_username')
             ->from('hr_contract c')
             ->join('org_employee e', 'e.id = c.employee_id', 'left')
             ->join('org_division d', 'd.id = e.division_id', 'left')
             ->join('org_position p', 'p.id = e.position_id', 'left')
             ->join('hr_contract_template t', 't.id = c.template_id', 'left')
+            ->join('hr_contract pc', 'pc.id = c.previous_contract_id', 'left')
             ->join('auth_user uc', 'uc.id = c.created_by', 'left')
             ->join('auth_user ug', 'ug.id = c.generated_by', 'left')
             ->where('c.id', $id)
@@ -276,6 +304,9 @@ class Hr_contract_model extends CI_Model
         } else {
             $row['snapshot_lines'] = [];
         }
+
+        $row['render_vars'] = $this->build_contract_render_vars($row);
+        $row['body_html_rendered'] = $this->build_rendered_contract_body($row);
 
         return $row;
     }
@@ -423,9 +454,10 @@ class Hr_contract_model extends CI_Model
             $contractType = 'CUSTOM';
         }
 
-        $vars = [
+        $vars = $this->build_contract_render_vars([
             'contract_number' => 'DRAFT-' . date('YmdHis'),
             'contract_type' => $contractType,
+            'employee_id' => $employeeId,
             'employee_code' => (string)($employee['employee_code'] ?? ''),
             'employee_name' => (string)($employee['employee_name'] ?? ''),
             'division_name' => (string)($payload['division_snapshot'] ?? $employee['division_name'] ?? ''),
@@ -437,8 +469,22 @@ class Hr_contract_model extends CI_Model
             'other_allowance' => (float)($payload['other_allowance'] ?? $employee['objective_allowance'] ?? 0),
             'meal_rate' => (float)($payload['meal_rate'] ?? $employee['meal_rate'] ?? 0),
             'overtime_rate' => (float)($payload['overtime_rate'] ?? $employee['overtime_rate'] ?? 0),
-        ];
-        $vars['fixed_total'] = (float)$vars['basic_salary'] + (float)$vars['position_allowance'] + (float)$vars['other_allowance'];
+            'document_issued_at' => date('Y-m-d H:i:s'),
+            'template_duration_months' => $fallbackDurationMonths,
+        ], [
+            'contract_type' => $contractType,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'basic_salary' => (float)($payload['basic_salary'] ?? $employee['basic_salary'] ?? 0),
+            'position_allowance' => (float)($payload['position_allowance'] ?? $employee['position_allowance'] ?? 0),
+            'other_allowance' => (float)($payload['other_allowance'] ?? $employee['objective_allowance'] ?? 0),
+            'meal_rate' => (float)($payload['meal_rate'] ?? $employee['meal_rate'] ?? 0),
+            'overtime_rate' => (float)($payload['overtime_rate'] ?? $employee['overtime_rate'] ?? 0),
+            'division_name' => (string)($payload['division_snapshot'] ?? $employee['division_name'] ?? ''),
+            'position_name' => (string)($payload['position_snapshot'] ?? $employee['position_name'] ?? ''),
+            'employee_code' => (string)($employee['employee_code'] ?? ''),
+            'employee_name' => (string)($employee['employee_name'] ?? ''),
+        ]);
 
         return [
             'ok' => true,
@@ -484,7 +530,7 @@ class Hr_contract_model extends CI_Model
             $templateHtml = trim((string)($row['body_html'] ?? ''));
         }
 
-        $renderedBody = $this->render_contract_html($templateHtml, [
+        $renderVars = $this->build_contract_render_vars($row, [
             'contract_number' => $contractNumber,
             'contract_type' => $contractType,
             'employee_code' => (string)($row['employee_code'] ?? ''),
@@ -498,8 +544,10 @@ class Hr_contract_model extends CI_Model
             'other_allowance' => $otherAllowance,
             'meal_rate' => $mealRate,
             'overtime_rate' => $overtimeRate,
-            'fixed_total' => $fixedTotal,
+            'document_issued_at' => date('Y-m-d H:i:s'),
         ]);
+
+        $renderedBody = $this->render_contract_html($templateHtml, $renderVars);
 
         $this->db->trans_start();
 
@@ -826,17 +874,21 @@ class Hr_contract_model extends CI_Model
             $token = $this->ensure_unique_verification_token($contractId);
         }
 
+        $issuedAt = !empty($row['document_issued_at']) ? (string)$row['document_issued_at'] : date('Y-m-d H:i:s');
+
+        $this->db->where('id', $contractId)->update('hr_contract', [
+            'verification_token' => $token,
+            'document_issued_at' => $issuedAt,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+
         $hash = $this->compute_document_hash($contractId);
         if ($hash === null) {
             return null;
         }
 
-        $issuedAt = !empty($row['document_issued_at']) ? (string)$row['document_issued_at'] : date('Y-m-d H:i:s');
-
         $this->db->where('id', $contractId)->update('hr_contract', [
-            'verification_token' => $token,
             'final_document_hash' => $hash,
-            'document_issued_at' => $issuedAt,
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
@@ -862,7 +914,7 @@ class Hr_contract_model extends CI_Model
             'status' => (string)($row['status'] ?? ''),
             'start_date' => (string)($row['start_date'] ?? ''),
             'end_date' => (string)($row['end_date'] ?? ''),
-            'body_html' => $this->sanitize_contract_body((string)($row['body_html'] ?? '')),
+            'body_html' => $this->sanitize_contract_body((string)($row['body_html_rendered'] ?? $row['body_html'] ?? '')),
             'comp' => [
                 'basic_salary' => round((float)($row['basic_salary'] ?? 0), 2),
                 'position_allowance' => round((float)($row['position_allowance'] ?? 0), 2),
@@ -945,6 +997,13 @@ class Hr_contract_model extends CI_Model
             return '';
         }
 
+        $issuedAt = trim((string)($vars['document_issued_at'] ?? $vars['issued_at'] ?? ''));
+        $startDate = trim((string)($vars['start_date'] ?? ''));
+        $endDate = trim((string)($vars['end_date'] ?? ''));
+        $formatMoney = static function ($value, int $decimals = 0): string {
+            return 'Rp ' . number_format((float)$value, $decimals, ',', '.');
+        };
+
         $replace = [
             '{{CONTRACT_NUMBER}}' => (string)($vars['contract_number'] ?? ''),
             '{{CONTRACT_TYPE}}' => (string)($vars['contract_type'] ?? ''),
@@ -952,6 +1011,22 @@ class Hr_contract_model extends CI_Model
             '{{EMPLOYEE_NAME}}' => (string)($vars['employee_name'] ?? ''),
             '{{DIVISION_NAME}}' => (string)($vars['division_name'] ?? ''),
             '{{POSITION_NAME}}' => (string)($vars['position_name'] ?? ''),
+            '{{NAMA_PEGAWAI}}' => (string)($vars['employee_name'] ?? ''),
+            '{{JABATAN}}' => (string)($vars['position_name'] ?? ''),
+            '{{DIVISI}}' => (string)($vars['division_name'] ?? ''),
+            '{{OUTLET}}' => (string)($vars['outlet_name'] ?? $vars['division_name'] ?? ''),
+            '{{KONTRAK_SEBELUMNYA}}' => (string)($vars['previous_contract_number'] ?? ''),
+            '{{TANGGAL_KONTRAK}}' => $issuedAt !== '' ? $this->format_contract_date_label($issuedAt) : (string)($vars['start_date'] ?? ''),
+            '{{DURASI_KONTRAK}}' => (string)($vars['contract_duration_label'] ?? ''),
+            '{{PERIODE_KONTRAK}}' => trim(($startDate !== '' ? $startDate : '') . ($startDate !== '' || $endDate !== '' ? ' s/d ' : '') . ($endDate !== '' ? $endDate : '')),
+            '{{TANGGAL_MULAI}}' => $startDate !== '' ? $this->format_contract_date_label($startDate) : '',
+            '{{TANGGAL_AKHIR}}' => $endDate !== '' ? $this->format_contract_date_label($endDate) : '',
+            '{{GAJI_POKOK_DASAR}}' => $formatMoney($vars['basic_salary'] ?? 0),
+            '{{TUNJANGAN_JABATAN}}' => $formatMoney($vars['position_allowance'] ?? 0),
+            '{{TUNJANGAN_OBJEKTIF}}' => $formatMoney($vars['other_allowance'] ?? 0),
+            '{{UANG_MAKAN}}' => $formatMoney($vars['meal_rate'] ?? 0),
+            '{{TARIF_LEMBUR}}' => $formatMoney($vars['overtime_rate'] ?? 0),
+            '{{TOTAL_KOMPENSASI_TETAP}}' => $formatMoney($vars['fixed_total'] ?? 0),
             '{{START_DATE}}' => (string)($vars['start_date'] ?? ''),
             '{{END_DATE}}' => (string)($vars['end_date'] ?? ''),
             '{{BASIC_SALARY}}' => number_format((float)($vars['basic_salary'] ?? 0), 2, '.', ''),
@@ -963,6 +1038,165 @@ class Hr_contract_model extends CI_Model
         ];
 
         return strtr($template, $replace);
+    }
+
+    private function build_contract_render_vars(array $row, array $overrides = []): array
+    {
+        $startDate = trim((string)($overrides['start_date'] ?? $row['start_date'] ?? ''));
+        $endDate = trim((string)($overrides['end_date'] ?? $row['end_date'] ?? ''));
+        $issuedAt = trim((string)($overrides['document_issued_at'] ?? $row['document_issued_at'] ?? $row['generated_at'] ?? $row['updated_at'] ?? ''));
+        if ($issuedAt === '') {
+            $issuedAt = date('Y-m-d H:i:s');
+        }
+
+        $contractType = strtoupper(trim((string)($overrides['contract_type'] ?? $row['contract_type'] ?? 'CUSTOM')));
+        if (!in_array($contractType, ['K1', 'K2', 'K3', 'CUSTOM'], true)) {
+            $contractType = 'CUSTOM';
+        }
+
+        $employeeName = (string)($overrides['employee_name'] ?? $row['employee_name'] ?? '');
+        $divisionName = trim((string)($overrides['division_name'] ?? $row['division_snapshot'] ?? $row['division_name'] ?? ''));
+        $positionName = trim((string)($overrides['position_name'] ?? $row['position_snapshot'] ?? $row['position_name'] ?? ''));
+        $outletName = trim((string)($overrides['outlet_name'] ?? $row['outlet_snapshot'] ?? ''));
+        if ($outletName === '') {
+            $outletName = $divisionName !== '' ? $divisionName : '-';
+        }
+
+        $previousContractNumber = trim((string)($row['previous_contract_number'] ?? ''));
+        if ($previousContractNumber === '' && !empty($row['previous_contract_id'])) {
+            $prev = $this->db->select('contract_number')
+                ->from('hr_contract')
+                ->where('id', (int)$row['previous_contract_id'])
+                ->limit(1)
+                ->get()->row_array();
+            if ($prev) {
+                $previousContractNumber = (string)($prev['contract_number'] ?? '');
+            }
+        }
+        if ($previousContractNumber === '' && !empty($row['employee_id'])) {
+            $qb = $this->db->select('contract_number, id, start_date')
+                ->from('hr_contract')
+                ->where('employee_id', (int)$row['employee_id']);
+            if (!empty($row['id'])) {
+                $qb->where('id <>', (int)$row['id']);
+            }
+            if ($startDate !== '') {
+                $qb->where('start_date <', $startDate);
+            }
+            $prev = $qb->order_by('start_date', 'DESC')
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()->row_array();
+            if ($prev) {
+                $previousContractNumber = (string)($prev['contract_number'] ?? '');
+            }
+        }
+
+        $durationMonths = (int)($overrides['duration_months'] ?? $row['template_duration_months'] ?? 0);
+        if ($durationMonths <= 0) {
+            $durationMonths = $this->estimate_contract_months($startDate, $endDate);
+        }
+
+        $durationLabel = $durationMonths > 0 ? $durationMonths . ' bulan' : '-';
+        if ($durationLabel === '-' && $startDate !== '' && $endDate !== '') {
+            $durationLabel = trim($startDate . ' s/d ' . $endDate);
+        }
+
+        $basicSalary = (float)($overrides['basic_salary'] ?? $row['basic_salary'] ?? $row['e_basic_salary'] ?? 0);
+        $positionAllowance = (float)($overrides['position_allowance'] ?? $row['position_allowance'] ?? $row['e_position_allowance'] ?? 0);
+        $otherAllowance = (float)($overrides['other_allowance'] ?? $row['other_allowance'] ?? $row['e_other_allowance'] ?? 0);
+        $mealRate = (float)($overrides['meal_rate'] ?? $row['meal_rate'] ?? $row['e_meal_rate'] ?? 0);
+        $overtimeRate = (float)($overrides['overtime_rate'] ?? $row['overtime_rate'] ?? $row['e_overtime_rate'] ?? 0);
+
+        $vars = [
+            'contract_number' => (string)($overrides['contract_number'] ?? $row['contract_number'] ?? ''),
+            'contract_type' => $contractType,
+            'employee_code' => (string)($overrides['employee_code'] ?? $row['employee_code'] ?? ''),
+            'employee_name' => $employeeName,
+            'division_name' => $divisionName,
+            'position_name' => $positionName,
+            'outlet_name' => $outletName,
+            'previous_contract_number' => $previousContractNumber !== '' ? $previousContractNumber : '-',
+            'document_issued_at' => $issuedAt,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'contract_duration_label' => $durationLabel,
+            'basic_salary' => $basicSalary,
+            'position_allowance' => $positionAllowance,
+            'other_allowance' => $otherAllowance,
+            'meal_rate' => $mealRate,
+            'overtime_rate' => $overtimeRate,
+        ];
+        $vars['fixed_total'] = $basicSalary + $positionAllowance + $otherAllowance;
+
+        $vars['nama_pegawai'] = $employeeName;
+        $vars['jabatan'] = $positionName;
+        $vars['divisi'] = $divisionName;
+        $vars['outlet'] = $outletName;
+        $vars['tanggal_kontrak'] = $this->format_contract_date_label($issuedAt);
+        $vars['durasi_kontrak'] = $durationLabel;
+        $vars['kontrak_sebelumnya'] = $vars['previous_contract_number'];
+        $vars['periode_kontrak'] = trim(($startDate !== '' ? $startDate : '-') . ' s/d ' . ($endDate !== '' ? $endDate : '-'));
+
+        return $vars;
+    }
+
+    private function build_rendered_contract_body(array $row): string
+    {
+        $source = trim((string)($row['body_html'] ?? ''));
+        if ($source === '') {
+            $source = trim((string)($row['template_body_html'] ?? ''));
+        }
+
+        if ($source === '') {
+            return '';
+        }
+
+        $vars = $row['render_vars'] ?? $this->build_contract_render_vars($row);
+        return $this->sanitize_contract_body($this->render_contract_html($source, (array)$vars));
+    }
+
+    private function format_contract_date_label(string $dateTime): string
+    {
+        $dateTime = trim($dateTime);
+        if ($dateTime === '') {
+            return '-';
+        }
+
+        $ts = strtotime($dateTime);
+        if ($ts === false) {
+            return $dateTime;
+        }
+
+        return date('d/m/Y', $ts);
+    }
+
+    private function estimate_contract_months(string $startDate, string $endDate): int
+    {
+        if ($startDate === '' || $endDate === '') {
+            return 0;
+        }
+
+        try {
+            $start = new DateTimeImmutable($startDate);
+            $end = new DateTimeImmutable($endDate);
+        } catch (Throwable $e) {
+            return 0;
+        }
+
+        if ($end <= $start) {
+            return 0;
+        }
+
+        $years = (int)$start->diff($end)->y;
+        $months = (int)$start->diff($end)->m;
+        $days = (int)$start->diff($end)->d;
+        $totalMonths = ($years * 12) + $months;
+        if ($days > 0) {
+            $totalMonths++;
+        }
+
+        return max(1, $totalMonths);
     }
 
     private function add_months(string $startDate, int $months): string

@@ -3,6 +3,7 @@ $filters = $filters ?? [];
 $rows = $rows ?? [];
 $pg = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $statusOptions = $status_options ?? [];
+$statusCounts = $status_counts ?? [];
 $contractTypeOptions = $contract_type_options ?? [];
 $employeeOptions = $employee_options ?? [];
 $templateOptions = $template_options ?? [];
@@ -87,6 +88,51 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     font-size: 1rem;
     margin: 0;
   }
+  .hr-contract-index .status-tabs {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .hr-contract-index .status-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: 1px solid #d9dee6;
+    border-radius: 999px;
+    padding: 0.52rem 0.85rem;
+    color: #56606c;
+    background: #fff;
+    font-weight: 600;
+    text-decoration: none;
+    line-height: 1;
+  }
+  .hr-contract-index .status-tab:hover {
+    border-color: #9aa4b2;
+    color: #2f3844;
+  }
+  .hr-contract-index .status-tab.active {
+    background: #a3262a;
+    border-color: #a3262a;
+    color: #fff;
+    box-shadow: 0 6px 14px rgba(163, 38, 42, 0.18);
+  }
+  .hr-contract-index .status-tab .count {
+    min-width: 1.55rem;
+    height: 1.55rem;
+    padding: 0 0.45rem;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #f2f4f7;
+    color: #4b5563;
+    font-size: 0.78rem;
+  }
+  .hr-contract-index .status-tab.active .count {
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+  }
 </style>
 
 <div class="hr-contract-index">
@@ -156,8 +202,28 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 
 <div class="card mb-3">
   <div class="card-body">
+    <div class="status-tabs">
+      <?php $activeStatus = strtoupper((string)($filters['status'] ?? '')); ?>
+      <a class="status-tab <?php echo $activeStatus === '' ? 'active' : ''; ?>" href="<?php echo site_url('hr/contracts?' . $buildQuery(['status' => 'ALL', 'page' => 1])); ?>">
+        <span>Semua</span>
+        <span class="count"><?php echo (int)($statusCounts['ALL'] ?? 0); ?></span>
+      </a>
+      <?php foreach ($statusOptions as $statusOption): ?>
+        <?php $statusOption = strtoupper((string)$statusOption); ?>
+        <a class="status-tab <?php echo $activeStatus === $statusOption ? 'active' : ''; ?>" href="<?php echo site_url('hr/contracts?' . $buildQuery(['status' => $statusOption, 'page' => 1])); ?>">
+          <span><?php echo html_escape($statusOption); ?></span>
+          <span class="count"><?php echo (int)($statusCounts[$statusOption] ?? 0); ?></span>
+        </a>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
     <form method="get" action="<?php echo site_url('hr/contracts'); ?>" class="row g-2 align-items-end filter-form">
       <input type="hidden" name="ctx" value="<?php echo html_escape($ctx); ?>">
+      <input type="hidden" name="status" value="<?php echo html_escape((string)($filters['status'] ?? '')); ?>">
       <div class="col-md-3">
         <label class="form-label mb-1">Cari</label>
         <input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No kontrak / pegawai / catatan">
@@ -177,15 +243,6 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <option value="">Semua</option>
           <?php foreach ($templateOptions as $o): ?>
             <option value="<?php echo (int)$o['value']; ?>" <?php echo ((int)($filters['template_id'] ?? 0) === (int)$o['value']) ? 'selected' : ''; ?>><?php echo html_escape((string)$o['label']); ?></option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Status</label>
-        <select name="status" class="form-select">
-          <option value="">Semua</option>
-          <?php foreach ($statusOptions as $o): ?>
-            <option value="<?php echo html_escape((string)$o); ?>" <?php echo (($filters['status'] ?? '') === $o) ? 'selected' : ''; ?>><?php echo html_escape((string)$o); ?></option>
           <?php endforeach; ?>
         </select>
       </div>
