@@ -7,6 +7,12 @@ $posStatusRows    = is_array($pos_status_rows  ?? null) ? $pos_status_rows  : []
 $posScopeRows     = is_array($pos_scope_rows   ?? null) ? $pos_scope_rows   : [];
 $stockBreakdown   = is_array($stock_breakdown  ?? null) ? $stock_breakdown  : ['warehouse' => [], 'division' => [], 'component' => []];
 $stockProductLive = is_array($stock_product_live ?? null) ? $stock_product_live : ['summary' => [], 'rows' => []];
+$stagnantLotAnalysis = is_array($stagnant_lot_analysis ?? null) ? $stagnant_lot_analysis : [
+    'threshold_days' => 15,
+    'material' => ['multi_lot' => [], 'aged_lot' => []],
+    'component' => ['multi_lot' => [], 'aged_lot' => []],
+    'summary' => [],
+];
 $adjustmentSummary = is_array($adjustment_summary ?? null) ? $adjustment_summary : [
     'daily' => ['label' => 'Hari Ini', 'warehouse' => ['rows' => [], 'totals' => []], 'division' => ['rows' => [], 'totals' => []], 'component' => ['rows' => [], 'totals' => []]],
     'weekly' => ['label' => 'Minggu Ini', 'warehouse' => ['rows' => [], 'totals' => []], 'division' => ['rows' => [], 'totals' => []], 'component' => ['rows' => [], 'totals' => []]],
@@ -218,13 +224,49 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
   .fd-topprod-meta { margin-top:.15rem; color:#8b7772; font-size:.79rem; }
   .fd-topprod-qty { font-weight:800; color:#6f2119; text-align:right; }
   .fd-topprod-net { margin-top:.15rem; color:#2e7d32; font-size:.78rem; font-weight:700; text-align:right; }
+  .fd-card-strong { border:2px solid rgba(143,45,35,.24); box-shadow:0 18px 38px rgba(109,47,30,.14); background:linear-gradient(180deg,#fff 0%,#fffaf6 100%); }
+  .fd-section-divider { display:flex; align-items:center; gap:.75rem; margin:.2rem 0 -.2rem; color:#8f2d23; font-size:.72rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+  .fd-section-divider::before, .fd-section-divider::after { content:""; height:1px; flex:1; background:linear-gradient(90deg,transparent,rgba(143,45,35,.36),transparent); }
+  .fd-lot-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+  .fd-lot-panel { border-radius:18px; border:2px solid rgba(170,95,78,.22); background:linear-gradient(160deg,#fffaf7,#fff); padding:1rem; min-width:0; box-shadow:inset 0 0 0 1px rgba(255,255,255,.8), 0 10px 22px rgba(109,47,30,.08); }
+  .fd-lot-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.8rem; margin-bottom:.8rem; }
+  .fd-lot-title { margin:0; font-size:1rem; font-weight:900; color:#6f2119; }
+  .fd-lot-sub { margin:.12rem 0 0; color:#8b7772; font-size:.78rem; }
+  .fd-lot-section { margin-top:1rem; padding-top:.9rem; border-top:1.5px dashed rgba(143,45,35,.24); }
+  .fd-lot-section:first-of-type { margin-top:.2rem; padding-top:0; border-top:0; }
+  .fd-lot-section-title { display:flex; align-items:center; justify-content:space-between; gap:.6rem; margin-bottom:.45rem; font-size:.76rem; font-weight:900; color:#8f2d23; text-transform:uppercase; letter-spacing:.05em; }
+  .fd-lot-list { display:grid; gap:.5rem; max-height:340px; overflow-y:auto; padding:.55rem; border:1px solid rgba(170,95,78,.14); border-radius:16px; background:rgba(255,255,255,.68); scrollbar-width:thin; }
+  .fd-lot-list::-webkit-scrollbar { width:4px; }
+  .fd-lot-list::-webkit-scrollbar-thumb { background:rgba(170,95,78,.25); border-radius:4px; }
+  .fd-lot-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.75rem; align-items:start; border-radius:14px; border:1px solid rgba(170,95,78,.12); background:#fff; padding:.72rem .78rem; color:inherit; text-decoration:none; }
+  .fd-lot-row:hover { border-color:rgba(168,35,44,.32); background:#fff8f4; }
+  .fd-lot-name { font-weight:900; color:#4a2c2a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fd-lot-meta { margin-top:.12rem; color:#8b7772; font-size:.76rem; line-height:1.35; }
+  .fd-lot-right { text-align:right; white-space:nowrap; }
+  .fd-lot-qty { font-weight:900; color:#6f2119; }
+  .fd-lot-value { margin-top:.12rem; color:#2e7d32; font-size:.76rem; font-weight:800; }
+  .fd-lot-age { display:inline-flex; align-items:center; padding:.18rem .48rem; border-radius:999px; border:1px solid rgba(198,40,40,.18); background:#fff3f3; color:#c62828; font-size:.7rem; font-weight:900; }
+  .fd-lot-bucket { display:grid; gap:.55rem; }
+  .fd-lot-bucket + .fd-lot-bucket { margin-top:.9rem; padding-top:.85rem; border-top:1px dashed rgba(143,45,35,.18); }
+  .fd-lot-bucket-title { display:flex; align-items:center; justify-content:space-between; gap:.6rem; color:#6f2119; font-size:.76rem; font-weight:900; text-transform:uppercase; letter-spacing:.04em; }
+  .fd-lot-toggle { width:100%; border:1px solid rgba(170,95,78,.12); cursor:pointer; text-align:left; }
+  .fd-lot-toggle .ri-arrow-down-s-line { transition:transform .15s ease; }
+  .fd-lot-toggle.open .ri-arrow-down-s-line { transform:rotate(180deg); }
+  .fd-lot-detail { display:none; margin:-.2rem 0 .45rem; border:1px solid rgba(170,95,78,.16); border-radius:14px; background:#fffdfb; overflow:hidden; }
+  .fd-lot-detail.open { display:block; }
+  .fd-lot-detail table { width:100%; border-collapse:collapse; font-size:.76rem; }
+  .fd-lot-detail th { background:#fff4ee; color:#8f2d23; font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; padding:.48rem .55rem; border-bottom:1px solid rgba(170,95,78,.14); }
+  .fd-lot-detail td { padding:.48rem .55rem; border-bottom:1px solid rgba(170,95,78,.08); vertical-align:middle; }
+  .fd-lot-detail tr:last-child td { border-bottom:0; }
+  .fd-lot-adjust-btn { border:1px solid rgba(143,45,35,.28); background:#fff; color:#8f2d23; border-radius:999px; padding:.16rem .55rem; font-size:.68rem; font-weight:900; }
+  .fd-lot-adjust-btn:hover { background:#8f2d23; color:#fff; }
   @media (max-width:1399.98px) {
     .fd-kpi { grid-template-columns:repeat(3,minmax(0,1fr)); }
     .fd-3col { grid-template-columns:1fr; }
     .fd-topprod-period-grid { grid-template-columns:1fr; }
   }
   @media (max-width:991.98px) {
-    .fd-chart-grid, .fd-2col, .fd-adjust-grid, .fd-recon-grid { grid-template-columns:1fr; }
+    .fd-chart-grid, .fd-2col, .fd-adjust-grid, .fd-recon-grid, .fd-lot-grid { grid-template-columns:1fr; }
     .fd-2scope { grid-template-columns:1fr; }
     .fd-adjust-panel-summary, .fd-adjust-panel-list { height:auto; }
   }
@@ -504,6 +546,62 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
     </div>
   </div>
 
+  <!-- Modal: Adjustment Lot dari Analisa FIFO -->
+  <div class="modal fade" id="lotAdjModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:520px">
+      <div class="modal-content" style="border:0;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px -28px rgba(120,0,0,.55)">
+        <div class="modal-header" style="background:linear-gradient(135deg,#fff7ef 0%,#fffdfb 100%);border-bottom:1px solid #f3d5c8;padding:.9rem 1.1rem">
+          <div>
+            <div style="font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:#8f2d23">
+              <i class="ri ri-stack-line me-1"></i>Adjustment Lot FIFO
+            </div>
+            <h5 class="modal-title mb-0" id="lotAdjTitle" style="color:#5d160d;font-size:.98rem">-</h5>
+            <div class="small" id="lotAdjSub" style="color:#8b7772;font-size:.76rem">-</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" style="padding:1rem 1.1rem">
+          <div id="lotAdjAlert" class="mb-3"></div>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Tanggal Recon</label>
+              <input type="date" class="form-control form-control-sm" id="lotAdjDate" value="<?= date('Y-m-d') ?>" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Stok Sistem</label>
+              <input type="text" class="form-control form-control-sm" id="lotAdjSystem" readonly>
+            </div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Stok Fisik Benar</label>
+              <input type="number" min="0" step="0.0001" class="form-control form-control-sm" id="lotAdjPhysical" required>
+              <div class="form-text" id="lotAdjDiffText" style="font-size:.7rem"></div>
+            </div>
+            <div class="col-6">
+              <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Jenis Adjustment</label>
+              <select class="form-select form-select-sm" id="lotAdjType"></select>
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Alasan</label>
+            <select class="form-select form-select-sm" id="lotAdjReason"></select>
+          </div>
+          <div>
+            <label class="form-label mb-1" style="font-size:.74rem;font-weight:700">Catatan</label>
+            <textarea class="form-control form-control-sm" id="lotAdjNote" rows="2" placeholder="Catatan adjustment lot (opsional)"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="background:#fffaf6;border-top:1px solid #f3d5c8;padding:.7rem 1.1rem">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
+          <button type="button" class="btn btn-sm btn-danger" id="lotAdjSubmitBtn">
+            <i class="ri ri-upload-2-line me-1"></i>Simpan &amp; Posting
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Reconcile Mismatch -->
   <?php
   $materialRecon = is_array($reconcileMismatch['material'] ?? null) ? $reconcileMismatch['material'] : [];
@@ -722,6 +820,221 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
         </div>
       <?php endforeach; ?>
     <?php endif; ?>
+  </section>
+
+  <!-- Analisa Lot Mengendap -->
+  <div class="fd-section-divider"><span>Analisa FIFO &amp; Lot</span></div>
+  <section class="fd-card fd-card-strong p-3">
+    <?php
+    $lotThreshold = (int)($stagnantLotAnalysis['threshold_days'] ?? 30);
+    $lotSummary = (array)($stagnantLotAnalysis['summary'] ?? []);
+    $lotTotal = (int)($lotSummary['material_multi_lot'] ?? 0)
+      + (int)($lotSummary['material_aged_lot'] ?? 0)
+      + (int)($lotSummary['component_multi_lot'] ?? 0)
+      + (int)($lotSummary['component_aged_lot'] ?? 0);
+
+    $lotFmtQty = static function ($qty, string $uom): string {
+        $num = (float)$qty;
+        $text = number_format($num, 2, ',', '.');
+        if (abs($num - round($num)) < 0.0001) {
+            $text = number_format($num, 0, ',', '.');
+        }
+        return trim($text . ' ' . $uom);
+    };
+    $lotDate = static function ($date): string {
+        $date = trim((string)$date);
+        if ($date === '' || $date === '0000-00-00') {
+            return '-';
+        }
+        return date('d/m/Y', strtotime($date));
+    };
+    $lotUrl = static function (array $row, string $source): string {
+        if ($source === 'component' && !empty($row['component_id'])) {
+            return site_url('production/component-masters/usage/' . (int)$row['component_id']);
+        }
+        if (!empty($row['material_id'])) {
+            return site_url('master/material/usage/' . (int)$row['material_id']);
+        }
+        return 'javascript:void(0)';
+    };
+    $lotBucketOrder = [
+        'GUDANG' => 'Gudang',
+        'BAR_REGULER' => 'BAR Reguler',
+        'BAR_EVENT' => 'BAR Event',
+        'KITCHEN_REGULER' => 'Kitchen Reguler',
+        'KITCHEN_EVENT' => 'Kitchen Event',
+    ];
+    $lotGroupByBucket = static function (array $rows) use ($lotBucketOrder): array {
+        $grouped = [];
+        foreach ($rows as $row) {
+            $key = (string)($row['location_bucket'] ?? 'LAINNYA');
+            $label = (string)($row['location_bucket_label'] ?? ($lotBucketOrder[$key] ?? $key));
+            if (!isset($grouped[$key])) {
+                $grouped[$key] = ['label' => $label, 'rows' => []];
+            }
+            $grouped[$key]['rows'][] = $row;
+        }
+        uksort($grouped, static function ($a, $b) use ($lotBucketOrder) {
+            $ai = array_key_exists($a, $lotBucketOrder) ? array_search($a, array_keys($lotBucketOrder), true) : 99;
+            $bi = array_key_exists($b, $lotBucketOrder) ? array_search($b, array_keys($lotBucketOrder), true) : 99;
+            return $ai === $bi ? strcmp((string)$a, (string)$b) : $ai <=> $bi;
+        });
+        return $grouped;
+    };
+    $lotAdjustPayload = static function (array $lot, string $source): string {
+        $payload = $lot;
+        $payload['source_type'] = $source;
+        if ($source === 'component') {
+            $loc = strtoupper((string)($payload['location_type'] ?? ''));
+            $payload['recon_location_type'] = substr($loc, -6) === '_EVENT' ? 'EVENT' : 'REGULER';
+            if (empty($payload['division_code'])) {
+                $payload['division_code'] = substr($loc, 0, 7) === 'KITCHEN' ? 'KITCHEN' : (substr($loc, 0, 3) === 'BAR' ? 'BAR' : '');
+            }
+        } else {
+            $payload['identity_key'] = (string)($payload['profile_key'] ?? '');
+        }
+        return htmlspecialchars(json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+    };
+    $renderMultiLot = static function (array $rows, string $source) use ($cur, $lotFmtQty, $lotDate, $lotUrl, $lotAdjustPayload): void {
+        if (empty($rows)) {
+            echo '<div class="fd-empty" style="padding:.75rem">Tidak ada item dengan lot lebih dari 1.</div>';
+            return;
+        }
+        foreach ($rows as $idx => $row) {
+            $href = $lotUrl($row, $source);
+            $detailId = 'fd-lot-detail-' . $source . '-' . substr(md5(json_encode($row) . $idx), 0, 12);
+            echo '<button type="button" class="fd-lot-row fd-lot-toggle" data-lot-target="' . htmlspecialchars($detailId) . '">';
+            echo '<div style="min-width:0">';
+            echo '<div class="fd-lot-name">' . htmlspecialchars((string)($row['item_name'] ?? '-')) . '</div>';
+            echo '<div class="fd-lot-meta">';
+            echo htmlspecialchars((string)($row['location_label'] ?? '-'));
+            if (!empty($row['item_code'])) {
+                echo ' · ' . htmlspecialchars((string)$row['item_code']);
+            }
+            echo '<br>Lot: <strong>' . number_format((int)($row['lot_count'] ?? 0), 0, ',', '.') . '</strong>';
+            echo ' · Tertua: <strong>' . htmlspecialchars($lotDate($row['oldest_receipt_date'] ?? '')) . '</strong>';
+            echo '</div></div>';
+            echo '<div class="fd-lot-right">';
+            echo '<span class="fd-lot-age">' . number_format((int)($row['oldest_age_days'] ?? 0), 0, ',', '.') . ' hari</span>';
+            echo '<div class="fd-lot-qty">' . htmlspecialchars($lotFmtQty($row['qty_balance'] ?? 0, (string)($row['uom_code'] ?? ''))) . '</div>';
+            echo '<div class="fd-lot-value">' . htmlspecialchars($cur($row['total_value'] ?? 0)) . '</div>';
+            echo '<div style="font-size:.72rem;color:#8b7772;margin-top:.12rem"><i class="ri-arrow-down-s-line"></i> Detail</div>';
+            echo '</div></button>';
+
+            $lots = (array)($row['lots'] ?? []);
+            echo '<div class="fd-lot-detail" id="' . htmlspecialchars($detailId) . '">';
+            if (empty($lots)) {
+                echo '<div class="fd-empty" style="padding:.75rem">Detail lot tidak tersedia.</div>';
+            } else {
+                echo '<table><thead><tr><th>Lot</th><th>Tanggal</th><th class="text-end">Qty</th><th class="text-end">Nilai</th><th class="text-end">Aksi</th></tr></thead><tbody>';
+                foreach ($lots as $lot) {
+                    $canAdjust = $source === 'component'
+                        ? ((int)($lot['lot_id'] ?? 0) > 0 && (int)($lot['component_id'] ?? 0) > 0)
+                        : ((string)($lot['location_scope'] ?? '') === 'DIVISION' && (int)($lot['division_id'] ?? 0) > 0 && (string)($lot['profile_key'] ?? '') !== '');
+                    echo '<tr>';
+                    echo '<td><strong>' . htmlspecialchars((string)($lot['lot_no'] ?? '-')) . '</strong><div class="text-muted">' . number_format((int)($lot['age_days'] ?? 0), 0, ',', '.') . ' hari</div></td>';
+                    echo '<td>' . htmlspecialchars($lotDate($lot['receipt_date'] ?? '')) . '</td>';
+                    echo '<td class="text-end">' . htmlspecialchars($lotFmtQty($lot['qty_balance'] ?? 0, (string)($lot['uom_code'] ?? ''))) . '</td>';
+                    echo '<td class="text-end">' . htmlspecialchars($cur($lot['total_value'] ?? 0)) . '</td>';
+                    echo '<td class="text-end">';
+                    if ($canAdjust) {
+                        echo '<button type="button" class="fd-lot-adjust-btn" data-lot-adjust="' . $lotAdjustPayload($lot, $source) . '">Adjust</button>';
+                    } else {
+                        echo '<a href="' . htmlspecialchars($href) . '" class="fd-lot-adjust-btn" style="text-decoration:none">Audit</a>';
+                    }
+                    echo '</td></tr>';
+                }
+                echo '</tbody></table>';
+            }
+            echo '</div>';
+        }
+    };
+    $renderAgedLot = static function (array $rows, string $source) use ($cur, $lotFmtQty, $lotDate, $lotUrl): void {
+        if (empty($rows)) {
+            echo '<div class="fd-empty" style="padding:.75rem">Tidak ada lot mengendap pada batas umur ini.</div>';
+            return;
+        }
+        foreach ($rows as $row) {
+            $href = $lotUrl($row, $source);
+            echo '<a class="fd-lot-row" href="' . htmlspecialchars($href) . '">';
+            echo '<div style="min-width:0">';
+            echo '<div class="fd-lot-name">' . htmlspecialchars((string)($row['item_name'] ?? '-')) . '</div>';
+            echo '<div class="fd-lot-meta">';
+            echo htmlspecialchars((string)($row['location_label'] ?? '-'));
+            if (!empty($row['item_code'])) {
+                echo ' · ' . htmlspecialchars((string)$row['item_code']);
+            }
+            echo '<br>' . htmlspecialchars((string)($row['lot_no'] ?? '-'));
+            echo ' · Receipt: <strong>' . htmlspecialchars($lotDate($row['receipt_date'] ?? '')) . '</strong>';
+            echo '</div></div>';
+            echo '<div class="fd-lot-right">';
+            echo '<span class="fd-lot-age">' . number_format((int)($row['age_days'] ?? 0), 0, ',', '.') . ' hari</span>';
+            echo '<div class="fd-lot-qty">' . htmlspecialchars($lotFmtQty($row['qty_balance'] ?? 0, (string)($row['uom_code'] ?? ''))) . '</div>';
+            echo '<div class="fd-lot-value">' . htmlspecialchars($cur($row['total_value'] ?? 0)) . '</div>';
+            echo '</div></a>';
+        }
+    };
+    $renderBucketedLotList = static function (array $rows, string $source, callable $renderer) use ($lotGroupByBucket): void {
+        $bucketed = $lotGroupByBucket($rows);
+        if (empty($bucketed)) {
+            $renderer([], $source);
+            return;
+        }
+        foreach ($bucketed as $bucket) {
+            $bucketRows = (array)($bucket['rows'] ?? []);
+            echo '<div class="fd-lot-bucket">';
+            echo '<div class="fd-lot-bucket-title"><span>' . htmlspecialchars((string)($bucket['label'] ?? '-')) . '</span><span>' . number_format(count($bucketRows), 0, ',', '.') . '</span></div>';
+            $renderer($bucketRows, $source);
+            echo '</div>';
+        }
+    };
+    ?>
+    <div class="fd-sec-head">
+      <div>
+        <h2 class="fd-sec-title">Analisa Bahan Mengendap</h2>
+        <p class="fd-sec-sub">Pantau bahan baku dan component dengan lot aktif lebih dari satu atau lot yang mengendap minimal <?= number_format($lotThreshold, 0, ',', '.') ?> hari.</p>
+      </div>
+      <span class="fd-pill <?= $lotTotal > 0 ? 'kritis' : 'ok' ?>"><?= number_format($lotTotal, 0, ',', '.') ?> indikator</span>
+    </div>
+
+    <div class="fd-lot-grid">
+      <?php foreach (['material' => 'Bahan Baku', 'component' => 'Component'] as $lotSource => $lotLabel): ?>
+        <?php
+        $lotBlock = (array)($stagnantLotAnalysis[$lotSource] ?? ['multi_lot' => [], 'aged_lot' => []]);
+        $multiRows = (array)($lotBlock['multi_lot'] ?? []);
+        $agedRows = (array)($lotBlock['aged_lot'] ?? []);
+        ?>
+        <article class="fd-lot-panel">
+          <div class="fd-lot-panel-head">
+            <div>
+              <h3 class="fd-lot-title"><?= htmlspecialchars($lotLabel) ?></h3>
+              <p class="fd-lot-sub"><?= count($multiRows) ?> group multi lot · <?= count($agedRows) ?> lot mengendap</p>
+            </div>
+            <span class="fd-pill"><?= number_format(count($multiRows) + count($agedRows), 0, ',', '.') ?></span>
+          </div>
+
+          <div class="fd-lot-section">
+            <div class="fd-lot-section-title">
+              <span>Lot &gt; 1</span>
+              <span><?= number_format(count($multiRows), 0, ',', '.') ?></span>
+            </div>
+            <div class="fd-lot-list">
+              <?php $renderBucketedLotList($multiRows, $lotSource, $renderMultiLot); ?>
+            </div>
+          </div>
+
+          <div class="fd-lot-section">
+            <div class="fd-lot-section-title">
+              <span>Lot Mengendap</span>
+              <span>&ge; <?= number_format($lotThreshold, 0, ',', '.') ?> hari · <?= number_format(count($agedRows), 0, ',', '.') ?></span>
+            </div>
+            <div class="fd-lot-list">
+              <?php $renderBucketedLotList($agedRows, $lotSource, $renderAgedLot); ?>
+            </div>
+          </div>
+        </article>
+      <?php endforeach; ?>
+    </div>
   </section>
 
   <!-- Ringkasan Adjustment -->
@@ -1498,6 +1811,223 @@ window.addEventListener('load', function () {
       btn.textContent = row.classList.contains('open') ? 'Tutup bahan' : 'Bahan produksi';
     }
   };
+
+  // ─── Analisa FIFO Lot: expand + adjustment via daily recon ─────
+  (function () {
+    const MAT_RECON_ADJ_URL  = <?= json_encode(site_url('inventory/stock/daily-recon/division/quick-adjust')) ?>;
+    const COMP_RECON_ADJ_URL = <?= json_encode(site_url('production/component-daily-recon/quick-adjust')) ?>;
+    const MAT_REASONS = {
+      WASTE: { cancel_order: 'Cancel Order', kitchen_error: 'Kitchen Error', overproduction: 'Overproduction', spillage: 'Spillage / Tumpah', prep_trim_excess: 'Prep Trim Excess', expired_opened: 'Expired Opened', other: 'Other' },
+      SPOIL: { expired: 'Expired', temperature_abuse: 'Temperature Abuse', contamination: 'Contamination', improper_storage: 'Improper Storage', overstock: 'Overstock', other: 'Other' },
+      PROCESS_LOSS: { defrost_loss: 'Defrost Loss', trimming_standard: 'Trimming Standard', cooking_loss: 'Cooking Loss', evaporation: 'Evaporation', brew_loss: 'Brew Loss', absorption_loss: 'Absorption Loss', process_residue: 'Process Residue', variable_process_consumable: 'Variable Process Consumable', other: 'Other' },
+      VARIANCE: { over_usage: 'Over Usage', under_usage: 'Under Usage', unrecorded_usage: 'Unrecorded Usage', counting_error: 'Counting Error', system_mismatch: 'System Mismatch', theft_suspected: 'Theft Suspected', unknown_shrinkage: 'Unknown Shrinkage', other: 'Other' },
+      ADJUSTMENT_PLUS: { opening_correction: 'Opening Correction', stock_found: 'Stock Found', manual_reclass: 'Manual Reclass', other: 'Other' }
+    };
+    const COMP_REASONS = <?= json_encode(function_exists('component_adjustment_reason_options') ? component_adjustment_reason_options() : [
+      'WASTE' => ['other' => 'Other'],
+      'SPOILAGE' => ['other' => 'Other'],
+      'ADJUSTMENT_PLUS' => ['other' => 'Other'],
+      'ADJUSTMENT_MINUS' => ['other' => 'Other'],
+    ]) ?>;
+    const TYPE_LABELS = {
+      WASTE: 'Waste',
+      SPOIL: 'Spoil',
+      SPOILAGE: 'Spoil',
+      PROCESS_LOSS: 'Process Loss',
+      VARIANCE: 'Variance',
+      ADJUSTMENT_MINUS: 'Adjustment Minus',
+      ADJUSTMENT_PLUS: 'Adjustment Plus'
+    };
+
+    const modalEl = document.getElementById('lotAdjModal');
+    const titleEl = document.getElementById('lotAdjTitle');
+    const subEl = document.getElementById('lotAdjSub');
+    const alertEl = document.getElementById('lotAdjAlert');
+    const dateEl = document.getElementById('lotAdjDate');
+    const sysEl = document.getElementById('lotAdjSystem');
+    const physEl = document.getElementById('lotAdjPhysical');
+    const diffEl = document.getElementById('lotAdjDiffText');
+    const typeEl = document.getElementById('lotAdjType');
+    const reasonEl = document.getElementById('lotAdjReason');
+    const noteEl = document.getElementById('lotAdjNote');
+    const submitEl = document.getElementById('lotAdjSubmitBtn');
+    if (!modalEl || !submitEl) return;
+
+    let lotCtx = {};
+
+    function escHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = String(s ?? '');
+      return d.innerHTML;
+    }
+    function fmtNum(v, max = 4) {
+      return Number(v || 0).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: max });
+    }
+    function showLotAlert(type, message) {
+      alertEl.innerHTML = message ? '<div class="alert alert-' + type + ' py-2 small mb-0">' + message + '</div>' : '';
+    }
+    async function parseJsonResponse(response) {
+      const text = await response.text();
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (err) {
+        throw new Error('Respons backend bukan JSON valid: ' + text.substring(0, 180));
+      }
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.message || 'Request gagal.');
+      }
+      return data;
+    }
+    function typeOptionsForDiff() {
+      const diff = (parseFloat(physEl.value || 0) || 0) - (parseFloat(lotCtx.qty_balance || 0) || 0);
+      if (Math.abs(diff) < 0.0001) return [];
+      if (diff > 0) return ['ADJUSTMENT_PLUS'];
+      return lotCtx.source_type === 'component'
+        ? ['ADJUSTMENT_MINUS', 'WASTE', 'SPOILAGE']
+        : ['VARIANCE', 'WASTE', 'SPOIL', 'PROCESS_LOSS'];
+    }
+    function fillTypeAndReasons(keepType) {
+      const types = typeOptionsForDiff();
+      const current = keepType || typeEl.value || '';
+      typeEl.innerHTML = types.length
+        ? types.map(function (type) {
+            const selected = current === type ? ' selected' : '';
+            return '<option value="' + type + '"' + selected + '>' + (TYPE_LABELS[type] || type) + '</option>';
+          }).join('')
+        : '<option value="">Selisih 0</option>';
+      if (types.length && !types.includes(typeEl.value)) typeEl.value = types[0];
+      const reasonMap = lotCtx.source_type === 'component' ? COMP_REASONS : MAT_REASONS;
+      const reasonKey = typeEl.value === 'ADJUSTMENT_MINUS' && lotCtx.source_type !== 'component' ? 'VARIANCE' : typeEl.value;
+      const options = reasonMap[reasonKey] || { other: 'Other' };
+      reasonEl.innerHTML = Object.keys(options).map(function (key) {
+        return '<option value="' + key + '">' + escHtml(options[key]) + '</option>';
+      }).join('');
+      const diff = (parseFloat(physEl.value || 0) || 0) - (parseFloat(lotCtx.qty_balance || 0) || 0);
+      const uom = lotCtx.uom_code || '';
+      diffEl.textContent = Math.abs(diff) < 0.0001
+        ? 'Selisih 0. Ubah stok fisik agar bisa diposting.'
+        : 'Selisih: ' + (diff > 0 ? '+' : '') + fmtNum(diff) + ' ' + uom;
+      diffEl.className = Math.abs(diff) < 0.0001 ? 'form-text text-muted' : (diff > 0 ? 'form-text text-success fw-semibold' : 'form-text text-danger fw-semibold');
+    }
+    function openLotAdjustment(payload) {
+      lotCtx = payload || {};
+      const uom = lotCtx.uom_code || '';
+      titleEl.textContent = lotCtx.item_name || '-';
+      subEl.textContent = (lotCtx.source_type === 'component' ? 'Component' : 'Bahan Baku')
+        + ' · ' + (lotCtx.lot_no || '-')
+        + ' · ' + (lotCtx.location_type || lotCtx.destination_type || lotCtx.location_scope || '-');
+      sysEl.value = fmtNum(lotCtx.qty_balance) + ' ' + uom;
+      physEl.value = Number(lotCtx.qty_balance || 0);
+      noteEl.value = '';
+      showLotAlert('', '');
+      fillTypeAndReasons('');
+      const modal = window.bootstrap && window.bootstrap.Modal.getOrCreateInstance(modalEl);
+      if (modal) modal.show();
+    }
+
+    document.addEventListener('click', function (event) {
+      const toggle = event.target.closest('[data-lot-target]');
+      if (toggle) {
+        const target = document.getElementById(toggle.dataset.lotTarget || '');
+        if (target) {
+          const open = !target.classList.contains('open');
+          target.classList.toggle('open', open);
+          toggle.classList.toggle('open', open);
+        }
+        return;
+      }
+
+      const adjustBtn = event.target.closest('[data-lot-adjust]');
+      if (!adjustBtn) return;
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        openLotAdjustment(JSON.parse(adjustBtn.dataset.lotAdjust || '{}'));
+      } catch (err) {
+        showLotAlert('danger', 'Data lot tidak valid.');
+      }
+    });
+
+    physEl.addEventListener('input', function () { fillTypeAndReasons(typeEl.value); });
+    typeEl.addEventListener('change', function () { fillTypeAndReasons(typeEl.value); });
+
+    submitEl.addEventListener('click', async function () {
+      const physical = parseFloat(physEl.value || 0);
+      const systemQty = parseFloat(lotCtx.qty_balance || 0);
+      const diff = physical - systemQty;
+      if (!dateEl.value) { showLotAlert('danger', 'Tanggal recon wajib diisi.'); return; }
+      if (!(physical >= 0)) { showLotAlert('danger', 'Stok fisik tidak valid.'); return; }
+      if (Math.abs(diff) < 0.0001) { showLotAlert('danger', 'Selisih masih 0, tidak ada adjustment yang diposting.'); return; }
+      if (!typeEl.value) { showLotAlert('danger', 'Jenis adjustment wajib dipilih.'); return; }
+
+      const original = submitEl.innerHTML;
+      submitEl.disabled = true;
+      submitEl.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Posting...';
+      showLotAlert('info', 'Memposting adjustment lot...');
+
+      try {
+        let url = '';
+        let body = {};
+        if (lotCtx.source_type === 'component') {
+          url = COMP_RECON_ADJ_URL;
+          body = {
+            opname_date: dateEl.value,
+            location_type: lotCtx.recon_location_type || 'REGULER',
+            division_id: parseInt(lotCtx.division_id || 0, 10) || null,
+            division_code: lotCtx.division_code || '',
+            component_id: parseInt(lotCtx.component_id || 0, 10),
+            uom_id: parseInt(lotCtx.uom_id || 0, 10),
+            lot_id: parseInt(lotCtx.lot_id || 0, 10),
+            system_qty: systemQty,
+            physical_qty: physical,
+            avg_cost: parseFloat(lotCtx.unit_cost || 0),
+            adjustment_type: typeEl.value,
+            reason_code: reasonEl.value || 'other',
+            notes: noteEl.value.trim()
+          };
+        } else {
+          url = MAT_RECON_ADJ_URL;
+          body = {
+            opname_date: dateEl.value,
+            division_id: parseInt(lotCtx.division_id || 0, 10),
+            destination_type: lotCtx.destination_type || 'OTHER',
+            identity_key: lotCtx.identity_key || lotCtx.profile_key || '',
+            physical_qty_content: physical,
+            system_qty_content: systemQty,
+            adjustment_type: typeEl.value,
+            reason_code: reasonEl.value || 'other',
+            notes: noteEl.value.trim(),
+            item_id: parseInt(lotCtx.item_id || 0, 10) || null,
+            material_id: parseInt(lotCtx.material_id || 0, 10) || null,
+            buy_uom_id: parseInt(lotCtx.buy_uom_id || 0, 10) || null,
+            content_uom_id: parseInt(lotCtx.content_uom_id || 0, 10),
+            profile_key: lotCtx.profile_key || '',
+            profile_name: lotCtx.profile_name || '',
+            profile_brand: lotCtx.profile_brand || '',
+            profile_description: lotCtx.profile_description || '',
+            profile_expired_date: lotCtx.profile_expired_date || '',
+            profile_content_per_buy: parseFloat(lotCtx.profile_content_per_buy || 1),
+            profile_buy_uom_code: lotCtx.profile_buy_uom_code || '',
+            profile_content_uom_code: lotCtx.profile_content_uom_code || lotCtx.uom_code || '',
+            avg_cost_per_content: parseFloat(lotCtx.unit_cost || 0)
+          };
+        }
+        await parseJsonResponse(await fetch(url, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify(body)
+        }));
+        showLotAlert('success', 'Adjustment berhasil diposting. Memuat ulang dashboard...');
+        window.setTimeout(function () { window.location.reload(); }, 900);
+      } catch (err) {
+        showLotAlert('danger', escHtml(err.message || 'Posting adjustment gagal.'));
+        submitEl.disabled = false;
+        submitEl.innerHTML = original;
+      }
+    });
+  })();
 
   // ─── Adjustment Cepat Stok Negatif ─────────────────────────
   (function () {

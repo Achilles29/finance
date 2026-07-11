@@ -35,6 +35,7 @@ class Dashboard extends MY_Controller
             'pos_scope_rows' => $this->dashboard_pos_scope_rows($filters),
             'stock_breakdown' => $this->dashboard_stock_breakdown(),
             'stock_product_live' => $this->dashboard_stock_product_live(),
+            'stagnant_lot_analysis' => $this->dashboard_stagnant_lot_analysis(),
             'reconcile_mismatch' => $this->dashboard_reconcile_mismatch_summary(),
             'adjustment_summary' => $this->dashboard_adjustment_summary(),
             'top_selling_products' => $this->dashboard_top_selling_products(),
@@ -456,6 +457,289 @@ class Dashboard extends MY_Controller
 
         $rows = $productRows ? $productRows->result_array() : [];
         return ['summary' => $summary, 'rows' => $rows];
+    }
+
+    private function dashboard_stagnant_lot_analysis(): array
+    {
+        $thresholdDays = 15;
+        $data = [
+            'threshold_days' => $thresholdDays,
+            'material' => ['multi_lot' => [], 'aged_lot' => []],
+            'component' => ['multi_lot' => [], 'aged_lot' => []],
+            'summary' => [
+                'material_multi_lot' => 0,
+                'material_aged_lot' => 0,
+                'component_multi_lot' => 0,
+                'component_aged_lot' => 0,
+            ],
+        ];
+
+        if ($this->dashboard_table_ready('inv_material_fifo_lot')) {
+            $materialMulti = $this->dashboard_safe_query("
+                SELECT
+                    'material' AS source_type,
+                    COALESCE(NULLIF(MAX(m.material_name), ''), NULLIF(MAX(i.item_name), ''), CONCAT('Material #', MAX(l.material_id))) AS item_name,
+                    COALESCE(NULLIF(MAX(m.material_code), ''), NULLIF(MAX(i.item_code), ''), '') AS item_code,
+                    CASE
+                        WHEN l.location_scope = 'WAREHOUSE' THEN 'Gudang'
+                        ELSE CONCAT(COALESCE(MAX(d.name), CONCAT('Divisi #', l.division_id)), ' · ', COALESCE(l.destination_type, 'REGULER'))
+                    END AS location_label,
+                    CASE
+                        WHEN l.location_scope = 'WAREHOUSE' THEN 'GUDANG'
+                        WHEN COALESCE(l.destination_type, '') = 'BAR' THEN 'BAR_REGULER'
+                        WHEN COALESCE(l.destination_type, '') = 'BAR_EVENT' THEN 'BAR_EVENT'
+                        WHEN COALESCE(l.destination_type, '') = 'KITCHEN' THEN 'KITCHEN_REGULER'
+                        WHEN COALESCE(l.destination_type, '') = 'KITCHEN_EVENT' THEN 'KITCHEN_EVENT'
+                        ELSE CONCAT('LAIN_', COALESCE(l.destination_type, 'OTHER'))
+                    END AS location_bucket,
+                    CASE
+                        WHEN l.location_scope = 'WAREHOUSE' THEN 'Gudang'
+                        WHEN COALESCE(l.destination_type, '') = 'BAR' THEN 'BAR Reguler'
+                        WHEN COALESCE(l.destination_type, '') = 'BAR_EVENT' THEN 'BAR Event'
+                        WHEN COALESCE(l.destination_type, '') = 'KITCHEN' THEN 'Kitchen Reguler'
+                        WHEN COALESCE(l.destination_type, '') = 'KITCHEN_EVENT' THEN 'Kitchen Event'
+                        ELSE CONCAT(COALESCE(MAX(d.name), 'Lainnya'), ' · ', COALESCE(l.destination_type, 'OTHER'))
+                    END AS location_bucket_label,
+                    COALESCE(MAX(u.code), '') AS uom_code,
+                    l.location_scope,
+                    COALESCE(l.division_id, 0) AS division_id,
+                    COALESCE(l.destination_type, '') AS destination_type,
+                    COALESCE(l.item_id, 0) AS item_id,
+                    COALESCE(l.material_id, i.material_id, 0) AS material_id,
+                    COALESCE(l.content_uom_id, 0) AS uom_id,
+                    COUNT(*) AS lot_count,
+                    MIN(l.receipt_date) AS oldest_receipt_date,
+                    MAX(DATEDIFF(CURDATE(), l.receipt_date)) AS oldest_age_days,
+                    ROUND(SUM(l.qty_balance), 4) AS qty_balance,
+                    ROUND(SUM(l.qty_balance * l.unit_cost), 2) AS total_value
+                FROM inv_material_fifo_lot l
+                LEFT JOIN mst_item i ON i.id = l.item_id
+                LEFT JOIN mst_material m ON m.id = COALESCE(l.material_id, i.material_id)
+                LEFT JOIN mst_uom u ON u.id = l.content_uom_id
+                LEFT JOIN mst_operational_division d ON d.id = l.division_id
+                WHERE l.status = 'OPEN'
+                  AND l.qty_balance > 0
+                GROUP BY
+                    l.location_scope, COALESCE(l.division_id, 0), COALESCE(l.destination_type, ''),
+                    COALESCE(l.item_id, 0), COALESCE(l.material_id, i.material_id, 0), COALESCE(l.content_uom_id, 0)
+                HAVING COUNT(*) > 1
+                ORDER BY COUNT(*) DESC, MIN(l.receipt_date) ASC, item_name ASC
+                LIMIT 50
+            ");
+            $data['material']['multi_lot'] = $materialMulti ? $materialMulti->result_array() : [];
+            foreach ($data['material']['multi_lot'] as &$row) {
+                $row['lots'] = $this->dashboard_material_lot_detail_rows($row);
+            }
+            unset($row);
+
+            $materialAged = $this->dashboard_safe_query("
+                SELECT
+                    'material' AS source_type,
+                    l.id AS lot_id,
+                    l.lot_no,
+                    l.receipt_date,
+                    DATEDIFF(CURDATE(), l.receipt_date) AS age_days,
+                    COALESCE(NULLIF(m.material_name, ''), NULLIF(i.item_name, ''), CONCAT('Material #', l.material_id)) AS item_name,
+                    COALESCE(NULLIF(m.material_code, ''), NULLIF(i.item_code, ''), '') AS item_code,
+                    CASE
+                        WHEN l.location_scope = 'WAREHOUSE' THEN 'Gudang'
+                        ELSE CONCAT(COALESCE(d.name, CONCAT('Divisi #', l.division_id)), ' · ', COALESCE(l.destination_type, 'REGULER'))
+                    END AS location_label,
+                    CASE
+                        WHEN l.location_scope = 'WAREHOUSE' THEN 'GUDANG'
+                        WHEN COALESCE(l.destination_type, '') = 'BAR' THEN 'BAR_REGULER'
+                        WHEN COALESCE(l.destination_type, '') = 'BAR_EVENT' THEN 'BAR_EVENT'
+                        WHEN COALESCE(l.destination_type, '') = 'KITCHEN' THEN 'KITCHEN_REGULER'
+                        WHEN COALESCE(l.destination_type, '') = 'KITCHEN_EVENT' THEN 'KITCHEN_EVENT'
+                        ELSE CONCAT('LAIN_', COALESCE(l.destination_type, 'OTHER'))
+                    END AS location_bucket,
+                    CASE
+                        WHEN l.location_scope = 'WAREHOUSE' THEN 'Gudang'
+                        WHEN COALESCE(l.destination_type, '') = 'BAR' THEN 'BAR Reguler'
+                        WHEN COALESCE(l.destination_type, '') = 'BAR_EVENT' THEN 'BAR Event'
+                        WHEN COALESCE(l.destination_type, '') = 'KITCHEN' THEN 'Kitchen Reguler'
+                        WHEN COALESCE(l.destination_type, '') = 'KITCHEN_EVENT' THEN 'Kitchen Event'
+                        ELSE CONCAT(COALESCE(d.name, 'Lainnya'), ' · ', COALESCE(l.destination_type, 'OTHER'))
+                    END AS location_bucket_label,
+                    COALESCE(u.code, '') AS uom_code,
+                    COALESCE(l.material_id, i.material_id, 0) AS material_id,
+                    ROUND(l.qty_balance, 4) AS qty_balance,
+                    ROUND(l.unit_cost, 6) AS unit_cost,
+                    ROUND(l.qty_balance * l.unit_cost, 2) AS total_value
+                FROM inv_material_fifo_lot l
+                LEFT JOIN mst_item i ON i.id = l.item_id
+                LEFT JOIN mst_material m ON m.id = COALESCE(l.material_id, i.material_id)
+                LEFT JOIN mst_uom u ON u.id = l.content_uom_id
+                LEFT JOIN mst_operational_division d ON d.id = l.division_id
+                WHERE l.status = 'OPEN'
+                  AND l.qty_balance > 0
+                  AND l.receipt_date <= DATE_SUB(CURDATE(), INTERVAL {$thresholdDays} DAY)
+                ORDER BY l.receipt_date ASC, total_value DESC, item_name ASC
+                LIMIT 80
+            ");
+            $data['material']['aged_lot'] = $materialAged ? $materialAged->result_array() : [];
+        }
+
+        if ($this->dashboard_table_ready('inv_component_lot')) {
+            $componentMulti = $this->dashboard_safe_query("
+                SELECT
+                    'component' AS source_type,
+                    COALESCE(NULLIF(MAX(c.component_name), ''), CONCAT('Component #', MAX(l.component_id))) AS item_name,
+                    COALESCE(NULLIF(MAX(c.component_code), ''), '') AS item_code,
+                    CONCAT(COALESCE(MAX(d.name), MAX(l.location_type)), ' · ', COALESCE(MAX(l.location_type), 'REGULER')) AS location_label,
+                    CASE
+                        WHEN COALESCE(l.location_type, '') = 'BAR' THEN 'BAR_REGULER'
+                        WHEN COALESCE(l.location_type, '') = 'BAR_EVENT' THEN 'BAR_EVENT'
+                        WHEN COALESCE(l.location_type, '') = 'KITCHEN' THEN 'KITCHEN_REGULER'
+                        WHEN COALESCE(l.location_type, '') = 'KITCHEN_EVENT' THEN 'KITCHEN_EVENT'
+                        ELSE CONCAT('LAIN_', COALESCE(l.location_type, 'OTHER'))
+                    END AS location_bucket,
+                    CASE
+                        WHEN COALESCE(l.location_type, '') = 'BAR' THEN 'BAR Reguler'
+                        WHEN COALESCE(l.location_type, '') = 'BAR_EVENT' THEN 'BAR Event'
+                        WHEN COALESCE(l.location_type, '') = 'KITCHEN' THEN 'Kitchen Reguler'
+                        WHEN COALESCE(l.location_type, '') = 'KITCHEN_EVENT' THEN 'Kitchen Event'
+                        ELSE CONCAT(COALESCE(MAX(d.name), 'Lainnya'), ' · ', COALESCE(l.location_type, 'OTHER'))
+                    END AS location_bucket_label,
+                    COALESCE(MAX(u.code), '') AS uom_code,
+                    COALESCE(l.location_type, '') AS location_type,
+                    COALESCE(l.division_id, 0) AS division_id,
+                    l.component_id,
+                    l.uom_id,
+                    COUNT(*) AS lot_count,
+                    MIN(l.receipt_date) AS oldest_receipt_date,
+                    MAX(DATEDIFF(CURDATE(), l.receipt_date)) AS oldest_age_days,
+                    ROUND(SUM(l.qty_balance), 4) AS qty_balance,
+                    ROUND(SUM(l.qty_balance * l.unit_cost), 2) AS total_value
+                FROM inv_component_lot l
+                LEFT JOIN mst_component c ON c.id = l.component_id
+                LEFT JOIN mst_uom u ON u.id = l.uom_id
+                LEFT JOIN mst_operational_division d ON d.id = l.division_id
+                WHERE UPPER(l.status) = 'OPEN'
+                  AND l.qty_balance > 0
+                GROUP BY COALESCE(l.location_type, ''), COALESCE(l.division_id, 0), l.component_id, l.uom_id
+                HAVING COUNT(*) > 1
+                ORDER BY COUNT(*) DESC, MIN(l.receipt_date) ASC, item_name ASC
+                LIMIT 50
+            ");
+            $data['component']['multi_lot'] = $componentMulti ? $componentMulti->result_array() : [];
+            foreach ($data['component']['multi_lot'] as &$row) {
+                $row['lots'] = $this->dashboard_component_lot_detail_rows($row);
+            }
+            unset($row);
+
+            $componentAged = $this->dashboard_safe_query("
+                SELECT
+                    'component' AS source_type,
+                    l.id AS lot_id,
+                    l.lot_no,
+                    l.receipt_date,
+                    DATEDIFF(CURDATE(), l.receipt_date) AS age_days,
+                    COALESCE(NULLIF(c.component_name, ''), CONCAT('Component #', l.component_id)) AS item_name,
+                    COALESCE(NULLIF(c.component_code, ''), '') AS item_code,
+                    CONCAT(COALESCE(d.name, l.location_type), ' · ', COALESCE(l.location_type, 'REGULER')) AS location_label,
+                    CASE
+                        WHEN COALESCE(l.location_type, '') = 'BAR' THEN 'BAR_REGULER'
+                        WHEN COALESCE(l.location_type, '') = 'BAR_EVENT' THEN 'BAR_EVENT'
+                        WHEN COALESCE(l.location_type, '') = 'KITCHEN' THEN 'KITCHEN_REGULER'
+                        WHEN COALESCE(l.location_type, '') = 'KITCHEN_EVENT' THEN 'KITCHEN_EVENT'
+                        ELSE CONCAT('LAIN_', COALESCE(l.location_type, 'OTHER'))
+                    END AS location_bucket,
+                    CASE
+                        WHEN COALESCE(l.location_type, '') = 'BAR' THEN 'BAR Reguler'
+                        WHEN COALESCE(l.location_type, '') = 'BAR_EVENT' THEN 'BAR Event'
+                        WHEN COALESCE(l.location_type, '') = 'KITCHEN' THEN 'Kitchen Reguler'
+                        WHEN COALESCE(l.location_type, '') = 'KITCHEN_EVENT' THEN 'Kitchen Event'
+                        ELSE CONCAT(COALESCE(d.name, 'Lainnya'), ' · ', COALESCE(l.location_type, 'OTHER'))
+                    END AS location_bucket_label,
+                    COALESCE(u.code, '') AS uom_code,
+                    l.component_id,
+                    ROUND(l.qty_balance, 4) AS qty_balance,
+                    ROUND(l.unit_cost, 6) AS unit_cost,
+                    ROUND(l.qty_balance * l.unit_cost, 2) AS total_value
+                FROM inv_component_lot l
+                LEFT JOIN mst_component c ON c.id = l.component_id
+                LEFT JOIN mst_uom u ON u.id = l.uom_id
+                LEFT JOIN mst_operational_division d ON d.id = l.division_id
+                WHERE UPPER(l.status) = 'OPEN'
+                  AND l.qty_balance > 0
+                  AND l.receipt_date <= DATE_SUB(CURDATE(), INTERVAL {$thresholdDays} DAY)
+                ORDER BY l.receipt_date ASC, total_value DESC, item_name ASC
+                LIMIT 80
+            ");
+            $data['component']['aged_lot'] = $componentAged ? $componentAged->result_array() : [];
+        }
+
+        $data['summary']['material_multi_lot'] = count($data['material']['multi_lot']);
+        $data['summary']['material_aged_lot'] = count($data['material']['aged_lot']);
+        $data['summary']['component_multi_lot'] = count($data['component']['multi_lot']);
+        $data['summary']['component_aged_lot'] = count($data['component']['aged_lot']);
+
+        return $data;
+    }
+
+    private function dashboard_material_lot_detail_rows(array $group): array
+    {
+        $query = $this->db
+            ->select("'material' AS source_type", false)
+            ->select('l.id AS lot_id, l.lot_no, l.receipt_date, l.expiry_date, DATEDIFF(CURDATE(), l.receipt_date) AS age_days', false)
+            ->select('l.location_scope, COALESCE(l.division_id, 0) AS division_id, COALESCE(l.destination_type, "") AS destination_type', false)
+            ->select('COALESCE(l.item_id, 0) AS item_id, COALESCE(l.material_id, i.material_id, 0) AS material_id', false)
+            ->select('COALESCE(l.buy_uom_id, c.buy_uom_id, 0) AS buy_uom_id, COALESCE(l.content_uom_id, c.content_uom_id, 0) AS content_uom_id', false)
+            ->select('COALESCE(l.profile_key, "") AS profile_key, COALESCE(NULLIF(c.catalog_name, ""), NULLIF(m.material_name, ""), NULLIF(i.item_name, ""), CONCAT("Lot #", l.id)) AS profile_name', false)
+            ->select('COALESCE(c.brand_name, "") AS profile_brand, COALESCE(c.line_description, "") AS profile_description', false)
+            ->select('COALESCE(c.content_per_buy, 1) AS profile_content_per_buy, COALESCE(bu.code, "") AS profile_buy_uom_code, COALESCE(cu.code, "") AS profile_content_uom_code', false)
+            ->select('COALESCE(l.expiry_date, "0000-00-00") AS profile_expired_date', false)
+            ->select('COALESCE(NULLIF(m.material_name, ""), NULLIF(i.item_name, ""), CONCAT("Material #", COALESCE(l.material_id, i.material_id))) AS item_name', false)
+            ->select('COALESCE(NULLIF(m.material_code, ""), NULLIF(i.item_code, ""), "") AS item_code', false)
+            ->select('COALESCE(cu.code, "") AS uom_code, ROUND(l.qty_balance, 4) AS qty_balance, ROUND(l.unit_cost, 6) AS unit_cost, ROUND(l.qty_balance * l.unit_cost, 2) AS total_value', false)
+            ->from('inv_material_fifo_lot l')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = COALESCE(l.material_id, i.material_id)', 'left')
+            ->join('mst_purchase_catalog c', 'c.profile_key = l.profile_key', 'left')
+            ->join('mst_uom bu', 'bu.id = COALESCE(l.buy_uom_id, c.buy_uom_id)', 'left')
+            ->join('mst_uom cu', 'cu.id = COALESCE(l.content_uom_id, c.content_uom_id)', 'left')
+            ->where('l.status', 'OPEN')
+            ->where('l.qty_balance >', 0)
+            ->where('l.location_scope', (string)($group['location_scope'] ?? 'DIVISION'))
+            ->where('COALESCE(l.division_id, 0) = ' . (int)($group['division_id'] ?? 0), null, false)
+            ->where('COALESCE(l.destination_type, "") = ' . $this->db->escape((string)($group['destination_type'] ?? '')), null, false)
+            ->where('COALESCE(l.item_id, 0) = ' . (int)($group['item_id'] ?? 0), null, false)
+            ->where('COALESCE(l.material_id, i.material_id, 0) = ' . (int)($group['material_id'] ?? 0), null, false)
+            ->where('COALESCE(l.content_uom_id, 0) = ' . (int)($group['uom_id'] ?? 0), null, false)
+            ->order_by('l.receipt_date', 'ASC')
+            ->order_by('l.id', 'ASC')
+            ->limit(120)
+            ->get();
+
+        return $query ? $query->result_array() : [];
+    }
+
+    private function dashboard_component_lot_detail_rows(array $group): array
+    {
+        $query = $this->db
+            ->select("'component' AS source_type", false)
+            ->select('l.id AS lot_id, l.lot_no, l.receipt_date, l.expiry_date, DATEDIFF(CURDATE(), l.receipt_date) AS age_days', false)
+            ->select('l.location_type, COALESCE(l.division_id, 0) AS division_id, COALESCE(d.code, l.location_type, "") AS division_code', false)
+            ->select('l.component_id, l.uom_id, COALESCE(NULLIF(c.component_name, ""), CONCAT("Component #", l.component_id)) AS item_name', false)
+            ->select('COALESCE(NULLIF(c.component_code, ""), "") AS item_code, COALESCE(u.code, "") AS uom_code', false)
+            ->select('ROUND(l.qty_balance, 4) AS qty_balance, ROUND(l.unit_cost, 6) AS unit_cost, ROUND(l.qty_balance * l.unit_cost, 2) AS total_value', false)
+            ->from('inv_component_lot l')
+            ->join('mst_component c', 'c.id = l.component_id', 'left')
+            ->join('mst_operational_division d', 'd.id = l.division_id', 'left')
+            ->join('mst_uom u', 'u.id = l.uom_id', 'left')
+            ->where("UPPER(l.status) = 'OPEN'", null, false)
+            ->where('l.qty_balance >', 0)
+            ->where('COALESCE(l.location_type, "") = ' . $this->db->escape((string)($group['location_type'] ?? '')), null, false)
+            ->where('COALESCE(l.division_id, 0) = ' . (int)($group['division_id'] ?? 0), null, false)
+            ->where('l.component_id', (int)($group['component_id'] ?? 0))
+            ->where('l.uom_id', (int)($group['uom_id'] ?? 0))
+            ->order_by('l.receipt_date', 'ASC')
+            ->order_by('l.id', 'ASC')
+            ->limit(120)
+            ->get();
+
+        return $query ? $query->result_array() : [];
     }
 
     private function dashboard_adjustment_summary(): array
