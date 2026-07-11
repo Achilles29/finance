@@ -618,7 +618,11 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
               $dataDivId = (int)($row['division_id'] ?? 0);
               $dataItemId= (int)($row['item_id']     ?? 0);
               $dataMatId = (int)($row['material_id'] ?? 0);
-              $dataDest  = html_escape((string)($row['destination_group'] ?? ($selDest !== 'ALL' ? $selDest : 'ALL')));
+              $rawDest   = strtoupper(trim((string)($row['destination_type'] ?? '')));
+              if ($rawDest === '') {
+                  $rawDest = strtoupper(trim((string)($row['destination_group'] ?? ($selDest !== 'ALL' ? $selDest : 'ALL'))));
+              }
+              $dataDest  = html_escape($rawDest);
               $profileBreakdown = (array)($row['lot_profile_breakdown'] ?? []);
               $hasProfileMismatch = !empty($row['has_profile_lot_mismatch']);
               $mergeProfilesPayload = [];

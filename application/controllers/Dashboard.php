@@ -1489,8 +1489,9 @@ class Dashboard extends MY_Controller
         foreach ($rows as $row) {
             $balanceQty = (float)($row['balance_qty'] ?? 0);
             $lotQty = (float)($row['lot_qty'] ?? $balanceQty);
-            $lotMismatch = abs($balanceQty - $lotQty) > 0.0001;
-            if (!empty($row['is_match']) && !$lotMismatch) {
+            $gap = $this->dashboard_component_reconcile_gap($row);
+            $lotMismatch = abs($balanceQty - $lotQty) > 0.01;
+            if (abs($gap) <= 0.01 && !$lotMismatch) {
                 continue;
             }
 
@@ -1523,7 +1524,6 @@ class Dashboard extends MY_Controller
             }
             $locations[$locationKey]['total']++;
 
-            $gap = $this->dashboard_component_reconcile_gap($row);
             $topRows[] = [
                 'name' => (string)($row['component_name'] ?? 'Component'),
                 'code' => (string)($row['component_code'] ?? ''),

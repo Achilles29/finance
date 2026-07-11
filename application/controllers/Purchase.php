@@ -2639,6 +2639,26 @@ class Purchase extends MY_Controller
             $adjustDate = date('Y-m-d');
         }
 
+        if ($divisionId > 0 && in_array($destination, ['EVENT', 'REGULER', 'REGULAR', 'ALL'], true)) {
+            $divisionRow = $this->db
+                ->select('code, name')
+                ->from('mst_operational_division')
+                ->where('id', $divisionId)
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            $divisionCode = strtoupper(trim((string)($divisionRow['code'] ?? $divisionRow['name'] ?? '')));
+            if (in_array($divisionCode, ['BEVERAGE'], true)) {
+                $divisionCode = 'BAR';
+            } elseif (in_array($divisionCode, ['FOOD'], true)) {
+                $divisionCode = 'KITCHEN';
+            }
+
+            if (in_array($divisionCode, ['BAR', 'KITCHEN'], true)) {
+                $destination = $destination === 'EVENT' ? ($divisionCode . '_EVENT') : $divisionCode;
+            }
+        }
+
         // Resolve lot
         $lot = null;
         if ($lotId > 0) {

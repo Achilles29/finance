@@ -3310,7 +3310,6 @@ class Purchase_model extends CI_Model
                 (int)($meta['division_id'] ?? 0),
                 strtoupper((string)($meta['destination_group'] ?? 'REGULER')),
                 (int)($meta['material_id'] ?? 0),
-                (int)($meta['item_id'] ?? 0),
             ]);
             $gapMeta = $gapMap[$groupKey] ?? null;
 
@@ -3440,7 +3439,6 @@ class Purchase_model extends CI_Model
                 (int)($profile['division_id'] ?? 0),
                 $destinationGroup,
                 (int)($profile['material_id'] ?? 0),
-                (int)($profile['item_id'] ?? 0),
             ]);
             if (!isset($map[$groupKey])) {
                 $map[$groupKey] = [
@@ -4006,30 +4004,32 @@ class Purchase_model extends CI_Model
             . ', 4)), 4)';
         $destGroupExpr = "CASE WHEN s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
 
-        // Only check the latest month per identity to avoid false positives from old months
+        // Only check the latest month per material destination to avoid false positives
+        // from old months. Reconcile parent rows are material-level, so this check
+        // must not split legacy and active item_id rows.
         $latestMonthSub = $this->db
-            ->select('s2.division_id, s2.destination_type, COALESCE(s2.item_id,0) AS item_id, COALESCE(s2.material_id,0) AS material_id, MAX(s2.month_key) AS max_month', false)
+            ->select('s2.division_id, s2.destination_type, COALESCE(s2.material_id,0) AS material_id, MAX(s2.month_key) AS max_month', false)
             ->from('inv_division_monthly_stock s2')
             ->where_in('s2.division_id', $divisionIds)
-            ->group_by(['s2.division_id', 's2.destination_type', 's2.item_id', 's2.material_id'])
+            ->group_by(['s2.division_id', 's2.destination_type', 's2.material_id'])
             ->get_compiled_select();
 
         $results = $this->db
-            ->select("s.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(s.item_id,0) AS item_id, COALESCE(s.material_id,0) AS material_id, SUM({$driftExpr}) AS total_drift, COUNT(*) AS profile_count, SUM(CASE WHEN {$driftExpr} > 0.0001 THEN 1 ELSE 0 END) AS drift_count", false)
+            ->select("s.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(s.material_id,0) AS material_id, SUM({$driftExpr}) AS total_drift, COUNT(*) AS profile_count, SUM(CASE WHEN {$driftExpr} > 0.0001 THEN 1 ELSE 0 END) AS drift_count", false)
             ->from('inv_division_monthly_stock s')
             ->join('(' . $latestMonthSub . ') lm',
                 's.division_id = lm.division_id AND s.destination_type = lm.destination_type'
-                . ' AND COALESCE(s.item_id,0) = lm.item_id AND COALESCE(s.material_id,0) = lm.material_id'
+                . ' AND COALESCE(s.material_id,0) = lm.material_id'
                 . ' AND s.month_key = lm.max_month',
                 'inner', false)
             ->where_in('s.division_id', $divisionIds)
-            ->group_by(['s.division_id', 'destination_group', 's.item_id', 's.material_id'])
+            ->group_by(['s.division_id', 'destination_group', 's.material_id'])
             ->get()->result_array();
 
         $checkMap = [];
         foreach ($results as $r) {
             $k = (int)$r['division_id'] . '|' . strtoupper((string)($r['destination_group'] ?? 'REGULER'))
-               . '|M-' . (int)$r['material_id'] . '|I-' . (int)$r['item_id'];
+               . '|M-' . (int)$r['material_id'];
             $checkMap[$k] = [
                 'total_drift'  => round((float)($r['total_drift'] ?? 0), 4),
                 'drift_count'  => (int)($r['drift_count'] ?? 0),
@@ -4039,7 +4039,7 @@ class Purchase_model extends CI_Model
 
         foreach ($rows as &$row) {
             $k = (int)($row['division_id'] ?? 0) . '|' . strtoupper((string)($row['destination_group'] ?? 'REGULER'))
-               . '|M-' . (int)($row['material_id'] ?? 0) . '|I-' . (int)($row['item_id'] ?? 0);
+               . '|M-' . (int)($row['material_id'] ?? 0);
             $check = $checkMap[$k] ?? null;
             if ($check === null) {
                 $row['daily_check_status']      = 'UNKNOWN';
@@ -7757,7 +7757,11 @@ class Purchase_model extends CI_Model
             $divisionId = (int)($row['division_id'] ?? 0);
             $destinationGroup = strtoupper(trim((string)($row['destination_group'] ?? 'REGULER')));
             $itemId = (int)($row['item_id'] ?? 0);
-            $key = $divisionId . '|' . $destinationGroup . '|M-' . $materialId . '|I-' . $itemId;
+            // Parent reconcile is material-level. A material can have legacy and active
+            // item_id rows at the same time, while the child breakdown is already
+            // material/profile-level. Keeping item_id in this parent key makes the
+            // parent and child totals look unsynced.
+            $key = $divisionId . '|' . $destinationGroup . '|M-' . $materialId . '|I-0';
             if (!isset($map[$key])) {
                 $map[$key] = [
                     'qty_content' => 0.0,
@@ -7770,6 +7774,7 @@ class Purchase_model extends CI_Model
                         'destination_name' => (string)($row['destination_name'] ?? ($destinationGroup === 'EVENT' ? 'Event' : 'Reguler')),
                         'destination_type' => strtoupper(trim((string)($row['destination_type'] ?? ''))),
                         'item_id' => $itemId,
+                        '_source_item_ids' => [],
                         'material_id' => $materialId,
                         'material_code' => (string)($row['material_code'] ?? ''),
                         'material_name' => (string)($row['material_name'] ?? ($row['item_name'] ?? '')),
@@ -7783,6 +7788,13 @@ class Purchase_model extends CI_Model
                         'log_gap_content' => 0.0,
                     ],
                 ];
+            }
+
+            if ($itemId > 0) {
+                $map[$key]['_meta']['_source_item_ids'][$itemId] = true;
+                if (count($map[$key]['_meta']['_source_item_ids']) > 1) {
+                    $map[$key]['_meta']['item_id'] = 0;
+                }
             }
 
             $rowDate = (string)($row['movement_date'] ?? '');
