@@ -10,7 +10,6 @@ $canCreate    = $isSuperadmin || !empty($can_create);
 
 $baseUrl      = site_url('inventory/stock/daily-recon/division');
 $dataUrl      = site_url('inventory/stock/daily-recon/division/data');
-$savePhysUrl  = site_url('inventory/stock/daily-recon/division/save-physical');
 $quickAdjUrl  = site_url('inventory/stock/daily-recon/division/quick-adjust');
 $confirmReconUrl = site_url('inventory/stock/daily-recon/division/confirm');
 $profileMergeUrl = site_url('inventory/stock/division/reconcile/profile-merge');
@@ -219,6 +218,19 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform: rotate(90deg); color: #3b
 .opn-arrow-wrap { display: inline-flex; width: 16px; flex-shrink: 0; align-items: center; }
 .opn-name-cell { display: flex; align-items: flex-start; }
 .opn-name-body { min-width: 0; }
+.opn-stock-in-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    margin-top: .18rem;
+    padding: .12rem .42rem;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: .68rem;
+    font-weight: 700;
+}
 .opn-tipe-event   { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .opn-tipe-reguler { background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .opn-kat-cell { font-size:.72rem; color:#374151; white-space:nowrap; }
@@ -451,7 +463,6 @@ tr.opn-grp-header.expanded .opn-grp-arrow { transform: rotate(90deg); color: #3b
 (function () {
 
 const DATA_URL   = '<?= $dataUrl ?>';
-const SAVE_URL   = '<?= $savePhysUrl ?>';
 const ADJ_URL    = '<?= $quickAdjUrl ?>';
 const CONFIRM_RECON_URL = '<?= $confirmReconUrl ?>';
 const PROFILE_MERGE_URL = '<?= $profileMergeUrl ?>';
@@ -470,7 +481,6 @@ const ADJ_TYPES_POS = [
 ];
 
 let currentData   = [];
-let saveTimers    = {};
 let divFilterId   = null;
 let showOnlyMinus = false;
 let showOnlyConfirm = false;
@@ -484,6 +494,32 @@ const fmt4  = v  => v == null ? '—' : Number(v).toLocaleString('id-ID', { mini
 const fmtRp = v  => 'Rp ' + Number(v || 0).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 function cssid(s) { return String(s || '').replace(/[^a-zA-Z0-9_-]/g, '_'); }
 function buildProfileToken(v) { return String(v || '').trim() === '' ? '__EMPTY_PROFILE__' : String(v || ''); }
+function round4(v) { return Math.round((Number(v || 0) + Number.EPSILON) * 10000) / 10000; }
+function fmtDateOnly(s) {
+    s = String(s || '').trim();
+    if (!s || s === '0000-00-00' || s === '0000-00-00 00:00:00') return '';
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? (m[3] + '/' + m[2] + '/' + m[1]) : s;
+}
+function stockInSourceLabel(s) {
+    s = String(s || '').toLowerCase();
+    var labels = [];
+    if (s.indexOf('pur_purchase_receipt') >= 0) labels.push('PO');
+    if (s.indexOf('store_request') >= 0 || s.indexOf('fulfillment') >= 0) labels.push('SR');
+    if (s.indexOf('opening') >= 0) labels.push('Stok awal');
+    if (s.indexOf('adjustment') >= 0) labels.push('Adjustment');
+    if (!labels.length && s.trim() !== '') labels.push('Lot');
+    return Array.from(new Set(labels)).join('/');
+}
+function stockInLabel(p) {
+    var first = fmtDateOnly(p.stock_in_first_date || '');
+    var last  = fmtDateOnly(p.stock_in_last_date || '');
+    if (!first && !last) return '';
+    var source = stockInSourceLabel(p.stock_in_sources || '');
+    var prefix = source ? ('Masuk ' + source + ': ') : 'Masuk: ';
+    if (first && last && first !== last) return prefix + first + ' s/d ' + last;
+    return prefix + (last || first);
+}
 function opnNeedsConfirm(row) {
     return !!(row && row.must_row_confirm && (!row.confirmed_open || !row.confirmed_close));
 }
@@ -841,6 +877,10 @@ function renderTable(divisions) {
         if (p.avg_cost_per_content > 0) {
             inner += '<div class="text-muted" style="font-size:.72rem">' + fmtRp(p.avg_cost_per_content) + '/' + contentUom + '</div>';
         }
+        var masukAt = stockInLabel(p);
+        if (masukAt) {
+            inner += '<div><span class="opn-stock-in-badge">' + esc(masukAt) + '</span></div>';
+        }
         if (p.is_recipe_only) {
             inner += '<div><span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size:.6rem">dari resep</span></div>';
         }
@@ -854,6 +894,8 @@ function renderTable(divisions) {
         var inner = '<span class="fw-semibold" style="font-size:.82rem">' + esc(p.profile_name || '') + expBadge + '</span>';
         if (subParts.length) inner += ' <span class="text-muted" style="font-size:.74rem">· ' + esc(subParts.join(' · ')) + '</span>';
         if (p.avg_cost_per_content > 0) inner += ' <span class="text-muted" style="font-size:.72rem">· ' + fmtRp(p.avg_cost_per_content) + '</span>';
+        var masukAt = stockInLabel(p);
+        if (masukAt) inner += '<div><span class="opn-stock-in-badge">' + esc(masukAt) + '</span></div>';
         return '<div class="opn-name-cell"><span class="opn-arrow-wrap"></span><div class="opn-name-body" style="padding-left:.6rem">' + inner + '</div></div>';
     }
 
@@ -976,7 +1018,6 @@ function renderTable(divisions) {
                     + ' data-iid="' + iid + '" data-sys="' + p.system_qty_content + '"'
                     + ' data-cpb="' + cpb + '" data-buyuom="' + buyUom + '"'
                     + ' oninput="opnLiveCalc(this,\'' + iid + '\')"'
-                    + ' onchange="opnSavePhys(\'' + iid + '\')"'
                     + (!CAN_CREATE ? ' disabled' : '') + '>'
                     + '<div id="phys-buy-' + iid + '" class="text-muted text-end" style="font-size:.72rem;min-height:.9rem">' + physBuyInit + '</div>'
                     + '</td>'
@@ -1021,6 +1062,7 @@ window.opnLiveCalc = function (inp, iid) {
         return;
     }
     var v = phys - sys;
+    if (p) p.physical_qty_content = phys;
     selEl.className   = Math.abs(v) < 0.001 ? 'text-success fw-bold' : (v < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold');
     selEl.textContent = Math.abs(v) < 0.001 ? '± 0' : (v > 0 ? '+' : '') + v.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
     if (buyEl && cpb > 0 && buyUom) buyEl.textContent = fmt4(phys / cpb) + ' ' + buyUom;
@@ -1077,58 +1119,6 @@ function confirmDailyRecon(stage) {
     .catch(function (e) { showAlert('danger', 'Konfirmasi daily recon gagal: ' + e.message); });
 }
 
-/* ── Save physical qty ────────────────────────────────────── */
-window.opnSavePhys = function (iid) {
-    var p   = profileMap[iid];
-    var row = el('row-' + iid);
-    var inp = row ? row.querySelector('input[type="number"]') : null;
-    if (!p || !inp) return;
-    clearTimeout(saveTimers[iid]);
-    saveTimers[iid] = setTimeout(function () { doSave(inp, p); }, 700);
-};
-
-function doSave(inp, p) {
-    var form    = el('opnForm');
-    var date    = form.querySelector('[name=opname_date]').value;
-    var dest    = form.querySelector('[name=destination]').value;
-    var physRaw = inp ? inp.value.trim() : null;
-    var phys    = physRaw !== null && physRaw !== '' ? parseFloat(physRaw) : null;
-    fetch(SAVE_URL, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify(Object.assign({}, p, {
-            opname_date:          date,
-            physical_qty_content: phys,
-            destination_type:     dest === 'ALL' ? (p.destination_type || 'OTHER') : dest,
-            notes:                '',
-        })),
-    })
-    .then(function (r) { return r.json().then(function (j) { return { s: r.status, j: j }; }); })
-    .then(function (res) {
-        if (!res.j.ok) { showAlert('danger', res.j.message || 'Gagal menyimpan.'); return; }
-        p.physical_qty_content = res.j.data.physical_qty_content;
-        p.selisih              = res.j.data.selisih;
-        var savedName = (p.profile_name || p.material_name || p.item_name || 'stok fisik');
-        var iid = cssid(p.division_id + '_' + p.identity_key);
-        var selEl = el('sel-' + iid);
-        if (selEl) {
-            var v = p.selisih;
-            if (v === null) { selEl.textContent = '—'; selEl.className = 'text-muted small'; }
-            else if (Math.abs(v) < 0.001) { selEl.textContent = '± 0'; selEl.className = 'text-success fw-bold'; }
-            else { selEl.className = v < 0 ? 'text-danger fw-bold' : 'text-warning fw-bold'; selEl.textContent = (v > 0 ? '+' : '') + fmt4(v); }
-        }
-        var row = el('row-' + iid);
-        if (row) {
-            var tdAction = row.querySelector('td.action-cell'); if (tdAction) tdAction.outerHTML = actionCell(p, iid);
-            var tdAdj = el('adjcol-' + iid); if (tdAdj) tdAdj.outerHTML = adjColHtml(p, iid);
-            initTooltips(row);
-        }
-        updateSummary();
-        showAlert('success', savedName + ' berhasil disimpan. Selisih terbaru: ' + (p.selisih === null ? 'â€”' : ((p.selisih > 0 ? '+' : '') + fmt4(p.selisih))));
-    })
-    .catch(function (e) { showAlert('danger', 'Error: ' + e.message); });
-}
-
 /* ── Group toggle ─────────────────────────────────────────── */
 window.opnToggleGrp = function (grpIid) {
     var children = document.querySelectorAll('[data-grp="' + grpIid + '"]');
@@ -1168,6 +1158,16 @@ window.opnTypeChange = function (iid) {
 window.opnPostAdj = function (iid) {
     var p = profileMap[iid];
     if (!p) return;
+    var row = el('row-' + iid);
+    var qtyInput = row ? row.querySelector('input[type="number"]') : null;
+    var physRaw = qtyInput ? qtyInput.value.trim() : '';
+    if (physRaw === '') {
+        showAlert('warning', 'Isi stok fisik terlebih dahulu sebelum posting.');
+        if (qtyInput) qtyInput.focus();
+        return;
+    }
+    p.physical_qty_content = parseFloat(physRaw);
+    p.selisih = round4(p.physical_qty_content - Number(p.system_qty_content || 0));
     var typeEl  = el('adjtype-' + iid);
     var typeVal = typeEl ? typeEl.value : '';
     if (!typeVal) { showAlert('warning', 'Pilih jenis adjustment terlebih dahulu.'); if (typeEl) typeEl.focus(); return; }
@@ -1206,6 +1206,7 @@ window.opnPostAdj = function (iid) {
         }
         updateSummary();
         showAlert('success', res.j.message || ('Adjustment #' + adjId + ' berhasil diposting.'));
+        loadData(true);
     })
     .catch(function (e) { btn.disabled = false; btn.innerHTML = orig; showAlert('danger', 'Error: ' + e.message); });
 };

@@ -462,6 +462,12 @@ class Dashboard extends MY_Controller
     private function dashboard_stagnant_lot_analysis(): array
     {
         $thresholdDays = 15;
+        $monthStart = date('Y-m-01');
+        $today = date('Y-m-d');
+        $monthStartSql = $this->db->escape($monthStart);
+        $todaySql = $this->db->escape($today);
+        $materialLotCutoffWhere = "AND l.receipt_date >= {$monthStartSql} AND l.receipt_date <= {$todaySql}";
+        $componentLotCutoffWhere = "AND l.receipt_date >= {$monthStartSql} AND l.receipt_date <= {$todaySql}";
         $data = [
             'threshold_days' => $thresholdDays,
             'material' => ['multi_lot' => [], 'aged_lot' => []],
@@ -519,6 +525,7 @@ class Dashboard extends MY_Controller
                 LEFT JOIN mst_operational_division d ON d.id = l.division_id
                 WHERE l.status = 'OPEN'
                   AND l.qty_balance > 0
+                  {$materialLotCutoffWhere}
                 GROUP BY
                     l.location_scope, COALESCE(l.division_id, 0), COALESCE(l.destination_type, ''),
                     COALESCE(l.item_id, 0), COALESCE(l.material_id, i.material_id, 0), COALESCE(l.content_uom_id, 0)
@@ -573,6 +580,7 @@ class Dashboard extends MY_Controller
                 LEFT JOIN mst_operational_division d ON d.id = l.division_id
                 WHERE l.status = 'OPEN'
                   AND l.qty_balance > 0
+                  {$materialLotCutoffWhere}
                   AND l.receipt_date <= DATE_SUB(CURDATE(), INTERVAL {$thresholdDays} DAY)
                 ORDER BY l.receipt_date ASC, total_value DESC, item_name ASC
                 LIMIT 80
@@ -617,6 +625,7 @@ class Dashboard extends MY_Controller
                 LEFT JOIN mst_operational_division d ON d.id = l.division_id
                 WHERE UPPER(l.status) = 'OPEN'
                   AND l.qty_balance > 0
+                  {$componentLotCutoffWhere}
                 GROUP BY COALESCE(l.location_type, ''), COALESCE(l.division_id, 0), l.component_id, l.uom_id
                 HAVING COUNT(*) > 1
                 ORDER BY COUNT(*) DESC, MIN(l.receipt_date) ASC, item_name ASC
@@ -663,6 +672,7 @@ class Dashboard extends MY_Controller
                 LEFT JOIN mst_operational_division d ON d.id = l.division_id
                 WHERE UPPER(l.status) = 'OPEN'
                   AND l.qty_balance > 0
+                  {$componentLotCutoffWhere}
                   AND l.receipt_date <= DATE_SUB(CURDATE(), INTERVAL {$thresholdDays} DAY)
                 ORDER BY l.receipt_date ASC, total_value DESC, item_name ASC
                 LIMIT 80
@@ -680,6 +690,10 @@ class Dashboard extends MY_Controller
 
     private function dashboard_material_lot_detail_rows(array $group): array
     {
+        $monthKey = date('Y-m-01');
+        $today = date('Y-m-d');
+        $monthKeySql = $this->db->escape($monthKey);
+        $todaySql = $this->db->escape($today);
         $query = $this->db
             ->select("'material' AS source_type", false)
             ->select('l.id AS lot_id, l.lot_no, l.receipt_date, l.expiry_date, DATEDIFF(CURDATE(), l.receipt_date) AS age_days', false)
@@ -693,6 +707,17 @@ class Dashboard extends MY_Controller
             ->select('COALESCE(NULLIF(m.material_name, ""), NULLIF(i.item_name, ""), CONCAT("Material #", COALESCE(l.material_id, i.material_id))) AS item_name', false)
             ->select('COALESCE(NULLIF(m.material_code, ""), NULLIF(i.item_code, ""), "") AS item_code', false)
             ->select('COALESCE(cu.code, "") AS uom_code, ROUND(l.qty_balance, 4) AS qty_balance, ROUND(l.unit_cost, 6) AS unit_cost, ROUND(l.qty_balance * l.unit_cost, 2) AS total_value', false)
+            ->select("CASE WHEN l.location_scope = 'DIVISION' AND l.receipt_date >= {$monthKeySql} AND l.receipt_date <= {$todaySql} THEN 1 ELSE 0 END AS can_recon_adjust", false)
+            ->select("(SELECT COALESCE(SUM(ms.closing_qty_content), 0)
+                FROM inv_division_monthly_stock ms
+                WHERE ms.month_key = {$monthKeySql}
+                  AND COALESCE(ms.division_id, 0) = COALESCE(l.division_id, 0)
+                  AND COALESCE(ms.destination_type, '') = COALESCE(l.destination_type, '')
+                  AND COALESCE(ms.item_id, 0) = COALESCE(l.item_id, 0)
+                  AND COALESCE(ms.material_id, 0) = COALESCE(l.material_id, i.material_id, 0)
+                  AND COALESCE(ms.content_uom_id, 0) = COALESCE(l.content_uom_id, 0)
+                  AND COALESCE(ms.profile_key, '') = COALESCE(l.profile_key, '')
+            ) AS profile_system_qty_content", false)
             ->from('inv_material_fifo_lot l')
             ->join('mst_item i', 'i.id = l.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(l.material_id, i.material_id)', 'left')
@@ -707,6 +732,7 @@ class Dashboard extends MY_Controller
             ->where('COALESCE(l.item_id, 0) = ' . (int)($group['item_id'] ?? 0), null, false)
             ->where('COALESCE(l.material_id, i.material_id, 0) = ' . (int)($group['material_id'] ?? 0), null, false)
             ->where('COALESCE(l.content_uom_id, 0) = ' . (int)($group['uom_id'] ?? 0), null, false)
+            ->where("l.receipt_date >= {$monthKeySql} AND l.receipt_date <= {$todaySql}", null, false)
             ->order_by('l.receipt_date', 'ASC')
             ->order_by('l.id', 'ASC')
             ->limit(120)
@@ -717,6 +743,10 @@ class Dashboard extends MY_Controller
 
     private function dashboard_component_lot_detail_rows(array $group): array
     {
+        $monthKey = date('Y-m-01');
+        $today = date('Y-m-d');
+        $monthKeySql = $this->db->escape($monthKey);
+        $todaySql = $this->db->escape($today);
         $query = $this->db
             ->select("'component' AS source_type", false)
             ->select('l.id AS lot_id, l.lot_no, l.receipt_date, l.expiry_date, DATEDIFF(CURDATE(), l.receipt_date) AS age_days', false)
@@ -724,6 +754,15 @@ class Dashboard extends MY_Controller
             ->select('l.component_id, l.uom_id, COALESCE(NULLIF(c.component_name, ""), CONCAT("Component #", l.component_id)) AS item_name', false)
             ->select('COALESCE(NULLIF(c.component_code, ""), "") AS item_code, COALESCE(u.code, "") AS uom_code', false)
             ->select('ROUND(l.qty_balance, 4) AS qty_balance, ROUND(l.unit_cost, 6) AS unit_cost, ROUND(l.qty_balance * l.unit_cost, 2) AS total_value', false)
+            ->select("CASE WHEN l.receipt_date >= {$monthKeySql} AND l.receipt_date <= {$todaySql} THEN 1 ELSE 0 END AS can_recon_adjust", false)
+            ->select("(SELECT COALESCE(SUM(ms.closing_qty), 0)
+                FROM inv_component_monthly_stock ms
+                WHERE ms.month_key = {$monthKeySql}
+                  AND COALESCE(ms.division_id, 0) = COALESCE(l.division_id, 0)
+                  AND COALESCE(ms.location_type, '') = COALESCE(l.location_type, '')
+                  AND ms.component_id = l.component_id
+                  AND ms.uom_id = l.uom_id
+            ) AS profile_system_qty", false)
             ->from('inv_component_lot l')
             ->join('mst_component c', 'c.id = l.component_id', 'left')
             ->join('mst_operational_division d', 'd.id = l.division_id', 'left')
@@ -734,6 +773,7 @@ class Dashboard extends MY_Controller
             ->where('COALESCE(l.division_id, 0) = ' . (int)($group['division_id'] ?? 0), null, false)
             ->where('l.component_id', (int)($group['component_id'] ?? 0))
             ->where('l.uom_id', (int)($group['uom_id'] ?? 0))
+            ->where("l.receipt_date >= {$monthKeySql} AND l.receipt_date <= {$todaySql}", null, false)
             ->order_by('l.receipt_date', 'ASC')
             ->order_by('l.id', 'ASC')
             ->limit(120)
@@ -1739,11 +1779,19 @@ class Dashboard extends MY_Controller
             $locations[$locationKey]['total']++;
 
             $gap = $this->dashboard_material_reconcile_gap($row);
+            $valueGap = round((float)($row['lot_vs_balance_value_delta'] ?? 0), 2);
+            $isValueOnly = abs($gap) <= 0.01 && abs($valueGap) > 1.0;
             $topRows[] = [
                 'name' => (string)($row['material_name'] ?? 'Bahan baku'),
                 'code' => (string)($row['material_code'] ?? ''),
                 'location' => $locationLabel,
                 'gap' => $gap,
+                'gap_value' => $valueGap,
+                'gap_type' => $isValueOnly ? 'currency' : 'qty',
+                'sort_gap' => $isValueOnly ? abs($valueGap) : abs($gap),
+                'reason' => $isValueOnly
+                    ? 'Qty sama, nilai FIFO berbeda'
+                    : trim((string)($row['suspect_reason'] ?? '')),
                 'url' => site_url('inventory/stock/division/reconcile') . '?' . http_build_query([
                     'as_of_date' => $asOfDate,
                     'division_id' => $divisionId,
@@ -1757,7 +1805,7 @@ class Dashboard extends MY_Controller
         uasort($locations, static function ($a, $b) {
             return ((int)$b['total'] <=> (int)$a['total']) ?: strcmp((string)$a['label'], (string)$b['label']);
         });
-        usort($topRows, static fn($a, $b) => abs((float)$b['gap']) <=> abs((float)$a['gap']));
+        usort($topRows, static fn($a, $b) => (float)($b['sort_gap'] ?? 0) <=> (float)($a['sort_gap'] ?? 0));
 
         $bucket['total'] = count($topRows);
         $bucket['locations'] = array_slice(array_values($locations), 0, 6);

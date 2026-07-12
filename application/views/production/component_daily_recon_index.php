@@ -53,7 +53,7 @@ $REASONS = function_exists('component_adjustment_reason_options')
 #cmpTableWrap table  {
     border-collapse:collapse;
     width:max-content;
-    min-width:1180px;
+    min-width:1380px;
     table-layout:fixed;
 }
 #cmpTableWrap thead th {
@@ -77,8 +77,8 @@ $REASONS = function_exists('component_adjustment_reason_options')
 .cmp-jenis-prep { background:#ede9fe; color:#6d28d9; border:1px solid #c4b5fd; padding:1px 6px; border-radius:999px; font-size:.65rem; font-weight:700; white-space:nowrap; display:inline-block; }
 .cmp-name-cell  { display:flex; align-items:flex-start; min-width:0; }
 .cmp-name-body  { min-width:0; }
-.cmp-adj-col    { width:168px; min-width:168px; max-width:168px; }
-.cmp-action-col { width:104px; min-width:104px; max-width:104px; }
+.cmp-adj-col    { width:220px; min-width:220px; max-width:220px; }
+.cmp-action-col { width:150px; min-width:150px; max-width:150px; }
 .filter-on      { background:#2563eb !important; color:#fff !important; border-color:#2563eb !important; }
 .cmp-cost-cell  { font-size:.76rem; white-space:nowrap; }
 .cmp-value-cell { font-size:.76rem; white-space:nowrap; }
@@ -105,10 +105,17 @@ $REASONS = function_exists('component_adjustment_reason_options')
     flex-direction:column;
     align-items:stretch;
     gap:.35rem;
+    min-width:126px;
 }
 .cmp-action-stack .btn {
     min-height:30px;
     white-space:nowrap;
+}
+.cmp-action-stack .badge {
+    white-space:nowrap;
+}
+.cmp-row-confirm > .d-flex {
+    flex-direction:column;
 }
 .cmp-lot-toggle-btn {
     width:100%;
@@ -1037,7 +1044,6 @@ loadData();
 </script>
 
 <?php $this->load->view('layout/footer'); ?>
-
 
 
 

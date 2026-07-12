@@ -1010,28 +1010,36 @@ class MaterialFifoManager
         }
         $identity['reference_date'] = $issueDate;
 
+        $sourceModule = strtoupper(trim((string)($payload['source_module'] ?? '')));
+        $strictProfileConsumption = !empty($payload['strict_profile_fifo'])
+            || $sourceModule === 'INVENTORY_ADJUSTMENT';
+        $allowCrossProfile = !$strictProfileConsumption;
+
         $broadSearchOptions = [
             'allow_any_item_id' => true,
             'allow_any_buy_uom' => true,
             'allow_any_content_uom' => true,
-            'allow_any_profile_key' => true,
+            'allow_any_profile_key' => $allowCrossProfile,
         ];
 
         // Consumption is material-centric: find ALL lots for this material regardless of which
         // purchase catalog (profile_key / item_id) they came from. Profile-key filtering is only
         // meaningful for inbound receipts; for outbound consumption the primary key is material_id.
+        // Exception: inventory adjustment / daily recon is profile-level. It must not consume lots
+        // from another profile, otherwise FIFO changes while monthly_stock for that other profile
+        // is not reduced.
         $hasMaterialId = ($identity['material_id'] ?? null) !== null;
         $divisionLots = $this->findIssueSourceLots($identity, [
-            'allow_any_item_id'  => $hasMaterialId,
+            'allow_any_item_id'  => $allowCrossProfile && $hasMaterialId,
             'allow_any_buy_uom'  => ($identity['buy_uom_id'] ?? null) === null,
-            'allow_any_profile_key' => $hasMaterialId,
+            'allow_any_profile_key' => $allowCrossProfile && $hasMaterialId,
         ]);
         if ($this->lastBuilderQueryError !== null) {
             return ['ok' => false, 'message' => $this->lastBuilderQueryError];
         }
 
         // Broad fallback (also relax content_uom) when the above still finds nothing.
-        if (empty($divisionLots) && $hasMaterialId) {
+        if (empty($divisionLots) && $hasMaterialId && $allowCrossProfile) {
             $divisionLots = $this->findIssueSourceLots($identity, $broadSearchOptions);
             if ($this->lastBuilderQueryError !== null) {
                 return ['ok' => false, 'message' => $this->lastBuilderQueryError];
@@ -1047,7 +1055,7 @@ class MaterialFifoManager
         // Broad fallback when strict search finds some lots but total balance is still insufficient.
         // This covers the case where stock came from multiple purchase batches with different
         // profile_key / item_id values, so only one batch was visible in the strict search.
-        if ($available + 0.0001 < $qtyNeed && !empty($divisionLots) && ($identity['material_id'] ?? null) !== null) {
+        if ($available + 0.0001 < $qtyNeed && !empty($divisionLots) && ($identity['material_id'] ?? null) !== null && $allowCrossProfile) {
             $broadLots = $this->findIssueSourceLots($identity, $broadSearchOptions);
             if ($this->lastBuilderQueryError !== null) {
                 return ['ok' => false, 'message' => $this->lastBuilderQueryError];

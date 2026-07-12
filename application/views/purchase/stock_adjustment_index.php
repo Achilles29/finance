@@ -93,6 +93,24 @@ $lineItemName = static function (array $row): string {
 $lineItemUom = static function (array $row): string {
   return trim((string)($row['profile_content_uom_code'] ?? ($row['default_content_uom_code'] ?? '')));
 };
+$lineQtyTotalContent = static function (array $row): float {
+  return (float)($row['qty_waste_content'] ?? 0)
+    + (float)($row['qty_spoil_content'] ?? 0)
+    + (float)($row['qty_process_loss_content'] ?? 0)
+    + (float)($row['qty_variance_content'] ?? 0)
+    + (float)($row['qty_adjustment_plus_content'] ?? 0);
+};
+$lineEffectiveValue = static function (array $row) use ($lineQtyTotalContent): array {
+  $qty = $lineQtyTotalContent($row);
+  $unitCost = (float)($row['unit_cost'] ?? 0);
+  $fallbackValue = (float)($row['shrink_fifo_total_cost'] ?? 0);
+  $value = $qty * $unitCost;
+  if ($unitCost <= 0 && $fallbackValue > 0) {
+    $value = $fallbackValue;
+    $unitCost = $qty > 0 ? ($fallbackValue / $qty) : 0.0;
+  }
+  return [$value, $unitCost];
+};
 $lineJenisAlasan = static function (array $row) use ($resolveReasonLabel): array {
   if ((float)($row['qty_adjustment_plus_content'] ?? 0) > 0) return ['Plus',    $resolveReasonLabel('ADJUSTMENT_PLUS', $row['adjustment_plus_reason_code'] ?? null)];
   if ((float)($row['qty_waste_content']            ?? 0) > 0) return ['Waste',   $resolveReasonLabel('WASTE',           $row['waste_reason_code']            ?? null)];
@@ -160,9 +178,10 @@ $detailDocIds = [];
 foreach ($lineRows as $lr) {
   $adjId = (int)($lr['adjustment_id'] ?? 0);
   if ($adjId > 0) $detailDocIds[$adjId] = true;
-  $uc = (float)($lr['unit_cost'] ?? 0);
-  $detailSummary['shrink_value']   += ((float)($lr['qty_waste_content'] ?? 0) + (float)($lr['qty_spoil_content'] ?? 0) + (float)($lr['qty_process_loss_content'] ?? 0) + (float)($lr['qty_variance_content'] ?? 0)) * $uc;
-  $detailSummary['addition_value'] += (float)($lr['qty_adjustment_plus_content'] ?? 0) * $uc;
+  [$effectiveValue, $effectiveUnitCost] = $lineEffectiveValue($lr);
+  $isPlusSummary = (float)($lr['qty_adjustment_plus_content'] ?? 0) > 0;
+  $detailSummary['shrink_value']   += $isPlusSummary ? 0 : $effectiveValue;
+  $detailSummary['addition_value'] += (float)($lr['qty_adjustment_plus_content'] ?? 0) * $effectiveUnitCost;
 }
 $detailSummary['doc_count'] = count($detailDocIds);
 $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary['shrink_value'];
@@ -610,12 +629,8 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
       <?php else: ?>
         <?php foreach ($pagedLineRows as $lineRow): ?>
           <?php
-            $lineQtyTotal  = (float)($lineRow['qty_waste_content'] ?? 0)
-              + (float)($lineRow['qty_spoil_content'] ?? 0)
-              + (float)($lineRow['qty_process_loss_content'] ?? 0)
-              + (float)($lineRow['qty_variance_content'] ?? 0)
-              + (float)($lineRow['qty_adjustment_plus_content'] ?? 0);
-            $lineTotalValue = $lineQtyTotal * (float)($lineRow['unit_cost'] ?? 0);
+            $lineQtyTotal  = $lineQtyTotalContent($lineRow);
+            [$lineTotalValue, $lineUnitCostDisplay] = $lineEffectiveValue($lineRow);
             $lineUom       = trim((string)($lineRow['profile_content_uom_code'] ?? ''));
             $lineName      = $lineItemName($lineRow);
             [$lineKind, $lineReason] = $lineJenisAlasan($lineRow);
@@ -650,7 +665,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
               <span class="badge <?php echo $lineIsPlus ? 'bg-success' : 'bg-danger'; ?> bg-opacity-10 <?php echo $lineIsPlus ? 'text-success' : 'text-danger'; ?> border <?php echo $lineIsPlus ? 'border-success' : 'border-danger'; ?> me-1"><?php echo html_escape($lineKind); ?></span>
               <span class="text-muted"><?php echo html_escape($lineReason); ?></span>
             </td>
-            <td class="text-end small"><?php echo number_format((float)($lineRow['unit_cost'] ?? 0), 2, ',', '.'); ?></td>
+            <td class="text-end small"><?php echo number_format($lineUnitCostDisplay, 2, ',', '.'); ?></td>
             <td class="text-end small fw-semibold <?php echo $lineIsPlus ? 'text-success' : 'text-danger'; ?>">
               <?php echo ($lineIsPlus ? '+' : '-') . 'Rp ' . number_format($lineTotalValue, 2, ',', '.'); ?>
             </td>

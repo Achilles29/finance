@@ -3715,6 +3715,7 @@ class Purchase_model extends CI_Model
 
     private function attach_material_lot_totals(array &$rows, string $asOfDate = ''): void
     {
+        $valueTolerance = 1.0; // Rupiah-level rounding noise should not create reconcile mismatch.
         foreach ($rows as &$row) {
             $row['lot_qty_content'] = null;
             $row['lot_value_total'] = null;
@@ -3888,8 +3889,8 @@ class Purchase_model extends CI_Model
                         : 0.0;
                     $profile['delta'] = round($delta, 4);
                     $profile['value_delta'] = $valueDelta;
-                    $profile['has_value_mismatch'] = abs($valueDelta) > 0.01 ? 1 : 0;
-                    $profile['has_mismatch'] = abs($delta) > 0.01 || abs($logGap) > 0.001 || abs($valueDelta) > 0.01;
+                    $profile['has_value_mismatch'] = abs($valueDelta) > $valueTolerance ? 1 : 0;
+                    $profile['has_mismatch'] = abs($delta) > 0.01 || abs($logGap) > 0.001 || abs($valueDelta) > $valueTolerance;
                 }
                 unset($profile);
                 ksort($profiles);
@@ -3934,7 +3935,7 @@ class Purchase_model extends CI_Model
             $lotValueActual = $lotValue ?? 0.0;
             $lotValueDelta = round($stockValue - $lotValueActual, 2);
             $row['lot_vs_balance_value_delta'] = $lotValueDelta;
-            $row['has_lot_value_mismatch'] = (abs($lotValueDelta) > 0.01) ? 1 : 0;
+            $row['has_lot_value_mismatch'] = (abs($lotValueDelta) > $valueTolerance) ? 1 : 0;
             if (!empty($row['has_lot_mismatch'])) {
                 $row['is_match'] = 0;
                 // Update suspect info so POS audit reason column is meaningful
@@ -6662,6 +6663,17 @@ class Purchase_model extends CI_Model
                 return $openingSnapshotMerge;
             }
 
+            $openingSyncResult = $this->sync_division_opening_snapshot_lots_and_monthly_after_profile_merge(
+                $divisionId,
+                $materialId,
+                $destination,
+                $targetIdentity
+            );
+            if (empty($openingSyncResult['ok'])) {
+                $this->db->trans_rollback();
+                return $openingSyncResult;
+            }
+
             foreach ($sourceProfileKeys as $sourceProfileKey) {
                 $profileEsc = $this->db->escape($sourceProfileKey);
 
@@ -6809,6 +6821,8 @@ class Purchase_model extends CI_Model
                     'lot_rows_merged' => (int)($lotMergeResult['data']['merged_lot_rows'] ?? 0),
                     'lot_groups_collapsed' => (int)($lotMergeResult['data']['collapsed_lot_groups'] ?? 0),
                     'opening_snapshot_rows_merged' => (int)($openingSnapshotMerge['data']['merged_snapshot_rows'] ?? 0),
+                    'opening_snapshots_resynced' => (int)($openingSyncResult['data']['synced_snapshots'] ?? 0),
+                    'opening_monthly_rows_seeded' => (int)($openingSyncResult['data']['seeded_monthly_rows'] ?? 0),
                     'opening_gap_profiles_normalized' => (int)(is_array($gapNormalizeResult['data']['updated_profiles'] ?? null) ? count($gapNormalizeResult['data']['updated_profiles']) : 0),
                 ],
             ];
@@ -6947,6 +6961,109 @@ class Purchase_model extends CI_Model
         }
 
         return ['ok' => true, 'data' => ['merged_snapshot_rows' => $mergedCount]];
+    }
+
+    private function sync_division_opening_snapshot_lots_and_monthly_after_profile_merge(
+        int $divisionId,
+        int $materialId,
+        string $destination,
+        array $targetIdentity
+    ): array {
+        if (!$this->db->table_exists('inv_division_stock_opening_snapshot')) {
+            return ['ok' => true, 'data' => ['synced_snapshots' => 0, 'seeded_monthly_rows' => 0]];
+        }
+
+        $targetProfileKey = (string)($targetIdentity['profile_key'] ?? '');
+        if ($targetProfileKey === '') {
+            return ['ok' => true, 'data' => ['synced_snapshots' => 0, 'seeded_monthly_rows' => 0]];
+        }
+
+        $this->db
+            ->select('*')
+            ->from('inv_division_stock_opening_snapshot')
+            ->where('snapshot_month >=', date('Y-m-01'))
+            ->where('division_id', $divisionId)
+            ->where('COALESCE(material_id, 0) = ' . (int)$materialId, null, false)
+            ->where('profile_key', $targetProfileKey);
+
+        if ($destination === 'EVENT') {
+            $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+        } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
+            $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+        } elseif (!in_array($destination, ['ALL', ''], true)) {
+            $this->db->where('destination_type', $destination);
+        }
+
+        $snapshots = $this->db->get()->result_array();
+        if (empty($snapshots)) {
+            return ['ok' => true, 'data' => ['synced_snapshots' => 0, 'seeded_monthly_rows' => 0]];
+        }
+
+        $syncedSnapshots = 0;
+        $seededMonthlyRows = 0;
+        foreach ($snapshots as $snapshot) {
+            $snapshotId = (int)($snapshot['id'] ?? 0);
+            if ($snapshotId <= 0) {
+                continue;
+            }
+
+            $lotTotal = 0.0;
+            if ($this->db->table_exists('inv_material_fifo_lot')) {
+                $lotRow = $this->db
+                    ->select('COALESCE(SUM(qty_balance), 0) AS lot_total', false)
+                    ->from('inv_material_fifo_lot')
+                    ->where('source_table', 'inv_division_stock_opening_snapshot')
+                    ->where('source_id', $snapshotId)
+                    ->where('status', 'OPEN')
+                    ->get()
+                    ->row_array();
+                $lotTotal = round((float)($lotRow['lot_total'] ?? 0), 4);
+            }
+
+            $snapshotQty = round((float)($snapshot['opening_qty_content'] ?? 0), 4);
+            if (abs($lotTotal - $snapshotQty) > 0.0001) {
+                $lotSync = $this->syncOpeningSnapshotLots('DIVISION', 'inv_division_stock_opening_snapshot', $snapshot, true);
+                if (!($lotSync['ok'] ?? false)) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Gagal sinkron ulang lot opening setelah join profile: ' . (string)($lotSync['message'] ?? 'lot sync gagal.'),
+                    ];
+                }
+                $syncedSnapshots++;
+            }
+
+            $sourceRow = [
+                'division_id' => (int)($snapshot['division_id'] ?? 0),
+                'destination_type' => (string)($snapshot['destination_type'] ?? 'OTHER'),
+                'stock_domain' => 'ITEM',
+                'item_id' => isset($snapshot['item_id']) ? (int)$snapshot['item_id'] : null,
+                'material_id' => isset($snapshot['material_id']) ? (int)$snapshot['material_id'] : null,
+                'buy_uom_id' => isset($snapshot['buy_uom_id']) ? (int)$snapshot['buy_uom_id'] : null,
+                'content_uom_id' => (int)($snapshot['content_uom_id'] ?? 0),
+                'profile_key' => (string)($snapshot['profile_key'] ?? ''),
+                'profile_name' => $this->nullableString($snapshot['profile_name'] ?? null),
+                'profile_brand' => $this->nullableString($snapshot['profile_brand'] ?? null),
+                'profile_description' => $this->nullableString($snapshot['profile_description'] ?? null),
+                'profile_expired_date' => $this->normalizeDate((string)($snapshot['profile_expired_date'] ?? '')),
+                'profile_content_per_buy' => round((float)($snapshot['profile_content_per_buy'] ?? 0), 6),
+                'profile_buy_uom_code' => $this->nullableString($snapshot['profile_buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->nullableString($snapshot['profile_content_uom_code'] ?? null),
+                'closing_qty_buy' => round((float)($snapshot['opening_qty_buy'] ?? 0), 4),
+                'closing_qty_content' => $snapshotQty,
+                'avg_cost_per_content' => round((float)($snapshot['opening_avg_cost_per_content'] ?? 0), 6),
+                'total_value' => round((float)($snapshot['opening_total_value'] ?? 0), 2),
+            ];
+            $sourceMonth = date('Y-m-01', strtotime((string)($snapshot['snapshot_month'] ?? date('Y-m-01')) . ' -1 month'));
+            $monthlySeed = $this->seedCarryForwardMonthlyOpeningRow('DIVISION', (string)$snapshot['snapshot_month'], $sourceRow, $sourceMonth);
+            if (!($monthlySeed['ok'] ?? false)) {
+                return $monthlySeed;
+            }
+            if (!empty($monthlySeed['seeded'])) {
+                $seededMonthlyRows++;
+            }
+        }
+
+        return ['ok' => true, 'data' => ['synced_snapshots' => $syncedSnapshots, 'seeded_monthly_rows' => $seededMonthlyRows]];
     }
 
     private function merge_division_fifo_lots_to_target_profile(
@@ -10170,6 +10287,7 @@ class Purchase_model extends CI_Model
             ->select('l.*, i.item_code, i.item_name, m.material_code, m.material_name', false)
             ->select('mfl.lot_no AS plus_lot_no', false)
             ->select('COALESCE((SELECT mfl2.lot_no FROM inv_material_fifo_issue_line mfil JOIN inv_material_fifo_lot mfl2 ON mfl2.id=mfil.lot_id WHERE mfil.issue_id = COALESCE(l.waste_issue_id, l.spoil_issue_id, l.process_loss_issue_id, l.variance_issue_id) ORDER BY mfil.id ASC LIMIT 1),(SELECT cl.lot_no FROM inv_component_lot_issue_line cil JOIN inv_component_lot cl ON cl.id=cil.lot_id WHERE cil.issue_id = COALESCE(l.waste_issue_id, l.spoil_issue_id, l.process_loss_issue_id, l.variance_issue_id) ORDER BY cil.id ASC LIMIT 1)) AS shrink_lot_no', false)
+            ->select('(SELECT COALESCE(SUM(mfil.total_cost), 0) FROM inv_material_fifo_issue_line mfil WHERE mfil.issue_id = COALESCE(l.waste_issue_id, l.spoil_issue_id, l.process_loss_issue_id, l.variance_issue_id)) AS shrink_fifo_total_cost', false)
             ->from('inv_stock_adjustment_line l')
             ->join('inv_stock_adjustment h', 'h.id = l.adjustment_id')
             ->join('mst_item i', 'i.id = l.item_id', 'left')
@@ -11082,12 +11200,16 @@ class Purchase_model extends CI_Model
             if (!($fifo['ok'] ?? false)) {
                 return ['ok' => false, 'message' => (string)($fifo['message'] ?? 'Gagal alokasi FIFO adjustment.')];
             }
+            $fifoUnitCost = round((float)($fifo['data']['avg_unit_cost'] ?? ($line['unit_cost'] ?? 0)), 6);
+            if ($fifoUnitCost > 0 && round((float)($line['unit_cost'] ?? 0), 6) <= 0) {
+                $lineUpdates['unit_cost'] = $fifoUnitCost;
+            }
 
             $ledger = $this->postInventoryLedgerEntry($basePayload + [
                 'movement_type' => $meta['movement_type'],
                 'qty_buy_delta' => $qtyBuy * -1,
                 'qty_content_delta' => $qtyContent * -1,
-                'unit_cost' => round((float)($fifo['data']['avg_unit_cost'] ?? ($line['unit_cost'] ?? 0)), 6),
+                'unit_cost' => $fifoUnitCost,
                 'adjustment_category' => $meta['category'],
                 'adjustment_reason_code' => $reasonCode,
                 'notes' => $notes,

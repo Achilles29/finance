@@ -249,6 +249,9 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
   .fd-lot-bucket { display:grid; gap:.55rem; }
   .fd-lot-bucket + .fd-lot-bucket { margin-top:.9rem; padding-top:.85rem; border-top:1px dashed rgba(143,45,35,.18); }
   .fd-lot-bucket-title { display:flex; align-items:center; justify-content:space-between; gap:.6rem; color:#6f2119; font-size:.76rem; font-weight:900; text-transform:uppercase; letter-spacing:.04em; }
+  .fd-lot-tabs { display:flex; flex-wrap:wrap; gap:.4rem; margin:.15rem 0 .85rem; padding:.45rem; border:1px solid rgba(170,95,78,.14); border-radius:16px; background:#fff; }
+  .fd-lot-tab { border:1px solid rgba(170,95,78,.24); background:#fffaf7; color:#8b7772; border-radius:999px; padding:.24rem .62rem; font-size:.72rem; font-weight:900; }
+  .fd-lot-tab.on { background:#8f2d23; color:#fff; border-color:#8f2d23; }
   .fd-lot-toggle { width:100%; border:1px solid rgba(170,95,78,.12); cursor:pointer; text-align:left; }
   .fd-lot-toggle .ri-arrow-down-s-line { transition:transform .15s ease; }
   .fd-lot-toggle.open .ri-arrow-down-s-line { transform:rotate(180deg); }
@@ -671,15 +674,23 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
 
           <div class="fd-recon-list">
             <?php foreach ($rows as $row): ?>
+              <?php
+              $gapType = (string)($row['gap_type'] ?? 'qty');
+              $gapText = $gapType === 'currency'
+                  ? 'Rp ' . number_format((float)($row['gap_value'] ?? 0), 0, ',', '.')
+                  : $fmtGap($row['gap'] ?? 0);
+              $reason = trim((string)($row['reason'] ?? ''));
+              ?>
               <a class="fd-recon-row" href="<?= htmlspecialchars((string)($row['url'] ?? $mainUrl)) ?>">
                 <div style="min-width:0">
                   <div class="fd-recon-row-name"><?= htmlspecialchars((string)($row['name'] ?? '-')) ?></div>
                   <div class="fd-recon-row-meta">
                     <?= htmlspecialchars((string)($row['location'] ?? '-')) ?>
                     <?php if (!empty($row['code'])): ?> &middot; <?= htmlspecialchars((string)$row['code']) ?><?php endif; ?>
+                    <?php if ($reason !== ''): ?> &middot; <?= htmlspecialchars($reason) ?><?php endif; ?>
                   </div>
                 </div>
-                <div class="fd-recon-gap"><?= $fmtGap($row['gap'] ?? 0) ?></div>
+                <div class="fd-recon-gap"><?= htmlspecialchars($gapText) ?></div>
               </a>
             <?php endforeach; ?>
           </div>
@@ -881,6 +892,17 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
         });
         return $grouped;
     };
+    $lotBucketLabels = static function (array $multiRows, array $agedRows) use ($lotGroupByBucket): array {
+        $labels = [];
+        foreach ([$lotGroupByBucket($multiRows), $lotGroupByBucket($agedRows)] as $bucketed) {
+            foreach ($bucketed as $key => $bucket) {
+                if (!isset($labels[$key])) {
+                    $labels[$key] = (string)($bucket['label'] ?? $key);
+                }
+            }
+        }
+        return $labels;
+    };
     $lotAdjustPayload = static function (array $lot, string $source): string {
         $payload = $lot;
         $payload['source_type'] = $source;
@@ -929,8 +951,8 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
                 echo '<table><thead><tr><th>Lot</th><th>Tanggal</th><th class="text-end">Qty</th><th class="text-end">Nilai</th><th class="text-end">Aksi</th></tr></thead><tbody>';
                 foreach ($lots as $lot) {
                     $canAdjust = $source === 'component'
-                        ? ((int)($lot['lot_id'] ?? 0) > 0 && (int)($lot['component_id'] ?? 0) > 0)
-                        : ((string)($lot['location_scope'] ?? '') === 'DIVISION' && (int)($lot['division_id'] ?? 0) > 0 && (string)($lot['profile_key'] ?? '') !== '');
+                        ? ((int)($lot['can_recon_adjust'] ?? 0) === 1 && (int)($lot['lot_id'] ?? 0) > 0 && (int)($lot['component_id'] ?? 0) > 0)
+                        : ((int)($lot['can_recon_adjust'] ?? 0) === 1 && (string)($lot['location_scope'] ?? '') === 'DIVISION' && (int)($lot['division_id'] ?? 0) > 0 && (string)($lot['profile_key'] ?? '') !== '');
                     echo '<tr>';
                     echo '<td><strong>' . htmlspecialchars((string)($lot['lot_no'] ?? '-')) . '</strong><div class="text-muted">' . number_format((int)($lot['age_days'] ?? 0), 0, ',', '.') . ' hari</div></td>';
                     echo '<td>' . htmlspecialchars($lotDate($lot['receipt_date'] ?? '')) . '</td>';
@@ -940,7 +962,7 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
                     if ($canAdjust) {
                         echo '<button type="button" class="fd-lot-adjust-btn" data-lot-adjust="' . $lotAdjustPayload($lot, $source) . '">Adjust</button>';
                     } else {
-                        echo '<a href="' . htmlspecialchars($href) . '" class="fd-lot-adjust-btn" style="text-decoration:none">Audit</a>';
+                        echo '<a href="' . htmlspecialchars($href) . '" class="fd-lot-adjust-btn" style="text-decoration:none" title="Di luar cutoff bulan berjalan, gunakan audit/reconcile.">Audit</a>';
                     }
                     echo '</td></tr>';
                 }
@@ -980,9 +1002,9 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
             $renderer([], $source);
             return;
         }
-        foreach ($bucketed as $bucket) {
+        foreach ($bucketed as $bucketKey => $bucket) {
             $bucketRows = (array)($bucket['rows'] ?? []);
-            echo '<div class="fd-lot-bucket">';
+            echo '<div class="fd-lot-bucket" data-lot-bucket-block="' . htmlspecialchars((string)$bucketKey) . '">';
             echo '<div class="fd-lot-bucket-title"><span>' . htmlspecialchars((string)($bucket['label'] ?? '-')) . '</span><span>' . number_format(count($bucketRows), 0, ',', '.') . '</span></div>';
             $renderer($bucketRows, $source);
             echo '</div>';
@@ -1003,8 +1025,10 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
         $lotBlock = (array)($stagnantLotAnalysis[$lotSource] ?? ['multi_lot' => [], 'aged_lot' => []]);
         $multiRows = (array)($lotBlock['multi_lot'] ?? []);
         $agedRows = (array)($lotBlock['aged_lot'] ?? []);
+        $bucketLabels = $lotBucketLabels($multiRows, $agedRows);
+        $lotCardId = 'lot-card-' . $lotSource;
         ?>
-        <article class="fd-lot-panel">
+        <article class="fd-lot-panel" data-lot-card="<?= htmlspecialchars($lotCardId) ?>">
           <div class="fd-lot-panel-head">
             <div>
               <h3 class="fd-lot-title"><?= htmlspecialchars($lotLabel) ?></h3>
@@ -1012,6 +1036,14 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
             </div>
             <span class="fd-pill"><?= number_format(count($multiRows) + count($agedRows), 0, ',', '.') ?></span>
           </div>
+          <?php if (count($bucketLabels) > 0): ?>
+            <div class="fd-lot-tabs" data-lot-tabs="<?= htmlspecialchars($lotCardId) ?>">
+              <button type="button" class="fd-lot-tab on" data-lot-filter="ALL">Semua</button>
+              <?php foreach ($bucketLabels as $bucketKey => $bucketLabel): ?>
+                <button type="button" class="fd-lot-tab" data-lot-filter="<?= htmlspecialchars((string)$bucketKey) ?>"><?= htmlspecialchars((string)$bucketLabel) ?></button>
+              <?php endforeach; ?>
+            </div>
+          <?php endif; ?>
 
           <div class="fd-lot-section">
             <div class="fd-lot-section-title">
@@ -1879,8 +1911,14 @@ window.addEventListener('load', function () {
       }
       return data;
     }
+    function currentSystemQty() {
+      if (lotCtx.source_type === 'component') {
+        return parseFloat(lotCtx.profile_system_qty || lotCtx.qty_balance || 0) || 0;
+      }
+      return parseFloat(lotCtx.profile_system_qty_content || lotCtx.qty_balance || 0) || 0;
+    }
     function typeOptionsForDiff() {
-      const diff = (parseFloat(physEl.value || 0) || 0) - (parseFloat(lotCtx.qty_balance || 0) || 0);
+      const diff = (parseFloat(physEl.value || 0) || 0) - currentSystemQty();
       if (Math.abs(diff) < 0.0001) return [];
       if (diff > 0) return ['ADJUSTMENT_PLUS'];
       return lotCtx.source_type === 'component'
@@ -1903,7 +1941,7 @@ window.addEventListener('load', function () {
       reasonEl.innerHTML = Object.keys(options).map(function (key) {
         return '<option value="' + key + '">' + escHtml(options[key]) + '</option>';
       }).join('');
-      const diff = (parseFloat(physEl.value || 0) || 0) - (parseFloat(lotCtx.qty_balance || 0) || 0);
+      const diff = (parseFloat(physEl.value || 0) || 0) - currentSystemQty();
       const uom = lotCtx.uom_code || '';
       diffEl.textContent = Math.abs(diff) < 0.0001
         ? 'Selisih 0. Ubah stok fisik agar bisa diposting.'
@@ -1913,12 +1951,15 @@ window.addEventListener('load', function () {
     function openLotAdjustment(payload) {
       lotCtx = payload || {};
       const uom = lotCtx.uom_code || '';
+      const systemQty = currentSystemQty();
+      const lotQty = parseFloat(lotCtx.qty_balance || 0) || 0;
       titleEl.textContent = lotCtx.item_name || '-';
       subEl.textContent = (lotCtx.source_type === 'component' ? 'Component' : 'Bahan Baku')
         + ' · ' + (lotCtx.lot_no || '-')
-        + ' · ' + (lotCtx.location_type || lotCtx.destination_type || lotCtx.location_scope || '-');
-      sysEl.value = fmtNum(lotCtx.qty_balance) + ' ' + uom;
-      physEl.value = Number(lotCtx.qty_balance || 0);
+        + ' · ' + (lotCtx.location_type || lotCtx.destination_type || lotCtx.location_scope || '-')
+        + ' · Lot ini ' + fmtNum(lotQty) + ' ' + uom;
+      sysEl.value = fmtNum(systemQty) + ' ' + uom;
+      physEl.value = Number(systemQty);
       noteEl.value = '';
       showLotAlert('', '');
       fillTypeAndReasons('');
@@ -1927,6 +1968,24 @@ window.addEventListener('load', function () {
     }
 
     document.addEventListener('click', function (event) {
+      const lotTab = event.target.closest('.fd-lot-tab[data-lot-filter]');
+      if (lotTab) {
+        const tabsWrap = lotTab.closest('[data-lot-tabs]');
+        const cardId = tabsWrap ? tabsWrap.dataset.lotTabs : '';
+        const card = cardId ? document.querySelector('[data-lot-card="' + cardId + '"]') : lotTab.closest('[data-lot-card]');
+        const filter = lotTab.dataset.lotFilter || 'ALL';
+        if (tabsWrap) {
+          tabsWrap.querySelectorAll('.fd-lot-tab').forEach(function (btn) { btn.classList.remove('on'); });
+          lotTab.classList.add('on');
+        }
+        if (card) {
+          card.querySelectorAll('[data-lot-bucket-block]').forEach(function (block) {
+            block.style.display = (filter === 'ALL' || block.dataset.lotBucketBlock === filter) ? '' : 'none';
+          });
+        }
+        return;
+      }
+
       const toggle = event.target.closest('[data-lot-target]');
       if (toggle) {
         const target = document.getElementById(toggle.dataset.lotTarget || '');
@@ -1954,7 +2013,7 @@ window.addEventListener('load', function () {
 
     submitEl.addEventListener('click', async function () {
       const physical = parseFloat(physEl.value || 0);
-      const systemQty = parseFloat(lotCtx.qty_balance || 0);
+      const systemQty = currentSystemQty();
       const diff = physical - systemQty;
       if (!dateEl.value) { showLotAlert('danger', 'Tanggal recon wajib diisi.'); return; }
       if (!(physical >= 0)) { showLotAlert('danger', 'Stok fisik tidak valid.'); return; }

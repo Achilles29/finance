@@ -139,6 +139,8 @@ class Inventory_division extends Purchase
         $itemActiveWhere = $this->db->field_exists('is_active', 'mst_item')
             ? 'AND (i.id IS NULL OR COALESCE(i.is_active, 1) = 1)'
             : '';
+        $lotStartEsc = $this->db->escape($targetMonth);
+        $lotEndEsc   = $this->db->escape($opnameDate);
 
         $sql = "
             SELECT
@@ -167,6 +169,54 @@ class Inventory_division extends Purchase
                 dms.avg_cost_per_content,
                 dms.total_value,
                 dms.last_movement_date,
+                (
+                    SELECT MIN(l.receipt_date)
+                    FROM inv_material_fifo_lot l
+                    LEFT JOIN mst_item li ON li.id = l.item_id
+                    WHERE l.location_scope = 'DIVISION'
+                      AND l.division_id = dms.division_id
+                      AND l.destination_type = dms.destination_type
+                      AND COALESCE(l.item_id, 0) = COALESCE(dms.item_id, 0)
+                      AND COALESCE(l.material_id, li.material_id, 0) = COALESCE(dms.material_id, i.material_id, 0)
+                      AND COALESCE(l.content_uom_id, 0) = COALESCE(dms.content_uom_id, 0)
+                      AND COALESCE(l.profile_key, '') = COALESCE(dms.profile_key, '')
+                      AND l.status = 'OPEN'
+                      AND l.qty_balance > 0.0001
+                      AND l.receipt_date >= {$lotStartEsc}
+                      AND l.receipt_date <= {$lotEndEsc}
+                ) AS stock_in_first_date,
+                (
+                    SELECT MAX(l.receipt_date)
+                    FROM inv_material_fifo_lot l
+                    LEFT JOIN mst_item li ON li.id = l.item_id
+                    WHERE l.location_scope = 'DIVISION'
+                      AND l.division_id = dms.division_id
+                      AND l.destination_type = dms.destination_type
+                      AND COALESCE(l.item_id, 0) = COALESCE(dms.item_id, 0)
+                      AND COALESCE(l.material_id, li.material_id, 0) = COALESCE(dms.material_id, i.material_id, 0)
+                      AND COALESCE(l.content_uom_id, 0) = COALESCE(dms.content_uom_id, 0)
+                      AND COALESCE(l.profile_key, '') = COALESCE(dms.profile_key, '')
+                      AND l.status = 'OPEN'
+                      AND l.qty_balance > 0.0001
+                      AND l.receipt_date >= {$lotStartEsc}
+                      AND l.receipt_date <= {$lotEndEsc}
+                ) AS stock_in_last_date,
+                (
+                    SELECT GROUP_CONCAT(DISTINCT COALESCE(l.source_table, '') ORDER BY COALESCE(l.source_table, '') SEPARATOR ',')
+                    FROM inv_material_fifo_lot l
+                    LEFT JOIN mst_item li ON li.id = l.item_id
+                    WHERE l.location_scope = 'DIVISION'
+                      AND l.division_id = dms.division_id
+                      AND l.destination_type = dms.destination_type
+                      AND COALESCE(l.item_id, 0) = COALESCE(dms.item_id, 0)
+                      AND COALESCE(l.material_id, li.material_id, 0) = COALESCE(dms.material_id, i.material_id, 0)
+                      AND COALESCE(l.content_uom_id, 0) = COALESCE(dms.content_uom_id, 0)
+                      AND COALESCE(l.profile_key, '') = COALESCE(dms.profile_key, '')
+                      AND l.status = 'OPEN'
+                      AND l.qty_balance > 0.0001
+                      AND l.receipt_date >= {$lotStartEsc}
+                      AND l.receipt_date <= {$lotEndEsc}
+                ) AS stock_in_sources,
                 {$catNameExpr}                                AS category_name,
                 {$catIdExpr}                                  AS category_id,
                 0                                             AS is_recipe_only
@@ -257,6 +307,9 @@ class Inventory_division extends Purchase
                     0                                AS avg_cost_per_content,
                     0                                AS total_value,
                     NULL                             AS last_movement_date,
+                    NULL                             AS stock_in_first_date,
+                    NULL                             AS stock_in_last_date,
+                    NULL                             AS stock_in_sources,
                     {$recCatExpr}                    AS category_name,
                     {$recCatIdExpr}                  AS category_id,
                     1                                AS is_recipe_only
@@ -347,6 +400,9 @@ class Inventory_division extends Purchase
                 'avg_cost_per_content'=> (float)$r['avg_cost_per_content'],
                 'total_value'         => (float)$r['total_value'],
                 'last_movement_date'  => (string)($r['last_movement_date'] ?? ''),
+                'stock_in_first_date' => (string)($r['stock_in_first_date'] ?? ''),
+                'stock_in_last_date'  => (string)($r['stock_in_last_date'] ?? ''),
+                'stock_in_sources'    => (string)($r['stock_in_sources'] ?? ''),
                 'category_name'       => (string)($r['category_name'] ?? ''),
                 'is_recipe_only'      => !empty($r['is_recipe_only']),
                 'physical_qty_content'=> null,
@@ -558,21 +614,34 @@ class Inventory_division extends Purchase
             && $this->db->table_exists('inv_material_fifo_lot')
         ) {
             $matId = (int)$payload['material_id'];
+            $profileKey = (string)($payload['profile_key'] ?? '');
+            $lotMonthStart = date('Y-m-01', strtotime($opnameDate));
             $lotRow = $this->db->query(
                 "SELECT COALESCE(SUM(qty_balance), 0) AS lot_total
-                 FROM inv_material_fifo_lot
-                 WHERE location_scope = 'DIVISION'
-                   AND division_id = ? AND material_id = ?
-                   AND status = 'OPEN' AND qty_balance > 0.0001",
-                [$divisionId, $matId]
+                 FROM inv_material_fifo_lot l
+                 LEFT JOIN mst_item li ON li.id = l.item_id
+                 WHERE l.location_scope = 'DIVISION'
+                   AND l.division_id = ?
+                   AND l.destination_type = ?
+                   AND COALESCE(l.material_id, li.material_id) = ?
+                   AND l.content_uom_id = ?
+                   AND COALESCE(l.profile_key, '') = ?
+                   AND l.receipt_date >= ?
+                   AND l.receipt_date <= ?
+                   AND l.status = 'OPEN' AND l.qty_balance > 0.0001",
+                [$divisionId, $destination, $matId, (int)($payload['content_uom_id'] ?? 0), $profileKey, $lotMonthStart, $opnameDate]
             )->row_array();
             $lotAvail = round((float)($lotRow['lot_total'] ?? 0), 4);
             if ($lotAvail < $absQty - 0.01) {
-                $this->Purchase_model->repair_division_material_lot_balance([
-                    'division_id' => $divisionId,
-                    'material_id' => $matId,
-                    'destination' => 'ALL',
-                ]);
+                $label = trim((string)($payload['profile_name'] ?? $payload['material_name'] ?? $payload['item_name'] ?? 'bahan ini'));
+                $this->jsonError(
+                    'Lot FIFO profil ' . $label . ' tidak cukup untuk adjustment. Dibutuhkan '
+                    . number_format($absQty, 4, ',', '.')
+                    . ', tersedia ' . number_format($lotAvail, 4, ',', '.')
+                    . '. Jalankan repair lot/reconcile dulu, lalu posting ulang.',
+                    422
+                );
+                return;
             }
         }
         // ─────────────────────────────────────────────────────────────────────────
@@ -601,12 +670,42 @@ class Inventory_division extends Purchase
         }
 
         if ($this->db->table_exists('inv_division_stock_opname') && $adjId > 0) {
-            $this->db
+            $existing = $this->db
+                ->select('id')
                 ->where('opname_date',      $opnameDate)
                 ->where('division_id',      $divisionId)
                 ->where('destination_type', $destination)
                 ->where('identity_key',     $identKey)
-                ->update('inv_division_stock_opname', ['adjustment_id' => $adjId]);
+                ->limit(1)
+                ->get('inv_division_stock_opname')
+                ->row_array();
+
+            $opnameRow = [
+                'opname_date'          => $opnameDate,
+                'division_id'          => $divisionId,
+                'destination_type'     => $destination,
+                'item_id'              => !empty($payload['item_id'])     ? (int)$payload['item_id']     : null,
+                'material_id'          => !empty($payload['material_id']) ? (int)$payload['material_id'] : null,
+                'buy_uom_id'           => !empty($payload['buy_uom_id'])  ? (int)$payload['buy_uom_id']  : null,
+                'content_uom_id'       => (int)($payload['content_uom_id'] ?? 0),
+                'profile_key'          => (string)($payload['profile_key'] ?? ''),
+                'identity_key'         => $identKey,
+                'profile_name'         => $this->ns($payload['profile_name'] ?? null),
+                'profile_content_per_buy'  => max(0.000001, (float)($payload['profile_content_per_buy'] ?? 1)),
+                'profile_buy_uom_code'     => $this->ns($payload['profile_buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->ns($payload['profile_content_uom_code'] ?? null),
+                'system_qty_content'       => $systemQty,
+                'physical_qty_content'     => $physQty,
+                'notes'                    => $notes !== '' ? $notes : null,
+                'adjustment_id'            => $adjId,
+            ];
+
+            if (!empty($existing['id'])) {
+                $this->db->where('id', (int)$existing['id'])->update('inv_division_stock_opname', $opnameRow);
+            } else {
+                $opnameRow['created_by'] = $userId > 0 ? $userId : null;
+                $this->db->insert('inv_division_stock_opname', $opnameRow);
+            }
         }
 
         $this->jsonOk(['adjustment_id' => $adjId], 'Adjustment berhasil diposting.');
@@ -783,7 +882,9 @@ class Inventory_division extends Purchase
         unset($row);
 
         $lotCounts = [];
+        $lotMeta = [];
         if (!empty($materialIds) && $this->db->table_exists('inv_material_fifo_lot')) {
+            $lotMonthStart = date('Y-m-01', strtotime($date));
             // Jangan pakai Query Builder where_in untuk daftar besar. CI3 akan memproses
             // SQL panjang dengan regex internal dan bisa gagal "regular expression is too large".
             foreach (array_chunk(array_values($materialIds), 120) as $materialChunk) {
@@ -794,35 +895,47 @@ class Inventory_division extends Purchase
                     continue;
                 }
 
-                $divWhere = $divisionId > 0 ? 'AND division_id = ' . (int)$divisionId : '';
+                $divWhere = $divisionId > 0 ? 'AND l.division_id = ' . (int)$divisionId : '';
                 $lotSql = "
                     SELECT
-                        division_id,
-                        COALESCE(destination_type, 'OTHER') AS destination_type,
-                        COALESCE(item_id, 0) AS item_id,
-                        COALESCE(material_id, 0) AS material_id,
-                        COALESCE(buy_uom_id, 0) AS buy_uom_id,
-                        COALESCE(content_uom_id, 0) AS content_uom_id,
-                        COALESCE(profile_key, '') AS profile_key,
-                        COUNT(*) AS lot_count
-                    FROM inv_material_fifo_lot
-                    WHERE location_scope = 'DIVISION'
-                      AND status = 'OPEN'
-                      AND ABS(COALESCE(qty_balance, 0)) > 0.0001
-                      AND material_id IN (" . implode(',', $materialChunk) . ")
+                        l.division_id,
+                        COALESCE(l.destination_type, 'OTHER') AS destination_type,
+                        COALESCE(l.item_id, 0) AS item_id,
+                        COALESCE(l.material_id, li.material_id, 0) AS material_id,
+                        COALESCE(l.buy_uom_id, 0) AS buy_uom_id,
+                        COALESCE(l.content_uom_id, 0) AS content_uom_id,
+                        COALESCE(l.profile_key, '') AS profile_key,
+                        COUNT(*) AS lot_count,
+                        MIN(l.receipt_date) AS first_receipt_date,
+                        MAX(l.receipt_date) AS last_receipt_date,
+                        GROUP_CONCAT(DISTINCT COALESCE(l.source_table, '') ORDER BY COALESCE(l.source_table, '') SEPARATOR ',') AS source_tables
+                    FROM inv_material_fifo_lot l
+                    LEFT JOIN mst_item li ON li.id = l.item_id
+                    WHERE l.location_scope = 'DIVISION'
+                      AND l.status = 'OPEN'
+                      AND ABS(COALESCE(l.qty_balance, 0)) > 0.0001
+                      AND l.receipt_date >= " . $this->db->escape($lotMonthStart) . "
+                      AND l.receipt_date <= " . $this->db->escape($date) . "
+                      AND COALESCE(l.material_id, li.material_id) IN (" . implode(',', $materialChunk) . ")
                       {$divWhere}
                     GROUP BY
-                        division_id,
-                        COALESCE(destination_type, 'OTHER'),
-                        COALESCE(item_id, 0),
-                        COALESCE(material_id, 0),
-                        COALESCE(buy_uom_id, 0),
-                        COALESCE(content_uom_id, 0),
-                        COALESCE(profile_key, '')
+                        l.division_id,
+                        COALESCE(l.destination_type, 'OTHER'),
+                        COALESCE(l.item_id, 0),
+                        COALESCE(l.material_id, li.material_id, 0),
+                        COALESCE(l.buy_uom_id, 0),
+                        COALESCE(l.content_uom_id, 0),
+                        COALESCE(l.profile_key, '')
                 ";
                 $lotQuery = $this->db->query($lotSql);
                 foreach ($lotQuery ? $lotQuery->result_array() : [] as $lotRow) {
-                    $lotCounts[$this->material_lot_count_key($lotRow)] = (int)($lotRow['lot_count'] ?? 0);
+                    $lotKey = $this->material_lot_count_key($lotRow);
+                    $lotCounts[$lotKey] = (int)($lotRow['lot_count'] ?? 0);
+                    $lotMeta[$lotKey] = [
+                        'first_receipt_date' => (string)($lotRow['first_receipt_date'] ?? ''),
+                        'last_receipt_date'  => (string)($lotRow['last_receipt_date'] ?? ''),
+                        'source_tables'      => (string)($lotRow['source_tables'] ?? ''),
+                    ];
                 }
             }
         }
@@ -857,7 +970,13 @@ class Inventory_division extends Purchase
 
         $confirmMode = $this->daily_recon_confirm_mode();
         foreach ($rows as &$row) {
-            $lotCount = $lotCounts[$this->material_lot_count_key($row)] ?? 0;
+            $lotKey = $this->material_lot_count_key($row);
+            $lotCount = $lotCounts[$lotKey] ?? 0;
+            if (isset($lotMeta[$lotKey])) {
+                $row['stock_in_first_date'] = (string)($lotMeta[$lotKey]['first_receipt_date'] ?? ($row['stock_in_first_date'] ?? ''));
+                $row['stock_in_last_date']  = (string)($lotMeta[$lotKey]['last_receipt_date'] ?? ($row['stock_in_last_date'] ?? ''));
+                $row['stock_in_sources']    = (string)($lotMeta[$lotKey]['source_tables'] ?? ($row['stock_in_sources'] ?? ''));
+            }
             $reasons = [];
             if ($confirmMode === 'ROW_REQUIRED') {
                 $reasons[] = 'mode wajib satu per satu';

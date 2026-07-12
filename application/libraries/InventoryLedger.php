@@ -471,6 +471,24 @@ class InventoryLedger
             }
         }
 
+        if ($scope === 'DIVISION') {
+            $fifoValueSync = $this->currentMonthDivisionFifoValue([
+                'month_key' => $monthKey,
+                'division_id' => $divisionId,
+                'destination_type' => $destinationType,
+                'item_id' => $itemId,
+                'material_id' => $materialId,
+                'buy_uom_id' => $buyUomId,
+                'content_uom_id' => $contentUomId,
+                'profile_key' => $profileKey,
+            ]);
+            if ($fifoValueSync !== null && abs($qtyContentAfter - (float)$fifoValueSync['qty']) <= 0.01) {
+                $baseData['avg_cost_per_content'] = (float)$fifoValueSync['avg_cost'];
+                $baseData['total_value'] = (float)$fifoValueSync['total_value'];
+                $avgAfter = (float)$fifoValueSync['avg_cost'];
+            }
+        }
+
         $numericFields = [
             'in_qty_buy', 'in_qty_content', 'in_total_value',
             'out_qty_buy', 'out_qty_content', 'out_total_value',
@@ -515,6 +533,74 @@ class InventoryLedger
             'avg_cost_per_content' => $avgAfter,
             'unit_cost' => $unitCost,
             'identity_key' => $identityKey,
+        ];
+    }
+
+    private function currentMonthDivisionFifoValue(array $identity): ?array
+    {
+        if (!$this->ci->db->table_exists('inv_material_fifo_lot')) {
+            return null;
+        }
+
+        $monthKey = $this->normalizeDate((string)($identity['month_key'] ?? ''));
+        $divisionId = $this->nullableInt($identity['division_id'] ?? null);
+        $destinationType = $this->normalizeDestinationType((string)($identity['destination_type'] ?? ''));
+        $contentUomId = $this->nullableInt($identity['content_uom_id'] ?? null);
+        if ($monthKey === null || $divisionId === null || $destinationType === null || $contentUomId === null) {
+            return null;
+        }
+
+        $this->ci->db
+            ->select('SUM(qty_balance) AS lot_qty, SUM(qty_balance * COALESCE(unit_cost, 0)) AS lot_value', false)
+            ->from('inv_material_fifo_lot')
+            ->where('location_scope', 'DIVISION')
+            ->where('division_id', $divisionId)
+            ->where('destination_type', $destinationType)
+            ->where('content_uom_id', $contentUomId)
+            ->where('status', 'OPEN')
+            ->where('qty_balance >', 0)
+            ->where('receipt_date >=', $monthKey)
+            ->where('receipt_date <=', date('Y-m-t', strtotime($monthKey)));
+
+        $itemId = $this->nullableInt($identity['item_id'] ?? null);
+        if ($itemId !== null) {
+            $this->ci->db->where('item_id', $itemId);
+        } else {
+            $this->ci->db->where('item_id IS NULL', null, false);
+        }
+
+        $materialId = $this->nullableInt($identity['material_id'] ?? null);
+        if ($materialId !== null) {
+            $this->ci->db->where('material_id', $materialId);
+        } else {
+            $this->ci->db->where('material_id IS NULL', null, false);
+        }
+
+        $buyUomId = $this->nullableInt($identity['buy_uom_id'] ?? null);
+        if ($buyUomId !== null) {
+            $this->ci->db->where('buy_uom_id', $buyUomId);
+        } else {
+            $this->ci->db->where('buy_uom_id IS NULL', null, false);
+        }
+
+        $profileKey = $this->nullableString($identity['profile_key'] ?? null);
+        if ($profileKey !== null) {
+            $this->ci->db->where('profile_key', $profileKey);
+        } else {
+            $this->ci->db->where('profile_key IS NULL', null, false);
+        }
+
+        $row = $this->ci->db->get()->row_array();
+        $qty = round((float)($row['lot_qty'] ?? 0), 4);
+        if ($qty <= 0.0001) {
+            return null;
+        }
+
+        $totalValue = round((float)($row['lot_value'] ?? 0), 2);
+        return [
+            'qty' => $qty,
+            'total_value' => $totalValue,
+            'avg_cost' => round($totalValue / max(0.000001, $qty), 6),
         ];
     }
 
