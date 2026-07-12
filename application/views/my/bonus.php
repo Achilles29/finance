@@ -101,11 +101,53 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
       <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Estimasi Potongan</div><div class="value text-danger"><?php echo 'Rp ' . number_format($estimatedPenaltyAmount, 2, ',', '.'); ?></div><div class="small text-muted">Gabungan penalti otomatis dan manual yang sudah masuk pool</div></div></div>
       <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Nilai Rekan</div><div class="value"><?php echo number_format((float)($summary['peer_avg_star'] ?? 0), 2, ',', '.'); ?></div><div class="small text-muted">Rata-rata bintang yang masuk</div></div></div>
       <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Status Rekap</div><div class="value"><?php echo html_escape($displayStatus); ?></div><div class="small text-muted">Bonus tetap perhitungan dulu, kas baru bergerak saat pencairan dibuat</div></div></div>
+      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Target Harian Tercapai</div><div class="value"><?php echo number_format((int)($target_summary['daily_hit'] ?? 0)); ?> / <?php echo number_format((int)($target_summary['daily_total'] ?? 0)); ?></div><div class="small text-muted">Kurang Rp <?php echo number_format((float)($target_summary['daily_shortfall_amount'] ?? 0), 2, ',', '.'); ?> pada target harian yang belum lolos</div></div></div>
+      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Target Bulanan</div><div class="value"><?php echo number_format((int)($target_summary['monthly_hit'] ?? 0)); ?> / <?php echo number_format((int)($target_summary['monthly_total'] ?? 0)); ?></div><div class="small text-muted">Kurang Rp <?php echo number_format((float)($target_summary['monthly_shortfall_amount'] ?? 0), 2, ',', '.'); ?> pada target bulanan yang belum lolos</div></div></div>
     </div>
 
     <?php if (empty($summary['is_published'])): ?>
       <div class="alert alert-warning border-0 shadow-sm">Bonus bulan ini belum diumumkan sebagai angka final. Sementara ini yang tampil adalah estimasi dari pool bonus yang sudah digenerate admin, jadi bisa dipakai untuk memantau arah bonus tanpa langsung dianggap final.</div>
     <?php endif; ?>
+
+    <?php if (!empty($target_summary['daily_notes']) || !empty($target_summary['monthly_notes'])): ?>
+      <div class="alert alert-light border shadow-sm">
+        <div class="fw-semibold mb-2">Ringkasan kekurangan target</div>
+        <?php if (!empty($target_summary['daily_notes'])): ?>
+          <div class="small mb-1"><strong>Harian:</strong> <?php echo html_escape(implode(' | ', (array)$target_summary['daily_notes'])); ?></div>
+        <?php endif; ?>
+        <?php if (!empty($target_summary['monthly_notes'])): ?>
+          <div class="small"><strong>Bulanan:</strong> <?php echo html_escape(implode(' | ', (array)$target_summary['monthly_notes'])); ?></div>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
+
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-0 pb-0">
+        <h6 class="mb-1">Penalti yang Masuk Bulan Ini</h6>
+        <div class="small text-muted">Baris ini membantu membaca potongan bonus yang sudah tercatat.</div>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive my-bonus-table-wrap">
+          <table class="table align-middle mb-0">
+            <thead><tr><th>Tanggal</th><th>Jenis</th><th>Shift</th><th class="text-end">Poin</th><th class="text-end">Nominal</th><th>Status</th></tr></thead>
+            <tbody>
+            <?php if (empty($penalty_rows)): ?>
+              <tr><td colspan="6" class="text-center text-muted py-4">Belum ada penalti yang tercatat pada bulan ini.</td></tr>
+            <?php else: foreach ($penalty_rows as $row): ?>
+              <tr>
+                <td><?php echo html_escape((string)($row['penalty_date'] ?? '-')); ?></td>
+                <td><strong><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?></div></td>
+                <td><?php echo html_escape(trim((string)(($row['shift_code'] ?? '') . ' ' . ($row['shift_name'] ?? '')))); ?></td>
+                <td class="text-end"><?php echo number_format((float)($row['points_deducted'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-end text-danger">Rp <?php echo number_format((float)($row['amount_deducted'] ?? 0), 2, ',', '.'); ?></td>
+                <td><span class="my-bonus-soft <?php echo strtoupper((string)($row['status'] ?? 'DRAFT')) === 'APPROVED' ? 'ok' : 'warn'; ?>"><?php echo html_escape((string)($row['status'] ?? '-')); ?></span></td>
+              </tr>
+            <?php endforeach; endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
 
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white border-0 pb-0">

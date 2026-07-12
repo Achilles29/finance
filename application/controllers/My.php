@@ -98,6 +98,8 @@ class My extends MY_Controller
             'revision_min_date' => $revisionMinDate,
             'revision_max_date' => $revisionMaxDate,
             'leave_url' => $leaveUrl,
+            'bonus_summary' => $employee ? $this->Payroll_model->get_employee_bonus_overview((int)$employee['id'], date('Y-m')) : [],
+            'bonus_target_summary' => $employee ? $this->Payroll_model->get_my_bonus_target_summary(date('Y-m')) : [],
         ];
         $this->render('my/index', $data);
     }
@@ -925,11 +927,13 @@ class My extends MY_Controller
             'history_filters' => $historyFilters,
             'daily_pg' => $dailyPg,
             'history_pg' => $historyPg,
-            'summary' => $this->Payroll_model->get_employee_bonus_overview((int)$employee['id'], $month),
-            'daily_rows' => $this->Payroll_model->list_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], $dailyPg['per_page'], $dailyPg['offset'], false),
-            'pending_peer_feedback' => $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], $date),
-            'peer_history_rows' => $this->Payroll_model->list_my_peer_feedback_history((int)$employee['id'], $month, $historyFilters['q'], $historyPg['per_page'], $historyPg['offset']),
-        ]);
+              'summary' => $this->Payroll_model->get_employee_bonus_overview((int)$employee['id'], $month),
+              'target_summary' => $this->Payroll_model->get_my_bonus_target_summary($month),
+              'daily_rows' => $this->Payroll_model->list_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], $dailyPg['per_page'], $dailyPg['offset'], false),
+              'penalty_rows' => $this->Payroll_model->list_my_bonus_penalty_rows((int)$employee['id'], $month, 20),
+              'pending_peer_feedback' => $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], $date),
+              'peer_history_rows' => $this->Payroll_model->list_my_peer_feedback_history((int)$employee['id'], $month, $historyFilters['q'], $historyPg['per_page'], $historyPg['offset']),
+          ]);
     }
 
     public function bonus_peer_submit()

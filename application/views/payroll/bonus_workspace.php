@@ -17,6 +17,9 @@ $weightRows = $weight_rows ?? [];
 $employeeDailyRows = $employee_daily_rows ?? [];
 $penaltyTypeRows = $penalty_type_rows ?? [];
 $penaltyEventRows = $penalty_event_rows ?? [];
+$penaltyDetailRows = $penalty_detail_rows ?? [];
+$penaltyEventDetailMap = $penalty_event_detail_map ?? [];
+$penaltyView = $penalty_view ?? 'master';
 $poolRows = $pool_rows ?? [];
 $pendingPeerRows = $pending_peer_rows ?? [];
 $serviceMetricRows = $service_metric_rows ?? [];
@@ -194,7 +197,7 @@ $buildUrl = static function (array $overrides = []) use ($month, $tab) {
         'tab' => $tab,
     ], $overrides));
 };
-$buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poolFilters, $configFilters, $ruleFilters, $weightFilters, $penaltyTypeFilters, $penaltyEventFilters, $peerFilters, $serviceFilters, $monthlyFilters, $poolPg, $configPg, $rulePg, $weightPg, $penaltyTypePg, $penaltyEventPg, $peerPg, $servicePg, $monthlyPg) {
+$buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poolFilters, $configFilters, $ruleFilters, $weightFilters, $penaltyTypeFilters, $penaltyEventFilters, $penaltyView, $peerFilters, $serviceFilters, $monthlyFilters, $poolPg, $configPg, $rulePg, $weightPg, $penaltyTypePg, $penaltyEventPg, $peerPg, $servicePg, $monthlyPg) {
     $base = [
         'month' => $month,
         'tab' => $tab,
@@ -220,6 +223,7 @@ $buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poo
         'penalty_event_q' => $penaltyEventFilters['q'] ?? '',
         'penalty_event_page' => $penaltyEventPg['page'] ?? 1,
         'penalty_event_per_page' => $penaltyEventPg['per_page'] ?? 25,
+        'penalty_view' => $penaltyView,
         'peer_q' => $peerFilters['q'] ?? '',
         'peer_page' => $peerPg['page'] ?? 1,
         'peer_per_page' => $peerPg['per_page'] ?? 25,
@@ -332,6 +336,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   .bonus-modal .modal-footer { border-top:1px solid rgba(122,24,36,.08); padding:1rem 1.4rem 1.25rem; }
   .bonus-form-scroll { max-height:calc(100vh - 260px); overflow:auto; padding-right:.25rem; }
   .bonus-detail-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:1rem; }
+  .bonus-penalty-summary-box { border:1px solid rgba(122,24,36,.08); border-radius:20px; padding:1rem 1.1rem; background:linear-gradient(180deg,#fff,#fff8f5); }
   .bonus-detail-item { border:1px solid rgba(122,24,36,.08); border-radius:18px; padding:.9rem 1rem; background:#fffaf8; }
   .bonus-detail-item .label { display:block; font-size:.76rem; text-transform:uppercase; color:#8d7368; letter-spacing:.04em; margin-bottom:.35rem; }
   .bonus-detail-item .value { color:#5f1720; font-weight:700; }
@@ -492,9 +497,18 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
                           <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
                           <button type="submit" class="btn btn-sm btn-outline-success">Publikasikan</button>
                         </form>
-                      <?php else: ?>
-                        <span class="small text-muted align-self-center">Sudah diumumkan</span>
                       <?php endif; ?>
+                      <?php if ($status !== 'VOID'): ?>
+                        <form method="post" action="<?php echo site_url('payroll/bonus/void-pool/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('VOID pool bonus ini? Data pool lama akan tetap tercatat, tetapi tidak dipakai lagi.');">
+                          <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+                          <input type="hidden" name="notes" value="Override superadmin dari workspace bonus">
+                          <button type="submit" class="btn btn-sm btn-outline-warning">Void</button>
+                        </form>
+                      <?php endif; ?>
+                      <form method="post" action="<?php echo site_url('payroll/bonus/delete-pool/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('Hapus permanen pool bonus ini beserta detail pegawainya?');">
+                        <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Hapus</button>
+                      </form>
                     </div>
                   </td>
                 </tr>
@@ -851,11 +865,12 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   </div>
 <?php elseif ($tab === 'penalties'): ?>
   <ul class="nav nav-pills bonus-section-nav" id="penaltySectionTab" role="tablist">
-    <li class="nav-item" role="presentation"><button class="nav-link active" type="button" data-bs-toggle="tab" data-bs-target="#penaltyMasterPane">Master Penalti</button></li>
-    <li class="nav-item" role="presentation"><button class="nav-link" type="button" data-bs-toggle="tab" data-bs-target="#penaltyEventPane">Kejadian Penalti</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link <?php echo $penaltyView === 'master' ? 'active' : ''; ?>" type="button" data-bs-toggle="tab" data-bs-target="#penaltyMasterPane">Master Penalti</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link <?php echo $penaltyView === 'events' ? 'active' : ''; ?>" type="button" data-bs-toggle="tab" data-bs-target="#penaltyEventPane">Kejadian Penalti</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link <?php echo $penaltyView === 'detail' ? 'active' : ''; ?>" type="button" data-bs-toggle="tab" data-bs-target="#penaltyDetailPane">Rincian Penalti</button></li>
   </ul>
   <div class="tab-content">
-    <div class="tab-pane fade show active" id="penaltyMasterPane">
+    <div class="tab-pane fade <?php echo $penaltyView === 'master' ? 'show active' : ''; ?>" id="penaltyMasterPane">
       <div class="card bonus-card mb-3">
         <div class="card-header bg-white border-0 pb-0">
           <h5 class="mb-1">Cara paling aman mengelompokkan penalti</h5>
@@ -886,6 +901,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
                 <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
                 <input type="hidden" name="tab" value="penalties">
+                <input type="hidden" name="penalty_view" value="master">
                 <input type="hidden" name="pool_q" value="<?php echo html_escape((string)($poolFilters['q'] ?? '')); ?>">
                 <input type="hidden" name="pool_page" value="<?php echo (int)($poolPg['page'] ?? 1); ?>">
                 <input type="hidden" name="pool_per_page" value="<?php echo (int)($poolPg['per_page'] ?? 25); ?>">
@@ -954,15 +970,198 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         </div>
       </div>
     </div>
-    <div class="tab-pane fade" id="penaltyEventPane">
-      <div class="card bonus-card"><div class="card-body"><div class="bonus-toolbar"><div class="copy"><h5 class="mb-1">Riwayat kejadian penalti bulan ini</h5><div class="bonus-subcopy">Form input kejadian manual juga dipindah ke modal. Di halaman utama cukup baca histori dan buka detail bila perlu.</div></div><div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-primary" id="openPenaltyEventCreateModalBtn">Tambah kejadian penalti</button></div></div>
+    <div class="tab-pane fade <?php echo $penaltyView === 'events' ? 'show active' : ''; ?>" id="penaltyEventPane">
+      <div class="card bonus-card"><div class="card-body"><div class="bonus-toolbar"><div class="copy"><h5 class="mb-1">Rekap kejadian penalti per nama</h5><div class="bonus-subcopy">Di sini kita baca ringkasan penalti per pegawai atau per tim. Kalau ingin audit satu per satu, buka tab <strong>Rincian Penalti</strong>.</div></div><div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-primary" id="openPenaltyEventCreateModalBtn">Tambah kejadian penalti</button></div></div>
       <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
-        <input type="hidden" name="month" value="<?php echo html_escape($month); ?>"><input type="hidden" name="tab" value="penalties"><input type="hidden" name="pool_q" value="<?php echo html_escape((string)($poolFilters['q'] ?? '')); ?>"><input type="hidden" name="pool_page" value="<?php echo (int)($poolPg['page'] ?? 1); ?>"><input type="hidden" name="pool_per_page" value="<?php echo (int)($poolPg['per_page'] ?? 25); ?>"><input type="hidden" name="rule_q" value="<?php echo html_escape((string)($ruleFilters['q'] ?? '')); ?>"><input type="hidden" name="rule_page" value="<?php echo (int)($rulePg['page'] ?? 1); ?>"><input type="hidden" name="rule_per_page" value="<?php echo (int)($rulePg['per_page'] ?? 25); ?>"><input type="hidden" name="penalty_type_q" value="<?php echo html_escape((string)($penaltyTypeFilters['q'] ?? '')); ?>"><input type="hidden" name="penalty_type_page" value="<?php echo (int)($penaltyTypePg['page'] ?? 1); ?>"><input type="hidden" name="penalty_type_per_page" value="<?php echo (int)($penaltyTypePg['per_page'] ?? 25); ?>"><input type="hidden" name="peer_q" value="<?php echo html_escape((string)($peerFilters['q'] ?? '')); ?>"><input type="hidden" name="peer_page" value="<?php echo (int)($peerPg['page'] ?? 1); ?>"><input type="hidden" name="peer_per_page" value="<?php echo (int)($peerPg['per_page'] ?? 25); ?>">
+        <input type="hidden" name="month" value="<?php echo html_escape($month); ?>"><input type="hidden" name="tab" value="penalties"><input type="hidden" name="penalty_view" value="events"><input type="hidden" name="pool_q" value="<?php echo html_escape((string)($poolFilters['q'] ?? '')); ?>"><input type="hidden" name="pool_page" value="<?php echo (int)($poolPg['page'] ?? 1); ?>"><input type="hidden" name="pool_per_page" value="<?php echo (int)($poolPg['per_page'] ?? 25); ?>"><input type="hidden" name="rule_q" value="<?php echo html_escape((string)($ruleFilters['q'] ?? '')); ?>"><input type="hidden" name="rule_page" value="<?php echo (int)($rulePg['page'] ?? 1); ?>"><input type="hidden" name="rule_per_page" value="<?php echo (int)($rulePg['per_page'] ?? 25); ?>"><input type="hidden" name="penalty_type_q" value="<?php echo html_escape((string)($penaltyTypeFilters['q'] ?? '')); ?>"><input type="hidden" name="penalty_type_page" value="<?php echo (int)($penaltyTypePg['page'] ?? 1); ?>"><input type="hidden" name="penalty_type_per_page" value="<?php echo (int)($penaltyTypePg['per_page'] ?? 25); ?>"><input type="hidden" name="peer_q" value="<?php echo html_escape((string)($peerFilters['q'] ?? '')); ?>"><input type="hidden" name="peer_page" value="<?php echo (int)($peerPg['page'] ?? 1); ?>"><input type="hidden" name="peer_per_page" value="<?php echo (int)($peerPg['per_page'] ?? 25); ?>">
         <div class="row g-3 align-items-end"><div class="col-md-7"><label class="form-label">Cari kejadian penalti</label><input type="text" name="penalty_event_q" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['q'] ?? '')); ?>" placeholder="Cari nama penalti, pegawai, divisi, alasan, atau status"></div><div class="col-md-3"><label class="form-label">Baris</label><select name="penalty_event_per_page" class="form-select"><?php foreach ([10, 25, 50, 100] as $size): ?><option value="<?php echo $size; ?>" <?php echo (int)($penaltyEventPg['per_page'] ?? 25) === $size ? 'selected' : ''; ?>><?php echo $size; ?></option><?php endforeach; ?></select></div><div class="col-md-2 d-grid"><button type="submit" class="btn btn-outline-primary">Filter</button></div></div>
       </form>
-      <div class="bonus-table-wrap bonus-table"><table class="table align-middle mb-0"><thead><tr><th>Tanggal</th><th>Jenis</th><th>Scope</th><th>Target</th><th class="text-end">Poin</th><th class="text-end">Nominal</th><th>Status</th><th>Aksi</th></tr></thead><tbody><?php if (empty($penaltyEventRows)): ?><tr><td colspan="8" class="text-center text-muted py-4">Belum ada kejadian penalti pada bulan ini.</td></tr><?php else: foreach ($penaltyEventRows as $row): ?><?php $eventScope = strtoupper((string)($row['penalty_scope'] ?? '')); ?><tr><td><?php echo html_escape((string)($row['penalty_date'] ?? '-')); ?></td><td><strong><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?></div></td><td><?php echo html_escape((string)($row['penalty_scope'] ?? '-')); ?></td><td><?php if ($eventScope === 'TEAM'): ?><strong><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></strong><?php else: ?><strong><?php echo html_escape((string)($row['employee_name'] ?? '-')); ?></strong><?php endif; ?><div class="small text-muted"><?php echo html_escape((string)($row['reason_text'] ?? '')); ?></div></td><td class="text-end"><?php echo number_format((float)($row['points_deducted'] ?? 0), 2, ',', '.'); ?></td><td class="text-end">Rp <?php echo number_format((float)($row['amount_deducted'] ?? 0), 2, ',', '.'); ?></td><td><span class="bonus-soft-badge <?php echo strtoupper((string)($row['status'] ?? 'DRAFT')) === 'APPROVED' ? 'ok' : 'warn'; ?>"><?php echo html_escape((string)($row['status'] ?? '-')); ?></span></td><td><button type="button" class="btn btn-sm btn-outline-secondary bonus-penalty-event-detail-btn" data-penalty-date="<?php echo html_escape((string)($row['penalty_date'] ?? '-')); ?>" data-penalty-name="<?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?>" data-penalty-code="<?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?>" data-scope="<?php echo html_escape((string)($row['penalty_scope'] ?? '-')); ?>" data-target-name="<?php echo html_escape($eventScope === 'TEAM' ? (string)($row['division_name'] ?? '-') : (string)($row['employee_name'] ?? '-')); ?>" data-rule-name="<?php echo html_escape((string)($row['rule_name'] ?? 'Tanpa aturan spesifik')); ?>" data-shift-name="<?php echo html_escape(trim((string)(($row['shift_code'] ?? '') . ' ' . ($row['shift_name'] ?? '')))); ?>" data-points="<?php echo number_format((float)($row['points_deducted'] ?? 0), 2, ',', '.'); ?>" data-amount="Rp <?php echo number_format((float)($row['amount_deducted'] ?? 0), 2, ',', '.'); ?>" data-status="<?php echo html_escape((string)($row['status'] ?? '-')); ?>" data-reason="<?php echo html_escape((string)($row['reason_text'] ?? '-')); ?>">Detail</button></td></tr><?php endforeach; endif; ?></tbody></table></div>
+      <div class="bonus-table-wrap bonus-table">
+        <table class="table align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Nama / Target</th>
+              <th>Scope</th>
+              <th class="text-center">Hari</th>
+              <th class="text-center">Kejadian</th>
+              <th class="text-end">Total Poin</th>
+              <th class="text-end">Total Nominal</th>
+              <th>Jenis Penalti</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+          <?php if (empty($penaltyEventRows)): ?>
+            <tr><td colspan="8" class="text-center text-muted py-4">Belum ada kejadian penalti pada bulan ini.</td></tr>
+          <?php else: foreach ($penaltyEventRows as $row): ?>
+            <?php
+              $eventScope = strtoupper((string)($row['penalty_scope'] ?? 'PERSONAL'));
+              $targetName = $eventScope === 'TEAM'
+                  ? (trim((string)($row['division_name'] ?? '')) !== '' ? trim((string)$row['division_name']) : 'Semua divisi')
+                  : (string)($row['employee_name'] ?? '-');
+              $mapKey = $eventScope . ':' . (int)($row['employee_id'] ?? 0) . ':' . (int)($row['division_id'] ?? 0);
+              $detailRows = (array)($penaltyEventDetailMap[$mapKey] ?? []);
+              $detailPayload = [];
+              foreach ($detailRows as $detailRow) {
+                  $detailPayload[] = [
+                      'id' => (int)($detailRow['id'] ?? 0),
+                      'date' => (string)($detailRow['penalty_date'] ?? '-'),
+                      'name' => (string)($detailRow['penalty_name'] ?? '-'),
+                      'code' => (string)($detailRow['penalty_code'] ?? '-'),
+                      'source_type' => (string)($detailRow['source_type'] ?? 'MANUAL'),
+                      'status' => (string)($detailRow['status'] ?? 'APPROVED'),
+                      'points' => (float)($detailRow['points_deducted'] ?? 0),
+                      'amount' => (float)($detailRow['amount_deducted'] ?? 0),
+                      'reason' => (string)($detailRow['reason_text'] ?? ''),
+                      'rule_name' => (string)($detailRow['rule_name'] ?? 'Tanpa aturan spesifik'),
+                      'shift_name' => trim((string)(($detailRow['shift_code'] ?? '') . ' ' . ($detailRow['shift_name'] ?? ''))),
+                  ];
+              }
+            ?>
+            <tr>
+              <td>
+                <strong><?php echo html_escape($targetName); ?></strong>
+                <div class="small text-muted">
+                  <?php echo html_escape((string)($row['first_penalty_date'] ?? '-')); ?> s/d <?php echo html_escape((string)($row['last_penalty_date'] ?? '-')); ?>
+                </div>
+              </td>
+              <td><span class="bonus-soft-badge info"><?php echo html_escape($eventScope === 'TEAM' ? 'Tim' : 'Personal'); ?></span></td>
+              <td class="text-center"><?php echo number_format((int)($row['active_days'] ?? 0)); ?></td>
+              <td class="text-center"><?php echo number_format((int)($row['event_count'] ?? 0)); ?></td>
+              <td class="text-end"><?php echo number_format((float)($row['total_points_deducted'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end text-danger">Rp <?php echo number_format((float)($row['total_amount_deducted'] ?? 0), 2, ',', '.'); ?></td>
+              <td>
+                <div class="small fw-semibold"><?php echo html_escape((string)($row['penalty_name_list'] ?? '-')); ?></div>
+                <div class="small text-muted">
+                  Auto <?php echo number_format((int)($row['auto_event_count'] ?? 0)); ?> · Manual <?php echo number_format((int)($row['manual_event_count'] ?? 0)); ?>
+                </div>
+              </td>
+              <td>
+                <div class="bonus-table-actions">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary bonus-penalty-event-detail-btn"
+                    data-scope="<?php echo html_escape($eventScope === 'TEAM' ? 'Tim' : 'Personal'); ?>"
+                    data-target-name="<?php echo html_escape($targetName); ?>"
+                    data-penalty-date="<?php echo html_escape((string)($row['first_penalty_date'] ?? '-')); ?> s/d <?php echo html_escape((string)($row['last_penalty_date'] ?? '-')); ?>"
+                    data-points="<?php echo number_format((float)($row['total_points_deducted'] ?? 0), 2, ',', '.'); ?>"
+                    data-amount="Rp <?php echo number_format((float)($row['total_amount_deducted'] ?? 0), 2, ',', '.'); ?>"
+                    data-detail-json="<?php echo html_escape(json_encode($detailPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>"
+                  >Lihat detail</button>
+                </div>
+              </td>
+            </tr>
+          <?php endforeach; endif; ?>
+          </tbody>
+        </table>
+      </div>
       <?php $renderPager($penaltyEventPg, static function ($overrides) use ($buildTableUrl) { return $buildTableUrl(array_merge(['tab' => 'penalties'], $overrides)); }, 'penalty_event_page', 'penalty_event_per_page'); ?>
       </div></div>
+    </div>
+    <div class="tab-pane fade <?php echo $penaltyView === 'detail' ? 'show active' : ''; ?>" id="penaltyDetailPane">
+      <div class="card bonus-card">
+        <div class="card-body">
+          <div class="bonus-toolbar">
+            <div class="copy">
+              <h5 class="mb-1">Rincian kejadian penalti per tanggal</h5>
+              <div class="bonus-subcopy">Tab ini menampilkan semua baris penalti mentah urut tanggal. Paling cocok untuk audit, edit override, atau VOID kejadian tertentu.</div>
+            </div>
+          </div>
+          <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
+            <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+            <input type="hidden" name="tab" value="penalties">
+            <input type="hidden" name="penalty_view" value="detail">
+            <div class="row g-3 align-items-end">
+              <div class="col-md-7">
+                <label class="form-label">Cari rincian penalti</label>
+                <input type="text" name="penalty_event_q" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['q'] ?? '')); ?>" placeholder="Cari nama penalti, pegawai, divisi, alasan, atau status">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Baris</label>
+                <select name="penalty_event_per_page" class="form-select">
+                  <?php foreach ([10, 25, 50, 100] as $size): ?>
+                    <option value="<?php echo $size; ?>" <?php echo (int)($penaltyEventPg['per_page'] ?? 25) === $size ? 'selected' : ''; ?>><?php echo $size; ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </div>
+              <div class="col-md-2 d-grid">
+                <button type="submit" class="btn btn-outline-primary">Filter</button>
+              </div>
+            </div>
+          </form>
+          <div class="bonus-table-wrap bonus-table">
+            <table class="table align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Tanggal</th>
+                  <th>Target</th>
+                  <th>Jenis</th>
+                  <th>Scope</th>
+                  <th>Shift</th>
+                  <th class="text-end">Poin</th>
+                  <th class="text-end">Nominal</th>
+                  <th>Status</th>
+                  <th>Catatan</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+              <?php if (empty($penaltyDetailRows)): ?>
+                <tr><td colspan="10" class="text-center text-muted py-4">Belum ada rincian penalti pada bulan ini.</td></tr>
+              <?php else: foreach ($penaltyDetailRows as $row): ?>
+                <?php $detailScope = strtoupper((string)($row['penalty_scope'] ?? 'PERSONAL')); ?>
+                <tr>
+                  <td><?php echo html_escape((string)($row['penalty_date'] ?? '-')); ?></td>
+                  <td>
+                    <strong><?php echo html_escape($detailScope === 'TEAM' ? ((string)($row['division_name'] ?? 'Semua divisi')) : ((string)($row['employee_name'] ?? '-'))); ?></strong>
+                    <div class="small text-muted"><?php echo html_escape((string)($row['source_type'] ?? 'MANUAL')); ?></div>
+                  </td>
+                  <td>
+                    <strong><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?></strong>
+                    <div class="small text-muted"><?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?></div>
+                  </td>
+                  <td><?php echo html_escape($detailScope === 'TEAM' ? 'Tim' : 'Personal'); ?></td>
+                  <td><?php echo html_escape(trim((string)(($row['shift_code'] ?? '') . ' ' . ($row['shift_name'] ?? '')))); ?></td>
+                  <td class="text-end"><?php echo number_format((float)($row['points_deducted'] ?? 0), 2, ',', '.'); ?></td>
+                  <td class="text-end text-danger">Rp <?php echo number_format((float)($row['amount_deducted'] ?? 0), 2, ',', '.'); ?></td>
+                  <td><span class="bonus-soft-badge <?php echo strtoupper((string)($row['status'] ?? 'DRAFT')) === 'APPROVED' ? 'ok' : (strtoupper((string)($row['status'] ?? 'DRAFT')) === 'VOID' ? 'muted' : 'warn'); ?>"><?php echo html_escape((string)($row['status'] ?? '-')); ?></span></td>
+                  <td class="small text-muted"><?php echo html_escape((string)($row['reason_text'] ?? '-')); ?></td>
+                  <td>
+                    <div class="bonus-table-actions">
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-primary bonus-penalty-event-edit-btn"
+                        data-id="<?php echo (int)($row['id'] ?? 0); ?>"
+                        data-penalty-date="<?php echo html_escape((string)($row['penalty_date'] ?? '')); ?>"
+                        data-penalty-type-id="<?php echo (int)($row['penalty_type_id'] ?? 0); ?>"
+                        data-rule-id="<?php echo (int)($row['rule_id'] ?? 0); ?>"
+                        data-penalty-scope="<?php echo html_escape((string)($row['penalty_scope'] ?? 'PERSONAL')); ?>"
+                        data-employee-id="<?php echo (int)($row['employee_id'] ?? 0); ?>"
+                        data-division-id="<?php echo (int)($row['division_id'] ?? 0); ?>"
+                        data-shift-id="<?php echo (int)($row['shift_id'] ?? 0); ?>"
+                        data-points-deducted="<?php echo html_escape((string)($row['points_deducted'] ?? '0')); ?>"
+                        data-amount-deducted="<?php echo html_escape((string)($row['amount_deducted'] ?? '0')); ?>"
+                        data-status-value="<?php echo html_escape((string)($row['status'] ?? 'APPROVED')); ?>"
+                        data-reason-text="<?php echo html_escape((string)($row['reason_text'] ?? '')); ?>"
+                      >Edit</button>
+                      <?php if (strtoupper((string)($row['status'] ?? '')) !== 'VOID'): ?>
+                        <form method="post" action="<?php echo site_url('payroll/bonus/penalty-event-void/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('VOID kejadian penalti ini?');">
+                          <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+                          <input type="hidden" name="penalty_view" value="detail">
+                          <input type="hidden" name="notes" value="VOID dari tab rincian penalti">
+                          <button type="submit" class="btn btn-sm btn-outline-danger">VOID</button>
+                        </form>
+                      <?php endif; ?>
+                    </div>
+                  </td>
+                </tr>
+              <?php endforeach; endif; ?>
+              </tbody>
+            </table>
+          </div>
+          <?php $renderPager($penaltyEventPg, static function ($overrides) use ($buildTableUrl) { return $buildTableUrl(array_merge(['tab' => 'penalties', 'penalty_view' => 'detail'], $overrides)); }, 'penalty_event_page', 'penalty_event_per_page'); ?>
+        </div>
+      </div>
     </div>
   </div><?php elseif ($tab === 'peer'): ?>
   <div class="card bonus-card">
@@ -1119,7 +1318,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
             ?>
             <tr>
               <td><?php echo html_escape((string)($row['metric_date'] ?? '-')); ?></td>
-              <td><strong><?php echo html_escape(implode(' • ', $scopeBits)); ?></strong></td>
+              <td><strong><?php echo html_escape(implode(' / ', $scopeBits)); ?></strong></td>
               <td class="text-end"><?php echo number_format((int)($row['total_orders'] ?? 0)); ?></td>
               <td class="text-end"><?php echo number_format((int)($row['served_orders'] ?? 0)); ?></td>
               <td class="text-end"><?php echo number_format((int)($row['on_time_orders'] ?? 0)); ?></td>
@@ -1143,7 +1342,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   <div class="card bonus-card">
     <div class="card-header bg-white border-0 pb-0">
       <h5 class="mb-1">Rekap bonus bulanan per pegawai</h5>
-      <div class="small text-muted">Ini adalah ringkasan akhir per pegawai untuk bulan terpilih. Cocok dipakai sebelum bonus diposting ke payroll.</div>
+      <div class="small text-muted">Ringkasan ini menggabungkan bonus dan penalti per pegawai untuk bulan terpilih. Draft tetap tampil supaya posisi bulan berjalan bisa dibaca sebelum publish.</div>
     </div>
     <div class="card-body">
       <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
@@ -1190,27 +1389,29 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
           <thead>
           <tr>
             <th>Pegawai</th>
-            <th>Paket Bonus</th>
+            <th>Kebijakan Bonus</th>
             <th>Scope</th>
             <th class="text-end">Poin Final</th>
             <th class="text-end">Bonus Final</th>
+            <th class="text-end">Penalti</th>
             <th class="text-center">Telat / Alpha / PH</th>
             <th class="text-end">Peer</th>
             <th class="text-end">Layanan</th>
             <th class="text-end">Target</th>
             <th>Status</th>
+            <th>Aksi</th>
           </tr>
           </thead>
           <tbody>
           <?php if (empty($monthlySummaryRows)): ?>
-            <tr><td colspan="10" class="text-center text-muted py-4">Belum ada rekap bonus bulanan untuk bulan ini. Jalankan refresh rekap dari tab Ringkasan setelah pool disetujui.</td></tr>
+            <tr><td colspan="12" class="text-center text-muted py-4">Belum ada rekap bonus bulanan untuk bulan ini.</td></tr>
           <?php else: foreach ($monthlySummaryRows as $row): ?>
             <?php
-              $scopeLabel = trim((string)(($row['outlet_name'] ?? '') . ' ' . (!empty($row['division_name']) ? '• ' . $row['division_name'] : '')));
+              $scopeLabel = trim((string)(($row['outlet_name'] ?? '') . ' ' . (!empty($row['division_name']) ? '/ ' . $row['division_name'] : '')));
               if ($scopeLabel === '') {
                   $scopeLabel = 'Global';
               }
-              $status = strtoupper((string)($row['payout_status'] ?? 'DRAFT'));
+              $status = strtoupper((string)($row['monthly_status'] ?? $row['payout_status'] ?? 'DRAFT'));
             ?>
             <tr>
               <td>
@@ -1224,6 +1425,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               <td class="small text-muted"><?php echo html_escape($scopeLabel); ?></td>
               <td class="text-end fw-semibold"><?php echo number_format((float)($row['total_final_point'] ?? 0), 4, ',', '.'); ?></td>
               <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['total_final_amount'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end text-danger">Rp <?php echo number_format((float)($row['total_penalty_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-center small">
                 <?php echo number_format((int)($row['late_count'] ?? 0)); ?>
                 /
@@ -1235,9 +1437,12 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               <td class="text-end"><?php echo number_format((float)($row['service_avg_score'] ?? 0), 2, ',', '.'); ?>%</td>
               <td class="text-end"><?php echo number_format((float)($row['target_avg_score'] ?? 0), 2, ',', '.'); ?>%</td>
               <td>
-                <span class="bonus-soft-badge <?php echo $status === 'POSTED' ? 'ok' : ($status === 'APPROVED' ? 'info' : ($status === 'VOID' ? 'muted' : 'warn')); ?>">
+                <span class="bonus-soft-badge <?php echo in_array($status, ['POSTED', 'APPROVED'], true) ? 'ok' : ($status === 'MIXED' ? 'info' : ($status === 'VOID' ? 'muted' : 'warn')); ?>">
                   <?php echo html_escape($status); ?>
                 </span>
+              </td>
+              <td>
+                <a href="<?php echo site_url('payroll/bonus/monthly-detail/' . (int)($row['config_id'] ?? 0) . '/' . (int)($row['employee_id'] ?? 0) . '?month=' . rawurlencode($month)); ?>" class="btn btn-sm btn-outline-secondary">Detail</a>
               </td>
             </tr>
           <?php endforeach; endif; ?>
@@ -1489,12 +1694,12 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
 </div>
 
 <div class="modal fade bonus-modal" id="bonusPenaltyEventDetailModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <div>
           <h5 class="modal-title mb-1">Detail Kejadian Penalti</h5>
-          <div class="small text-muted">Ringkasan kejadian penalti yang sudah tercatat.</div>
+          <div class="small text-muted">Ringkasan penalti dibuat lebih mudah dibaca: informasi utama di atas, lalu rincian kejadian lengkap di bawah.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -1636,32 +1841,35 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     <div class="modal-content">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title mb-1">Form Kejadian Penalti</h5>
+          <h5 class="modal-title mb-1" id="bonusPenaltyEventModalTitle">Form Kejadian Penalti</h5>
           <div class="small text-muted">Dipakai untuk kejadian lapangan yang belum otomatis atau butuh verifikasi admin.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <form method="post" action="<?php echo site_url('payroll/bonus/penalty-event-save'); ?>" id="bonusPenaltyEventForm">
+          <input type="hidden" name="id" value="">
           <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+          <input type="hidden" name="penalty_view" value="<?php echo html_escape($penaltyView); ?>">
           <div class="bonus-form-scroll">
             <div class="row g-3">
               <div class="col-md-3"><label class="form-label">Tanggal kejadian</label><input type="date" name="penalty_date" class="form-control" value="<?php echo date('Y-m-d'); ?>" required></div>
-              <div class="col-md-3"><label class="form-label">Jenis penalti</label><select name="penalty_type_id" id="penaltyTypeEventSelect" class="form-select" required><option value="">Pilih jenis penalti...</option><?php foreach ($penaltyTypeRows as $row): ?><?php if (!$isPenaltySelectableForEvent($row)) { continue; } ?><option value="<?php echo (int)($row['id'] ?? 0); ?>" data-points="<?php echo html_escape((string)($row['default_points_deducted'] ?? '0')); ?>" data-amount="<?php echo html_escape((string)($row['default_amount_deducted'] ?? '0')); ?>" data-scope="<?php echo html_escape((string)($row['applies_scope'] ?? 'BOTH')); ?>" data-behavior="<?php echo html_escape((string)($row['behavior_mode'] ?? 'MANUAL')); ?>"><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?> - <?php echo html_escape($penaltyBehaviorLabels[strtoupper((string)($row['behavior_mode'] ?? 'MANUAL'))] ?? 'Manual'); ?></option><?php endforeach; ?></select></div>
+              <div class="col-md-3"><label class="form-label">Jenis penalti</label><select name="penalty_type_id" id="penaltyTypeEventSelect" class="form-select" required><option value="">Pilih jenis penalti...</option><option value="-1" data-points="0" data-amount="0" data-scope="BOTH" data-behavior="MANUAL">Penalti custom superadmin</option><?php foreach ($penaltyTypeRows as $row): ?><?php if (!$isPenaltySelectableForEvent($row)) { continue; } ?><option value="<?php echo (int)($row['id'] ?? 0); ?>" data-points="<?php echo html_escape((string)($row['default_points_deducted'] ?? '0')); ?>" data-amount="<?php echo html_escape((string)($row['default_amount_deducted'] ?? '0')); ?>" data-scope="<?php echo html_escape((string)($row['applies_scope'] ?? 'BOTH')); ?>" data-behavior="<?php echo html_escape((string)($row['behavior_mode'] ?? 'MANUAL')); ?>"><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?> - <?php echo html_escape($penaltyBehaviorLabels[strtoupper((string)($row['behavior_mode'] ?? 'MANUAL'))] ?? 'Manual'); ?></option><?php endforeach; ?></select></div>
               <div class="col-md-3"><label class="form-label">Kebijakan/aturan terkait</label><select name="rule_id" class="form-select"><option value="">Tanpa aturan spesifik</option><?php foreach ($bonusRuleOptionRows as $row): ?><option value="<?php echo (int)($row['id'] ?? 0); ?>"><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></option><?php endforeach; ?></select></div>
               <div class="col-md-3"><label class="form-label">Scope penalti</label><select name="penalty_scope" id="penaltyScopeSelect" class="form-select"><option value="PERSONAL">Personal</option><option value="TEAM">Tim</option></select></div>
+              <div class="col-md-3" id="penaltyCustomNameWrap" style="display:none;"><label class="form-label">Nama penalti custom</label><input type="text" name="custom_penalty_name" id="penaltyCustomNameInput" class="form-control" placeholder="Contoh: Teguran custom supervisor"></div>
               <div class="col-md-4"><label class="form-label">Pegawai</label><select name="employee_id" id="penaltyEmployeeSelect" class="form-select"><option value="">Pilih pegawai...</option><?php foreach ($employeeRows as $row): ?><option value="<?php echo (int)($row['value'] ?? 0); ?>"><?php echo html_escape((string)($row['label'] ?? '-')); ?></option><?php endforeach; ?></select></div>
-              <div class="col-md-4"><label class="form-label">Divisi tim</label><select name="division_id" id="penaltyDivisionSelect" class="form-select"><option value="">Pilih divisi...</option><?php foreach ($divisionRows as $row): ?><option value="<?php echo (int)($row['value'] ?? 0); ?>"><?php echo html_escape((string)($row['label'] ?? '-')); ?></option><?php endforeach; ?></select></div>
+              <div class="col-md-4"><label class="form-label">Divisi tim</label><select name="division_id" id="penaltyDivisionSelect" class="form-select"><option value="">Pilih divisi...</option><option value="0">Semua divisi tim</option><?php foreach ($divisionRows as $row): ?><option value="<?php echo (int)($row['value'] ?? 0); ?>"><?php echo html_escape((string)($row['label'] ?? '-')); ?></option><?php endforeach; ?></select></div>
               <div class="col-md-4"><label class="form-label">Shift terkait</label><select name="shift_id" class="form-select"><option value="">Opsional</option><?php foreach ($shiftRows as $row): ?><option value="<?php echo (int)($row['value'] ?? 0); ?>"><?php echo html_escape((string)($row['label'] ?? '-')); ?></option><?php endforeach; ?></select></div>
               <div class="col-md-3"><label class="form-label">Potong poin</label><input type="number" step="0.01" name="points_deducted" id="penaltyPointsInput" class="form-control" placeholder="Default dari master"></div>
-              <div class="col-md-3"><label class="form-label">Potong nominal</label><input type="number" step="0.01" name="amount_deducted" id="penaltyAmountInput" class="form-control" placeholder="Default dari master"></div>
+              <div class="col-md-3"><label class="form-label">Potong nominal otomatis</label><input type="text" id="penaltyAmountInput" class="form-control" placeholder="Dihitung otomatis dari poin dan kebijakan bonus" readonly></div>
               <div class="col-md-3"><label class="form-label">Status</label><select name="status" class="form-select"><option value="APPROVED">Langsung disetujui</option><option value="DRAFT">Simpan draft dulu</option></select></div>
-              <div class="col-md-3"><label class="form-label">Catatan cepat</label><input type="text" class="form-control" value="Bisa dioverride dari default master." disabled></div>
+              <div class="col-md-3"><label class="form-label">Catatan cepat</label><input type="text" class="form-control" value="Nominal akan dihitung sistem sesuai konversi poin kebijakan bonus." disabled></div>
               <div class="col-12"><label class="form-label">Alasan kejadian</label><textarea name="reason_text" class="form-control" rows="2" placeholder="Contoh: Audit pagi menemukan station kitchen shift malam belum bersih."></textarea></div>
             </div>
           </div>
           <div class="modal-footer px-0 pb-0 mt-4">
-            <button type="submit" class="btn btn-primary">Simpan Kejadian Penalti</button>
+            <button type="submit" class="btn btn-primary" id="bonusPenaltyEventSubmitBtn">Simpan Kejadian Penalti</button>
           </div>
         </form>
       </div>
@@ -1675,9 +1883,27 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       <div class="modal-header"><h5 class="modal-title">Sinkron Penalti Otomatis</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <form method="post" action="<?php echo site_url('payroll/bonus/sync-auto-penalties'); ?>">
-          <label class="form-label">Tanggal bonus</label>
-          <input type="date" name="bonus_date" class="form-control" value="<?php echo html_escape($defaultBonusDate); ?>">
-          <div class="small text-muted mt-2">Ini menarik penalti otomatis dari absensi, waktu saji layanan, dan peer review yang sudah dimoderasi.</div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Tanggal mulai</label>
+              <input type="date" name="bonus_date_start" class="form-control" value="<?php echo html_escape($defaultBonusDate); ?>">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Tanggal akhir</label>
+              <input type="date" name="bonus_date_end" class="form-control" value="<?php echo html_escape($defaultBonusDate); ?>">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Kebijakan bonus untuk konversi nominal</label>
+              <select name="config_id" class="form-select">
+                <option value="">Pakai kebijakan default aktif</option>
+                <?php foreach ($configRows as $row): ?>
+                  <option value="<?php echo (int)($row['id'] ?? 0); ?>"><?php echo html_escape((string)($row['config_name'] ?? '-')); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <div class="small text-muted mt-1">Kalau dipilih, nominal penalti otomatis akan ikut nilai konversi poin dari kebijakan ini.</div>
+            </div>
+          </div>
+          <div class="small text-muted mt-2">Ini menarik penalti otomatis dari absensi, waktu saji layanan, dan peer review yang sudah dimoderasi. Tanggal masa depan otomatis dilewati.</div>
           <div class="modal-footer px-0 pb-0 mt-4"><button type="submit" class="btn btn-outline-primary">Sync Penalti Auto</button></div>
         </form>
       </div>
@@ -1825,6 +2051,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     var penaltyResetBtn = document.getElementById('bonusPenaltyResetBtn');
     var penaltyModalTitle = document.getElementById('bonusPenaltyModalTitle');
     var penaltyEventForm = document.getElementById('bonusPenaltyEventForm');
+    var penaltyEventModalTitle = document.getElementById('bonusPenaltyEventModalTitle');
+    var penaltyEventSubmitBtn = document.getElementById('bonusPenaltyEventSubmitBtn');
     var weightScopeSelect = document.getElementById('bonusWeightScope');
     var weightScopeIdSelect = document.getElementById('bonusWeightScopeId');
     var bonusGenerateSelectAllTargets = document.getElementById('bonusGenerateSelectAllTargets');
@@ -1948,8 +2176,15 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     function resetPenaltyEventForm() {
       if (!penaltyEventForm) return;
       penaltyEventForm.reset();
+      fillValue(penaltyEventForm, 'id', '');
       fillValue(penaltyEventForm, 'penalty_date', '<?php echo date('Y-m-d'); ?>');
       fillValue(penaltyEventForm, 'status', 'APPROVED');
+      if (penaltyEventModalTitle) {
+        penaltyEventModalTitle.textContent = 'Form Kejadian Penalti';
+      }
+      if (penaltyEventSubmitBtn) {
+        penaltyEventSubmitBtn.textContent = 'Simpan Kejadian Penalti';
+      }
       if (typeof syncPenaltyEventDefaults === 'function') {
         syncPenaltyEventDefaults();
       }
@@ -2186,21 +2421,78 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       });
     }
 
+    document.querySelectorAll('.bonus-penalty-event-edit-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        resetPenaltyEventForm();
+        fillValue(penaltyEventForm, 'id', btn.dataset.id || '');
+        fillValue(penaltyEventForm, 'penalty_date', btn.dataset.penaltyDate || '');
+        fillValue(penaltyEventForm, 'penalty_type_id', btn.dataset.penaltyTypeId || '');
+        fillValue(penaltyEventForm, 'rule_id', btn.dataset.ruleId || '');
+        fillValue(penaltyEventForm, 'penalty_scope', btn.dataset.penaltyScope || 'PERSONAL');
+        fillValue(penaltyEventForm, 'employee_id', btn.dataset.employeeId || '');
+        fillValue(penaltyEventForm, 'division_id', btn.dataset.divisionId || '');
+        fillValue(penaltyEventForm, 'shift_id', btn.dataset.shiftId || '');
+        fillValue(penaltyEventForm, 'points_deducted', btn.dataset.pointsDeducted || '');
+        if (penaltyAmountInput) {
+          penaltyAmountInput.value = btn.dataset.amountDeducted
+            ? ('Rp ' + Number(btn.dataset.amountDeducted || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+            : 'Otomatis dari kebijakan bonus';
+        }
+        fillValue(penaltyEventForm, 'status', btn.dataset.statusValue || 'APPROVED');
+        fillValue(penaltyEventForm, 'reason_text', btn.dataset.reasonText || '');
+        if (penaltyEventModalTitle) {
+          penaltyEventModalTitle.textContent = 'Edit Kejadian Penalti';
+        }
+        if (penaltyEventSubmitBtn) {
+          penaltyEventSubmitBtn.textContent = 'Simpan Perubahan Penalti';
+        }
+        if (typeof syncPenaltyEventDefaults === 'function') {
+          syncPenaltyEventDefaults();
+        }
+        openModal('bonusPenaltyEventModal');
+      });
+    });
+
     document.querySelectorAll('.bonus-penalty-event-detail-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        renderDetailGrid('bonusPenaltyEventDetailBody', [
-          { label: 'Tanggal kejadian', value: btn.dataset.penaltyDate },
-          { label: 'Jenis penalti', value: btn.dataset.penaltyName },
-          { label: 'Kode penalti', value: btn.dataset.penaltyCode },
-          { label: 'Scope', value: btn.dataset.scope },
-          { label: 'Target penalti', value: btn.dataset.targetName },
-          { label: 'Rule terkait', value: btn.dataset.ruleName },
-          { label: 'Shift terkait', value: btn.dataset.shiftName },
-          { label: 'Potong poin', value: btn.dataset.points },
-          { label: 'Potong nominal', value: btn.dataset.amount },
-          { label: 'Status', value: btn.dataset.status },
-          { label: 'Alasan', value: btn.dataset.reason }
-        ]);
+        var body = document.getElementById('bonusPenaltyEventDetailBody');
+        var detailRows = [];
+        try {
+          detailRows = JSON.parse(btn.dataset.detailJson || '[]');
+        } catch (err) {
+          detailRows = [];
+        }
+        if (body) {
+          var headerHtml = ''
+            + '<div class="bonus-penalty-summary-box mb-3">'
+            + '<div class="bonus-detail-grid">'
+            + '<div><div class="bonus-detail-label">Nama target penalti</div><div class="bonus-detail-value">' + detailValue(btn.dataset.targetName, '-') + '</div></div>'
+            + '<div><div class="bonus-detail-label">Scope</div><div class="bonus-detail-value">' + detailValue(btn.dataset.scope, '-') + '</div></div>'
+            + '<div><div class="bonus-detail-label">Rentang kejadian</div><div class="bonus-detail-value">' + detailValue(btn.dataset.penaltyDate, '-') + '</div></div>'
+            + '<div><div class="bonus-detail-label">Total potong poin</div><div class="bonus-detail-value">' + detailValue(btn.dataset.points, '0') + '</div></div>'
+            + '<div><div class="bonus-detail-label">Total potong nominal</div><div class="bonus-detail-value">' + detailValue(btn.dataset.amount, 'Rp 0') + '</div></div>'
+            + '</div>'
+            + '<div class="small text-muted mt-2">Rincian di bawah ini menampilkan semua kejadian yang membentuk total penalti tersebut.</div>'
+            + '</div>';
+          var tableRows = detailRows.map(function (row) {
+            return ''
+              + '<tr>'
+              + '<td>' + detailValue(row.date, '-') + '</td>'
+              + '<td><strong>' + detailValue(row.name, '-') + '</strong><div class="small text-muted">' + detailValue(row.code, '-') + ' | ' + detailValue(row.source_type, '-') + '</div></td>'
+              + '<td>' + detailValue(row.shift_name, '-') + '</td>'
+              + '<td class="text-end">' + Number(row.points || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>'
+              + '<td class="text-end">Rp ' + Number(row.amount || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</td>'
+              + '<td>' + detailValue(row.status, '-') + '</td>'
+              + '<td>' + detailValue(row.reason, '-') + '</td>'
+              + '</tr>';
+          }).join('');
+          body.innerHTML = headerHtml
+            + '<div class="bonus-table-wrap bonus-table" style="max-height:420px;">'
+            + '<table class="table align-middle mb-0">'
+            + '<thead><tr><th>Tanggal</th><th>Jenis</th><th>Shift</th><th class="text-end">Poin</th><th class="text-end">Nominal</th><th>Status</th><th>Catatan</th></tr></thead>'
+            + '<tbody>' + (tableRows || '<tr><td colspan="7" class="text-center text-muted py-3">Belum ada rincian kejadian.</td></tr>') + '</tbody>'
+            + '</table></div>';
+        }
         openModal('bonusPenaltyEventDetailModal');
       });
     });
@@ -2250,6 +2542,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     var penaltyDivisionSelect = document.getElementById('penaltyDivisionSelect');
     var penaltyPointsInput = document.getElementById('penaltyPointsInput');
     var penaltyAmountInput = document.getElementById('penaltyAmountInput');
+    var penaltyCustomNameWrap = document.getElementById('penaltyCustomNameWrap');
+    var penaltyCustomNameInput = document.getElementById('penaltyCustomNameInput');
     var penaltyBehaviorMode = document.getElementById('penaltyBehaviorMode');
     var penaltyAutoSource = document.getElementById('penaltyAutoSource');
     var penaltyServiceFields = document.querySelectorAll('.bonus-penalty-parameter-service');
@@ -2283,12 +2577,22 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     function syncPenaltyEventDefaults() {
       if (!penaltyTypeEventSelect) return;
       var option = penaltyTypeEventSelect.options[penaltyTypeEventSelect.selectedIndex];
+      var isCustom = option && String(option.value || '') === '-1';
+      if (penaltyCustomNameWrap) {
+        penaltyCustomNameWrap.style.display = isCustom ? '' : 'none';
+      }
+      if (penaltyCustomNameInput) {
+        penaltyCustomNameInput.required = !!isCustom;
+        if (!isCustom) {
+          penaltyCustomNameInput.value = '';
+        }
+      }
       if (option) {
         if (penaltyPointsInput && penaltyPointsInput.value === '') {
           penaltyPointsInput.value = option.dataset.points || '';
         }
-        if (penaltyAmountInput && penaltyAmountInput.value === '') {
-          penaltyAmountInput.value = option.dataset.amount || '';
+        if (penaltyAmountInput) {
+          penaltyAmountInput.value = 'Otomatis dari kebijakan bonus';
         }
         if (penaltyScopeSelect && option.dataset.scope === 'PERSONAL') {
           penaltyScopeSelect.value = 'PERSONAL';
@@ -2313,7 +2617,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       if (penaltyTypeEventSelect) {
       penaltyTypeEventSelect.addEventListener('change', function () {
         if (penaltyPointsInput) penaltyPointsInput.value = '';
-        if (penaltyAmountInput) penaltyAmountInput.value = '';
+        if (penaltyAmountInput) penaltyAmountInput.value = 'Otomatis dari kebijakan bonus';
         syncPenaltyEventDefaults();
       });
       syncPenaltyEventDefaults();
@@ -2330,9 +2634,19 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       penaltyAutoSource.addEventListener('change', syncPenaltyAutoSourceParameters);
       syncPenaltyAutoSourceParameters();
     }
+    document.querySelectorAll('#penaltySectionTab [data-bs-toggle="tab"]').forEach(function (btn) {
+      btn.addEventListener('shown.bs.tab', function () {
+        var target = String(btn.getAttribute('data-bs-target') || '');
+        var view = target === '#penaltyEventPane' ? 'events' : (target === '#penaltyDetailPane' ? 'detail' : 'master');
+        document.querySelectorAll('input[name="penalty_view"]').forEach(function (field) {
+          field.value = view;
+        });
+      });
+    });
     resetWeightForm();
     resetPenaltyForm();
     resetPenaltyEventForm();
   })();
 </script>
+
 

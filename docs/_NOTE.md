@@ -218,46 +218,50 @@ tampilan tabel /payroll/bonus?tab=weights&month=2026-07 , masih strecth ke Bobot
 Tambah Master Penalti perlu lebih user friendly, istilah dan code yang tidak ketik manual.
 
 
-
-ulangi lagi
-
-A Database Error Occurred
-
-Error Number: 1054
-
-Unknown column 'o.balance_due' in 'where clause'
-
-SELECT COALESCE(SUM(o.grand_total), 0) AS gross_sales_amount FROM `pos_order` `o` WHERE DATE(COALESCE(o.paid_at, o.ordered_at)) = '2026-07-01' AND CASE WHEN o.status = 'VOID' THEN 'VOID' WHEN COALESCE(o.balance_due,0) <= 0 AND COALESCE(o.grand_total,0) > 0 THEN 'PAID' WHEN COALESCE(o.paid_amount,0) > 0 THEN 'PAID_PARTIAL' WHEN o.status = 'DRAFT' THEN 'DRAFT' ELSE 'PENDING' END IN ('PAID','PAID_PARTIAL') AND `o`.`outlet_id` = 1
-
-Filename: C:/xampp/htdocs/finance/system/database/DB_driver.php
-
-Line Number: 692
-
-
-gagal generate BULK Pool
+bulk hitung, target keuangan, bulk pool, bulk sync penalty masih muter2
 
 
 
-saya coba generate pool tanggal 1 juli
+6. /payroll/bonus?month=2026-07&tab=penalties nominal langsung digenerate dikonversi dari pengaturan kebijakan "Nilai konversi penalti poin"
+
+7. /payroll/bonus?month=2026-07 tambahkan void dan delete untuk pool yang sudah di publish.
 
 
-Penjualan Bersih 5.827.500,00, bonus 3%, kok pool nya cuma 677,62 	 ?
-
-generate pool ketika ada tanggal sama maka ditimpa
-
-Sinkron Penalti Otomatis mestinya bisa bulk tanggal
-
-/payroll/bonus?tab=penalties&month= di kolom aksi tambahkan void dan edit, jadi superadmin bisa override penalti
-/payroll/bonus?month=2026-07&tab=penalties nominal langsung digenerate dikonversi dari pengaturan kebijakan "Nilai konversi penalti poin"
-
-
-/payroll/bonus?month=2026-07 tambahkan void dan delete untuk pool yang sudah di publish.
-
-
-/payroll/bonus?month=2026-07&tab=monthly harusnya bukan hanya tampil bonus nya, tapi juga tampil penalti nya. tampilkan rekap 1 bulan, lalu berikan aksi detail dan buatkan halaman detailnya.
+8. /payroll/bonus?month=2026-07&tab=monthly harusnya bukan hanya tampil bonus nya, tapi juga tampil penalti nya. tampilkan rekap 1 bulan, lalu berikan aksi detail dan buatkan halaman detailnya.
 data yang tampil bukan hanya yang publish, yang draft tetap tampil, berika status
 
 
+9. /my/bonus?employee_id= tampilkan data bonus dan penailty. tampilkan juga kekurangan target bulanan dan harian, tampilkan di dashboard employee juga
 
-/my/bonus?employee_id= tampilkan data bonus dan penailty
 
+
+
+- halaman penalty, kejadian penalti, harusnya rekap per nama, lalu bisa dilihat detailnya per nama per tanggal.
+- tab kejadian penalty ketika di klik filter kembali ke master penalty, perbaiki!
+
+- Ambil PH BONUS-PH-TAKEN seharusnya dapat penalty (sesuai master penalty) dan otomatis, tapi saya lihat FADILLA tanggal 6 ambil shift PH belum dapat penalty. cek
+
+- MANUAL_ATTENDANCE seharusnya dapat penalty, tapi saya lihat belum muncul
+
+- tambahkan penalti custom, yang bisa diinput superadmin dengan catatan custom dan poin custom, sesuai pengaturan yang dipilih dan yang ada sekarang
+
+- di dashboard pegawai cukup tampilkan kekurangan target Bulan ini dan hari ini saja, hari yang sudah lewat tidak usah. buat tampilannya menarik, kalau perlu pakai gambar
+
+
+
+- percantik tampilan modal Detail Kejadian Penalti, perjelas agar lebih friendly use. tabelnya jangan dipotong, informasi taruh atas saja.
+- Penalty yang tampil seharusnya semua scope, bukan hanya personal. kan kalau tim juga mengurangi poin personal
+
+- Form Kejadian Penalti tambahakan divisi tim semua, potong nominal harusnya otomatis dari pengaturan sesuai poin
+
+- tambahkan tab rincian penalty, untu menampilkan semua rincian urut tanggal
+
+
+- PH seharusnya bukan diambil dari att_employee_ph_ledger , karena table itu adalah tabel dimana pegawai mendapat jatah PH ketika masuk hari libur.
+seharusnya diambil dari att_daily dengan join shift id ke att shift yang namanya PH. 
+
+- MUHAMMAD FIRMAN ABIMANYU tanggal 12 aBSEN melalui pengajuan tapi belum terkena potongan
+
+
+= halaman penalty buat pencariannya ajax
+- ketika di refresh tetap di tab terpilih jangan kembali ke tab master penalty

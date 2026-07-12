@@ -668,6 +668,10 @@ class Payroll extends MY_Controller
         $employeeDailyFilters = ['q' => trim((string)$this->input->get('employee_daily_q', true))];
         $penaltyTypeFilters = ['q' => trim((string)$this->input->get('penalty_type_q', true))];
         $penaltyEventFilters = ['q' => trim((string)$this->input->get('penalty_event_q', true))];
+        $penaltyView = strtolower(trim((string)$this->input->get('penalty_view', true)));
+        if (!in_array($penaltyView, ['master', 'events', 'detail'], true)) {
+            $penaltyView = 'master';
+        }
         $peerFilters = ['q' => trim((string)$this->input->get('peer_q', true))];
         $serviceFilters = ['q' => trim((string)$this->input->get('service_q', true))];
         $monthlyFilters = ['q' => trim((string)$this->input->get('monthly_q', true))];
@@ -702,8 +706,11 @@ class Payroll extends MY_Controller
             $this->per_page('penalty_type_per_page'),
             $this->page('penalty_type_page')
         );
+        $penaltyEventTotal = $penaltyView === 'detail'
+            ? $this->Payroll_model->count_bonus_penalty_detail_rows($month, $penaltyEventFilters['q'])
+            : $this->Payroll_model->count_bonus_penalty_events($month, $penaltyEventFilters['q']);
         $penaltyEventPg = $this->build_pagination(
-            $this->Payroll_model->count_bonus_penalty_events($month, $penaltyEventFilters['q']),
+            $penaltyEventTotal,
             $this->per_page('penalty_event_per_page'),
             $this->page('penalty_event_page')
         );
@@ -718,10 +725,22 @@ class Payroll extends MY_Controller
             $this->page('service_page')
         );
         $monthlyPg = $this->build_pagination(
-            $this->Payroll_model->count_bonus_monthly_summaries($month, $monthlyFilters['q']),
+            $this->Payroll_model->count_bonus_monthly_recap_rows($month, $monthlyFilters['q']),
             $this->per_page('monthly_per_page'),
             $this->page('monthly_page')
         );
+        $penaltyEventRows = $this->Payroll_model->list_bonus_penalty_events($month, $penaltyEventFilters['q'], $penaltyEventPg['per_page'], $penaltyEventPg['offset']);
+        $penaltyDetailRows = $this->Payroll_model->list_bonus_penalty_detail_rows($month, $penaltyEventFilters['q'], $penaltyEventPg['per_page'], $penaltyEventPg['offset']);
+        $penaltyEventDetailMap = [];
+        foreach ($penaltyEventRows as $row) {
+            $scope = strtoupper((string)($row['penalty_scope'] ?? 'PERSONAL'));
+            $employeeId = (int)($row['employee_id'] ?? 0);
+            $divisionId = (int)($row['division_id'] ?? 0);
+            $mapKey = $scope . ':' . $employeeId . ':' . $divisionId;
+            if (!isset($penaltyEventDetailMap[$mapKey])) {
+                $penaltyEventDetailMap[$mapKey] = $this->Payroll_model->list_bonus_penalty_event_detail_rows($month, $scope, $employeeId, $divisionId);
+            }
+        }
 
         $this->render('payroll/bonus_workspace', [
             'title' => 'Bonus Pegawai',
@@ -736,6 +755,7 @@ class Payroll extends MY_Controller
             'employee_daily_filters' => $employeeDailyFilters,
             'penalty_type_filters' => $penaltyTypeFilters,
             'penalty_event_filters' => $penaltyEventFilters,
+            'penalty_view' => $penaltyView,
             'peer_filters' => $peerFilters,
             'service_filters' => $serviceFilters,
             'monthly_filters' => $monthlyFilters,
@@ -763,11 +783,13 @@ class Payroll extends MY_Controller
             'weight_rows' => $this->Payroll_model->list_bonus_weight_rules($weightFilters['q'], $weightPg['per_page'], $weightPg['offset'], $weightFilters['status']),
             'employee_daily_rows' => $this->Payroll_model->list_bonus_employee_daily_admin_rows($month, $employeeDailyFilters['q'], $employeeDailyPg['per_page'], $employeeDailyPg['offset']),
             'penalty_type_rows' => $this->Payroll_model->list_bonus_penalty_types($penaltyTypeFilters['q'], $penaltyTypePg['per_page'], $penaltyTypePg['offset']),
-            'penalty_event_rows' => $this->Payroll_model->list_bonus_penalty_events($month, $penaltyEventFilters['q'], $penaltyEventPg['per_page'], $penaltyEventPg['offset']),
+            'penalty_event_rows' => $penaltyEventRows,
+            'penalty_detail_rows' => $penaltyDetailRows,
+            'penalty_event_detail_map' => $penaltyEventDetailMap,
             'pool_rows' => $this->Payroll_model->list_bonus_recent_pools($month, $poolFilters['q'], $poolPg['per_page'], $poolPg['offset']),
             'pending_peer_rows' => $this->Payroll_model->list_pending_peer_feedback($peerFilters['q'], $peerPg['per_page'], $peerPg['offset']),
             'service_metric_rows' => $this->Payroll_model->list_bonus_service_metrics($month, $serviceFilters['q'], $servicePg['per_page'], $servicePg['offset']),
-            'monthly_summary_rows' => $this->Payroll_model->list_bonus_monthly_summaries($month, $monthlyFilters['q'], $monthlyPg['per_page'], $monthlyPg['offset']),
+            'monthly_summary_rows' => $this->Payroll_model->list_bonus_monthly_recap_rows($month, $monthlyFilters['q'], $monthlyPg['per_page'], $monthlyPg['offset']),
         ]);
     }
 
@@ -837,12 +859,40 @@ class Payroll extends MY_Controller
 
         $this->require_permission('payroll.bonus.index', 'edit');
         $bonusDate = trim((string)$this->input->post('bonus_date', true));
+        $bonusDateStart = trim((string)$this->input->post('bonus_date_start', true));
+        $bonusDateEnd = trim((string)$this->input->post('bonus_date_end', true));
         $employeeId = (int)$this->input->post('employee_id', true);
-        $result = $this->Payroll_model->sync_bonus_auto_penalties($bonusDate, $employeeId, (int)($this->current_user['id'] ?? 0));
+        $ruleId = (int)$this->input->post('rule_id', true);
+        $configId = (int)$this->input->post('config_id', true);
+        if ($ruleId <= 0 && $configId > 0) {
+            $ruleId = $this->Payroll_model->resolve_bonus_rule_id_from_config($configId);
+        }
+        if ($bonusDateStart === '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $bonusDate)) {
+            $bonusDateStart = $bonusDate;
+        }
+        if ($bonusDateEnd === '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $bonusDate)) {
+            $bonusDateEnd = $bonusDate;
+        }
+        if ($bonusDateStart === '' && $bonusDateEnd !== '') {
+            $bonusDateStart = $bonusDateEnd;
+        }
+        if ($bonusDateEnd === '' && $bonusDateStart !== '') {
+            $bonusDateEnd = $bonusDateStart;
+        }
+
+        if ($bonusDateStart !== '' && $bonusDateEnd !== '' && $bonusDateStart !== $bonusDateEnd) {
+            $result = $this->Payroll_model->sync_bonus_auto_penalties_bulk($bonusDateStart, $bonusDateEnd, $employeeId, (int)($this->current_user['id'] ?? 0), $ruleId);
+            $redirectMonth = preg_match('/^\d{4}-\d{2}$/', substr($bonusDateStart, 0, 7)) ? substr($bonusDateStart, 0, 7) : date('Y-m');
+        } else {
+            $singleDate = $bonusDateStart !== '' ? $bonusDateStart : $bonusDate;
+            $result = $this->Payroll_model->sync_bonus_auto_penalties($singleDate, $employeeId, (int)($this->current_user['id'] ?? 0), $ruleId);
+            $redirectMonth = preg_match('/^\d{4}-\d{2}$/', substr($singleDate, 0, 7)) ? substr($singleDate, 0, 7) : date('Y-m');
+        }
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal sinkron penalti otomatis.'));
         redirect('payroll/bonus?' . http_build_query([
             'tab' => 'penalties',
-            'month' => preg_match('/^\d{4}-\d{2}$/', substr($bonusDate, 0, 7)) ? substr($bonusDate, 0, 7) : date('Y-m'),
+            'month' => $redirectMonth,
+            'penalty_view' => 'events',
         ]));
     }
 
@@ -864,6 +914,77 @@ class Payroll extends MY_Controller
             'tab' => 'overview',
             'month' => $month,
         ]));
+    }
+
+    public function bonus_pool_void($poolId = 0)
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'delete');
+        $poolId = (int)$poolId;
+        $notes = trim((string)$this->input->post('notes', true));
+        $result = $this->Payroll_model->void_bonus_pool_daily($poolId, $notes, (int)($this->current_user['id'] ?? 0));
+        $month = trim((string)$this->input->post('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal VOID pool bonus.'));
+        redirect('payroll/bonus?' . http_build_query([
+            'tab' => 'overview',
+            'month' => $month,
+        ]));
+    }
+
+    public function bonus_pool_delete($poolId = 0)
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'delete');
+        $poolId = (int)$poolId;
+        $result = $this->Payroll_model->delete_bonus_pool_daily($poolId, (int)($this->current_user['id'] ?? 0));
+        $month = trim((string)$this->input->post('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal hapus pool bonus.'));
+        redirect('payroll/bonus?' . http_build_query([
+            'tab' => 'overview',
+            'month' => $month,
+        ]));
+    }
+
+    public function bonus_monthly_detail($configId = 0, $employeeId = 0)
+    {
+        $this->require_permission('payroll.bonus.index', 'view');
+
+        $month = trim((string)$this->input->get('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $detail = $this->Payroll_model->get_bonus_monthly_recap_detail($month, (int)$configId, (int)$employeeId);
+        if (empty($detail['summary'])) {
+            $this->session->set_flashdata('error', 'Detail rekap bonus bulanan tidak ditemukan.');
+            redirect('payroll/bonus?' . http_build_query([
+                'tab' => 'monthly',
+                'month' => $month,
+            ]));
+            return;
+        }
+
+        $summary = $detail['summary'];
+        $this->render('payroll/bonus_monthly_detail', [
+            'title' => 'Detail Rekap Bonus Bulanan',
+            'active_menu' => 'pay.bonus',
+            'month' => $month,
+            'summary' => $summary,
+            'daily_rows' => $detail['daily_rows'] ?? [],
+            'penalty_rows' => $detail['penalty_rows'] ?? [],
+        ]);
     }
 
     public function bonus_service_metric_generate()
@@ -1020,6 +1141,7 @@ class Payroll extends MY_Controller
         $query = http_build_query([
             'tab' => 'penalties',
             'month' => trim((string)($payload['month'] ?? date('Y-m'))),
+            'penalty_view' => 'master',
         ]);
         redirect('payroll/bonus' . ($query !== '' ? ('?' . $query) : ''));
     }
@@ -1036,6 +1158,7 @@ class Payroll extends MY_Controller
         redirect('payroll/bonus?' . http_build_query([
             'tab' => 'penalties',
             'month' => trim((string)$this->input->post('month', true)) ?: date('Y-m'),
+            'penalty_view' => 'master',
         ]));
     }
 
@@ -1045,15 +1168,43 @@ class Payroll extends MY_Controller
             show_404();
         }
 
-        $this->require_permission('payroll.bonus.index', 'create');
         $payload = $this->input->post(null, true) ?? [];
+        $id = (int)($payload['id'] ?? 0);
+        $penaltyView = strtolower(trim((string)($payload['penalty_view'] ?? 'events')));
+        if (!in_array($penaltyView, ['master', 'events', 'detail'], true)) {
+            $penaltyView = 'events';
+        }
+        $this->require_permission('payroll.bonus.index', $id > 0 ? 'edit' : 'create');
         $result = $this->Payroll_model->save_bonus_penalty_event($payload, (int)($this->current_user['id'] ?? 0));
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan kejadian penalti bonus.'));
 
         $query = http_build_query([
             'tab' => 'penalties',
             'month' => trim((string)($payload['month'] ?? date('Y-m'))),
+            'penalty_view' => $penaltyView,
         ]);
+        redirect('payroll/bonus' . ($query !== '' ? ('?' . $query) : ''));
+    }
+
+    public function bonus_penalty_event_void($id = 0)
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'delete');
+        $notes = trim((string)$this->input->post('notes', true));
+        $penaltyView = strtolower(trim((string)$this->input->post('penalty_view', true)));
+        if (!in_array($penaltyView, ['master', 'events', 'detail'], true)) {
+            $penaltyView = 'events';
+        }
+        $result = $this->Payroll_model->void_bonus_penalty_event((int)$id, $notes, (int)($this->current_user['id'] ?? 0));
+        $query = http_build_query([
+            'tab' => 'penalties',
+            'month' => trim((string)$this->input->post('month', true)) ?: date('Y-m'),
+            'penalty_view' => $penaltyView,
+        ]);
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal VOID kejadian penalti.'));
         redirect('payroll/bonus' . ($query !== '' ? ('?' . $query) : ''));
     }
 
