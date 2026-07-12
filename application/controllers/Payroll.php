@@ -650,14 +650,22 @@ class Payroll extends MY_Controller
             $month = date('Y-m');
         }
         $tab = strtolower(trim((string)$this->input->get('tab', true)));
-        if (!in_array($tab, ['overview', 'rules', 'weights', 'penalties', 'peer', 'service', 'monthly', 'guide'], true)) {
+        if (!in_array($tab, ['overview', 'rules', 'weights', 'employee_daily', 'penalties', 'peer', 'service', 'monthly', 'guide'], true)) {
             $tab = 'overview';
         }
 
         $poolFilters = ['q' => trim((string)$this->input->get('pool_q', true))];
         $configFilters = ['q' => trim((string)$this->input->get('config_q', true))];
         $ruleFilters = ['q' => trim((string)$this->input->get('rule_q', true))];
-        $weightFilters = ['q' => trim((string)$this->input->get('weight_q', true))];
+        $weightStatus = strtoupper(trim((string)$this->input->get('weight_status', true)));
+        if (!in_array($weightStatus, ['ACTIVE', 'INACTIVE', 'ALL'], true)) {
+            $weightStatus = 'ACTIVE';
+        }
+        $weightFilters = [
+            'q' => trim((string)$this->input->get('weight_q', true)),
+            'status' => $weightStatus,
+        ];
+        $employeeDailyFilters = ['q' => trim((string)$this->input->get('employee_daily_q', true))];
         $penaltyTypeFilters = ['q' => trim((string)$this->input->get('penalty_type_q', true))];
         $penaltyEventFilters = ['q' => trim((string)$this->input->get('penalty_event_q', true))];
         $peerFilters = ['q' => trim((string)$this->input->get('peer_q', true))];
@@ -680,9 +688,14 @@ class Payroll extends MY_Controller
             $this->page('config_page')
         );
         $weightPg = $this->build_pagination(
-            $this->Payroll_model->count_bonus_weight_rules($weightFilters['q']),
+            $this->Payroll_model->count_bonus_weight_rules($weightFilters['q'], $weightFilters['status']),
             $this->per_page('weight_per_page'),
             $this->page('weight_page')
+        );
+        $employeeDailyPg = $this->build_pagination(
+            $this->Payroll_model->count_bonus_employee_daily_admin_rows($month, $employeeDailyFilters['q']),
+            $this->per_page('employee_daily_per_page'),
+            $this->page('employee_daily_page')
         );
         $penaltyTypePg = $this->build_pagination(
             $this->Payroll_model->count_bonus_penalty_types($penaltyTypeFilters['q']),
@@ -720,6 +733,7 @@ class Payroll extends MY_Controller
             'config_filters' => $configFilters,
             'rule_filters' => $ruleFilters,
             'weight_filters' => $weightFilters,
+            'employee_daily_filters' => $employeeDailyFilters,
             'penalty_type_filters' => $penaltyTypeFilters,
             'penalty_event_filters' => $penaltyEventFilters,
             'peer_filters' => $peerFilters,
@@ -729,6 +743,7 @@ class Payroll extends MY_Controller
             'config_pg' => $configPg,
             'rule_pg' => $rulePg,
             'weight_pg' => $weightPg,
+            'employee_daily_pg' => $employeeDailyPg,
             'penalty_type_pg' => $penaltyTypePg,
             'penalty_event_pg' => $penaltyEventPg,
             'peer_pg' => $peerPg,
@@ -743,8 +758,10 @@ class Payroll extends MY_Controller
             'shift_rows' => $this->Payroll_model->get_shift_options(),
             'bonus_rule_option_rows' => $this->Payroll_model->list_bonus_rule_options(),
             'target_plan_rows' => $this->Payroll_model->list_bonus_target_plan_options(),
+            'monthly_target_plan_rows' => $this->Payroll_model->list_bonus_target_plan_options('MONTHLY'),
             'rule_rows' => $this->Payroll_model->list_bonus_rules($ruleFilters['q'], $rulePg['per_page'], $rulePg['offset']),
-            'weight_rows' => $this->Payroll_model->list_bonus_weight_rules($weightFilters['q'], $weightPg['per_page'], $weightPg['offset']),
+            'weight_rows' => $this->Payroll_model->list_bonus_weight_rules($weightFilters['q'], $weightPg['per_page'], $weightPg['offset'], $weightFilters['status']),
+            'employee_daily_rows' => $this->Payroll_model->list_bonus_employee_daily_admin_rows($month, $employeeDailyFilters['q'], $employeeDailyPg['per_page'], $employeeDailyPg['offset']),
             'penalty_type_rows' => $this->Payroll_model->list_bonus_penalty_types($penaltyTypeFilters['q'], $penaltyTypePg['per_page'], $penaltyTypePg['offset']),
             'penalty_event_rows' => $this->Payroll_model->list_bonus_penalty_events($month, $penaltyEventFilters['q'], $penaltyEventPg['per_page'], $penaltyEventPg['offset']),
             'pool_rows' => $this->Payroll_model->list_bonus_recent_pools($month, $poolFilters['q'], $poolPg['per_page'], $poolPg['offset']),
@@ -765,7 +782,13 @@ class Payroll extends MY_Controller
         $bonusDateStart = trim((string)$this->input->post('bonus_date_start', true));
         $bonusDateEnd = trim((string)$this->input->post('bonus_date_end', true));
         $ruleId = (int)$this->input->post('rule_id', true);
+        $configId = (int)$this->input->post('config_id', true);
         $targetPlanId = (int)$this->input->post('target_plan_id', true);
+        $targetPlanIds = $this->input->post('target_plan_ids');
+        $targetPlanIds = is_array($targetPlanIds) ? array_values(array_filter(array_map('intval', $targetPlanIds))) : [];
+        if ($ruleId <= 0 && $configId > 0) {
+            $ruleId = $this->Payroll_model->resolve_bonus_rule_id_from_config($configId);
+        }
         if ($bonusDateStart === '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $bonusDate)) {
             $bonusDateStart = $bonusDate;
         }
@@ -779,7 +802,19 @@ class Payroll extends MY_Controller
             $bonusDateEnd = $bonusDateStart;
         }
 
-        if ($bonusDateStart !== '' && $bonusDateEnd !== '' && $bonusDateStart !== $bonusDateEnd) {
+        if (!empty($targetPlanIds)) {
+            $result = $this->Payroll_model->generate_bonus_pool_daily_bulk_from_target_ids($targetPlanIds, $ruleId, (int)($this->current_user['id'] ?? 0));
+            $redirectMonth = $month = date('Y-m');
+            if (!empty($targetPlanIds)) {
+                $firstDailyPlan = $this->Payroll_model->list_bonus_target_plan_options('DAILY');
+                foreach ($firstDailyPlan as $planRow) {
+                    if ((int)($planRow['id'] ?? 0) === (int)$targetPlanIds[0] && !empty($planRow['date_start'])) {
+                        $redirectMonth = substr((string)$planRow['date_start'], 0, 7);
+                        break;
+                    }
+                }
+            }
+        } elseif ($bonusDateStart !== '' && $bonusDateEnd !== '' && $bonusDateStart !== $bonusDateEnd) {
             $result = $this->Payroll_model->generate_bonus_pool_daily_bulk($bonusDateStart, $bonusDateEnd, $ruleId, (int)($this->current_user['id'] ?? 0), $targetPlanId);
             $redirectMonth = preg_match('/^\d{4}-\d{2}$/', substr($bonusDateStart, 0, 7)) ? substr($bonusDateStart, 0, 7) : date('Y-m');
         } else {
@@ -927,7 +962,7 @@ class Payroll extends MY_Controller
 
         $this->require_permission('payroll.bonus.index', 'delete');
         $result = $this->Payroll_model->deactivate_bonus_rule((int)$id);
-        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menonaktifkan skema bonus.'));
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menonaktifkan aturan bonus.'));
         redirect('payroll/bonus?' . http_build_query([
             'tab' => 'rules',
             'month' => trim((string)$this->input->post('month', true)) ?: date('Y-m'),

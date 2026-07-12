@@ -2192,6 +2192,84 @@ class Finance_report_model extends CI_Model
         return $index;
     }
 
+    private function collect_daily_simple_metric_index_map(string $dateStart, string $dateEnd, array $metricCodes): array
+    {
+        $metricCodes = array_values(array_unique(array_filter(array_map(static function ($code): string {
+            return strtoupper(trim((string)$code));
+        }, $metricCodes))));
+        if (empty($metricCodes)) {
+            return [];
+        }
+
+        $allowed = ['POS_REVENUE', 'POS_REFUND', 'PAYROLL_DISBURSED'];
+        $metricCodes = array_values(array_intersect($metricCodes, $allowed));
+        if (empty($metricCodes) || !$this->db->table_exists('fin_account_mutation_log')) {
+            return [];
+        }
+
+        $rows = $this->db->select("
+                mutation_date,
+                COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS pos_revenue,
+                COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS pos_refund,
+                COALESCE(SUM(CASE WHEN ref_module = 'PAYROLL' AND ref_table = 'pay_salary_disbursement' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS payroll_disbursed
+            ", false)
+            ->from('fin_account_mutation_log')
+            ->where('mutation_date >=', $dateStart)
+            ->where('mutation_date <=', $dateEnd)
+            ->group_by('mutation_date')
+            ->order_by('mutation_date', 'ASC')
+            ->get()->result_array();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $dateKey = (string)($row['mutation_date'] ?? '');
+            if ($dateKey === '') {
+                continue;
+            }
+            if (in_array('POS_REVENUE', $metricCodes, true)) {
+                $result[$dateKey]['GLOBAL|0|POS_REVENUE'] = [
+                    'scope_type' => 'GLOBAL',
+                    'scope_ref_id' => 0,
+                    'metric_group' => 'REVENUE',
+                    'metric_code' => 'POS_REVENUE',
+                    'metric_label' => 'Omzet POS',
+                    'metric_amount' => round((float)($row['pos_revenue'] ?? 0), 2),
+                    'metric_qty' => 0,
+                    'source_ref' => 'fin_account_mutation_log',
+                    'notes' => 'Akumulasi mutasi masuk POS harian.',
+                ];
+            }
+            if (in_array('POS_REFUND', $metricCodes, true)) {
+                $result[$dateKey]['GLOBAL|0|POS_REFUND'] = [
+                    'scope_type' => 'GLOBAL',
+                    'scope_ref_id' => 0,
+                    'metric_group' => 'REVENUE',
+                    'metric_code' => 'POS_REFUND',
+                    'metric_label' => 'Refund POS',
+                    'metric_amount' => round((float)($row['pos_refund'] ?? 0), 2),
+                    'metric_qty' => 0,
+                    'source_ref' => 'fin_account_mutation_log',
+                    'notes' => 'Akumulasi refund POS harian.',
+                ];
+            }
+            if (in_array('PAYROLL_DISBURSED', $metricCodes, true)) {
+                $result[$dateKey]['GLOBAL|0|PAYROLL_DISBURSED'] = [
+                    'scope_type' => 'GLOBAL',
+                    'scope_ref_id' => 0,
+                    'metric_group' => 'PAYROLL',
+                    'metric_code' => 'PAYROLL_DISBURSED',
+                    'metric_label' => 'Pencairan Gaji',
+                    'metric_amount' => round((float)($row['payroll_disbursed'] ?? 0), 2),
+                    'metric_qty' => 0,
+                    'source_ref' => 'fin_account_mutation_log',
+                    'notes' => 'Akumulasi pencairan gaji harian.',
+                ];
+            }
+        }
+
+        return $result;
+    }
+
     public function save_target_plan(array $payload, int $actorUserId = 0): array
     {
         if (!$this->db->table_exists('fin_target_plan')) {
@@ -2984,6 +3062,16 @@ class Finance_report_model extends CI_Model
 
         $dateStart = (string)($plan['date_start'] ?? '');
         $dateEnd = (string)($plan['date_end'] ?? '');
+        $targetScope = strtoupper(trim((string)($plan['target_scope'] ?? 'MONTHLY')));
+        $today = date('Y-m-d');
+        if ($targetScope === 'DAILY' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart) && $dateStart > $today) {
+            return [
+                'ok' => true,
+                'skipped' => true,
+                'message' => 'Target harian tanggal ' . $dateStart . ' belum lewat, jadi otomatis dilewati.',
+            ];
+        }
+
         $closedPeriods = [];
         if ($this->db->table_exists('fin_period_close')) {
             $closedPeriods = $this->db->select('id, period_start, period_end, period_type')
@@ -2995,7 +3083,7 @@ class Finance_report_model extends CI_Model
                 ->get()->result_array();
         }
 
-        if (strtoupper(trim((string)($plan['target_scope'] ?? 'MONTHLY'))) !== 'DAILY' && empty($closedPeriods)) {
+        if ($targetScope !== 'DAILY' && empty($closedPeriods)) {
             return ['ok' => false, 'message' => 'Belum ada period close CLOSED di rentang target ini. Tutup periodenya dulu baru hitung realisasi.'];
         }
 
@@ -3086,6 +3174,8 @@ class Finance_report_model extends CI_Model
         $liveMetricNeedMap = [];
         $successIds = [];
         $failedRows = [];
+        $skippedRows = [];
+        $today = date('Y-m-d');
 
         foreach ($targetPlanIds as $targetPlanId) {
             $plan = $planMap[$targetPlanId] ?? null;
@@ -3098,9 +3188,16 @@ class Finance_report_model extends CI_Model
             if ($targetLabel === '') {
                 $targetLabel = 'Target #' . $targetPlanId;
             }
+            $targetScope = strtoupper(trim((string)($plan['target_scope'] ?? 'MONTHLY')));
 
             if (strtoupper(trim((string)($plan['status'] ?? 'DRAFT'))) === 'VOID') {
                 $failedRows[] = $targetLabel . ': target berstatus VOID.';
+                continue;
+            }
+
+            $dateStart = (string)($plan['date_start'] ?? '');
+            if ($targetScope === 'DAILY' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart) && $dateStart > $today) {
+                $skippedRows[] = $targetLabel . ' (' . $dateStart . ') dilewati karena tanggalnya belum lewat.';
                 continue;
             }
 
@@ -3110,7 +3207,6 @@ class Finance_report_model extends CI_Model
                 continue;
             }
 
-            $dateStart = (string)($plan['date_start'] ?? '');
             $dateEnd = (string)($plan['date_end'] ?? '');
             $rangeKey = $dateStart . '|' . $dateEnd;
             if (!array_key_exists($rangeKey, $closedPeriodCache)) {
@@ -3128,7 +3224,7 @@ class Finance_report_model extends CI_Model
             }
 
             $closedPeriods = $closedPeriodCache[$rangeKey];
-            if (strtoupper(trim((string)($plan['target_scope'] ?? 'MONTHLY'))) !== 'DAILY' && empty($closedPeriods)) {
+            if ($targetScope !== 'DAILY' && empty($closedPeriods)) {
                 $failedRows[] = $targetLabel . ': belum ada period close CLOSED di rentang target ini.';
                 continue;
             }
@@ -3149,7 +3245,56 @@ class Finance_report_model extends CI_Model
         }
 
         if (empty($successIds)) {
-            return ['ok' => false, 'message' => 'Tidak ada target yang bisa dihitung. ' . implode(' | ', $failedRows)];
+            if (!empty($skippedRows) && empty($failedRows)) {
+                return [
+                    'ok' => true,
+                    'message' => count($skippedRows) . ' target dilewati karena tanggalnya belum lewat.',
+                    'success_count' => 0,
+                    'failed_rows' => [],
+                    'skipped_rows' => $skippedRows,
+                ];
+            }
+            return ['ok' => false, 'message' => 'Tidak ada target yang bisa dihitung. ' . implode(' | ', array_merge($failedRows, $skippedRows))];
+        }
+
+        $fastDailyEligibleMap = [];
+        $fastDailyMetricCodes = [];
+        $fastDailyMinDate = null;
+        $fastDailyMaxDate = null;
+        foreach ($successIds as $targetPlanId) {
+            $plan = $planMap[$targetPlanId];
+            $rangeKey = (string)($plan['date_start'] ?? '') . '|' . (string)($plan['date_end'] ?? '');
+            $closedPeriods = $closedPeriodCache[$rangeKey] ?? [];
+            $lines = $linesMap[$targetPlanId] ?? [];
+            $isDaily = strtoupper(trim((string)($plan['target_scope'] ?? 'MONTHLY'))) === 'DAILY';
+            $isGlobal = (int)($plan['division_id'] ?? 0) <= 0 && (int)($plan['company_account_id'] ?? 0) <= 0;
+            $allowedCodes = ['POS_REVENUE', 'POS_REFUND', 'PAYROLL_DISBURSED'];
+            $eligible = $isDaily && $isGlobal && empty($closedPeriods) && !empty($lines);
+            if ($eligible) {
+                foreach ($lines as $line) {
+                    $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+                    if ($metricCode === '' || !in_array($metricCode, $allowedCodes, true)) {
+                        $eligible = false;
+                        break;
+                    }
+                    $fastDailyMetricCodes[$metricCode] = $metricCode;
+                }
+            }
+            if ($eligible) {
+                $fastDailyEligibleMap[$targetPlanId] = true;
+                $targetDate = (string)($plan['date_start'] ?? '');
+                if ($fastDailyMinDate === null || $targetDate < $fastDailyMinDate) {
+                    $fastDailyMinDate = $targetDate;
+                }
+                if ($fastDailyMaxDate === null || $targetDate > $fastDailyMaxDate) {
+                    $fastDailyMaxDate = $targetDate;
+                }
+            }
+        }
+
+        $fastDailyMetricCache = [];
+        if ($fastDailyMinDate !== null && $fastDailyMaxDate !== null && !empty($fastDailyMetricCodes)) {
+            $fastDailyMetricCache = $this->collect_daily_simple_metric_index_map($fastDailyMinDate, $fastDailyMaxDate, array_values($fastDailyMetricCodes));
         }
 
         $liveMetricCache = [];
@@ -3195,7 +3340,11 @@ class Finance_report_model extends CI_Model
             $dateEnd = (string)($plan['date_end'] ?? '');
             $rangeKey = $dateStart . '|' . $dateEnd;
             $closedPeriods = $closedPeriodCache[$rangeKey] ?? [];
-            $rawMetricRows = empty($closedPeriods) ? ($liveMetricCache[$rangeKey] ?? []) : [];
+            if (isset($fastDailyEligibleMap[$targetPlanId])) {
+                $rawMetricRows = $fastDailyMetricCache[$dateStart] ?? [];
+            } else {
+                $rawMetricRows = empty($closedPeriods) ? ($liveMetricCache[$rangeKey] ?? []) : [];
+            }
 
             foreach ($lines as $line) {
                 $resolved = $this->resolve_target_line_actual($plan, $line, $closedPeriods, $rawMetricRows);
@@ -3233,11 +3382,17 @@ class Finance_report_model extends CI_Model
             return ['ok' => false, 'message' => 'Gagal menghitung realisasi target secara bulk.'];
         }
 
+        $message = $successCount . ' target berhasil dihitung / ditimpa ulang.';
+        if (!empty($skippedRows)) {
+            $message .= ' ' . count($skippedRows) . ' target masa depan dilewati.';
+        }
+
         return [
             'ok' => true,
-            'message' => $successCount . ' target berhasil dihitung / ditimpa ulang.',
+            'message' => $message,
             'success_count' => $successCount,
             'failed_rows' => $failedRows,
+            'skipped_rows' => $skippedRows,
         ];
     }
 
