@@ -219,6 +219,7 @@ Tambah Master Penalti perlu lebih user friendly, istilah dan code yang tidak ket
 
 
 
+ulangi lagi
 
 A Database Error Occurred
 
@@ -247,11 +248,16 @@ generate pool ketika ada tanggal sama maka ditimpa
 Sinkron Penalti Otomatis mestinya bisa bulk tanggal
 
 /payroll/bonus?tab=penalties&month= di kolom aksi tambahkan void dan edit, jadi superadmin bisa override penalti
-
+/payroll/bonus?month=2026-07&tab=penalties nominal langsung digenerate dikonversi dari pengaturan kebijakan "Nilai konversi penalti poin"
 
 
 /payroll/bonus?month=2026-07 tambahkan void dan delete untuk pool yang sudah di publish.
 
 
-/payroll/bonus?month=2026-07&tab=monthly harusnya bukan hanya tampil bonus nya, tapi juga tampil penalti nya. tampilkan rekap 1 bulan, lalu berikan aksi detail dan buatkan halaman detailnya
+/payroll/bonus?month=2026-07&tab=monthly harusnya bukan hanya tampil bonus nya, tapi juga tampil penalti nya. tampilkan rekap 1 bulan, lalu berikan aksi detail dan buatkan halaman detailnya.
+data yang tampil bukan hanya yang publish, yang draft tetap tampil, berika status
+
+
+
+/my/bonus?employee_id= tampilkan data bonus dan penailty
 
