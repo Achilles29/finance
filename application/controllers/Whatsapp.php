@@ -547,8 +547,9 @@ class Whatsapp extends MY_Controller
 
         $envStr  = $this->buildEnvString($engineDir);
         $logPath = $engineDir . '/wa-engine.log';
+        // env vars HARUS sebelum nohup, bukan sesudahnya
         $cmd = "cd " . escapeshellarg($engineDir)
-             . " && nohup {$envStr}" . escapeshellarg($nodePath)
+             . " && {$envStr}nohup " . escapeshellarg($nodePath)
              . " " . escapeshellarg($engineDir . '/index.js')
              . " > " . escapeshellarg($logPath) . " 2>&1 & echo \$!";
 
