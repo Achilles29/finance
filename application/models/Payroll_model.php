@@ -4448,7 +4448,18 @@ class Payroll_model extends CI_Model
             return $default;
         }
 
-        $dailyRows = $this->db->select("
+        $sliceSummaryJoin = '';
+        $sliceSummarySelect = '0 AS slice_count';
+        if ($this->db->table_exists('pay_bonus_employee_time_slice')) {
+            $sliceSummaryJoin = "LEFT JOIN (
+                    SELECT employee_daily_id, COUNT(*) AS slice_count
+                    FROM pay_bonus_employee_time_slice
+                    GROUP BY employee_daily_id
+                ) ts ON ts.employee_daily_id = ed.id";
+            $sliceSummarySelect = 'COALESCE(ts.slice_count,0) AS slice_count';
+        }
+
+        $dailyDb = $this->db->select("
                 ed.*,
                 p.bonus_date,
                 p.net_sales_amount,
@@ -4456,6 +4467,7 @@ class Payroll_model extends CI_Model
                 p.target_score_percent,
                 p.service_score_percent,
                 p.approval_status AS pool_status,
+                {$sliceSummarySelect},
                 c.config_name,
                 r.rule_name,
                 s.shift_code,
@@ -4471,8 +4483,11 @@ class Payroll_model extends CI_Model
             ->where('ed.employee_id', $employeeId)
             ->where("COALESCE(ed.approval_status, 'DRAFT') <> 'VOID'", null, false)
             ->order_by('ed.attendance_date', 'DESC')
-            ->order_by('ed.id', 'DESC')
-            ->get()->result_array();
+            ->order_by('ed.id', 'DESC');
+        if ($sliceSummaryJoin !== '') {
+            $dailyDb->join($sliceSummaryJoin, null, 'left', false);
+        }
+        $dailyRows = $dailyDb->get()->result_array();
 
         $penaltyRows = [];
         if ($this->db->table_exists('pay_bonus_penalty_event')) {
@@ -4678,6 +4693,55 @@ class Payroll_model extends CI_Model
             $summary['peer_avg_star'] = round((float)($peer['avg_star'] ?? 0), 2);
         }
 
+        if ($this->db->table_exists('pay_bonus_penalty_event')) {
+            $employee = $this->db->select('id, division_id')
+                ->from('org_employee')
+                ->where('id', $employeeId)
+                ->limit(1)
+                ->get()->row_array();
+            $divisionId = (int)($employee['division_id'] ?? 0);
+
+            $penaltyDb = $this->db->select("
+                    COALESCE(SUM(pe.points_deducted),0) AS estimated_penalty_point_event,
+                    COALESCE(SUM(pe.amount_deducted),0) AS estimated_penalty_amount_event
+                ", false)
+                ->from('pay_bonus_penalty_event pe')
+                ->where("DATE_FORMAT(pe.penalty_date, '%Y-%m') =", $month)
+                ->where('pe.status <>', 'VOID')
+                ->group_start()
+                    ->where('pe.employee_id', $employeeId)
+                    ->or_group_start()
+                        ->where('pe.penalty_scope', 'TEAM')
+                        ->group_start()
+                            ->where('pe.division_id', $divisionId);
+            if ($divisionId <= 0) {
+                $penaltyDb->or_where('pe.division_id IS NULL', null, false);
+            } else {
+                $penaltyDb->or_where('pe.division_id IS NULL', null, false);
+            }
+            $penaltyDb->group_end()
+                    ->group_end()
+                ->group_end();
+
+            $penaltyRoll = $penaltyDb->get()->row_array();
+            $summary['estimated_penalty_point'] = round(max(
+                (float)($summary['estimated_penalty_point'] ?? 0),
+                (float)($penaltyRoll['estimated_penalty_point_event'] ?? 0)
+            ), 4);
+            $summary['estimated_penalty_amount'] = round(max(
+                (float)($summary['estimated_penalty_amount'] ?? 0),
+                (float)($penaltyRoll['estimated_penalty_amount_event'] ?? 0)
+            ), 2);
+            $summary['estimated_final_amount'] = round(max(
+                0,
+                (float)($summary['estimated_raw_amount'] ?? 0) - (float)($summary['estimated_penalty_amount'] ?? 0)
+            ), 2);
+            $summary['estimated_final_point'] = round(max(
+                0,
+                (float)($summary['estimated_raw_point'] ?? 0) - (float)($summary['estimated_penalty_point'] ?? 0)
+            ), 4);
+        }
+
         return $summary;
     }
 
@@ -4699,9 +4763,21 @@ class Payroll_model extends CI_Model
 
         $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
 
+        $sliceSummaryJoin = '';
+        $sliceSummarySelect = '0 AS slice_count';
+        if ($this->db->table_exists('pay_bonus_employee_time_slice')) {
+            $sliceSummaryJoin = "LEFT JOIN (
+                    SELECT employee_daily_id, COUNT(*) AS slice_count
+                    FROM pay_bonus_employee_time_slice
+                    GROUP BY employee_daily_id
+                ) ts ON ts.employee_daily_id = ed.id";
+            $sliceSummarySelect = 'COALESCE(ts.slice_count,0) AS slice_count';
+        }
+
         $db = $this->db->select("
                 ed.*,
                 p.bonus_date,
+                {$sliceSummarySelect},
                 r.rule_name,
                 s.shift_code,
                 s.shift_name
@@ -4712,6 +4788,9 @@ class Payroll_model extends CI_Model
             ->join('att_shift s', 's.id = ed.shift_id', 'left')
             ->where('ed.employee_id', $employeeId)
             ->where("DATE_FORMAT(ed.attendance_date, '%Y-%m') =", $month);
+        if ($sliceSummaryJoin !== '') {
+            $db->join($sliceSummaryJoin, null, 'left', false);
+        }
 
         if ($publishedOnly) {
             $db->where_in('ed.approval_status', ['APPROVED']);
@@ -4834,6 +4913,16 @@ class Payroll_model extends CI_Model
             ->where('status', 'ACTIVE')
             ->where('date_start <=', $monthEnd)
             ->where('date_end >=', $monthStart)
+            ->group_start()
+                ->group_start()
+                    ->where('tp.target_scope', 'MONTHLY')
+                ->group_end()
+                ->or_group_start()
+                    ->where('tp.target_scope', 'DAILY')
+                    ->where('tp.date_start <=', $today)
+                    ->where('tp.date_end >=', $today)
+                ->group_end()
+            ->group_end()
             ->order_by("FIELD(tp.target_scope, 'MONTHLY', 'DAILY')", '', false)
             ->order_by('tp.date_start', 'ASC')
             ->get()->result_array();
@@ -4847,6 +4936,9 @@ class Payroll_model extends CI_Model
                 $planAsOf = $asOfDate;
             }
             if ($planAsOf > $today) {
+                continue;
+            }
+            if ($scope === 'DAILY' && (string)($plan['date_start'] ?? '') !== $today) {
                 continue;
             }
 
@@ -4874,15 +4966,13 @@ class Payroll_model extends CI_Model
                     $default['daily_shortfall_amount'] += $shortfall;
                     $default['daily_notes'][] = $label . ' kurang ' . number_format($shortfall, 2, ',', '.');
                 }
-                if ((string)($plan['date_start'] ?? '') === $today) {
-                    $default['today_total']++;
-                    if (!empty($snapshot['all_required_passed'])) {
-                        $default['today_hit']++;
-                    } else {
-                        $default['today_miss']++;
-                        $default['today_shortfall_amount'] += $shortfall;
-                        $default['today_notes'][] = $label . ' kurang ' . number_format($shortfall, 2, ',', '.');
-                    }
+                $default['today_total']++;
+                if (!empty($snapshot['all_required_passed'])) {
+                    $default['today_hit']++;
+                } else {
+                    $default['today_miss']++;
+                    $default['today_shortfall_amount'] += $shortfall;
+                    $default['today_notes'][] = $label . ' kurang ' . number_format($shortfall, 2, ',', '.');
                 }
             } else {
                 $default['monthly_total']++;
@@ -5349,10 +5439,22 @@ class Payroll_model extends CI_Model
 
         $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
 
+        $sliceSummaryJoin = '';
+        $sliceSummarySelect = '0 AS slice_count';
+        if ($this->db->table_exists('pay_bonus_employee_time_slice')) {
+            $sliceSummaryJoin = "LEFT JOIN (
+                    SELECT employee_daily_id, COUNT(*) AS slice_count
+                    FROM pay_bonus_employee_time_slice
+                    GROUP BY employee_daily_id
+                ) ts ON ts.employee_daily_id = ed.id";
+            $sliceSummarySelect = 'COALESCE(ts.slice_count,0) AS slice_count';
+        }
+
         $db = $this->db->select("
                 ed.*,
                 p.bonus_date,
                 p.approval_status AS pool_status,
+                {$sliceSummarySelect},
                 c.config_name,
                 r.rule_name,
                 e.employee_name,
@@ -5370,6 +5472,9 @@ class Payroll_model extends CI_Model
             ->join('org_position pos', 'pos.id = e.position_id', 'left')
             ->join('att_shift s', 's.id = ed.shift_id', 'left')
             ->where("DATE_FORMAT(ed.attendance_date, '%Y-%m') =", $month);
+        if ($sliceSummaryJoin !== '') {
+            $db->join($sliceSummaryJoin, null, 'left', false);
+        }
 
         if ($q !== '') {
             $db->group_start()
@@ -5408,6 +5513,95 @@ class Payroll_model extends CI_Model
             ->order_by('ed.id', 'DESC')
             ->limit($limit, $offset)
             ->get()->result_array();
+    }
+
+    public function get_my_bonus_daily_audit_detail(int $employeeDailyId, int $employeeId): ?array
+    {
+        $detail = $this->get_bonus_employee_daily_audit_detail($employeeDailyId);
+        if (!$detail) {
+            return null;
+        }
+
+        if ((int)($detail['header']['employee_id'] ?? 0) !== $employeeId) {
+            return null;
+        }
+
+        return $detail;
+    }
+
+    public function get_bonus_employee_daily_audit_detail(int $employeeDailyId): ?array
+    {
+        if (
+            $employeeDailyId <= 0
+            || !$this->db->table_exists('pay_bonus_employee_daily')
+            || !$this->db->table_exists('pay_bonus_pool_daily')
+        ) {
+            return null;
+        }
+
+        $header = $this->db->select("
+                ed.*,
+                p.bonus_date,
+                p.net_sales_amount AS pool_net_sales_amount,
+                p.gross_sales_amount AS pool_gross_sales_amount,
+                p.refund_amount,
+                p.target_score_percent,
+                p.service_score_percent,
+                p.approval_status AS pool_status,
+                c.config_name,
+                r.rule_name,
+                e.employee_name,
+                e.employee_code,
+                d.division_name,
+                pos.position_name,
+                s.shift_code,
+                s.shift_name
+            ", false)
+            ->from('pay_bonus_employee_daily ed')
+            ->join('pay_bonus_pool_daily p', 'p.id = ed.pool_id', 'inner')
+            ->join('pay_bonus_config c', 'c.id = p.config_id', 'left')
+            ->join('pay_bonus_rule r', 'r.id = p.rule_id', 'left')
+            ->join('org_employee e', 'e.id = ed.employee_id', 'left')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->join('org_position pos', 'pos.id = e.position_id', 'left')
+            ->join('att_shift s', 's.id = ed.shift_id', 'left')
+            ->where('ed.id', $employeeDailyId)
+            ->limit(1)
+            ->get()->row_array();
+        if (!$header) {
+            return null;
+        }
+
+        $sliceRows = [];
+        if (
+            $this->db->table_exists('pay_bonus_employee_time_slice')
+            && $this->db->table_exists('pay_bonus_pool_time_slice')
+        ) {
+            $sliceRows = $this->db->select("
+                    ets.*,
+                    pts.source_order_id,
+                    pts.source_shift_id,
+                    pts.gross_sales_amount,
+                    pts.net_sales_amount,
+                    pts.payout_amount,
+                    pts.slice_ended_at,
+                    pts.notes AS slice_notes,
+                    src.shift_code AS source_shift_code,
+                    src.shift_name AS source_shift_name
+                ", false)
+                ->from('pay_bonus_employee_time_slice ets')
+                ->join('pay_bonus_pool_time_slice pts', 'pts.id = ets.pool_time_slice_id', 'inner')
+                ->join('att_shift src', 'src.id = pts.source_shift_id', 'left')
+                ->where('ets.employee_daily_id', $employeeDailyId)
+                ->order_by('ets.slice_started_at', 'ASC')
+                ->order_by('ets.id', 'ASC')
+                ->get()->result_array();
+        }
+
+        return [
+            'header' => $header,
+            'slice_rows' => $sliceRows,
+        ];
     }
 
     public function list_bonus_rule_options(): array
@@ -5699,6 +5893,609 @@ class Payroll_model extends CI_Model
             $db->where('is_active', 1);
         }
         return $db->order_by('start_time', 'ASC')->get()->result_array();
+    }
+
+    private function bonus_build_shift_window(string $bonusDate, string $startTime, string $endTime, bool $isOvernight = false): array
+    {
+        $startTs = strtotime($bonusDate . ' ' . ($startTime !== '' ? $startTime : '00:00:00'));
+        $endTs = strtotime($bonusDate . ' ' . ($endTime !== '' ? $endTime : '23:59:59'));
+        if ($startTs === false) {
+            $startTs = strtotime($bonusDate . ' 00:00:00');
+        }
+        if ($endTs === false) {
+            $endTs = strtotime($bonusDate . ' 23:59:59');
+        }
+        if ($isOvernight || $endTs < $startTs) {
+            $endTs = strtotime('+1 day', $endTs);
+        }
+
+        return [
+            'start_ts' => (int)$startTs,
+            'end_ts' => (int)$endTs,
+        ];
+    }
+
+    private function bonus_distribute_amounts(array $rows, float $totalAmount, string $baseField): array
+    {
+        $distributed = [];
+        if (empty($rows)) {
+            return $distributed;
+        }
+
+        $baseTotal = 0.0;
+        foreach ($rows as $row) {
+            $baseTotal += (float)($row[$baseField] ?? 0);
+        }
+
+        $rowCount = count($rows);
+        $remaining = round($totalAmount, 2);
+        $lastIndex = $rowCount - 1;
+        foreach (array_values($rows) as $idx => $row) {
+            if ($idx === $lastIndex) {
+                $amount = round($remaining, 2);
+            } else {
+                if ($baseTotal > 0) {
+                    $amount = round($totalAmount * (((float)($row[$baseField] ?? 0)) / $baseTotal), 2);
+                } else {
+                    $amount = round($totalAmount / max($rowCount, 1), 2);
+                }
+                $remaining = round($remaining - $amount, 2);
+            }
+            $distributed[$idx] = $amount;
+        }
+
+        return $distributed;
+    }
+
+    private function generate_bonus_pool_daily_overlap_mode(
+        string $bonusDate,
+        array $rule,
+        int $actorUserId,
+        int $overwrittenPoolCount,
+        float $grossSalesAmount,
+        float $netSalesAmount,
+        float $refundAmount,
+        array $targetCtx,
+        array $dailyThresholdCtx,
+        bool $dailyTargetPassed,
+        string $poolSourceMode,
+        float $poolSourceValue,
+        float $effectivePayoutPercent,
+        float $basePoolAmount,
+        float $payoutAmount,
+        float $serviceScorePercent,
+        float $serviceAvgMinutes,
+        string $paymentStatusSql
+    ): array {
+        $this->sync_bonus_auto_penalties($bonusDate, 0, $actorUserId, (int)($rule['id'] ?? 0));
+
+        $weightRows = [];
+        if ($this->db->table_exists('pay_bonus_weight_rule')) {
+            $weightDb = $this->db->from('pay_bonus_weight_rule')
+                ->where('is_active', 1)
+                ->group_start()
+                    ->where('rule_id', (int)($rule['id'] ?? 0));
+            if ($this->table_has_field('pay_bonus_weight_rule', 'target_frequency')) {
+                $weightDb->or_group_start()
+                    ->where('rule_id IS NULL', null, false)
+                    ->where_in('target_frequency', ['ALL', 'DAILY'])
+                    ->group_end();
+            } else {
+                $weightDb->or_where('rule_id IS NULL', null, false);
+            }
+            $weightDb->group_end();
+            $weightRows = $weightDb->get()->result_array();
+        }
+        $weightMap = ['DIVISION' => [], 'POSITION' => [], 'EMPLOYEE' => [], 'SHIFT' => []];
+        foreach ($weightRows as $weightRow) {
+            $scope = strtoupper((string)($weightRow['weight_scope'] ?? ''));
+            $scopeId = (int)($weightRow['scope_id'] ?? 0);
+            if ($scope !== '' && $scopeId > 0) {
+                $weightMap[$scope][$scopeId] = [
+                    'point_weight' => (float)($weightRow['point_weight'] ?? 1),
+                    'pool_weight' => (float)($weightRow['pool_weight'] ?? 1),
+                ];
+            }
+        }
+
+        $employeeDb = $this->db->select("
+                ad.employee_id,
+                ad.attendance_date,
+                ad.shift_id,
+                ad.attendance_status,
+                e.division_id,
+                e.position_id,
+                e.employee_name,
+                s.shift_code,
+                s.shift_name,
+                s.start_time,
+                s.end_time" . ($this->table_has_field('att_shift', 'is_overnight') ? ', s.is_overnight' : '') . "
+            ", false)
+            ->from('att_daily ad')
+            ->join('org_employee e', 'e.id = ad.employee_id', 'inner')
+            ->join('att_shift s', 's.id = ad.shift_id', 'left')
+            ->where('ad.attendance_date', $bonusDate)
+            ->where_in('ad.attendance_status', ['PRESENT', 'LATE', 'HOLIDAY']);
+        if ((int)($rule['division_id'] ?? 0) > 0) {
+            $employeeDb->where('e.division_id', (int)$rule['division_id']);
+        }
+        $employeeRows = $employeeDb->get()->result_array();
+        if (empty($employeeRows)) {
+            return ['ok' => false, 'message' => 'Tidak ada pegawai hadir yang cocok untuk pembagian overlap pada tanggal tersebut.'];
+        }
+
+        $penaltyRows = $this->db->select("
+                employee_id,
+                division_id,
+                shift_id,
+                penalty_scope,
+                COALESCE(SUM(points_deducted),0) AS penalty_point,
+                COALESCE(SUM(amount_deducted),0) AS penalty_amount
+            ", false)
+            ->from('pay_bonus_penalty_event')
+            ->where('penalty_date', $bonusDate)
+            ->where('status', 'APPROVED')
+            ->group_by(['employee_id', 'division_id', 'shift_id', 'penalty_scope'])
+            ->get()->result_array();
+        $personalPenaltyMap = [];
+        $teamPenaltyByEmployeeMap = [];
+        $teamPenaltyMap = [];
+        foreach ($penaltyRows as $penaltyRow) {
+            $scope = strtoupper((string)($penaltyRow['penalty_scope'] ?? 'PERSONAL'));
+            if ($scope === 'TEAM') {
+                $teamEmployeeId = (int)($penaltyRow['employee_id'] ?? 0);
+                if ($teamEmployeeId > 0) {
+                    if (!isset($teamPenaltyByEmployeeMap[$teamEmployeeId])) {
+                        $teamPenaltyByEmployeeMap[$teamEmployeeId] = ['point' => 0.0, 'amount' => 0.0];
+                    }
+                    $teamPenaltyByEmployeeMap[$teamEmployeeId]['point'] += (float)($penaltyRow['penalty_point'] ?? 0);
+                    $teamPenaltyByEmployeeMap[$teamEmployeeId]['amount'] += (float)($penaltyRow['penalty_amount'] ?? 0);
+                } else {
+                    $teamPenaltyMap[(int)($penaltyRow['division_id'] ?? 0) . ':' . (int)($penaltyRow['shift_id'] ?? 0)] = [
+                        'point' => (float)($penaltyRow['penalty_point'] ?? 0),
+                        'amount' => (float)($penaltyRow['penalty_amount'] ?? 0),
+                    ];
+                }
+            } else {
+                $personalPenaltyMap[(int)($penaltyRow['employee_id'] ?? 0)] = [
+                    'point' => (float)($penaltyRow['penalty_point'] ?? 0),
+                    'amount' => (float)($penaltyRow['penalty_amount'] ?? 0),
+                ];
+            }
+        }
+
+        $eligibleEmployees = [];
+        foreach ($employeeRows as $employeeRow) {
+            $employeeId = (int)($employeeRow['employee_id'] ?? 0);
+            $shiftId = (int)($employeeRow['shift_id'] ?? 0);
+            if ($employeeId <= 0 || $shiftId <= 0) {
+                continue;
+            }
+
+            $divisionWeight = (float)($weightMap['DIVISION'][(int)($employeeRow['division_id'] ?? 0)]['point_weight'] ?? 1);
+            $positionWeight = (float)($weightMap['POSITION'][(int)($employeeRow['position_id'] ?? 0)]['point_weight'] ?? 1);
+            $employeeWeight = (float)($weightMap['EMPLOYEE'][$employeeId]['point_weight'] ?? 1);
+            $shiftWeight = (float)($weightMap['SHIFT'][$shiftId]['point_weight'] ?? 1);
+            $basePoint = round($divisionWeight * $positionWeight * $employeeWeight * $shiftWeight, 4);
+
+            $window = $this->bonus_build_shift_window(
+                $bonusDate,
+                (string)($employeeRow['start_time'] ?? '00:00:00'),
+                (string)($employeeRow['end_time'] ?? '23:59:59'),
+                (int)($employeeRow['is_overnight'] ?? 0) === 1
+            );
+
+            $eligibleEmployees[] = [
+                'employee_id' => $employeeId,
+                'attendance_date' => (string)($employeeRow['attendance_date'] ?? $bonusDate),
+                'shift_id' => $shiftId,
+                'attendance_status' => (string)($employeeRow['attendance_status'] ?? ''),
+                'division_id' => (int)($employeeRow['division_id'] ?? 0),
+                'position_id' => (int)($employeeRow['position_id'] ?? 0),
+                'employee_name' => (string)($employeeRow['employee_name'] ?? ''),
+                'shift_code' => (string)($employeeRow['shift_code'] ?? ''),
+                'shift_name' => (string)($employeeRow['shift_name'] ?? ''),
+                'division_weight' => $divisionWeight,
+                'position_weight' => $positionWeight,
+                'employee_weight' => $employeeWeight,
+                'shift_weight' => $shiftWeight,
+                'base_point' => max(0.0001, $basePoint),
+                'window_start_ts' => (int)$window['start_ts'],
+                'window_end_ts' => (int)$window['end_ts'],
+            ];
+        }
+        if (empty($eligibleEmployees)) {
+            return ['ok' => false, 'message' => 'Pegawai eligible overlap tidak ditemukan.'];
+        }
+
+        $orderSelect = [
+            'o.id AS order_id',
+            "COALESCE(o.paid_at, o.ordered_at) AS order_at",
+            'COALESCE(o.grand_total,0) AS gross_sales_amount',
+        ];
+        if ($this->table_has_field('pos_order', 'shift_id')) {
+            $orderSelect[] = 'o.shift_id';
+        } else {
+            $orderSelect[] = 'NULL AS shift_id';
+        }
+        if ($this->table_has_field('pos_order', 'order_no')) {
+            $orderSelect[] = 'o.order_no';
+        } else {
+            $orderSelect[] = "CONCAT('ORDER#', o.id) AS order_no";
+        }
+        $orderDb = $this->db->select(implode(', ', $orderSelect), false)
+            ->from('pos_order o')
+            ->where("DATE(COALESCE(o.paid_at, o.ordered_at)) = " . $this->db->escape($bonusDate), null, false)
+            ->where("{$paymentStatusSql} IN ('PAID','PAID_PARTIAL')", null, false);
+        if ((int)($rule['outlet_id'] ?? 0) > 0 && $this->table_has_field('pos_order', 'outlet_id')) {
+            $orderDb->where('o.outlet_id', (int)$rule['outlet_id']);
+        }
+        $orderRows = $orderDb
+            ->order_by('COALESCE(o.paid_at, o.ordered_at)', 'ASC', false)
+            ->order_by('o.id', 'ASC')
+            ->get()->result_array();
+
+        $sourceRows = [];
+        foreach ($orderRows as $orderRow) {
+            $orderAt = (string)($orderRow['order_at'] ?? '');
+            $grossAmount = round((float)($orderRow['gross_sales_amount'] ?? 0), 2);
+            if ($orderAt === '' || $grossAmount <= 0) {
+                continue;
+            }
+            $sourceRows[] = [
+                'source_order_id' => (int)($orderRow['order_id'] ?? 0),
+                'source_shift_id' => (int)($orderRow['shift_id'] ?? 0),
+                'slice_started_at' => $orderAt,
+                'slice_ended_at' => $orderAt,
+                'slice_label' => date('H:i:s', strtotime($orderAt)),
+                'gross_sales_amount' => $grossAmount,
+                'order_no' => (string)($orderRow['order_no'] ?? ('ORDER#' . (int)($orderRow['order_id'] ?? 0))),
+            ];
+        }
+
+        if (empty($sourceRows)) {
+            if ($payoutAmount <= 0) {
+                return ['ok' => false, 'message' => 'Tidak ada transaksi paid pada tanggal ini, sehingga tidak ada pool overlap yang bisa dibaca.'];
+            }
+            $sourceRows[] = [
+                'source_order_id' => null,
+                'source_shift_id' => null,
+                'slice_started_at' => $bonusDate . ' 23:59:59',
+                'slice_ended_at' => $bonusDate . ' 23:59:59',
+                'slice_label' => 'POOL MANUAL',
+                'gross_sales_amount' => 0.00,
+                'order_no' => 'POOL MANUAL',
+            ];
+        }
+
+        $netDistributed = $this->bonus_distribute_amounts($sourceRows, $netSalesAmount, 'gross_sales_amount');
+        foreach ($sourceRows as $idx => $sourceRow) {
+            $sourceRows[$idx]['net_sales_amount'] = round((float)($netDistributed[$idx] ?? 0), 2);
+        }
+
+        if ($dailyTargetPassed && in_array($poolSourceMode, ['FIXED', 'MANUAL'], true)) {
+            $payoutDistributed = $this->bonus_distribute_amounts($sourceRows, $payoutAmount, 'gross_sales_amount');
+        } else {
+            $payoutDistributed = $this->bonus_distribute_amounts($sourceRows, $payoutAmount, 'net_sales_amount');
+        }
+        foreach ($sourceRows as $idx => $sourceRow) {
+            $sourceRows[$idx]['payout_amount'] = round((float)($payoutDistributed[$idx] ?? 0), 2);
+        }
+
+        $sliceDraftRows = [];
+        $employeeSliceDraftRows = [];
+        $employeeAggregateMap = [];
+        $shiftAggregateMap = [];
+        $skippedSourceCount = 0;
+
+        foreach ($sourceRows as $sourceIndex => $sourceRow) {
+            $sliceTs = strtotime((string)$sourceRow['slice_started_at']);
+            if ($sliceTs === false) {
+                continue;
+            }
+
+            $activeEmployees = [];
+            foreach ($eligibleEmployees as $eligibleEmployee) {
+                if ($sourceRow['slice_label'] === 'POOL MANUAL') {
+                    $activeEmployees[] = $eligibleEmployee;
+                    continue;
+                }
+                if ($sliceTs >= (int)$eligibleEmployee['window_start_ts'] && $sliceTs <= (int)$eligibleEmployee['window_end_ts']) {
+                    $activeEmployees[] = $eligibleEmployee;
+                }
+            }
+            if (empty($activeEmployees)) {
+                $skippedSourceCount++;
+                continue;
+            }
+
+            $totalPointWeight = 0.0;
+            foreach ($activeEmployees as $activeEmployee) {
+                $totalPointWeight += (float)($activeEmployee['base_point'] ?? 0);
+            }
+            if ($totalPointWeight <= 0) {
+                $skippedSourceCount++;
+                continue;
+            }
+
+            $sliceDraftRows[] = [
+                'draft_key' => $sourceIndex,
+                'source_order_id' => $sourceRow['source_order_id'],
+                'source_shift_id' => !empty($sourceRow['source_shift_id']) ? (int)$sourceRow['source_shift_id'] : null,
+                'slice_started_at' => (string)$sourceRow['slice_started_at'],
+                'slice_ended_at' => (string)$sourceRow['slice_ended_at'],
+                'slice_label' => (string)$sourceRow['slice_label'],
+                'gross_sales_amount' => round((float)($sourceRow['gross_sales_amount'] ?? 0), 2),
+                'net_sales_amount' => round((float)($sourceRow['net_sales_amount'] ?? 0), 2),
+                'payout_amount' => round((float)($sourceRow['payout_amount'] ?? 0), 2),
+                'active_employee_count' => count($activeEmployees),
+                'total_point_weight' => round($totalPointWeight, 4),
+                'notes' => 'Transaksi ' . (string)($sourceRow['order_no'] ?? ('#' . (int)($sourceRow['source_order_id'] ?? 0))),
+            ];
+
+            foreach ($activeEmployees as $activeEmployee) {
+                $ratio = (float)$activeEmployee['base_point'] / $totalPointWeight;
+                $rawAmount = round((float)$sourceRow['payout_amount'] * $ratio, 2);
+                $attributableRevenue = round((float)$sourceRow['net_sales_amount'] * $ratio, 2);
+                $aggregateKey = (int)$activeEmployee['employee_id'] . ':' . (int)$activeEmployee['shift_id'];
+                if (!isset($employeeAggregateMap[$aggregateKey])) {
+                    $employeeAggregateMap[$aggregateKey] = [
+                        'employee_id' => (int)$activeEmployee['employee_id'],
+                        'attendance_date' => (string)$activeEmployee['attendance_date'],
+                        'shift_id' => (int)$activeEmployee['shift_id'],
+                        'attendance_status' => (string)$activeEmployee['attendance_status'],
+                        'division_id' => (int)$activeEmployee['division_id'],
+                        'division_weight' => (float)$activeEmployee['division_weight'],
+                        'position_weight' => (float)$activeEmployee['position_weight'],
+                        'employee_weight' => (float)$activeEmployee['employee_weight'],
+                        'shift_weight' => (float)$activeEmployee['shift_weight'],
+                        'raw_point' => 0.0,
+                        'raw_amount' => 0.0,
+                        'revenue_in_shift' => 0.0,
+                    ];
+                }
+                $employeeAggregateMap[$aggregateKey]['raw_point'] += (float)$activeEmployee['base_point'];
+                $employeeAggregateMap[$aggregateKey]['raw_amount'] += $rawAmount;
+                $employeeAggregateMap[$aggregateKey]['revenue_in_shift'] += $attributableRevenue;
+
+                $shiftKey = (int)$activeEmployee['shift_id'];
+                if (!isset($shiftAggregateMap[$shiftKey])) {
+                    $shiftAggregateMap[$shiftKey] = [
+                        'shift_id' => (int)$activeEmployee['shift_id'],
+                        'gross_sales_amount' => 0.0,
+                        'net_sales_amount' => 0.0,
+                        'shift_pool_amount' => 0.0,
+                        'employee_map' => [],
+                        'slice_count' => 0,
+                    ];
+                }
+                $shiftAggregateMap[$shiftKey]['gross_sales_amount'] += round((float)$sourceRow['gross_sales_amount'] * $ratio, 2);
+                $shiftAggregateMap[$shiftKey]['net_sales_amount'] += $attributableRevenue;
+                $shiftAggregateMap[$shiftKey]['shift_pool_amount'] += $rawAmount;
+                $shiftAggregateMap[$shiftKey]['employee_map'][(int)$activeEmployee['employee_id']] = true;
+                $shiftAggregateMap[$shiftKey]['slice_count']++;
+
+                $employeeSliceDraftRows[] = [
+                    'draft_key' => $sourceIndex,
+                    'employee_id' => (int)$activeEmployee['employee_id'],
+                    'attendance_date' => (string)$activeEmployee['attendance_date'],
+                    'shift_id' => (int)$activeEmployee['shift_id'],
+                    'slice_started_at' => (string)$sourceRow['slice_started_at'],
+                    'slice_label' => (string)$sourceRow['slice_label'],
+                    'active_employee_count' => count($activeEmployees),
+                    'division_weight' => (float)$activeEmployee['division_weight'],
+                    'position_weight' => (float)$activeEmployee['position_weight'],
+                    'employee_weight' => (float)$activeEmployee['employee_weight'],
+                    'shift_weight' => (float)$activeEmployee['shift_weight'],
+                    'raw_point' => round((float)$activeEmployee['base_point'], 4),
+                    'raw_amount' => $rawAmount,
+                    'attributable_revenue' => $attributableRevenue,
+                    'notes' => 'Irisan transaksi ' . (string)($sourceRow['order_no'] ?? ('#' . (int)($sourceRow['source_order_id'] ?? 0))),
+                ];
+            }
+        }
+
+        if (empty($employeeAggregateMap)) {
+            return ['ok' => false, 'message' => 'Tidak ada irisan transaksi yang cocok dengan pegawai aktif pada tanggal ini.'];
+        }
+
+        $totalPointWeight = 0.0;
+        foreach ($employeeAggregateMap as $employeeAggregateRow) {
+            $totalPointWeight += (float)($employeeAggregateRow['raw_point'] ?? 0);
+        }
+
+        $this->db->trans_start();
+        $this->db->insert('pay_bonus_pool_daily', [
+            'bonus_date' => $bonusDate,
+            'config_id' => (int)$rule['config_id'],
+            'rule_id' => (int)$rule['id'],
+            'outlet_id' => (int)($rule['outlet_id'] ?? 0) > 0 ? (int)$rule['outlet_id'] : null,
+            'division_id' => (int)($rule['division_id'] ?? 0) > 0 ? (int)$rule['division_id'] : null,
+            'target_plan_id' => $targetCtx['target_plan_id'],
+            'target_score_percent' => round((float)$targetCtx['target_score_percent'], 2),
+            'target_gate_passed' => (int)$targetCtx['target_gate_passed'],
+            'gross_sales_amount' => $grossSalesAmount,
+            'net_sales_amount' => $netSalesAmount,
+            'refund_amount' => $refundAmount,
+            'service_score_percent' => $serviceScorePercent,
+            'pool_amount' => $basePoolAmount,
+            'payout_amount' => $payoutAmount,
+            'total_employee_point' => round($totalPointWeight, 4),
+            'total_employee_amount' => $payoutAmount,
+            'approval_status' => 'DRAFT',
+            'notes' => trim(
+                ($overwrittenPoolCount > 0 ? ('Menimpa ' . $overwrittenPoolCount . ' pool lama | ') : '')
+                . 'Mode overlap transaksi'
+                . ' | '
+                . $targetCtx['target_notes']
+                . ' | '
+                . (string)($dailyThresholdCtx['notes'] ?? 'Ambang omzet harian')
+                . ' | Target harian '
+                . ($dailyTargetPassed ? 'lolos' : 'belum lolos')
+                . ' | Gerbang bulanan '
+                . ((int)($targetCtx['target_gate_passed'] ?? 1) === 1 ? 'lolos' : 'tertahan')
+                . ' | Omzet bersih '
+                . number_format($netSalesAmount, 2, ',', '.')
+                . ' | Payout '
+                . number_format($effectivePayoutPercent, 2, ',', '.')
+                . '% | Service '
+                . number_format($serviceScorePercent, 2, ',', '.')
+                . '% | Slice skip '
+                . number_format($skippedSourceCount, 0, ',', '.')
+            ),
+            'created_by' => $actorUserId > 0 ? $actorUserId : null,
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        $poolId = (int)$this->db->insert_id();
+
+        $shiftServiceMetricMap = [];
+        if ($this->db->table_exists('pay_bonus_service_metric_daily') && !empty($shiftAggregateMap)) {
+            $metricDb = $this->db->select('shift_id, COALESCE(AVG(score_percent),100) AS avg_score, COALESCE(AVG(avg_service_minutes),0) AS avg_minutes', false)
+                ->from('pay_bonus_service_metric_daily')
+                ->where('metric_date', $bonusDate)
+                ->where_in('shift_id', array_keys($shiftAggregateMap))
+                ->where('division_id IS NULL', null, false);
+            if ((int)($rule['outlet_id'] ?? 0) > 0) {
+                $metricDb->where('outlet_id', (int)$rule['outlet_id']);
+            } else {
+                $metricDb->where('outlet_id IS NULL', null, false);
+            }
+            $metricRows = $metricDb->group_by('shift_id')->get()->result_array();
+            foreach ($metricRows as $metricRow) {
+                $shiftServiceMetricMap[(int)($metricRow['shift_id'] ?? 0)] = [
+                    'avg_minutes' => round((float)($metricRow['avg_minutes'] ?? 0), 2),
+                    'score_percent' => round((float)($metricRow['avg_score'] ?? 100), 2),
+                ];
+            }
+        }
+
+        $shiftPoolIdMap = [];
+        foreach ($shiftAggregateMap as $shiftId => $shiftAggregateRow) {
+            $serviceMetric = $shiftServiceMetricMap[(int)$shiftId] ?? ['avg_minutes' => $serviceAvgMinutes, 'score_percent' => $serviceScorePercent];
+            $this->db->insert('pay_bonus_pool_shift', [
+                'pool_id' => $poolId,
+                'shift_id' => (int)$shiftId,
+                'shift_start' => null,
+                'shift_end' => null,
+                'gross_sales_amount' => round((float)($shiftAggregateRow['gross_sales_amount'] ?? 0), 2),
+                'net_sales_amount' => round((float)($shiftAggregateRow['net_sales_amount'] ?? 0), 2),
+                'total_orders' => (int)($shiftAggregateRow['slice_count'] ?? 0),
+                'avg_service_minutes' => round((float)($serviceMetric['avg_minutes'] ?? 0), 2),
+                'service_score_percent' => round((float)($serviceMetric['score_percent'] ?? 100), 2),
+                'shift_point_weight' => 1.0000,
+                'shift_pool_amount' => round((float)($shiftAggregateRow['shift_pool_amount'] ?? 0), 2),
+                'employee_count' => count((array)($shiftAggregateRow['employee_map'] ?? [])),
+                'notes' => 'Agregat overlap transaksi untuk shift ini',
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $shiftPoolIdMap[(int)$shiftId] = (int)$this->db->insert_id();
+        }
+
+        $employeeDailyIdMap = [];
+        foreach ($employeeAggregateMap as $aggregateKey => $employeeAggregateRow) {
+            $empId = (int)($employeeAggregateRow['employee_id'] ?? 0);
+            $shiftId = (int)($employeeAggregateRow['shift_id'] ?? 0);
+            $personalPenalty = $personalPenaltyMap[$empId] ?? ['point' => 0.0, 'amount' => 0.0];
+            $employeeTeamPenalty = $teamPenaltyByEmployeeMap[$empId] ?? ['point' => 0.0, 'amount' => 0.0];
+            $teamPenalty = $teamPenaltyMap[(int)($employeeAggregateRow['division_id'] ?? 0) . ':' . $shiftId] ?? ['point' => 0.0, 'amount' => 0.0];
+            $penaltyPoint = round((float)$personalPenalty['point'] + (float)$employeeTeamPenalty['point'] + (float)$teamPenalty['point'], 4);
+            $penaltyAmountDirect = round((float)$personalPenalty['amount'] + (float)$employeeTeamPenalty['amount'] + (float)$teamPenalty['amount'], 2);
+            $rawAmount = round((float)($employeeAggregateRow['raw_amount'] ?? 0), 2);
+            $pointPenaltyMode = strtoupper((string)($rule['point_penalty_currency_mode'] ?? 'PERCENT_SHARE'));
+            $pointPenaltyValue = (float)($rule['point_penalty_currency_value'] ?? 5);
+            $penaltyAmountByPoint = $this->convert_bonus_penalty_point_to_amount($penaltyPoint, $pointPenaltyMode, $pointPenaltyValue, $rawAmount);
+            $totalPenaltyAmount = round(min($rawAmount, $penaltyAmountDirect + $penaltyAmountByPoint), 2);
+            $finalPoint = round(max(0, (float)($employeeAggregateRow['raw_point'] ?? 0) - $penaltyPoint), 4);
+            $finalAmount = round(max(0, $rawAmount - $totalPenaltyAmount), 2);
+
+            $this->db->insert('pay_bonus_employee_daily', [
+                'pool_id' => $poolId,
+                'pool_shift_id' => $shiftPoolIdMap[$shiftId] ?? null,
+                'employee_id' => $empId,
+                'attendance_date' => (string)$employeeAggregateRow['attendance_date'],
+                'shift_id' => $shiftId > 0 ? $shiftId : null,
+                'attendance_status' => (string)$employeeAggregateRow['attendance_status'],
+                'division_weight' => round((float)$employeeAggregateRow['division_weight'], 4),
+                'position_weight' => round((float)$employeeAggregateRow['position_weight'], 4),
+                'employee_weight' => round((float)$employeeAggregateRow['employee_weight'], 4),
+                'shift_weight' => round((float)$employeeAggregateRow['shift_weight'], 4),
+                'attendance_weight' => 1.0000,
+                'target_weight' => 1.0000,
+                'service_weight' => 1.0000,
+                'peer_weight' => 1.0000,
+                'revenue_in_shift' => round((float)($employeeAggregateRow['revenue_in_shift'] ?? 0), 2),
+                'raw_point' => round((float)($employeeAggregateRow['raw_point'] ?? 0), 4),
+                'raw_amount' => $rawAmount,
+                'penalty_point' => $penaltyPoint,
+                'penalty_amount' => $totalPenaltyAmount,
+                'final_point' => $finalPoint,
+                'final_amount' => $finalAmount,
+                'approval_status' => 'DRAFT',
+                'notes' => 'Agregat irisan transaksi harian',
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $employeeDailyIdMap[$aggregateKey] = (int)$this->db->insert_id();
+        }
+
+        $timeSliceIdMap = [];
+        foreach ($sliceDraftRows as $sliceDraftRow) {
+            $this->db->insert('pay_bonus_pool_time_slice', [
+                'pool_id' => $poolId,
+                'source_order_id' => $sliceDraftRow['source_order_id'],
+                'source_shift_id' => $sliceDraftRow['source_shift_id'],
+                'slice_started_at' => $sliceDraftRow['slice_started_at'],
+                'slice_ended_at' => $sliceDraftRow['slice_ended_at'],
+                'slice_label' => $sliceDraftRow['slice_label'],
+                'gross_sales_amount' => $sliceDraftRow['gross_sales_amount'],
+                'net_sales_amount' => $sliceDraftRow['net_sales_amount'],
+                'payout_amount' => $sliceDraftRow['payout_amount'],
+                'active_employee_count' => (int)$sliceDraftRow['active_employee_count'],
+                'total_point_weight' => round((float)$sliceDraftRow['total_point_weight'], 4),
+                'notes' => $sliceDraftRow['notes'],
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+            $timeSliceIdMap[(int)$sliceDraftRow['draft_key']] = (int)$this->db->insert_id();
+        }
+
+        foreach ($employeeSliceDraftRows as $employeeSliceDraftRow) {
+            $aggregateKey = (int)$employeeSliceDraftRow['employee_id'] . ':' . (int)$employeeSliceDraftRow['shift_id'];
+            $this->db->insert('pay_bonus_employee_time_slice', [
+                'pool_id' => $poolId,
+                'pool_time_slice_id' => $timeSliceIdMap[(int)$employeeSliceDraftRow['draft_key']] ?? null,
+                'employee_daily_id' => $employeeDailyIdMap[$aggregateKey] ?? null,
+                'employee_id' => (int)$employeeSliceDraftRow['employee_id'],
+                'attendance_date' => $employeeSliceDraftRow['attendance_date'],
+                'shift_id' => (int)$employeeSliceDraftRow['shift_id'] > 0 ? (int)$employeeSliceDraftRow['shift_id'] : null,
+                'slice_started_at' => $employeeSliceDraftRow['slice_started_at'],
+                'slice_label' => $employeeSliceDraftRow['slice_label'],
+                'active_employee_count' => (int)$employeeSliceDraftRow['active_employee_count'],
+                'division_weight' => round((float)$employeeSliceDraftRow['division_weight'], 4),
+                'position_weight' => round((float)$employeeSliceDraftRow['position_weight'], 4),
+                'employee_weight' => round((float)$employeeSliceDraftRow['employee_weight'], 4),
+                'shift_weight' => round((float)$employeeSliceDraftRow['shift_weight'], 4),
+                'raw_point' => round((float)$employeeSliceDraftRow['raw_point'], 4),
+                'raw_amount' => round((float)$employeeSliceDraftRow['raw_amount'], 2),
+                'attributable_revenue' => round((float)$employeeSliceDraftRow['attributable_revenue'], 2),
+                'notes' => $employeeSliceDraftRow['notes'],
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        $this->db->trans_complete();
+        if (!$this->db->trans_status()) {
+            return ['ok' => false, 'message' => 'Gagal menyimpan draft pool bonus overlap transaksi.'];
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Draft pool bonus overlap transaksi berhasil dibuat.' . ($overwrittenPoolCount > 0 ? (' Pool lama otomatis ditimpa: ' . $overwrittenPoolCount . ' data.') : ''),
+            'pool_id' => $poolId,
+        ];
     }
 
     private function auto_penalty_type_rows(): array
@@ -6429,6 +7226,7 @@ class Payroll_model extends CI_Model
 
     public function generate_bonus_pool_daily(string $bonusDate, int $ruleId, int $actorUserId = 0, int $forcedDailyTargetPlanId = 0): array
     {
+        @set_time_limit(180);
         if (
             !preg_match('/^\d{4}-\d{2}-\d{2}$/', $bonusDate)
             || !$this->db->table_exists('pay_bonus_pool_daily')
@@ -6518,6 +7316,32 @@ class Payroll_model extends CI_Model
             $serviceScorePercent = $this->normalize_bonus_service_score($serviceAvgMinutes, $serviceTargetMinute, (float)($serviceMetric['avg_score'] ?? 100));
         }
 
+        if (
+            $this->db->table_exists('pay_bonus_pool_time_slice')
+            && $this->db->table_exists('pay_bonus_employee_time_slice')
+        ) {
+            return $this->generate_bonus_pool_daily_overlap_mode(
+                $bonusDate,
+                $rule,
+                $actorUserId,
+                $overwrittenPoolCount,
+                $grossSalesAmount,
+                $netSalesAmount,
+                $refundAmount,
+                $targetCtx,
+                $dailyThresholdCtx,
+                $dailyTargetPassed,
+                $poolSourceMode,
+                $poolSourceValue,
+                $effectivePayoutPercent,
+                $basePoolAmount,
+                $payoutAmount,
+                $serviceScorePercent,
+                $serviceAvgMinutes,
+                $paymentStatusSql
+            );
+        }
+
         $shiftRows = $this->get_bonus_shift_rows($bonusDate);
         if (empty($shiftRows)) {
             return ['ok' => false, 'message' => 'Tidak ada data shift untuk tanggal bonus ini.'];
@@ -6525,60 +7349,104 @@ class Payroll_model extends CI_Model
 
         $shiftSalesMap = [];
         $shiftTotalGross = 0.00;
+        $shiftIds = [];
         foreach ($shiftRows as $shiftRow) {
             $shiftId = (int)($shiftRow['id'] ?? 0);
-            if ($shiftId <= 0) {
-                continue;
+            if ($shiftId > 0) {
+                $shiftIds[] = $shiftId;
+                $shiftSalesMap[$shiftId] = [
+                    'gross_sales_amount' => 0.0,
+                    'total_orders' => 0,
+                ];
             }
-            $startTime = (string)($shiftRow['start_time'] ?? '00:00:00');
-            $endTime = (string)($shiftRow['end_time'] ?? '23:59:59');
-            $isOvernight = (int)($shiftRow['is_overnight'] ?? 0) === 1 || $endTime < $startTime;
-
-            $shiftSalesDb = $this->db->select('COALESCE(SUM(o.grand_total),0) AS gross_sales_amount, COUNT(*) AS total_orders', false)
-                ->from('pos_order o')
-                ->where("DATE(COALESCE(o.paid_at, o.ordered_at)) = " . $this->db->escape($bonusDate), null, false)
-                ->where("{$paymentStatusSql} IN ('PAID','PAID_PARTIAL')", null, false);
-            if ((int)($rule['outlet_id'] ?? 0) > 0 && $this->table_has_field('pos_order', 'outlet_id')) {
-                $shiftSalesDb->where('o.outlet_id', (int)$rule['outlet_id']);
-            }
-            if ($isOvernight) {
-                $shiftSalesDb->where("(TIME(o.ordered_at) >= " . $this->db->escape($startTime) . " OR TIME(o.ordered_at) <= " . $this->db->escape($endTime) . ")", null, false);
-            } else {
-                $shiftSalesDb->where("TIME(o.ordered_at) >= " . $this->db->escape($startTime), null, false)
-                    ->where("TIME(o.ordered_at) <= " . $this->db->escape($endTime), null, false);
-            }
-            $shiftSalesRow = $shiftSalesDb->get()->row_array() ?: [];
-            $shiftGross = round((float)($shiftSalesRow['gross_sales_amount'] ?? 0), 2);
-            $shiftTotalGross += $shiftGross;
-            $shiftSalesMap[$shiftId] = [
-                'gross_sales_amount' => $shiftGross,
-                'total_orders' => (int)($shiftSalesRow['total_orders'] ?? 0),
-            ];
         }
 
-        $shiftServiceMetricMap = [];
-        if ($this->db->table_exists('pay_bonus_service_metric_daily')) {
+        if (!empty($shiftIds) && $this->table_has_field('pos_order', 'shift_id')) {
+            $shiftSalesRows = $this->db->select('o.shift_id, COALESCE(SUM(o.grand_total),0) AS gross_sales_amount, COUNT(*) AS total_orders', false)
+                ->from('pos_order o')
+                ->where("DATE(COALESCE(o.paid_at, o.ordered_at)) = " . $this->db->escape($bonusDate), null, false)
+                ->where("{$paymentStatusSql} IN ('PAID','PAID_PARTIAL')", null, false)
+                ->where_in('o.shift_id', $shiftIds);
+            if ((int)($rule['outlet_id'] ?? 0) > 0 && $this->table_has_field('pos_order', 'outlet_id')) {
+                $shiftSalesRows->where('o.outlet_id', (int)$rule['outlet_id']);
+            }
+            $shiftSalesRows = $shiftSalesRows->group_by('o.shift_id')->get()->result_array();
+            foreach ($shiftSalesRows as $shiftSalesRow) {
+                $shiftId = (int)($shiftSalesRow['shift_id'] ?? 0);
+                if ($shiftId <= 0) {
+                    continue;
+                }
+                $shiftSalesMap[$shiftId] = [
+                    'gross_sales_amount' => round((float)($shiftSalesRow['gross_sales_amount'] ?? 0), 2),
+                    'total_orders' => (int)($shiftSalesRow['total_orders'] ?? 0),
+                ];
+            }
+        } else {
             foreach ($shiftRows as $shiftRow) {
                 $shiftId = (int)($shiftRow['id'] ?? 0);
                 if ($shiftId <= 0) {
                     continue;
                 }
-                $metricDb = $this->db->select('COALESCE(AVG(score_percent),100) AS avg_score, COALESCE(AVG(avg_service_minutes),0) AS avg_minutes', false)
+                $startTime = (string)($shiftRow['start_time'] ?? '00:00:00');
+                $endTime = (string)($shiftRow['end_time'] ?? '23:59:59');
+                $isOvernight = (int)($shiftRow['is_overnight'] ?? 0) === 1 || $endTime < $startTime;
+
+                $shiftSalesDb = $this->db->select('COALESCE(SUM(o.grand_total),0) AS gross_sales_amount, COUNT(*) AS total_orders', false)
+                    ->from('pos_order o')
+                    ->where("DATE(COALESCE(o.paid_at, o.ordered_at)) = " . $this->db->escape($bonusDate), null, false)
+                    ->where("{$paymentStatusSql} IN ('PAID','PAID_PARTIAL')", null, false);
+                if ((int)($rule['outlet_id'] ?? 0) > 0 && $this->table_has_field('pos_order', 'outlet_id')) {
+                    $shiftSalesDb->where('o.outlet_id', (int)$rule['outlet_id']);
+                }
+                if ($isOvernight) {
+                    $shiftSalesDb->where("(TIME(o.ordered_at) >= " . $this->db->escape($startTime) . " OR TIME(o.ordered_at) <= " . $this->db->escape($endTime) . ")", null, false);
+                } else {
+                    $shiftSalesDb->where("TIME(o.ordered_at) >= " . $this->db->escape($startTime), null, false)
+                        ->where("TIME(o.ordered_at) <= " . $this->db->escape($endTime), null, false);
+                }
+                $shiftSalesRow = $shiftSalesDb->get()->row_array() ?: [];
+                $shiftSalesMap[$shiftId] = [
+                    'gross_sales_amount' => round((float)($shiftSalesRow['gross_sales_amount'] ?? 0), 2),
+                    'total_orders' => (int)($shiftSalesRow['total_orders'] ?? 0),
+                ];
+            }
+        }
+
+        foreach ($shiftSalesMap as $shiftSalesRow) {
+            $shiftTotalGross += (float)($shiftSalesRow['gross_sales_amount'] ?? 0);
+        }
+
+        $shiftServiceMetricMap = [];
+        if ($this->db->table_exists('pay_bonus_service_metric_daily')) {
+            foreach ($shiftIds as $shiftId) {
+                $shiftServiceMetricMap[$shiftId] = [
+                    'avg_minutes' => 0.0,
+                    'score_percent' => $serviceScorePercent,
+                ];
+            }
+            if (!empty($shiftIds)) {
+                $metricDb = $this->db->select('shift_id, COALESCE(AVG(score_percent),100) AS avg_score, COALESCE(AVG(avg_service_minutes),0) AS avg_minutes', false)
                     ->from('pay_bonus_service_metric_daily')
                     ->where('metric_date', $bonusDate)
-                    ->where('shift_id', $shiftId)
+                    ->where_in('shift_id', $shiftIds)
                     ->where('division_id IS NULL', null, false);
                 if ((int)($rule['outlet_id'] ?? 0) > 0) {
                     $metricDb->where('outlet_id', (int)$rule['outlet_id']);
                 } else {
                     $metricDb->where('outlet_id IS NULL', null, false);
                 }
-                $metricRow = $metricDb->get()->row_array() ?: [];
-                $shiftAvgMinutes = round((float)($metricRow['avg_minutes'] ?? 0), 2);
-                $shiftServiceMetricMap[$shiftId] = [
-                    'avg_minutes' => $shiftAvgMinutes,
-                    'score_percent' => $this->normalize_bonus_service_score($shiftAvgMinutes, $serviceTargetMinute, (float)($metricRow['avg_score'] ?? $serviceScorePercent)),
-                ];
+                $metricRows = $metricDb->group_by('shift_id')->get()->result_array();
+                foreach ($metricRows as $metricRow) {
+                    $shiftId = (int)($metricRow['shift_id'] ?? 0);
+                    if ($shiftId <= 0) {
+                        continue;
+                    }
+                    $shiftAvgMinutes = round((float)($metricRow['avg_minutes'] ?? 0), 2);
+                    $shiftServiceMetricMap[$shiftId] = [
+                        'avg_minutes' => $shiftAvgMinutes,
+                        'score_percent' => $this->normalize_bonus_service_score($shiftAvgMinutes, $serviceTargetMinute, (float)($metricRow['avg_score'] ?? $serviceScorePercent)),
+                    ];
+                }
             }
         }
 
@@ -6677,6 +7545,7 @@ class Payroll_model extends CI_Model
         }
 
         $employeeDraftRows = [];
+        $employeeCountByShift = [];
         $totalPointWeight = 0.0000;
         foreach ($employeeRows as $employeeRow) {
             $empId = (int)($employeeRow['employee_id'] ?? 0);
@@ -6684,6 +7553,10 @@ class Payroll_model extends CI_Model
             if ($empId <= 0 || $shiftId <= 0) {
                 continue;
             }
+            if (!isset($employeeCountByShift[$shiftId])) {
+                $employeeCountByShift[$shiftId] = 0;
+            }
+            $employeeCountByShift[$shiftId]++;
 
             $divisionWeight = (float)($weightMap['DIVISION'][(int)($employeeRow['division_id'] ?? 0)]['point_weight'] ?? 1);
             $positionWeight = (float)($weightMap['POSITION'][(int)($employeeRow['position_id'] ?? 0)]['point_weight'] ?? 1);
@@ -6809,9 +7682,7 @@ class Payroll_model extends CI_Model
                 'service_score_percent' => $shiftServiceScore,
                 'shift_point_weight' => 1.0000,
                 'shift_pool_amount' => $shiftPoolAmount,
-                'employee_count' => count(array_filter($employeeDraftRows, static function ($row) use ($shiftId) {
-                    return (int)($row['shift_id'] ?? 0) === $shiftId;
-                })),
+                'employee_count' => (int)($employeeCountByShift[$shiftId] ?? 0),
                 'notes' => null,
                 'created_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s'),
@@ -6875,6 +7746,7 @@ class Payroll_model extends CI_Model
 
     public function generate_bonus_pool_daily_bulk(string $dateStart, string $dateEnd, int $ruleId, int $actorUserId = 0, int $forcedDailyTargetPlanId = 0): array
     {
+        @set_time_limit(300);
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
             return ['ok' => false, 'message' => 'Range tanggal bonus belum valid.'];
         }
@@ -6927,6 +7799,7 @@ class Payroll_model extends CI_Model
 
     public function generate_bonus_pool_daily_bulk_from_target_ids(array $targetPlanIds, int $ruleId, int $actorUserId = 0): array
     {
+        @set_time_limit(300);
         if (!$this->db->table_exists('fin_target_plan')) {
             return ['ok' => false, 'message' => 'Tabel target keuangan belum tersedia.'];
         }
@@ -6953,6 +7826,7 @@ class Payroll_model extends CI_Model
         $today = date('Y-m-d');
         $success = [];
         $failed = [];
+        $skipped = [];
         foreach ($rows as $row) {
             $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
             $bonusDate = trim((string)($row['target_date'] ?? ''));
@@ -6966,11 +7840,11 @@ class Payroll_model extends CI_Model
                 continue;
             }
             if ($bonusDate > $today) {
-                $failed[] = $targetName . ': tanggal masa depan';
+                $skipped[] = $targetName . ': tanggal masa depan';
                 continue;
             }
             if ($status !== 'ACTIVE') {
-                $failed[] = $targetName . ': status bukan ACTIVE';
+                $skipped[] = $targetName . ': status bukan ACTIVE';
                 continue;
             }
 
@@ -6983,12 +7857,14 @@ class Payroll_model extends CI_Model
         }
 
         if (empty($success)) {
-            return ['ok' => false, 'message' => 'Tidak ada target harian yang berhasil digenerate. ' . implode(' | ', array_slice($failed, 0, 5))];
+            $issues = array_merge($failed, $skipped);
+            return ['ok' => false, 'message' => 'Tidak ada target harian yang berhasil digenerate. ' . implode(' | ', array_slice($issues, 0, 5))];
         }
 
         $message = count($success) . ' target harian berhasil digenerate.';
-        if (!empty($failed)) {
-            $message .= ' Beberapa target dilewati: ' . implode(' | ', array_slice($failed, 0, 5));
+        $issues = array_merge($failed, $skipped);
+        if (!empty($issues)) {
+            $message .= ' Beberapa target dilewati: ' . implode(' | ', array_slice($issues, 0, 5));
         }
 
         return [
@@ -6996,11 +7872,13 @@ class Payroll_model extends CI_Model
             'message' => $message,
             'success_dates' => $success,
             'failed_rows' => $failed,
+            'skipped_rows' => $skipped,
         ];
     }
 
     public function sync_bonus_auto_penalties_bulk(string $dateStart, string $dateEnd, int $employeeId = 0, int $actorUserId = 0, int $ruleId = 0): array
     {
+        @set_time_limit(300);
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
             return ['ok' => false, 'message' => 'Range tanggal penalti otomatis belum valid.'];
         }
@@ -7163,6 +8041,12 @@ class Payroll_model extends CI_Model
         }
 
         $this->db->trans_start();
+        if ($this->db->table_exists('pay_bonus_employee_time_slice')) {
+            $this->db->where('pool_id', $poolId)->delete('pay_bonus_employee_time_slice');
+        }
+        if ($this->db->table_exists('pay_bonus_pool_time_slice')) {
+            $this->db->where('pool_id', $poolId)->delete('pay_bonus_pool_time_slice');
+        }
         if ($this->db->table_exists('pay_bonus_employee_daily')) {
             $this->db->where('pool_id', $poolId)->delete('pay_bonus_employee_daily');
         }

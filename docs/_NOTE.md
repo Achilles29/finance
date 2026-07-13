@@ -178,3 +178,20 @@ tampilan tabel /payroll/bonus?tab=weights&month=2026-07 kolom status terlalu leb
 /finance-reports/targets?tab=list&page=1 bulk hitung "Hitung Hasil Terpilih", target keuangan masih muter2 lama dan belum finish
 
 /payroll/bonus?month=2026-07&tab=overview Generate Bulk dari Target Harian masih muter lama dan belum finish
+
+
+
+untuk pembagian bonus per shift saya klarifikasi dulu.
+setelah kita buat detail nya, sekarnag kelihatan suumber omzet dan pembagiannya.
+nah sekarang saya mau tanya.
+bonus sekarang kan dibagi omzet shift, sementara shift pagi itu bisa beberapa shift DAN JAM nya bisa beda beda, misalnya MORNING BAR 08.00-17.00, MORNING KITHCEN 08.00-17.00 , PURCHASE 07.00-16.00
+misal MB ada 2 orang dengan masing masing bobot 0,8  dan 1, MK ada 3 orang dengan masing masing bobot 0,8 0,9  dan 1, P ada 1 orang dengan Bobot 0,5.
+jam 9-jam 12 ada omzet 1.000.000 berapa pembagian ke 6 orang tersebut?
+
+lalu shif EVENING BAR masuk 14.00 - 23.00 ada 4 orang masuk dengan bobot 0,9 semua
+di jam 14.00 - 16.00 ada omzet 3.000.000 , berapa pembagian ke 10 orang tersebut?
+
+
+estimasi penalty di /my masih 0
+
+sekarang perbaiki logika detail audit bonus di /payroll/bonus?month=2026-07&tab=employee_daily, /payroll/bonus/monthly-detail/9/18?month=2026-07 dan /my/bonus apakah sudah mengadopsi time slice

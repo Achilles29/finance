@@ -878,6 +878,7 @@ class My extends MY_Controller
 
     public function bonus()
     {
+        @set_time_limit(180);
         $this->require_registered_page_permission(self::PAGE_BONUS);
 
         $employeeId = $this->selected_employee_id();
@@ -934,6 +935,41 @@ class My extends MY_Controller
               'pending_peer_feedback' => $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], $date),
               'peer_history_rows' => $this->Payroll_model->list_my_peer_feedback_history((int)$employee['id'], $month, $historyFilters['q'], $historyPg['per_page'], $historyPg['offset']),
           ]);
+    }
+
+    public function bonus_daily_detail(int $employeeDailyId)
+    {
+        $this->require_registered_page_permission(self::PAGE_BONUS);
+
+        $employeeId = $this->selected_employee_id();
+        $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
+        if (!$employee) {
+            $this->session->set_flashdata('error', 'Data pegawai belum terhubung ke akun ini.');
+            redirect('my');
+            return;
+        }
+
+        $detail = $this->Payroll_model->get_my_bonus_daily_audit_detail($employeeDailyId, (int)$employee['id']);
+        if (!$detail) {
+            $this->session->set_flashdata('error', 'Detail bonus harian tidak ditemukan atau bukan milik pegawai ini.');
+            redirect('my/bonus' . ($employeeId > 0 ? ('?employee_id=' . $employeeId) : ''));
+            return;
+        }
+
+        $header = $detail['header'];
+        $month = substr((string)($header['attendance_date'] ?? date('Y-m-d')), 0, 7);
+        $query = ['month' => $month, 'tab' => 'summary'];
+        if ($employeeId > 0) {
+            $query['employee_id'] = $employeeId;
+        }
+
+        $this->render('my/bonus_daily_audit', [
+            'title' => 'Audit Bonus Harian',
+            'active_menu' => 'my.bonus',
+            'detail' => $detail,
+            'employee' => $employee,
+            'back_url' => site_url('my/bonus?' . http_build_query($query)),
+        ]);
     }
 
     public function bonus_peer_submit()

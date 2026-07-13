@@ -11,7 +11,7 @@ if (!empty($summary['outlet_name'])) {
 if (!empty($summary['division_name'])) {
     $scopeParts[] = (string)$summary['division_name'];
 }
-$scopeLabel = !empty($scopeParts) ? implode(' • ', $scopeParts) : 'Global';
+$scopeLabel = !empty($scopeParts) ? implode(' - ', $scopeParts) : 'Global';
 ?>
 
 <style>
@@ -19,9 +19,9 @@ $scopeLabel = !empty($scopeParts) ? implode(' • ', $scopeParts) : 'Global';
   .bonus-detail-hero { border:1px solid rgba(122,24,36,.08); border-radius:24px; background:linear-gradient(135deg,#fffaf4 0%,#fff 60%,#fff5ef 100%); box-shadow:0 18px 36px rgba(122,24,36,.08); padding:1.25rem; }
   .bonus-detail-kpi { border:1px solid rgba(122,24,36,.08); border-radius:18px; background:#fff; padding:1rem; }
   .bonus-detail-kpi .label { font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:#8a7266; }
-  .bonus-detail-kpi .value { font-size:1.2rem; font-weight:800; color:#6b1322; }
+  .bonus-detail-kpi .value { font-size:1.15rem; font-weight:800; color:#6b1322; }
   .bonus-detail-table-wrap { max-height:520px; overflow:auto; }
-  .bonus-detail-table-wrap thead th { position:sticky; top:0; background:#fff; z-index:1; }
+  .bonus-detail-table-wrap thead th { position:sticky; top:0; background:#fff; z-index:1; white-space:nowrap; }
 </style>
 
 <div class="bonus-detail-shell">
@@ -62,8 +62,8 @@ $scopeLabel = !empty($scopeParts) ? implode(' • ', $scopeParts) : 'Global';
 
   <div class="card border-0 shadow-sm">
     <div class="card-header bg-white border-0 pb-0">
-      <h6 class="mb-1">Detail Bonus Harian</h6>
-      <div class="small text-muted">Semua baris bonus pada bulan ini untuk pegawai dan kebijakan yang dipilih.</div>
+      <h6 class="mb-1">Audit Bonus Harian</h6>
+      <div class="small text-muted">Setiap hari menampilkan hasil bonus dari irisan transaksi yang mengenai pegawai ini. Detail jam per jam bisa dibuka lewat tombol audit.</div>
     </div>
     <div class="card-body">
       <div class="table-responsive bonus-detail-table-wrap">
@@ -71,23 +71,30 @@ $scopeLabel = !empty($scopeParts) ? implode(' • ', $scopeParts) : 'Global';
           <thead>
             <tr>
               <th>Tanggal</th>
-              <th>Shift</th>
-              <th class="text-end">Raw</th>
-              <th class="text-end">Penalti</th>
-              <th class="text-end">Final</th>
-              <th class="text-end">Bonus</th>
+              <th>Shift Kerja</th>
+              <th class="text-center">Irisan</th>
+              <th class="text-end">Omzet Porsi Saya</th>
+              <th class="text-end">Bonus Kotor Saya</th>
+              <th class="text-end">Poin Raw</th>
+              <th class="text-end">Poin Penalti</th>
+              <th class="text-end">Poin Final</th>
+              <th class="text-end">Bonus Final</th>
               <th class="text-end">Target</th>
               <th class="text-end">Layanan</th>
               <th>Status</th>
+              <th>Aksi</th>
             </tr>
           </thead>
           <tbody>
           <?php if (empty($dailyRows)): ?>
-            <tr><td colspan="9" class="text-center text-muted py-4">Belum ada detail bonus harian.</td></tr>
+            <tr><td colspan="14" class="text-center text-muted py-4">Belum ada detail bonus harian.</td></tr>
           <?php else: foreach ($dailyRows as $row): ?>
             <tr>
               <td><?php echo html_escape((string)($row['attendance_date'] ?? $row['bonus_date'] ?? '-')); ?></td>
               <td><?php echo html_escape(trim((string)(($row['shift_code'] ?? '') . ' ' . ($row['shift_name'] ?? '')))); ?></td>
+              <td class="text-center"><?php echo number_format((int)($row['slice_count'] ?? 0)); ?>x</td>
+              <td class="text-end">Rp <?php echo number_format((float)($row['revenue_in_shift'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end">Rp <?php echo number_format((float)($row['raw_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['raw_point'] ?? 0), 4, ',', '.'); ?></td>
               <td class="text-end text-danger"><?php echo number_format((float)($row['penalty_point'] ?? 0), 4, ',', '.'); ?></td>
               <td class="text-end fw-semibold"><?php echo number_format((float)($row['final_point'] ?? 0), 4, ',', '.'); ?></td>
@@ -95,6 +102,7 @@ $scopeLabel = !empty($scopeParts) ? implode(' • ', $scopeParts) : 'Global';
               <td class="text-end"><?php echo number_format((float)($row['target_score_percent'] ?? 0), 2, ',', '.'); ?>%</td>
               <td class="text-end"><?php echo number_format((float)($row['service_score_percent'] ?? 0), 2, ',', '.'); ?>%</td>
               <td><span class="badge bg-light text-dark border"><?php echo html_escape((string)($row['approval_status'] ?? 'DRAFT')); ?></span></td>
+              <td><a href="<?php echo site_url('payroll/bonus/daily-detail/' . (int)($row['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-secondary">Audit</a></td>
             </tr>
           <?php endforeach; endif; ?>
           </tbody>

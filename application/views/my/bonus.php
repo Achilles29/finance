@@ -152,7 +152,7 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white border-0 pb-0">
         <h6 class="mb-1">Detail bonus harian</h6>
-        <div class="small text-muted">Baris draft ikut ditampilkan sebagai estimasi, sedangkan baris approved adalah angka yang sudah diumumkan.</div>
+        <div class="small text-muted">Baris draft ikut ditampilkan sebagai estimasi. Angka harian di sini sudah membaca pembagian bonus dari irisan transaksi, bukan blok shift penuh.</div>
       </div>
       <div class="card-body">
         <form method="get" action="<?php echo site_url('my/bonus'); ?>" class="row g-2 align-items-end mb-3">
@@ -179,18 +179,22 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
         </form>
         <div class="table-responsive my-bonus-table-wrap">
           <table class="table align-middle mb-0">
-            <thead><tr><th>Tanggal</th><th>Shift</th><th>Aturan</th><th class="text-end">Poin Akhir</th><th class="text-end">Bonus Akhir</th><th>Status</th></tr></thead>
+            <thead><tr><th>Tanggal</th><th>Shift Kerja</th><th>Aturan</th><th class="text-center">Irisan</th><th class="text-end">Omzet Porsi Saya</th><th class="text-end">Bonus Kotor Saya</th><th class="text-end">Potongan</th><th class="text-end">Bonus Akhir</th><th>Status</th><th>Aksi</th></tr></thead>
             <tbody>
             <?php if (empty($dailyRows)): ?>
-              <tr><td colspan="6" class="text-center text-muted py-4">Belum ada bonus harian yang sudah dipublikasikan untuk bulan ini.</td></tr>
+              <tr><td colspan="10" class="text-center text-muted py-4">Belum ada bonus harian yang sudah dipublikasikan untuk bulan ini.</td></tr>
             <?php else: foreach ($dailyRows as $row): ?>
               <tr>
                 <td><?php echo html_escape((string)($row['attendance_date'] ?? $row['bonus_date'] ?? '-')); ?></td>
                 <td><?php echo html_escape(trim((string)(($row['shift_code'] ?? '') . ' ' . ($row['shift_name'] ?? '')))); ?></td>
                 <td><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></td>
-                <td class="text-end"><?php echo number_format((float)($row['final_point'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-center"><?php echo number_format((int)($row['slice_count'] ?? 0)); ?>x</td>
+                <td class="text-end">Rp <?php echo number_format((float)($row['revenue_in_shift'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-end">Rp <?php echo number_format((float)($row['raw_amount'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-end text-danger">Rp <?php echo number_format((float)($row['penalty_amount'] ?? 0), 2, ',', '.'); ?></td>
                 <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['final_amount'] ?? 0), 2, ',', '.'); ?></td>
                 <td><span class="my-bonus-soft <?php echo strtoupper((string)($row['approval_status'] ?? 'DRAFT')) === 'APPROVED' ? 'ok' : 'warn'; ?>"><?php echo html_escape((string)($row['approval_status'] ?? 'DRAFT')); ?></span></td>
+                <td><a href="<?php echo site_url('my/bonus/daily-detail/' . (int)($row['id'] ?? 0) . ($selectedEmployeeId > 0 ? ('?employee_id=' . (int)$selectedEmployeeId) : '')); ?>" class="btn btn-sm btn-outline-secondary">Audit</a></td>
               </tr>
             <?php endforeach; endif; ?>
             </tbody>

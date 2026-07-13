@@ -3144,6 +3144,7 @@ class Finance_report_model extends CI_Model
 
     public function generate_target_realization_bulk(array $targetPlanIds, int $actorUserId = 0): array
     {
+        @set_time_limit(180);
         unset($actorUserId);
 
         $targetPlanIds = array_values(array_unique(array_filter(array_map('intval', $targetPlanIds))));
@@ -3259,6 +3260,7 @@ class Finance_report_model extends CI_Model
 
         $fastDailyEligibleMap = [];
         $fastDailyMetricCodes = [];
+        $fastDailyRangeMetricMap = [];
         $fastDailyMinDate = null;
         $fastDailyMaxDate = null;
         foreach ($successIds as $targetPlanId) {
@@ -3282,6 +3284,15 @@ class Finance_report_model extends CI_Model
             }
             if ($eligible) {
                 $fastDailyEligibleMap[$targetPlanId] = true;
+                if (!isset($fastDailyRangeMetricMap[$rangeKey])) {
+                    $fastDailyRangeMetricMap[$rangeKey] = [];
+                }
+                foreach ($lines as $line) {
+                    $metricCode = strtoupper(trim((string)($line['metric_code'] ?? '')));
+                    if ($metricCode !== '') {
+                        $fastDailyRangeMetricMap[$rangeKey][$metricCode] = $metricCode;
+                    }
+                }
                 $targetDate = (string)($plan['date_start'] ?? '');
                 if ($fastDailyMinDate === null || $targetDate < $fastDailyMinDate) {
                     $fastDailyMinDate = $targetDate;
@@ -3295,6 +3306,18 @@ class Finance_report_model extends CI_Model
         $fastDailyMetricCache = [];
         if ($fastDailyMinDate !== null && $fastDailyMaxDate !== null && !empty($fastDailyMetricCodes)) {
             $fastDailyMetricCache = $this->collect_daily_simple_metric_index_map($fastDailyMinDate, $fastDailyMaxDate, array_values($fastDailyMetricCodes));
+        }
+
+        foreach ($fastDailyRangeMetricMap as $rangeKey => $metricCodes) {
+            if (empty($liveMetricNeedMap[$rangeKey])) {
+                continue;
+            }
+            foreach ($metricCodes as $metricCode) {
+                unset($liveMetricNeedMap[$rangeKey][$metricCode]);
+            }
+            if (empty($liveMetricNeedMap[$rangeKey])) {
+                unset($liveMetricNeedMap[$rangeKey]);
+            }
         }
 
         $liveMetricCache = [];

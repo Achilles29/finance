@@ -793,12 +793,39 @@ class Payroll extends MY_Controller
         ]);
     }
 
+    public function bonus_daily_detail(int $employeeDailyId)
+    {
+        $this->require_permission('payroll.bonus.index', 'view');
+
+        $detail = $this->Payroll_model->get_bonus_employee_daily_audit_detail($employeeDailyId);
+        if (!$detail) {
+            $this->session->set_flashdata('error', 'Detail bonus harian tidak ditemukan.');
+            redirect('payroll/bonus?tab=employee_daily&month=' . date('Y-m'));
+            return;
+        }
+
+        $header = $detail['header'];
+        $month = substr((string)($header['attendance_date'] ?? date('Y-m-d')), 0, 7);
+
+        $this->render('payroll/bonus_daily_audit', [
+            'title' => 'Audit Bonus Harian',
+            'active_menu' => 'pay.bonus',
+            'month' => $month,
+            'detail' => $detail,
+            'back_url' => site_url('payroll/bonus?' . http_build_query([
+                'tab' => 'employee_daily',
+                'month' => $month,
+            ])),
+        ]);
+    }
+
     public function bonus_pool_generate()
     {
         if ($this->input->method() !== 'post') {
             show_404();
         }
 
+        @set_time_limit(300);
         $this->require_permission('payroll.bonus.index', 'create');
         $bonusDate = trim((string)$this->input->post('bonus_date', true));
         $bonusDateStart = trim((string)$this->input->post('bonus_date_start', true));
@@ -857,6 +884,7 @@ class Payroll extends MY_Controller
             show_404();
         }
 
+        @set_time_limit(300);
         $this->require_permission('payroll.bonus.index', 'edit');
         $bonusDate = trim((string)$this->input->post('bonus_date', true));
         $bonusDateStart = trim((string)$this->input->post('bonus_date_start', true));

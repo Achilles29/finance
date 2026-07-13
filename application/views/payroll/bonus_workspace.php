@@ -300,13 +300,15 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   .bonus-table-compact tbody td { padding: .6rem .72rem; }
   .bonus-table-compact .btn.btn-sm { padding: .32rem .58rem; }
   .bonus-table-compact .bonus-soft-badge { padding: .26rem .56rem; font-size: .72rem; }
-  .bonus-weight-table th.col-frequency { width: 118px; }
-  .bonus-weight-table th.col-scope { width: 128px; }
-  .bonus-weight-table th.col-target { width: 240px; }
-  .bonus-weight-table th.col-weight { width: 130px; }
-  .bonus-weight-table th.col-actions { width: 210px; }
+  .bonus-weight-table { table-layout: fixed; }
+  .bonus-weight-table th.col-frequency { width: 110px; }
+  .bonus-weight-table th.col-scope { width: 118px; }
+  .bonus-weight-table th.col-target { width: 220px; }
+  .bonus-weight-table th.col-weight { width: 110px; }
+  .bonus-weight-table th.col-status { width: 92px; }
+  .bonus-weight-table th.col-actions { width: 188px; }
   .bonus-weight-table td { font-size: .93rem; }
-  .bonus-weight-target { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bonus-weight-target { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bonus-weight-table .bonus-table-actions { flex-wrap: nowrap; white-space: nowrap; }
   .bonus-penalty-master-table { min-width: 1180px; }
   .bonus-penalty-master-table .penalty-name-cell { min-width: 240px; }
@@ -336,7 +338,15 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   .bonus-modal .modal-footer { border-top:1px solid rgba(122,24,36,.08); padding:1rem 1.4rem 1.25rem; }
   .bonus-form-scroll { max-height:calc(100vh - 260px); overflow:auto; padding-right:.25rem; }
   .bonus-detail-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:1rem; }
-  .bonus-penalty-summary-box { border:1px solid rgba(122,24,36,.08); border-radius:20px; padding:1rem 1.1rem; background:linear-gradient(180deg,#fff,#fff8f5); }
+  .bonus-penalty-event-layout { display:block; width:100%; }
+  .bonus-penalty-summary-box { border:1px solid rgba(122,24,36,.08); border-radius:20px; padding:.85rem .95rem; background:linear-gradient(180deg,#fff,#fff8f5); }
+  .bonus-penalty-event-headline { border:1px solid rgba(122,24,36,.08); border-radius:16px; padding:.75rem .9rem; background:#fff; margin-bottom:.7rem; }
+  .bonus-penalty-event-summary-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:.7rem; align-items:stretch; }
+  .bonus-penalty-event-summary-item { border:1px solid rgba(122,24,36,.08); border-radius:14px; padding:.6rem .75rem; background:#fffaf8; min-height:100%; }
+  .bonus-penalty-event-note { margin-top:.65rem; color:#7e6a60; font-size:.86rem; }
+  .bonus-penalty-event-table-wrap { max-height:50vh; overflow:auto; border:1px solid rgba(122,24,36,.08); border-radius:18px; }
+  .bonus-penalty-event-table-wrap table { margin-bottom:0; }
+  .bonus-penalty-event-table-wrap thead th { position:sticky; top:0; z-index:2; }
   .bonus-detail-item { border:1px solid rgba(122,24,36,.08); border-radius:18px; padding:.9rem 1rem; background:#fffaf8; }
   .bonus-detail-item .label { display:block; font-size:.76rem; text-transform:uppercase; color:#8d7368; letter-spacing:.04em; margin-bottom:.35rem; }
   .bonus-detail-item .value { color:#5f1720; font-weight:700; }
@@ -350,6 +360,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     .bonus-detail-grid { grid-template-columns:1fr; }
   }
   @media (max-width: 575.98px) { .bonus-kpi-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 991.98px) { .bonus-penalty-event-summary-grid { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+    @media (max-width: 575.98px) { .bonus-penalty-event-summary-grid { grid-template-columns:1fr; } }
 </style>
 
 <div class="bonus-hero p-4 p-lg-5 mb-4">
@@ -752,21 +764,23 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       </form>
       <div class="bonus-table-wrap bonus-table">
         <table class="table align-middle mb-0">
-          <thead><tr><th>Tanggal</th><th>Pegawai</th><th>Shift</th><th>Kebijakan</th><th class="text-end">Omzet Shift</th><th class="text-end">Bonus Kotor</th><th class="text-end">Potongan</th><th class="text-end">Bonus Akhir</th><th>Status</th></tr></thead>
+          <thead><tr><th>Tanggal</th><th>Pegawai</th><th>Shift Kerja</th><th>Kebijakan</th><th class="text-center">Irisan</th><th class="text-end">Omzet Porsi Saya</th><th class="text-end">Bonus Kotor Saya</th><th class="text-end">Potongan</th><th class="text-end">Bonus Akhir</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>
           <?php if (empty($employeeDailyRows)): ?>
-            <tr><td colspan="9" class="text-center text-muted py-4">Belum ada bonus harian pegawai untuk bulan ini.</td></tr>
+            <tr><td colspan="11" class="text-center text-muted py-4">Belum ada bonus harian pegawai untuk bulan ini.</td></tr>
           <?php else: foreach ($employeeDailyRows as $row): ?>
             <tr>
               <td><?php echo html_escape((string)($row['attendance_date'] ?? $row['bonus_date'] ?? '-')); ?></td>
               <td><strong><?php echo html_escape((string)($row['employee_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape(trim((string)($row['division_name'] ?? '-') . ' · ' . (string)($row['position_name'] ?? '-'))); ?></div></td>
               <td><?php echo html_escape(trim((string)($row['shift_code'] ?? '') . ' ' . (string)($row['shift_name'] ?? ''))); ?></td>
               <td><div><?php echo html_escape((string)($row['config_name'] ?? '-')); ?></div><div class="small text-muted">Pool bonus harian</div></td>
+              <td class="text-center"><?php echo number_format((int)($row['slice_count'] ?? 0)); ?>x</td>
               <td class="text-end">Rp <?php echo number_format((float)($row['revenue_in_shift'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end">Rp <?php echo number_format((float)($row['raw_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end text-danger">Rp <?php echo number_format((float)($row['penalty_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['final_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td><span class="bonus-soft-badge <?php echo strtoupper((string)($row['approval_status'] ?? 'DRAFT')) === 'APPROVED' ? 'ok' : 'warn'; ?>"><?php echo html_escape((string)($row['approval_status'] ?? 'DRAFT')); ?></span></td>
+              <td><a href="<?php echo site_url('payroll/bonus/daily-detail/' . (int)($row['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-secondary">Audit</a></td>
             </tr>
           <?php endforeach; endif; ?>
           </tbody>
@@ -819,7 +833,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       </div>
       <div class="bonus-table-wrap bonus-table">
         <table class="table align-middle mb-0 bonus-table-compact bonus-weight-table">
-          <thead><tr><th class="col-frequency">Frekuensi</th><th class="col-scope">Jenis Bobot</th><th class="col-target">Target</th><th class="text-end col-weight">Bobot</th><th>Status</th><th class="col-actions">Aksi</th></tr></thead>
+          <thead><tr><th class="col-frequency">Frekuensi</th><th class="col-scope">Jenis Bobot</th><th class="col-target">Target</th><th class="text-end col-weight">Bobot</th><th class="col-status">Status</th><th class="col-actions">Aksi</th></tr></thead>
           <tbody>
           <?php if (empty($weightRows)): ?>
             <tr><td colspan="6" class="text-center text-muted py-4">Belum ada bobot bonus yang disimpan.</td></tr>
@@ -1700,7 +1714,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
 </div>
 
 <div class="modal fade bonus-modal" id="bonusPenaltyEventDetailModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
         <div>
@@ -1709,13 +1723,13 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body"><div class="bonus-detail-grid" id="bonusPenaltyEventDetailBody"></div></div>
+      <div class="modal-body"><div id="bonusPenaltyEventDetailBody"></div></div>
     </div>
   </div>
 </div>
 
 <div class="modal fade bonus-modal" id="bonusPenaltyModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
         <div>
@@ -1843,7 +1857,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
 </div>
 
 <div class="modal fade bonus-modal" id="bonusPenaltyEventModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
         <div>
@@ -2470,15 +2484,16 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         }
         if (body) {
           var headerHtml = ''
+            + '<div class="bonus-penalty-event-layout">'
             + '<div class="bonus-penalty-summary-box mb-3">'
-            + '<div class="bonus-detail-grid">'
-            + '<div><div class="bonus-detail-label">Nama target penalti</div><div class="bonus-detail-value">' + detailValue(btn.dataset.targetName, '-') + '</div></div>'
-            + '<div><div class="bonus-detail-label">Scope</div><div class="bonus-detail-value">' + detailValue(btn.dataset.scope, '-') + '</div></div>'
-            + '<div><div class="bonus-detail-label">Rentang kejadian</div><div class="bonus-detail-value">' + detailValue(btn.dataset.penaltyDate, '-') + '</div></div>'
-            + '<div><div class="bonus-detail-label">Total potong poin</div><div class="bonus-detail-value">' + detailValue(btn.dataset.points, '0') + '</div></div>'
-            + '<div><div class="bonus-detail-label">Total potong nominal</div><div class="bonus-detail-value">' + detailValue(btn.dataset.amount, 'Rp 0') + '</div></div>'
+            + '<div class="bonus-penalty-event-headline"><div class="bonus-detail-label">Nama target penalti</div><div class="bonus-detail-value">' + detailValue(btn.dataset.targetName, '-') + '</div></div>'
+            + '<div class="bonus-penalty-event-summary-grid">'
+            + '<div class="bonus-penalty-event-summary-item"><div class="bonus-detail-label">Scope</div><div class="bonus-detail-value">' + detailValue(btn.dataset.scope, '-') + '</div></div>'
+            + '<div class="bonus-penalty-event-summary-item"><div class="bonus-detail-label">Rentang kejadian</div><div class="bonus-detail-value">' + detailValue(btn.dataset.penaltyDate, '-') + '</div></div>'
+            + '<div class="bonus-penalty-event-summary-item"><div class="bonus-detail-label">Total potong poin</div><div class="bonus-detail-value">' + detailValue(btn.dataset.points, '0') + '</div></div>'
+            + '<div class="bonus-penalty-event-summary-item"><div class="bonus-detail-label">Total potong nominal</div><div class="bonus-detail-value">' + detailValue(btn.dataset.amount, 'Rp 0') + '</div></div>'
             + '</div>'
-            + '<div class="small text-muted mt-2">Rincian di bawah ini menampilkan semua kejadian yang membentuk total penalti tersebut.</div>'
+            + '<div class="bonus-penalty-event-note">Semua kejadian di bawah ini ikut membentuk total penalti personal atau tim pada periode tersebut.</div>'
             + '</div>';
           var tableRows = detailRows.map(function (row) {
             return ''
@@ -2493,11 +2508,11 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               + '</tr>';
           }).join('');
           body.innerHTML = headerHtml
-            + '<div class="bonus-table-wrap bonus-table" style="max-height:420px;">'
+            + '<div class="bonus-penalty-event-table-wrap bonus-table">'
             + '<table class="table align-middle mb-0">'
             + '<thead><tr><th>Tanggal</th><th>Jenis</th><th>Shift</th><th class="text-end">Poin</th><th class="text-end">Nominal</th><th>Status</th><th>Catatan</th></tr></thead>'
             + '<tbody>' + (tableRows || '<tr><td colspan="7" class="text-center text-muted py-3">Belum ada rincian kejadian.</td></tr>') + '</tbody>'
-            + '</table></div>';
+            + '</table></div></div>';
         }
         openModal('bonusPenaltyEventDetailModal');
       });
@@ -2654,5 +2669,8 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     resetPenaltyEventForm();
   })();
 </script>
+
+
+
 
 
