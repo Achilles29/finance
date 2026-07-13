@@ -8025,12 +8025,51 @@ class Purchase_model extends CI_Model
 
     private function list_division_material_movement_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
     {
-        // Item-centric audit: jangan percaya qty_after legacy yang tersimpan bila
-        // sudah tersedia rekonstruksi closing dari delta movement yang lebih sehat.
-        // Namun bentuk row yang dikembalikan tetap harus mengikuti kontrak
-        // source `movement`, yaitu memakai `qty_buy_after` / `qty_content_after`.
+        // Setelah cutoff bulanan, monthly stock adalah closing state yang sah.
+        // Kolom movement pada reconcile harus merepresentasikan state cutoff itu,
+        // sedangkan kelengkapan histori movement tetap dicek lewat gap map.
+        $monthlyRows = $this->list_division_stock_monthly($q, 5000, $destinationFilter, '', $asOfDate, $divisionId, true);
+        if (!empty($monthlyRows)) {
+            $rows = [];
+            foreach ($monthlyRows as $row) {
+                $row['movement_date'] = $asOfDate;
+                $row['qty_buy_after'] = round((float)($row['qty_buy_balance'] ?? 0), 4);
+                $row['qty_content_after'] = round((float)($row['qty_content_balance'] ?? 0), 4);
+                $row['closing_qty_pack'] = $row['qty_buy_after'];
+                $row['closing_qty_content'] = $row['qty_content_after'];
+                $rows[] = $row;
+            }
+
+            return $rows;
+        }
+
+        // Fallback untuk instalasi/data legacy yang belum punya monthly stock.
         $rows = $this->list_division_daily_snapshot_latest_closing_raw_movement($asOfDate, $q, $divisionId, $destinationFilter);
+        $monthKey = date('Y-m-01', strtotime($asOfDate ?: date('Y-m-d')));
+        $rows = array_values(array_filter($rows, static function (array $row) use ($monthKey): bool {
+            return (string)($row['movement_date'] ?? '') >= $monthKey;
+        }));
+        $monthlyClosingMap = $this->fetchInventoryDailyMonthlyClosingGuardMap(
+            'DIVISION',
+            $monthKey,
+            $asOfDate,
+            $divisionId,
+            $destinationFilter,
+            true
+        );
         foreach ($rows as &$row) {
+            $guardKey = $monthKey . '|' . $this->buildInventoryDailyMatrixIdentityKey('DIVISION', $row);
+            if (isset($monthlyClosingMap[$guardKey])) {
+                // Monthly stock adalah source of truth setelah cutoff/opname bulanan.
+                // Movement log tetap dipakai untuk audit gap, tetapi closing movement
+                // tidak boleh membawa saldo profil lama yang sudah ditutup di monthly.
+                $row['qty_buy_after'] = round((float)($monthlyClosingMap[$guardKey]['closing_qty_buy'] ?? 0), 4);
+                $row['qty_content_after'] = round((float)($monthlyClosingMap[$guardKey]['closing_qty_content'] ?? 0), 4);
+                $row['closing_qty_pack'] = $row['qty_buy_after'];
+                $row['closing_qty_content'] = $row['qty_content_after'];
+                continue;
+            }
+
             $row['qty_buy_after'] = round((float)($row['closing_qty_pack'] ?? 0), 4);
             $row['qty_content_after'] = round((float)($row['closing_qty_content'] ?? 0), 4);
         }
