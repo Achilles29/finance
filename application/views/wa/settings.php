@@ -48,6 +48,17 @@ $canEdit = (bool)($can_edit ?? false);
                 Token yang sama perlu dikonfigurasi di <code>wa-bot/config.json</code> → <code>internalToken</code>.
               </div>
             </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Path Node.js <span class="badge bg-warning text-dark">Penting</span></label>
+              <input type="text" name="node_path" class="form-control font-monospace"
+                value="<?= html_escape($session['node_path'] ?? '') ?>"
+                <?= !$canEdit ? 'readonly' : '' ?>
+                placeholder="Contoh: /home/ubuntu/.nvm/versions/node/v20.x.x/bin/node">
+              <div class="form-text">
+                Isi jika Node.js tidak terdeteksi otomatis (NVM per-user).
+                Cari path dengan: <code>which node</code> atau <code>find /home -name node 2>/dev/null | head -5</code>
+              </div>
+            </div>
           </div>
           <?php if ($canEdit): ?>
           <div class="card-footer">
@@ -103,11 +114,25 @@ $canEdit = (bool)($can_edit ?? false);
               <input type="text" id="env-wa-token" class="form-control form-control-sm font-monospace" value="local-dev-token">
             </div>
           </div>
-          <div class="d-flex gap-2 align-items-center">
+          <div class="d-flex gap-2 align-items-center flex-wrap">
             <button class="btn btn-primary btn-sm" id="btn-env-save">
               <i class="ri ri-save-line me-1"></i>Simpan .env
             </button>
             <span id="env-save-result" class="small"></span>
+          </div>
+          <!-- Fallback: tampilkan isi file jika PHP tidak bisa tulis -->
+          <div id="env-manual-block" class="d-none mt-3">
+            <div class="alert alert-info small py-2 mb-2">
+              <i class="ri ri-terminal-line me-1"></i>
+              Buat file <code id="env-manual-path"></code> secara manual di server:
+              <br><code>nano &lt;path-file&gt;</code> lalu paste isi di bawah, atau gunakan <code>cat &gt; file &lt;&lt; 'EOF'</code>.
+            </div>
+            <pre id="env-manual-content" class="bg-dark text-success rounded p-2 small" style="font-size:0.78rem;cursor:pointer;" title="Klik untuk copy"></pre>
+            <div class="text-muted small mt-1">Klik box di atas untuk copy ke clipboard.</div>
+            <div class="mt-2">
+              <strong class="small">Atau fix permission (jalankan di server):</strong>
+              <pre class="bg-dark text-warning rounded p-2 small mt-1" style="font-size:0.75rem;" id="env-chmod-cmd"></pre>
+            </div>
           </div>
         </div>
       </div>
@@ -525,8 +550,10 @@ document.getElementById('btn-env-load')?.addEventListener('click', function () {
 });
 
 document.getElementById('btn-env-save')?.addEventListener('click', function () {
-  const result = document.getElementById('env-save-result');
+  const result     = document.getElementById('env-save-result');
+  const manualBlock = document.getElementById('env-manual-block');
   result.textContent = 'Menyimpan…';
+  if (manualBlock) manualBlock.classList.add('d-none');
   fetch('<?= site_url('wa/api/env-save') ?>', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -541,9 +568,27 @@ document.getElementById('btn-env-save')?.addEventListener('click', function () {
   })
     .then(r => r.json())
     .then(d => {
-      result.innerHTML = d.ok
-        ? '<span class="text-success"><i class="ri ri-checkbox-circle-line me-1"></i>' + (d.message || 'Tersimpan') + '</span>'
-        : '<span class="text-danger">✗ ' + (d.message || 'Gagal') + '</span>';
+      if (d.ok) {
+        result.innerHTML = '<span class="text-success"><i class="ri ri-checkbox-circle-line me-1"></i>' + (d.message || 'Tersimpan') + '</span>';
+        return;
+      }
+      result.innerHTML = '<span class="text-danger">✗ ' + (d.message || 'Gagal') + '</span>';
+      // Jika permission error, tampilkan konten manual
+      if (d.permission && d.content && manualBlock) {
+        document.getElementById('env-manual-path').textContent = d.path || 'wa-engine/.env';
+        const pre = document.getElementById('env-manual-content');
+        pre.textContent = d.content;
+        pre.onclick = function () {
+          navigator.clipboard.writeText(d.content).then(() => {
+            pre.style.outline = '2px solid #28a745';
+            setTimeout(() => { pre.style.outline = ''; }, 1500);
+          }).catch(() => {});
+        };
+        // Tunjukkan perintah chmod
+        const chmodEl = document.getElementById('env-chmod-cmd');
+        if (chmodEl) chmodEl.textContent = 'sudo chown www-data:www-data ' + (d.path || '').replace(/\/[^/]+$/, '') + '\n# atau\nsudo chmod g+w ' + (d.path || '').replace(/\/[^/]+$/, '') + ' && sudo chgrp www-data ' + (d.path || '').replace(/\/[^/]+$/, '');
+        manualBlock.classList.remove('d-none');
+      }
     })
     .catch(e => { result.innerHTML = '<span class="text-danger">✗ ' + e + '</span>'; });
 });

@@ -355,11 +355,18 @@ class Whatsapp extends MY_Controller
 
             $botApiUrl   = trim((string)$this->input->post('bot_api_url', true));
             $botApiToken = trim((string)$this->input->post('bot_api_token', true));
+            $nodePath    = trim((string)$this->input->post('node_path', true));
 
-            $this->db->where('id', 1)->update('wa_session', [
+            $updateData = [
                 'bot_api_url'   => $botApiUrl ?: 'http://127.0.0.1:3070',
                 'bot_api_token' => $botApiToken ?: 'local-dev-token',
-            ]);
+                'node_path'     => $nodePath ?: null,
+            ];
+            // Kolom node_path mungkin belum ada di DB lama — tangani gracefully
+            if (!$this->db->field_exists('node_path', 'wa_session')) {
+                unset($updateData['node_path']);
+            }
+            $this->db->where('id', 1)->update('wa_session', $updateData);
             $this->session->set_flashdata('success', 'Pengaturan disimpan.');
             redirect('wa/settings');
             return;
@@ -704,9 +711,17 @@ class Whatsapp extends MY_Controller
         }
         $lines[] = '';
 
-        $result = file_put_contents($engineDir . '/.env', implode("\n", $lines));
-        if ($result === false) {
-            $this->jsonOut(['ok' => false, 'message' => 'Gagal menulis file .env. Pastikan PHP punya izin tulis ke folder wa-engine.']);
+        $content = implode("\n", $lines);
+        $written = file_put_contents($engineDir . '/.env', $content);
+        if ($written === false) {
+            // Gagal tulis — kembalikan konten agar user bisa buat manual
+            $this->jsonOut([
+                'ok'         => false,
+                'permission' => true,
+                'content'    => $content,
+                'path'       => $engineDir . '/.env',
+                'message'    => 'PHP tidak bisa menulis ke folder wa-engine (permission denied). Buat file .env secara manual menggunakan konten di bawah.',
+            ]);
             return;
         }
 
@@ -770,7 +785,7 @@ class Whatsapp extends MY_Controller
     private function waSession(): array
     {
         return $this->db->from('wa_session')->where('id', 1)->limit(1)->get()->row_array()
-            ?: ['id' => 1, 'status' => 'UNKNOWN', 'bot_api_url' => 'http://127.0.0.1:3070', 'bot_api_token' => 'local-dev-token'];
+            ?: ['id' => 1, 'status' => 'UNKNOWN', 'bot_api_url' => 'http://127.0.0.1:3070', 'bot_api_token' => 'local-dev-token', 'node_path' => ''];
     }
 
     private function dashboardStats(): array
@@ -927,17 +942,25 @@ class Whatsapp extends MY_Controller
 
     private function findNodePath(): string
     {
-        // Coba which dulu (berhasil jika PATH PHP sudah include node)
+        // 1. Cek path yang tersimpan di DB (diisi user via settings)
+        $session = $this->waSession();
+        $stored  = trim((string)($session['node_path'] ?? ''));
+        if ($stored !== '' && file_exists($stored) && is_executable($stored)) return $stored;
+
+        // 2. which node — berhasil jika PATH www-data sudah include node
         exec("which node 2>/dev/null", $out);
         if (!empty($out[0]) && file_exists(trim($out[0]))) return trim($out[0]);
+        $out = [];
 
-        // NVM paths — cari di root dan semua home user
+        exec("which nodejs 2>/dev/null", $out);
+        if (!empty($out[0]) && file_exists(trim($out[0]))) return trim($out[0]);
+
+        // 3. NVM paths — cari di root dan semua home user
         $nvmGlobs = array_merge(
             glob('/root/.nvm/versions/node/*/bin/node') ?: [],
             glob('/home/*/.nvm/versions/node/*/bin/node') ?: []
         );
         if (!empty($nvmGlobs)) {
-            // Sort semver ascending, ambil yang paling baru
             usort($nvmGlobs, function ($a, $b) {
                 return version_compare(
                     basename(dirname(dirname($a))),
@@ -948,8 +971,14 @@ class Whatsapp extends MY_Controller
             if (file_exists($latest)) return $latest;
         }
 
-        // Path sistem umum
-        foreach (['/usr/local/bin/node', '/usr/bin/node', '/opt/nodejs/bin/node'] as $p) {
+        // 4. Path sistem umum (apt, nodesource, snap, n)
+        foreach ([
+            '/usr/local/bin/node',
+            '/usr/bin/node',
+            '/usr/bin/nodejs',
+            '/opt/nodejs/bin/node',
+            '/snap/bin/node',
+        ] as $p) {
             if (file_exists($p)) return $p;
         }
 
@@ -979,6 +1008,10 @@ class Whatsapp extends MY_Controller
     {
         if (!$this->db->table_exists('wa_session')) {
             return; // SQL belum dijalankan
+        }
+        // Tambah kolom node_path jika belum ada (upgrade schema transparan)
+        if (!$this->db->field_exists('node_path', 'wa_session')) {
+            $this->db->query("ALTER TABLE wa_session ADD COLUMN node_path VARCHAR(500) DEFAULT NULL");
         }
         $row = $this->db->from('wa_session')->where('id', 1)->limit(1)->get()->row_array();
         if (!$row) {

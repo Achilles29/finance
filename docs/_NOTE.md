@@ -148,72 +148,6 @@ cek halaman dan database legacy dari bahan baku, gudang , dan component
 
 
 
-hitung BULk harian spinner masih berputar terus
-
-truncate data yang sudah kamu buat di /payroll/bonus?month=2026-07&tab=rules
-lalu saya ingin menambahkan data nya manual. berikan panduannya secara jelas dengan bahasa user agar saya bisa input, yang tentu saja terhubungu dengan target dan realisasi keuangan yang sudah dibuat di /finance-reports/targets
-
-
-ubah total pola. ubah database jika diperlukan.
-
-pada bonus, pola kebijakan tujuannya untuk menghubungkan antara target keuangan dan kebijakan bonus.
-Nama kebijakan bonus v
-Kode kebijakan v
-Scope kebijakan v
-Sumber pool default v
-Nilai sumber pool v
-Payout % => ini bisa dijadikan % bonus yang dibagikan berdasarkan realisasi dari target keuangan. misal diisi 3 %, berarti saat generate pool nanti setiap target yang terpenuhi mendapat pool 3%
-Mode konversi penalti poin v 
-Nilai konversi penalti poin v
-Status v
-Nama teknis bonus v 
-Kode teknis bonus dan seterusnya dihapus aja karena jadi overlab dengan pengaturan dan penalty lain. seperti Skor minimum target dan seterusnya
-
-Gerbang target bulanan sudah benar data yang muncul hanya target bulanan, dengan status aktif.
-
-yang mungkin perlu dihidupkan atau ditambahkan di pengaturan kebijakan adalah, skema perhitungan berdasarkan shift, Perlakuan PH, Potong poin PH seharusnya ada di penality dengan mode otomatis, 
-Target waktu saji (menit) dan Bobot waktu saji sebenarnya bagus, tapi perhitungannya bagaiamana? seharusnya itu masuk penalty saja, boleh kita set disana tareget waktu, lalu bobot waktu merupakan poin pengurang ketika melewati waktu yang ditentukan.
-Bobot omzet shift tidak usah karena itu wajib
-
-Bobot peer review, Bobot absensi dan Bobot penalti manual seharusnya otomatis di penalty. Bobot peer review baru muncul setelah dimoderasi superadmin, bintang kurang dari 5 mendapat pengurangan 1-4 poin menaik.
-
-
-Jatah minimum shift sepi (%) tidak ada
-Nilai bonus dibagikan diganti diatas tadi % bonus
-
-
-
-
-/payroll/bonus?month=2026-07&tab=weights masih terhubung ke data lama "Skema bonus"
-bobot seharusnya global, tidak terkunci pada kebijakan atau skema tertentu. bobot ini adalah yang dasar pembagian masing masing pegawai berdasarkan pool
-
-
-
-Generate Draft Pool Bonus buat mode satuan atau mode bulk, kalau bulk berarti tinggal centang tanggal berdasarkan target harian 
-
-
-
-
-kalau begitu mending bobot pool dihapus saja kan? dari pada membingungkan. CMIIW
-
-bersihkan total sisa istilah skema distribusi yang masih nongol di modal/detail lama
-rapikan tab /payroll/bonus?month=...&tab=overview supaya tombol generate lebih jelas: Generate Satuan dan Generate Bulk dari Target Harian
-hubungkan penalti SERVICE dan PEER otomatis supaya target waktu saji dan bintang peer review benar-benar masuk pengurang poin tanpa form tambahan
-
-ya buatkan  bobot awal yang rapi untuk masing masing crew
-
-
-
-di bobot ,  shift saya nonaktifkan semua
-sekarang scope yang aktif POSITION dan EMPLOYEE, lalu bagaimana perhitungannya? bukankah EMPLOYEE juga termasuk dalam POSITION. lalu bagaimana kalau saya hanya nonaktifkan EMPLOYEE saja?
-
-/payroll/bonus?tab=weights&month= buatkan tab aktif, nonaktif, semua. default aktif
-
-
-tampilan tabel /payroll/bonus?tab=weights&month=2026-07 , masih strecth ke Bobot, aksi masih sempit
-
-
-
 
 Tambah Master Penalti perlu lebih user friendly, istilah dan code yang tidak ketik manual.
 
@@ -239,4 +173,8 @@ di /payroll/bonus?month=2026-07&tab=employee_daily, /payroll/bonus/monthly-detai
 
 
 
+tampilan tabel /payroll/bonus?tab=weights&month=2026-07 kolom status terlalu lebar. sesuaikan semua kolom agar proporsional dengan konten tapi tidak perlu scroll kanan kiri
+
 /finance-reports/targets?tab=list&page=1 bulk hitung "Hitung Hasil Terpilih", target keuangan masih muter2 lama dan belum finish
+
+/payroll/bonus?month=2026-07&tab=overview Generate Bulk dari Target Harian masih muter lama dan belum finish
