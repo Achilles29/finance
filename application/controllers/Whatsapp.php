@@ -635,7 +635,12 @@ class Whatsapp extends MY_Controller
             exec("tail -n 30 " . escapeshellarg($logFile) . " 2>/dev/null", $lines);
         }
 
-        $this->jsonOut(['ok' => true, 'logs' => implode("\n", $lines)]);
+        $raw = implode("\n", $lines);
+        // Hapus ANSI escape codes & pastikan valid UTF-8
+        $raw = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]/u', '', $raw);
+        $raw = mb_convert_encoding($raw, 'UTF-8', 'UTF-8');
+
+        $this->jsonOut(['ok' => true, 'logs' => $raw]);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -795,7 +800,11 @@ class Whatsapp extends MY_Controller
 
     private function jsonOut(array $data): void
     {
-        $this->output->set_content_type('application/json')->set_output(json_encode($data));
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($json === false) {
+            $json = json_encode(['ok' => false, 'message' => 'JSON encode error: ' . json_last_error_msg()]);
+        }
+        $this->output->set_content_type('application/json')->set_output($json);
     }
 
     private function enginePort(): int
