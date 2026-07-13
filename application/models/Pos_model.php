@@ -1207,26 +1207,12 @@ class Pos_model extends CI_Model
                 }
             }
 
-            if ($isPaid && $this->db->table_exists('pos_payment')) {
-                $paymentRow = $this->db->from('pos_payment')
-                    ->where('order_id', $orderId)
-                    ->where('payment_type', 'FINAL')
-                    ->order_by('id', 'DESC')
-                    ->limit(1)
-                    ->get()
-                    ->row_array();
-                $paymentId = (int)($paymentRow['id'] ?? 0);
-                if ($paymentId > 0) {
-                    $updatedOrder = $this->db->from('pos_order')->where('id', $orderId)->limit(1)->get()->row_array() ?: $row;
-                    if (empty($updatedOrder['member_id'])) {
-                        $updatedOrder['member_id'] = $memberIdForLoyalty;
-                    }
-                    $paidAt = (string)($paymentRow['paid_at'] ?? ($payload['paid_at'] ?? date('Y-m-d H:i:s')));
-                    if (trim($paidAt) === '') {
-                        $paidAt = date('Y-m-d H:i:s');
-                    }
-                    $loyaltySummary = $this->apply_cashier_payment_loyalty((array)$updatedOrder, $paymentId, $paidAt);
-                }
+            if ($isPaid) {
+                $loyaltySummary = $this->apply_paid_order_loyalty_by_order_id(
+                    $orderId,
+                    $memberIdForLoyalty,
+                    (string)($payload['paid_at'] ?? date('Y-m-d H:i:s'))
+                );
             }
 
             if ($isPaid) {
@@ -3010,6 +2996,84 @@ class Pos_model extends CI_Model
             'stamp_earned' => round((float)$stampEarned, 4),
             'issued_vouchers' => $issuedVouchers,
         ];
+    }
+
+    private function apply_paid_order_loyalty_by_order_id(int $orderId, int $memberIdFallback = 0, ?string $paidAtFallback = null): array
+    {
+        if ($orderId <= 0 || !$this->db->table_exists('pos_order') || !$this->db->table_exists('pos_payment')) {
+            return ['point_earned' => 0.0, 'stamp_earned' => 0.0, 'issued_vouchers' => []];
+        }
+
+        $orderRow = $this->db->from('pos_order')
+            ->where('id', $orderId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$orderRow) {
+            return ['point_earned' => 0.0, 'stamp_earned' => 0.0, 'issued_vouchers' => []];
+        }
+
+        $paymentRow = $this->db->from('pos_payment')
+            ->where('order_id', $orderId)
+            ->where('payment_type', 'FINAL')
+            ->where('payment_status', 'PAID')
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$paymentRow) {
+            return ['point_earned' => 0.0, 'stamp_earned' => 0.0, 'issued_vouchers' => []];
+        }
+
+        $memberId = (int)($orderRow['member_id'] ?? 0);
+        if ($memberId <= 0 && $memberIdFallback > 0) {
+            $memberId = $memberIdFallback;
+            if ($this->db->field_exists('member_id', 'pos_order')) {
+                $this->db->where('id', $orderId)->update('pos_order', ['member_id' => $memberId]);
+            }
+            $orderRow['member_id'] = $memberId;
+        }
+        if ($memberId <= 0) {
+            return ['point_earned' => 0.0, 'stamp_earned' => 0.0, 'issued_vouchers' => []];
+        }
+
+        if (empty($paymentRow['member_id']) && $this->db->field_exists('member_id', 'pos_payment')) {
+            $this->db->where('id', (int)$paymentRow['id'])->update('pos_payment', ['member_id' => $memberId]);
+        }
+
+        $paidAt = trim((string)($paymentRow['paid_at'] ?? ''));
+        if ($paidAt === '') {
+            $paidAt = trim((string)($paidAtFallback ?? ''));
+        }
+        if ($paidAt === '') {
+            $paidAt = date('Y-m-d H:i:s');
+        }
+
+        return $this->apply_cashier_payment_loyalty((array)$orderRow, (int)$paymentRow['id'], $paidAt);
+    }
+
+    public function ensure_paid_order_loyalty(int $orderId): array
+    {
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Order tidak valid.'];
+        }
+
+        $previousDbDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        $this->db->trans_begin();
+        try {
+            $summary = $this->apply_paid_order_loyalty_by_order_id($orderId);
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException($this->db_error_message('Gagal memastikan loyalty order POS.'));
+            }
+            $this->db->trans_commit();
+            $this->db->db_debug = $previousDbDebug;
+            return ['ok' => true, 'loyalty' => $summary];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            $this->db->db_debug = $previousDbDebug;
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
     }
 
     private function award_cashier_payment_points(int $memberId, int $orderId, int $paymentId, string $paidAt, array $orderRow): float
