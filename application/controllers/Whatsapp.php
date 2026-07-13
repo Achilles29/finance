@@ -548,7 +548,14 @@ class Whatsapp extends MY_Controller
 
         $nodePath = $this->findNodePath();
         if (!$nodePath) {
-            $this->jsonOut(['ok' => false, 'message' => 'Node.js tidak ditemukan. Install Node.js atau pastikan ada di /usr/local/bin/node atau via NVM.']);
+            // Coba info tambahan via exec untuk debug
+            $whichOut = [];
+            exec('which node 2>/dev/null || which nodejs 2>/dev/null', $whichOut);
+            $whichResult = trim($whichOut[0] ?? '');
+            $hint = $whichResult !== ''
+                ? " (which node: {$whichResult} — isi field 'Path Node.js' di Settings dengan path ini)"
+                : ' — jalankan: which node, lalu isi field "Path Node.js" di Settings.';
+            $this->jsonOut(['ok' => false, 'message' => 'Node.js tidak ditemukan.' . $hint]);
             return;
         }
 
@@ -948,37 +955,44 @@ class Whatsapp extends MY_Controller
 
     private function findNodePath(): string
     {
-        // 1. Cek path yang tersimpan di DB (diisi user via settings)
+        // Gunakan exec() untuk test executable — TIDAK pakai file_exists() karena
+        // aaPanel mengaktifkan open_basedir yang memblokir akses ke /usr/bin, /usr/local/bin dll.
+        $canExec = function (string $path): bool {
+            if ($path === '') return false;
+            $out = [];
+            exec('test -x ' . escapeshellarg($path) . ' 2>/dev/null && echo 1', $out);
+            return trim($out[0] ?? '') === '1';
+        };
+
+        // 1. Path tersimpan di DB (diisi user via settings)
         $session = $this->waSession();
         $stored  = trim((string)($session['node_path'] ?? ''));
-        if ($stored !== '' && file_exists($stored) && is_executable($stored)) return $stored;
+        if ($stored !== '' && $canExec($stored)) return $stored;
 
-        // 2. which node — berhasil jika PATH www-data sudah include node
-        exec("which node 2>/dev/null", $out);
-        if (!empty($out[0]) && file_exists(trim($out[0]))) return trim($out[0]);
-        $out = [];
-
-        exec("which nodejs 2>/dev/null", $out);
-        if (!empty($out[0]) && file_exists(trim($out[0]))) return trim($out[0]);
-
-        // 3. NVM paths — @ suppress warning jika direktori tidak bisa diakses www/www-data
-        $nvmGlobs = array_merge(
-            @glob('/root/.nvm/versions/node/*/bin/node') ?: [],
-            @glob('/home/*/.nvm/versions/node/*/bin/node') ?: [],
-            @glob('/www/.nvm/versions/node/*/bin/node') ?: []
-        );
-        if (!empty($nvmGlobs)) {
-            usort($nvmGlobs, function ($a, $b) {
-                return version_compare(
-                    basename(dirname(dirname($a))),
-                    basename(dirname(dirname($b)))
-                );
-            });
-            $latest = end($nvmGlobs);
-            if (file_exists($latest)) return $latest;
+        // 2. which node / nodejs — cara paling reliable, exec() tidak dibatasi open_basedir
+        foreach (['which node', 'which nodejs'] as $cmd) {
+            $out = [];
+            exec($cmd . ' 2>/dev/null', $out);
+            $p = trim($out[0] ?? '');
+            if ($p !== '' && $canExec($p)) return $p;
         }
 
-        // 4. Path sistem umum (apt, nodesource, snap, n, aaPanel)
+        // 3. NVM paths — test via canExec (glob juga bisa gagal karena open_basedir)
+        $nvmCandidates = [];
+        foreach (['/root', '/home/*', '/www'] as $base) {
+            $pattern = $base . '/.nvm/versions/node/*/bin/node';
+            $found   = @glob($pattern) ?: [];
+            $nvmCandidates = array_merge($nvmCandidates, $found);
+        }
+        if (!empty($nvmCandidates)) {
+            usort($nvmCandidates, fn($a, $b) => version_compare(
+                basename(dirname(dirname($a))), basename(dirname(dirname($b)))
+            ));
+            $latest = end($nvmCandidates);
+            if ($canExec($latest)) return $latest;
+        }
+
+        // 4. Path sistem umum — test via canExec
         foreach ([
             '/usr/local/bin/node',
             '/usr/bin/node',
@@ -987,7 +1001,7 @@ class Whatsapp extends MY_Controller
             '/snap/bin/node',
             '/www/server/nodejs/bin/node',
         ] as $p) {
-            if (@file_exists($p)) return $p;
+            if ($canExec($p)) return $p;
         }
 
         return '';
