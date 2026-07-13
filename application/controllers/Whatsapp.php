@@ -922,15 +922,21 @@ class Whatsapp extends MY_Controller
 
     private function jsonOut(array $data): void
     {
-        // Bersihkan semua output yang ter-buffer (PHP notices/warnings) agar tidak mencemari JSON
+        // Flush semua output buffer (termasuk PHP warnings/notices) agar tidak mencemari JSON
         while (ob_get_level() > 0) {
             @ob_end_clean();
         }
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         if ($json === false) {
-            $json = json_encode(['ok' => false, 'message' => 'JSON encode error: ' . json_last_error_msg()]);
+            $json = '{"ok":false,"message":"JSON encode error"}';
         }
-        $this->output->set_content_type('application/json')->set_output($json);
+        // Bypass CI output system: pakai header + echo + exit agar dijamin hanya JSON yang terkirim
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+            header('X-Content-Type-Options: nosniff');
+        }
+        echo $json;
+        exit;
     }
 
     private function enginePort(): int
@@ -955,10 +961,11 @@ class Whatsapp extends MY_Controller
         exec("which nodejs 2>/dev/null", $out);
         if (!empty($out[0]) && file_exists(trim($out[0]))) return trim($out[0]);
 
-        // 3. NVM paths — cari di root dan semua home user
+        // 3. NVM paths — @ suppress warning jika direktori tidak bisa diakses www/www-data
         $nvmGlobs = array_merge(
-            glob('/root/.nvm/versions/node/*/bin/node') ?: [],
-            glob('/home/*/.nvm/versions/node/*/bin/node') ?: []
+            @glob('/root/.nvm/versions/node/*/bin/node') ?: [],
+            @glob('/home/*/.nvm/versions/node/*/bin/node') ?: [],
+            @glob('/www/.nvm/versions/node/*/bin/node') ?: []
         );
         if (!empty($nvmGlobs)) {
             usort($nvmGlobs, function ($a, $b) {
@@ -971,15 +978,16 @@ class Whatsapp extends MY_Controller
             if (file_exists($latest)) return $latest;
         }
 
-        // 4. Path sistem umum (apt, nodesource, snap, n)
+        // 4. Path sistem umum (apt, nodesource, snap, n, aaPanel)
         foreach ([
             '/usr/local/bin/node',
             '/usr/bin/node',
             '/usr/bin/nodejs',
             '/opt/nodejs/bin/node',
             '/snap/bin/node',
+            '/www/server/nodejs/bin/node',
         ] as $p) {
-            if (file_exists($p)) return $p;
+            if (@file_exists($p)) return $p;
         }
 
         return '';
