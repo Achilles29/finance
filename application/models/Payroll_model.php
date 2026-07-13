@@ -3962,7 +3962,9 @@ class Payroll_model extends CI_Model
         if ($penaltyScope === 'PERSONAL') {
             $db->where('pe.employee_id', $employeeId);
         } else {
-            if ($divisionId > 0) {
+            if ($employeeId > 0) {
+                $db->where('pe.employee_id', $employeeId);
+            } elseif ($divisionId > 0) {
                 $db->where('pe.division_id', $divisionId);
             } else {
                 $db->where('pe.division_id IS NULL', null, false);
@@ -4307,7 +4309,6 @@ class Payroll_model extends CI_Model
                 ", false)
                 ->from('pay_bonus_penalty_event e')
                 ->join('pay_bonus_penalty_type t', 't.id = e.penalty_type_id', 'inner')
-                ->where('e.penalty_scope', 'PERSONAL')
                 ->where_in('e.employee_id', $employeeIds)
                 ->where("DATE_FORMAT(e.penalty_date, '%Y-%m') =", $month)
                 ->where('e.status <>', 'VOID')
@@ -4327,6 +4328,7 @@ class Payroll_model extends CI_Model
                 ", false)
                 ->from('pay_bonus_penalty_event')
                 ->where('penalty_scope', 'TEAM')
+                ->where('employee_id IS NULL', null, false)
                 ->where("DATE_FORMAT(penalty_date, '%Y-%m') =", $month)
                 ->where('status <>', 'VOID')
                 ->group_by('COALESCE(division_id, 0)', false)
@@ -5729,7 +5731,15 @@ class Payroll_model extends CI_Model
             ->from('pay_bonus_penalty_type')
             ->where('is_active', 1);
         if ($this->table_has_field('pay_bonus_penalty_type', 'behavior_mode')) {
-            $db->where('behavior_mode', 'AUTO');
+            $db->group_start()
+                ->where('behavior_mode', 'AUTO');
+            if ($this->table_has_field('pay_bonus_penalty_type', 'auto_source')) {
+                $db->or_group_start()
+                    ->where('behavior_mode', 'SEMI_MANUAL')
+                    ->where_in('auto_source', ['ATTENDANCE', 'SERVICE', 'PEER'])
+                ->group_end();
+            }
+            $db->group_end();
         }
 
         $rows = $db->get()->result_array();
@@ -5741,6 +5751,32 @@ class Payroll_model extends CI_Model
             }
         }
         return $map;
+    }
+
+    private function list_penalty_target_employee_rows(string $penaltyDate, int $divisionId = 0, int $shiftId = 0, int $employeeId = 0): array
+    {
+        if (!$this->db->table_exists('att_daily')) {
+            return [];
+        }
+
+        $db = $this->db->select('ad.employee_id, ad.shift_id, e.division_id', false)
+            ->from('att_daily ad')
+            ->join('org_employee e', 'e.id = ad.employee_id', 'left')
+            ->where('ad.attendance_date', $penaltyDate);
+
+        if ($employeeId > 0) {
+            $db->where('ad.employee_id', $employeeId);
+        }
+        if ($divisionId > 0) {
+            $db->where('e.division_id', $divisionId);
+        }
+        if ($shiftId > 0) {
+            $db->where('ad.shift_id', $shiftId);
+        }
+
+        return $db->group_by(['ad.employee_id', 'ad.shift_id', 'e.division_id'])
+            ->get()
+            ->result_array();
     }
 
     public function sync_bonus_auto_penalties(string $bonusDate, int $employeeId = 0, int $actorUserId = 0, int $ruleId = 0): array
@@ -5794,7 +5830,14 @@ class Payroll_model extends CI_Model
                 if (!isset($shiftDivisionMap[$shiftId])) {
                     $shiftDivisionMap[$shiftId] = [];
                 }
-                $shiftDivisionMap[$shiftId][$divisionId] = true;
+                if (!isset($shiftDivisionMap[$shiftId][$divisionId])) {
+                    $shiftDivisionMap[$shiftId][$divisionId] = [];
+                }
+                $shiftDivisionMap[$shiftId][$divisionId][$empId] = [
+                    'employee_id' => $empId,
+                    'division_id' => $divisionId,
+                    'shift_id' => $shiftId,
+                ];
             }
             $shiftCode = strtoupper(trim((string)($dailyRow['shift_code'] ?? '')));
             $sourceType = strtoupper(trim((string)($dailyRow['source_type'] ?? 'AUTO')));
@@ -5892,7 +5935,10 @@ class Payroll_model extends CI_Model
                     ->or_where('UPPER(COALESCE(s.shift_code, "")) =', 'PHB')
                     ->or_like('UPPER(COALESCE(s.shift_name, ""))', 'PUBLIC HOLIDAY')
                 ->group_end()
-                ->where("UPPER(COALESCE(ad.attendance_status, '')) <> 'ALPHA'", null, false);
+                ->group_start()
+                    ->where('UPPER(COALESCE(ad.attendance_status, "")) =', 'HOLIDAY')
+                    ->or_where('UPPER(COALESCE(ad.attendance_status, "")) =', 'PH')
+                ->group_end();
             if ($employeeId > 0) {
                 $phDb->where('ad.employee_id', $employeeId);
             }
@@ -5921,7 +5967,7 @@ class Payroll_model extends CI_Model
                             0.00
                         )
                     ),
-                    'reason_text' => 'Pegawai tercatat pada shift PH / public holiday pada tanggal ini',
+                    'reason_text' => 'Pegawai mengambil PH pada shift PH / public holiday di tanggal ini',
                     'status' => 'APPROVED',
                     'created_by' => $actorUserId > 0 ? $actorUserId : null,
                     'approved_by' => $actorUserId > 0 ? $actorUserId : null,
@@ -5973,35 +6019,41 @@ class Payroll_model extends CI_Model
                     : 0;
                 $points = round(max($basePoint, $basePoint + $severityStep), 4);
 
-                foreach (array_keys($shiftDivisionMap[$shiftId]) as $divisionId) {
-                    $this->db->insert('pay_bonus_penalty_event', [
-                        'penalty_date' => $bonusDate,
-                        'rule_id' => null,
-                        'penalty_type_id' => (int)$serviceTypeRow['id'],
-                        'employee_id' => null,
-                        'division_id' => $divisionId > 0 ? $divisionId : null,
-                        'shift_id' => $shiftId,
-                        'penalty_scope' => 'TEAM',
-                        'source_type' => 'AUTO_SERVICE',
-                        'points_deducted' => $points,
-                        'amount_deducted' => max(
-                            round((float)($serviceTypeRow['default_amount_deducted'] ?? 0), 2),
-                            $this->convert_bonus_penalty_point_to_amount(
-                                $points,
-                                (string)($defaultPenaltySetting['mode'] ?? 'PERCENT_SHARE'),
-                                (float)($defaultPenaltySetting['value'] ?? 0),
-                                0.00
-                            )
-                        ),
-                        'reason_text' => 'Waktu saji rata-rata shift ' . $avgMinutes . ' menit, batas ' . round($serviceTargetMinute, 2) . ' menit, score layanan ' . $scorePercent . '%.',
-                        'status' => 'APPROVED',
-                        'created_by' => $actorUserId > 0 ? $actorUserId : null,
-                        'approved_by' => $actorUserId > 0 ? $actorUserId : null,
-                        'approved_at' => $now,
-                        'created_at' => $now,
-                        'updated_at' => $now,
-                    ]);
-                    $inserted++;
+                foreach ($shiftDivisionMap[$shiftId] as $divisionId => $teamMembers) {
+                    foreach ($teamMembers as $teamMember) {
+                        $teamEmployeeId = (int)($teamMember['employee_id'] ?? 0);
+                        if ($teamEmployeeId <= 0) {
+                            continue;
+                        }
+                        $this->db->insert('pay_bonus_penalty_event', [
+                            'penalty_date' => $bonusDate,
+                            'rule_id' => null,
+                            'penalty_type_id' => (int)$serviceTypeRow['id'],
+                            'employee_id' => $teamEmployeeId,
+                            'division_id' => (int)$divisionId > 0 ? (int)$divisionId : null,
+                            'shift_id' => $shiftId,
+                            'penalty_scope' => 'TEAM',
+                            'source_type' => 'AUTO_SERVICE',
+                            'points_deducted' => $points,
+                            'amount_deducted' => max(
+                                round((float)($serviceTypeRow['default_amount_deducted'] ?? 0), 2),
+                                $this->convert_bonus_penalty_point_to_amount(
+                                    $points,
+                                    (string)($defaultPenaltySetting['mode'] ?? 'PERCENT_SHARE'),
+                                    (float)($defaultPenaltySetting['value'] ?? 0),
+                                    0.00
+                                )
+                            ),
+                            'reason_text' => 'Waktu saji rata-rata shift ' . $avgMinutes . ' menit, batas ' . round($serviceTargetMinute, 2) . ' menit, score layanan ' . $scorePercent . '%.',
+                            'status' => 'APPROVED',
+                            'created_by' => $actorUserId > 0 ? $actorUserId : null,
+                            'approved_by' => $actorUserId > 0 ? $actorUserId : null,
+                            'approved_at' => $now,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]);
+                        $inserted++;
+                    }
                 }
             }
         }
@@ -6262,7 +6314,7 @@ class Payroll_model extends CI_Model
                 ", false)
                 ->from('pay_bonus_penalty_event e')
                 ->join('pay_bonus_penalty_type t', 't.id = e.penalty_type_id', 'inner')
-                ->where('e.penalty_scope', 'PERSONAL')
+                ->where('e.employee_id IS NOT NULL', null, false)
                 ->where('e.status', 'APPROVED')
                 ->where('e.penalty_date >=', $dateFrom)
                 ->where('e.penalty_date <=', $dateTo)
@@ -6598,14 +6650,24 @@ class Payroll_model extends CI_Model
             ->group_by(['employee_id', 'division_id', 'shift_id', 'penalty_scope'])
             ->get()->result_array();
         $personalPenaltyMap = [];
+        $teamPenaltyByEmployeeMap = [];
         $teamPenaltyMap = [];
         foreach ($penaltyRows as $penaltyRow) {
             $scope = strtoupper((string)($penaltyRow['penalty_scope'] ?? 'PERSONAL'));
             if ($scope === 'TEAM') {
-                $teamPenaltyMap[(int)($penaltyRow['division_id'] ?? 0) . ':' . (int)($penaltyRow['shift_id'] ?? 0)] = [
-                    'point' => (float)($penaltyRow['penalty_point'] ?? 0),
-                    'amount' => (float)($penaltyRow['penalty_amount'] ?? 0),
-                ];
+                $teamEmployeeId = (int)($penaltyRow['employee_id'] ?? 0);
+                if ($teamEmployeeId > 0) {
+                    if (!isset($teamPenaltyByEmployeeMap[$teamEmployeeId])) {
+                        $teamPenaltyByEmployeeMap[$teamEmployeeId] = ['point' => 0.0, 'amount' => 0.0];
+                    }
+                    $teamPenaltyByEmployeeMap[$teamEmployeeId]['point'] += (float)($penaltyRow['penalty_point'] ?? 0);
+                    $teamPenaltyByEmployeeMap[$teamEmployeeId]['amount'] += (float)($penaltyRow['penalty_amount'] ?? 0);
+                } else {
+                    $teamPenaltyMap[(int)($penaltyRow['division_id'] ?? 0) . ':' . (int)($penaltyRow['shift_id'] ?? 0)] = [
+                        'point' => (float)($penaltyRow['penalty_point'] ?? 0),
+                        'amount' => (float)($penaltyRow['penalty_amount'] ?? 0),
+                    ];
+                }
             } else {
                 $personalPenaltyMap[(int)($penaltyRow['employee_id'] ?? 0)] = [
                     'point' => (float)($penaltyRow['penalty_point'] ?? 0),
@@ -6636,6 +6698,7 @@ class Payroll_model extends CI_Model
             $peerWeight = 1.0;
 
             $personalPenalty = $personalPenaltyMap[$empId] ?? ['point' => 0.0, 'amount' => 0.0];
+            $employeeTeamPenalty = $teamPenaltyByEmployeeMap[$empId] ?? ['point' => 0.0, 'amount' => 0.0];
             $teamPenalty = $teamPenaltyMap[(int)($employeeRow['division_id'] ?? 0) . ':' . $shiftId] ?? ['point' => 0.0, 'amount' => 0.0];
             $shiftSales = $shiftSalesMap[$shiftId] ?? ['gross_sales_amount' => 0.0, 'total_orders' => 0];
             $shiftNetSales = $shiftTotalGross > 0 ? round($netSalesAmount * ((float)$shiftSales['gross_sales_amount'] / $shiftTotalGross), 2) : 0.00;
@@ -6666,8 +6729,8 @@ class Payroll_model extends CI_Model
                 'peer_weight' => $peerWeight,
                 'revenue_in_shift' => $shiftNetSales,
                 'raw_point' => $rawPoint,
-                'penalty_point' => round((float)$personalPenalty['point'] + (float)$teamPenalty['point'], 4),
-                'penalty_amount_direct' => round((float)$personalPenalty['amount'] + (float)$teamPenalty['amount'], 2),
+                'penalty_point' => round((float)$personalPenalty['point'] + (float)$employeeTeamPenalty['point'] + (float)$teamPenalty['point'], 4),
+                'penalty_amount_direct' => round((float)$personalPenalty['amount'] + (float)$employeeTeamPenalty['amount'] + (float)$teamPenalty['amount'], 2),
             ];
             $totalPointWeight += $rawPoint;
         }
@@ -7565,6 +7628,47 @@ class Payroll_model extends CI_Model
             $dbPayload['updated_at'] = date('Y-m-d H:i:s');
             $this->db->where('id', $id)->update('pay_bonus_penalty_event', $dbPayload);
             return ['ok' => true, 'message' => 'Kejadian penalti bonus berhasil diperbarui.', 'id' => $id];
+        }
+
+        if ($penaltyScope === 'TEAM') {
+            $targetEmployeeRows = $this->list_penalty_target_employee_rows($penaltyDate, $divisionId, $shiftId, $employeeId);
+            if (empty($targetEmployeeRows)) {
+                return ['ok' => false, 'message' => 'Belum ada personil tim yang match dengan tanggal/divisi/shift tersebut.'];
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $insertCount = 0;
+            foreach ($targetEmployeeRows as $targetEmployeeRow) {
+                $targetEmployeeId = (int)($targetEmployeeRow['employee_id'] ?? 0);
+                if ($targetEmployeeId <= 0) {
+                    continue;
+                }
+
+                $rowPayload = $dbPayload;
+                $rowPayload['employee_id'] = $targetEmployeeId;
+                $rowPayload['division_id'] = (int)($targetEmployeeRow['division_id'] ?? 0) > 0
+                    ? (int)$targetEmployeeRow['division_id']
+                    : ($divisionId > 0 ? $divisionId : null);
+                $rowPayload['shift_id'] = (int)($targetEmployeeRow['shift_id'] ?? 0) > 0
+                    ? (int)$targetEmployeeRow['shift_id']
+                    : ($shiftId > 0 ? $shiftId : null);
+                $rowPayload['source_type'] = 'MANUAL';
+                $rowPayload['created_by'] = $actorUserId > 0 ? $actorUserId : null;
+                $rowPayload['created_at'] = $now;
+                $rowPayload['updated_at'] = $now;
+                $this->db->insert('pay_bonus_penalty_event', $rowPayload);
+                $insertCount++;
+            }
+
+            if ($insertCount <= 0) {
+                return ['ok' => false, 'message' => 'Personil tim tidak berhasil dipetakan untuk penalti ini.'];
+            }
+
+            return [
+                'ok' => true,
+                'message' => 'Kejadian penalti tim berhasil dibagikan ke ' . $insertCount . ' personil.',
+                'id' => 0,
+            ];
         }
 
         $dbPayload['source_type'] = 'MANUAL';

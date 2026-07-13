@@ -997,7 +997,11 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
             <?php
               $eventScope = strtoupper((string)($row['penalty_scope'] ?? 'PERSONAL'));
               $targetName = $eventScope === 'TEAM'
-                  ? (trim((string)($row['division_name'] ?? '')) !== '' ? trim((string)$row['division_name']) : 'Semua divisi')
+                  ? (
+                      trim((string)($row['employee_name'] ?? '')) !== ''
+                          ? trim((string)$row['employee_name'])
+                          : (trim((string)($row['division_name'] ?? '')) !== '' ? trim((string)$row['division_name']) : 'Semua divisi')
+                    )
                   : (string)($row['employee_name'] ?? '-');
               $mapKey = $eventScope . ':' . (int)($row['employee_id'] ?? 0) . ':' . (int)($row['division_id'] ?? 0);
               $detailRows = (array)($penaltyEventDetailMap[$mapKey] ?? []);
@@ -1113,7 +1117,9 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
                 <tr>
                   <td><?php echo html_escape((string)($row['penalty_date'] ?? '-')); ?></td>
                   <td>
-                    <strong><?php echo html_escape($detailScope === 'TEAM' ? ((string)($row['division_name'] ?? 'Semua divisi')) : ((string)($row['employee_name'] ?? '-'))); ?></strong>
+                    <strong><?php echo html_escape($detailScope === 'TEAM'
+                        ? (trim((string)($row['employee_name'] ?? '')) !== '' ? (string)$row['employee_name'] : ((string)($row['division_name'] ?? 'Semua divisi')))
+                        : ((string)($row['employee_name'] ?? '-'))); ?></strong>
                     <div class="small text-muted"><?php echo html_escape((string)($row['source_type'] ?? 'MANUAL')); ?></div>
                   </td>
                   <td>

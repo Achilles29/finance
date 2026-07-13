@@ -59,6 +59,60 @@ $canEdit = (bool)($can_edit ?? false);
         </form>
       </div>
 
+      <!-- Konfigurasi .env Node.js -->
+      <?php if ($canEdit): ?>
+      <div class="card border-0 shadow-sm mb-3" id="env-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0"><i class="ri ri-file-settings-line me-1"></i>Konfigurasi Node.js (.env)</h5>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-env-load">
+            <i class="ri ri-eye-line me-1"></i>Muat
+          </button>
+        </div>
+        <div class="card-body" id="env-body" style="display:none;">
+          <div class="alert alert-warning small py-2 mb-3">
+            <i class="ri ri-error-warning-line me-1"></i>
+            Isi sesuai konfigurasi MySQL di server Ubuntu. Restart wa-engine setelah simpan.
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-8">
+              <label class="form-label small fw-semibold mb-1">DB_HOST</label>
+              <input type="text" id="env-db-host" class="form-control form-control-sm font-monospace" value="localhost">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold mb-1">DB_NAME</label>
+              <input type="text" id="env-db-name" class="form-control form-control-sm font-monospace" value="db_finance">
+            </div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold mb-1">DB_USER</label>
+              <input type="text" id="env-db-user" class="form-control form-control-sm font-monospace" value="root">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold mb-1">DB_PASS</label>
+              <input type="text" id="env-db-pass" class="form-control form-control-sm font-monospace" placeholder="(kosong jika tanpa password)">
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold mb-1">WA_PORT</label>
+              <input type="text" id="env-wa-port" class="form-control form-control-sm font-monospace" value="3070">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold mb-1">WA_TOKEN</label>
+              <input type="text" id="env-wa-token" class="form-control form-control-sm font-monospace" value="local-dev-token">
+            </div>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-primary btn-sm" id="btn-env-save">
+              <i class="ri ri-save-line me-1"></i>Simpan .env
+            </button>
+            <span id="env-save-result" class="small"></span>
+          </div>
+        </div>
+      </div>
+      <?php endif; ?>
+
       <!-- QR Code Panel -->
       <div class="card border-0 shadow-sm mb-3" id="qr-panel">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -179,6 +233,25 @@ $canEdit = (bool)($can_edit ?? false);
           </dl>
         </div>
       </div>
+
+      <!-- Reset Sesi WA -->
+      <?php if ($canEdit): ?>
+      <div class="card border-0 shadow-sm mb-3 border-danger border-opacity-25">
+        <div class="card-header bg-danger bg-opacity-10">
+          <h5 class="mb-0 text-danger"><i class="ri ri-refresh-line me-1"></i>Reset Sesi WA</h5>
+        </div>
+        <div class="card-body small">
+          <p class="mb-2 text-muted">
+            Hapus sesi tersimpan agar bot meminta QR baru saat restart.
+            Gunakan jika bot tidak bisa reconnect atau QR tidak muncul.
+          </p>
+          <button class="btn btn-outline-danger btn-sm" id="btn-session-reset">
+            <i class="ri ri-delete-bin-line me-1"></i>Hapus Sesi & Paksa QR Baru
+          </button>
+          <div id="session-reset-result" class="mt-2"></div>
+        </div>
+      </div>
+      <?php endif; ?>
 
       <!-- Panduan singkat -->
       <div class="card border-0 shadow-sm">
@@ -429,4 +502,69 @@ document.getElementById('btn-engine-log')?.addEventListener('click', function ()
 
 // Auto-cek status engine saat halaman dibuka
 engineRefreshStatus();
+
+// ─── .env Editor ──────────────────────────────────────────
+document.getElementById('btn-env-load')?.addEventListener('click', function () {
+  const body = document.getElementById('env-body');
+  if (!body) return;
+  if (body.style.display !== 'none') { body.style.display = 'none'; return; }
+  body.style.display = 'block';
+  fetch('<?= site_url('wa/api/env-read') ?>', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return;
+      const e = d.env || {};
+      document.getElementById('env-db-host').value  = e.DB_HOST  ?? 'localhost';
+      document.getElementById('env-db-name').value  = e.DB_NAME  ?? 'db_finance';
+      document.getElementById('env-db-user').value  = e.DB_USER  ?? 'root';
+      document.getElementById('env-db-pass').value  = e.DB_PASS  ?? '';
+      document.getElementById('env-wa-port').value  = e.WA_PORT  ?? '3070';
+      document.getElementById('env-wa-token').value = e.WA_TOKEN ?? 'local-dev-token';
+    })
+    .catch(() => {});
+});
+
+document.getElementById('btn-env-save')?.addEventListener('click', function () {
+  const result = document.getElementById('env-save-result');
+  result.textContent = 'Menyimpan…';
+  fetch('<?= site_url('wa/api/env-save') ?>', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    body: JSON.stringify({
+      DB_HOST:  document.getElementById('env-db-host').value.trim(),
+      DB_NAME:  document.getElementById('env-db-name').value.trim(),
+      DB_USER:  document.getElementById('env-db-user').value.trim(),
+      DB_PASS:  document.getElementById('env-db-pass').value,
+      WA_PORT:  document.getElementById('env-wa-port').value.trim(),
+      WA_TOKEN: document.getElementById('env-wa-token').value.trim(),
+    })
+  })
+    .then(r => r.json())
+    .then(d => {
+      result.innerHTML = d.ok
+        ? '<span class="text-success"><i class="ri ri-checkbox-circle-line me-1"></i>' + (d.message || 'Tersimpan') + '</span>'
+        : '<span class="text-danger">✗ ' + (d.message || 'Gagal') + '</span>';
+    })
+    .catch(e => { result.innerHTML = '<span class="text-danger">✗ ' + e + '</span>'; });
+});
+
+// ─── Reset Sesi WA ────────────────────────────────────────
+document.getElementById('btn-session-reset')?.addEventListener('click', function () {
+  if (!confirm('Yakin hapus sesi WA?\nBot akan meminta QR baru saat restart.\n\nPastikan wa-engine sudah dihentikan sebelum reset.')) return;
+  const result = document.getElementById('session-reset-result');
+  this.disabled = true;
+  result.textContent = 'Menghapus sesi…';
+  fetch('<?= site_url('wa/api/session-reset') ?>', {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+    .then(r => r.json())
+    .then(d => {
+      result.innerHTML = d.ok
+        ? '<span class="text-success"><i class="ri ri-checkbox-circle-line me-1"></i>' + (d.message || 'Berhasil') + '</span>'
+        : '<span class="text-danger">✗ ' + (d.message || 'Gagal') + '</span>';
+    })
+    .catch(e => { result.innerHTML = '<span class="text-danger">✗ ' + e + '</span>'; })
+    .finally(() => { this.disabled = false; });
+});
 </script>

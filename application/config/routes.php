@@ -765,6 +765,9 @@ $route['wa/api/engine-status']            = 'whatsapp/api_engine_status';
 $route['wa/api/engine-start']             = 'whatsapp/api_engine_start';
 $route['wa/api/engine-stop']              = 'whatsapp/api_engine_stop';
 $route['wa/api/engine-logs']              = 'whatsapp/api_engine_logs';
+$route['wa/api/env-read']                 = 'whatsapp/api_env_read';
+$route['wa/api/env-save']                 = 'whatsapp/api_env_save';
+$route['wa/api/session-reset']            = 'whatsapp/api_session_reset';
 $route['wa/guide']                        = 'whatsapp/guide';
 
 $route['master/(:any)']                  = 'master/index/$1';

@@ -217,51 +217,26 @@ tampilan tabel /payroll/bonus?tab=weights&month=2026-07 , masih strecth ke Bobot
 
 Tambah Master Penalti perlu lebih user friendly, istilah dan code yang tidak ketik manual.
 
-
 bulk hitung, target keuangan, bulk pool, bulk sync penalty masih muter2
 
-
-
-6. /payroll/bonus?month=2026-07&tab=penalties nominal langsung digenerate dikonversi dari pengaturan kebijakan "Nilai konversi penalti poin"
-
-7. /payroll/bonus?month=2026-07 tambahkan void dan delete untuk pool yang sudah di publish.
-
-
-8. /payroll/bonus?month=2026-07&tab=monthly harusnya bukan hanya tampil bonus nya, tapi juga tampil penalti nya. tampilkan rekap 1 bulan, lalu berikan aksi detail dan buatkan halaman detailnya.
-data yang tampil bukan hanya yang publish, yang draft tetap tampil, berika status
-
-
-9. /my/bonus?employee_id= tampilkan data bonus dan penailty. tampilkan juga kekurangan target bulanan dan harian, tampilkan di dashboard employee juga
+- /finance-reports/targets "Hitung Hasil Terpilih" bulk masih muter muter belum berhasi.
 
 
 
 
-- halaman penalty, kejadian penalti, harusnya rekap per nama, lalu bisa dilihat detailnya per nama per tanggal.
-- tab kejadian penalty ketika di klik filter kembali ke master penalty, perbaiki!
 
-- Ambil PH BONUS-PH-TAKEN seharusnya dapat penalty (sesuai master penalty) dan otomatis, tapi saya lihat FADILLA tanggal 6 ambil shift PH belum dapat penalty. cek
+1. ketika ada penalty yang sifatnya TIm (gambar 1), mestinya langsung masuk ke masing masing personil sesuai divisi / shift yang dipilih
+2. hari ini Setiawan ambil PH att_daily HOLIDAY, tapi saya tes syncronisasi penalty, belum muncul di setiawan
 
-- MANUAL_ATTENDANCE seharusnya dapat penalty, tapi saya lihat belum muncul
-
-- tambahkan penalti custom, yang bisa diinput superadmin dengan catatan custom dan poin custom, sesuai pengaturan yang dipilih dan yang ada sekarang
-
-- di dashboard pegawai cukup tampilkan kekurangan target Bulan ini dan hari ini saja, hari yang sudah lewat tidak usah. buat tampilannya menarik, kalau perlu pakai gambar
+3. di /attendance/pending-requests?q=&division_id=0&status=APPROVED ada data pegawai yang mengajukan absen manual. apakah di record / log / database absen pegawai terlihat log mana saja yang absen mandiri menggunakan gps mana yang melaluli pengajuan? saya cek di att_daily ada source_type PENDING_APPROVAL , nah seharusnya itu kena penalty sesuai MANUAL_ATTENDANCE. saya cek belum ada.
 
 
 
-- percantik tampilan modal Detail Kejadian Penalti, perjelas agar lebih friendly use. tabelnya jangan dipotong, informasi taruh atas saja.
-- Penalty yang tampil seharusnya semua scope, bukan hanya personal. kan kalau tim juga mengurangi poin personal
 
-- Form Kejadian Penalti tambahakan divisi tim semua, potong nominal harusnya otomatis dari pengaturan sesuai poin
+- modal Detail Kejadian Penalti (gambar 1) rapikan lagi. nama target dan lain lain diatas, tabel dibawah, jadi tidak perlu discroll
 
-- tambahkan tab rincian penalty, untu menampilkan semua rincian urut tanggal
+di /payroll/bonus?month=2026-07&tab=employee_daily, /payroll/bonus/monthly-detail/9/18?month=2026-07 dan /my/bonus, mestinya bisa menampilkan detail audit bonus per hari. misal pada hari apa, shift apa, ada omzet berapa, dibagi berapa orang, bagian saya berapa. agar fair dapat diketahui semua
 
 
-- PH seharusnya bukan diambil dari att_employee_ph_ledger , karena table itu adalah tabel dimana pegawai mendapat jatah PH ketika masuk hari libur.
-seharusnya diambil dari att_daily dengan join shift id ke att shift yang namanya PH. 
 
-- MUHAMMAD FIRMAN ABIMANYU tanggal 12 aBSEN melalui pengajuan tapi belum terkena potongan
-
-
-= halaman penalty buat pencariannya ajax
-- ketika di refresh tetap di tab terpilih jangan kembali ke tab master penalty
+/finance-reports/targets?tab=list&page=1 bulk hitung "Hitung Hasil Terpilih", target keuangan masih muter2 lama dan belum finish

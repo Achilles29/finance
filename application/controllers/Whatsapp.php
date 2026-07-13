@@ -547,14 +547,21 @@ class Whatsapp extends MY_Controller
 
         $envStr  = $this->buildEnvString($engineDir);
         $logPath = $engineDir . '/wa-engine.log';
-        // env vars HARUS sebelum nohup, bukan sesudahnya
+        // </dev/null mencegah nohup output "ignoring input" ke stdout yang bisa ditangkap exec()
+        // >> append ke log, bukan overwrite; env vars HARUS sebelum nohup
         $cmd = "cd " . escapeshellarg($engineDir)
              . " && {$envStr}nohup " . escapeshellarg($nodePath)
              . " " . escapeshellarg($engineDir . '/index.js')
-             . " > " . escapeshellarg($logPath) . " 2>&1 & echo \$!";
+             . " >> " . escapeshellarg($logPath) . " 2>&1 </dev/null & echo \$!";
 
+        $output = [];
         exec($cmd, $output);
-        $pid = (int)trim($output[0] ?? '0');
+        // Ambil baris terakhir yang berisi angka murni sebagai PID
+        $pid = 0;
+        foreach (array_reverse($output) as $line) {
+            $line = trim($line);
+            if (ctype_digit($line)) { $pid = (int)$line; break; }
+        }
 
         usleep(2000000); // tunggu 2 detik agar port terbuka
         exec("lsof -ti :{$port} 2>/dev/null", $checkPids);
@@ -563,12 +570,20 @@ class Whatsapp extends MY_Controller
         if ($running) {
             $this->jsonOut(['ok' => true, 'pid' => $pid, 'message' => "wa-engine berjalan · Node: {$nodePath} · PID {$pid}"]);
         } else {
-            $logLines = [];
+            $logHint = '(log tidak ada — proses crash seketika)';
             if (file_exists($logPath)) {
-                exec("tail -n 5 " . escapeshellarg($logPath) . " 2>/dev/null", $logLines);
+                $logLines = [];
+                exec("tail -n 8 " . escapeshellarg($logPath) . " 2>/dev/null", $logLines);
+                if (!empty($logLines)) {
+                    // Hapus ANSI escape codes, karakter kontrol, dan batasi panjang
+                    $raw = implode(' | ', array_filter($logLines));
+                    $raw = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]/u', '', $raw);
+                    $raw = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $raw);
+                    $raw = mb_substr(trim($raw), 0, 400, 'UTF-8');
+                    if ($raw !== '') $logHint = 'Log: ' . $raw;
+                }
             }
-            $logHint = !empty($logLines) ? ' Log: ' . implode(' | ', array_filter($logLines)) : ' (log tidak ada — proses crash seketika)';
-            $this->jsonOut(['ok' => false, 'message' => "PID {$pid} dimulai tapi port {$port} belum terbuka.{$logHint} Node: {$nodePath}"]);
+            $this->jsonOut(['ok' => false, 'message' => "Port {$port} belum terbuka setelah 2 detik. {$logHint} | Node: {$nodePath}"]);
         }
     }
 
@@ -636,11 +651,103 @@ class Whatsapp extends MY_Controller
         }
 
         $raw = implode("\n", $lines);
-        // Hapus ANSI escape codes & pastikan valid UTF-8
+        // Hapus ANSI escape codes
         $raw = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]/u', '', $raw);
-        $raw = mb_convert_encoding($raw, 'UTF-8', 'UTF-8');
+        // Ganti byte tidak valid UTF-8 agar json_encode tidak gagal
+        $raw = mb_convert_encoding($raw, 'UTF-8', 'auto');
 
         $this->jsonOut(['ok' => true, 'logs' => $raw]);
+    }
+
+    // JSON API — baca file .env wa-engine
+    public function api_env_read()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'view');
+
+        $envFile = realpath(FCPATH . 'wa-engine') . '/.env';
+        $defaults = ['WA_PORT' => '3070', 'WA_TOKEN' => 'local-dev-token',
+                     'DB_HOST' => 'localhost', 'DB_USER' => 'root',
+                     'DB_PASS' => '', 'DB_NAME' => 'db_finance'];
+
+        $current = $defaults;
+        if (file_exists($envFile)) {
+            foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+                $line = trim($line);
+                if ($line === '' || strpos($line, '#') === 0) continue;
+                [$k, $v] = array_pad(explode('=', $line, 2), 2, '');
+                $k = trim($k); $v = trim($v, " \t\"'");
+                if ($k !== '') $current[$k] = $v;
+            }
+        }
+
+        $this->jsonOut(['ok' => true, 'env' => $current, 'exists' => file_exists($envFile)]);
+    }
+
+    // JSON API — simpan file .env wa-engine
+    public function api_env_save()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'edit');
+
+        $payload  = json_decode((string)$this->input->raw_input_stream, true) ?? [];
+        $allowed  = ['WA_PORT', 'WA_TOKEN', 'DB_HOST', 'DB_USER', 'DB_PASS', 'DB_NAME'];
+        $engineDir = realpath(FCPATH . 'wa-engine');
+
+        if (!$engineDir) {
+            $this->jsonOut(['ok' => false, 'message' => 'Folder wa-engine tidak ditemukan.']);
+            return;
+        }
+
+        $lines = ['# wa-engine environment — digenerate oleh Finance App', ''];
+        foreach ($allowed as $key) {
+            $val = isset($payload[$key]) ? (string)$payload[$key] : '';
+            $lines[] = $key . '=' . $val;
+        }
+        $lines[] = '';
+
+        $result = file_put_contents($engineDir . '/.env', implode("\n", $lines));
+        if ($result === false) {
+            $this->jsonOut(['ok' => false, 'message' => 'Gagal menulis file .env. Pastikan PHP punya izin tulis ke folder wa-engine.']);
+            return;
+        }
+
+        $this->jsonOut(['ok' => true, 'message' => 'File .env berhasil disimpan. Restart wa-engine agar perubahan berlaku.']);
+    }
+
+    // JSON API — hapus sesi WA (auth_info) untuk paksa QR baru
+    public function api_session_reset()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'edit');
+
+        $engineDir = realpath(FCPATH . 'wa-engine');
+        if (!$engineDir) {
+            $this->jsonOut(['ok' => false, 'message' => 'Folder wa-engine tidak ditemukan.']);
+            return;
+        }
+
+        $authDir = $engineDir . '/auth_info';
+        if (!is_dir($authDir)) {
+            $this->jsonOut(['ok' => true, 'message' => 'Folder auth_info belum ada — sesi sudah bersih.']);
+            return;
+        }
+
+        // Hapus semua file di dalam auth_info, lalu folder-nya
+        $deleted = 0;
+        foreach (glob($authDir . '/*') ?: [] as $file) {
+            if (is_file($file)) { @unlink($file); $deleted++; }
+        }
+        @rmdir($authDir);
+
+        if (is_dir($authDir)) {
+            $this->jsonOut(['ok' => false, 'message' => "Tidak semua file berhasil dihapus (terhapus: {$deleted}). Coba hapus manual: rm -rf " . escapeshellarg($authDir)]);
+            return;
+        }
+
+        $this->db->where('id', 1)->update('wa_session', [
+            'status'       => 'UNKNOWN',
+            'phone_number' => null,
+        ]);
+
+        $this->jsonOut(['ok' => true, 'message' => "Sesi WA direset ({$deleted} file dihapus). Restart wa-engine lalu scan QR baru."]);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -800,6 +907,10 @@ class Whatsapp extends MY_Controller
 
     private function jsonOut(array $data): void
     {
+        // Bersihkan semua output yang ter-buffer (PHP notices/warnings) agar tidak mencemari JSON
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         if ($json === false) {
             $json = json_encode(['ok' => false, 'message' => 'JSON encode error: ' . json_last_error_msg()]);
