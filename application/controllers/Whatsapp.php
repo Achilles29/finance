@@ -554,7 +554,21 @@ class Whatsapp extends MY_Controller
         if ($running) {
             $this->jsonOut(['ok' => true, 'pid' => $pid, 'message' => "wa-engine berjalan (PID {$pid})"]);
         } else {
-            $this->jsonOut(['ok' => false, 'message' => "Proses dimulai (PID {$pid}) tapi port {$port} belum terbuka. Cek log di wa-engine/wa-engine.log"]);
+            // Baca beberapa baris log untuk diagnosa
+            $logFile = $engineDir . '/wa-engine.log';
+            $logHint = '';
+            if (file_exists($logFile)) {
+                exec("tail -n 5 " . escapeshellarg($logFile) . " 2>/dev/null", $logLines);
+                $logHint = $logLines ? ' | Log: ' . implode(' | ', array_filter($logLines)) : '';
+            } else {
+                // Cek apakah node tersedia
+                exec("which node 2>/dev/null", $nodeOut);
+                $nodeHint = !empty($nodeOut[0]) ? '' : ' node tidak ditemukan di PATH.';
+                // Cek node_modules
+                $hasModules = is_dir($engineDir . '/node_modules');
+                $logHint = $nodeHint . (!$hasModules ? ' node_modules belum ada — jalankan: npm install di folder wa-engine/' : '');
+            }
+            $this->jsonOut(['ok' => false, 'message' => "Proses dimulai (PID {$pid}) tapi port {$port} belum terbuka.{$logHint}"]);
         }
     }
 
@@ -597,9 +611,21 @@ class Whatsapp extends MY_Controller
     {
         $this->require_permission(self::PAGE_SETTINGS, 'view');
 
-        $logFile = FCPATH . 'wa-engine/wa-engine.log';
+        $engineDir = realpath(FCPATH . 'wa-engine') ?: (FCPATH . 'wa-engine');
+        $logFile   = $engineDir . '/wa-engine.log';
+
         if (!file_exists($logFile)) {
-            $this->jsonOut(['ok' => true, 'logs' => '(Log belum ada — wa-engine belum pernah dijalankan dari UI)']);
+            // Coba cari dengan exec untuk path yang mungkin berbeda
+            if (function_exists('exec')) {
+                exec("ls -la " . escapeshellarg($engineDir) . " 2>&1", $lsOut);
+                $dirInfo = implode("\n", $lsOut);
+            } else {
+                $dirInfo = '';
+            }
+            $this->jsonOut([
+                'ok'   => true,
+                'logs' => "(Log belum ada di: {$logFile})\n\nIsi folder wa-engine:\n{$dirInfo}\n\nKemungkinan penyebab:\n- npm install belum dijalankan\n- Node.js tidak ditemukan\n- Proses crash sebelum sempat nulis log",
+            ]);
             return;
         }
 
