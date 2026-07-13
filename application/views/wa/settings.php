@@ -4,9 +4,14 @@ $canEdit = (bool)($can_edit ?? false);
 ?>
 
 <div class="container-xxl py-3">
-  <div class="mb-3">
-    <h4 class="mb-1 fw-bold"><i class="ri ri-settings-3-line me-1"></i>Pengaturan WA Bot</h4>
-    <p class="text-muted mb-0 small">Konfigurasi koneksi ke WhatsApp Bot yang berjalan di server.</p>
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+      <h4 class="mb-1 fw-bold"><i class="ri ri-settings-3-line me-1"></i>Pengaturan WA Bot</h4>
+      <p class="text-muted mb-0 small">Konfigurasi koneksi ke WhatsApp Bot yang berjalan di server.</p>
+    </div>
+    <a href="<?= site_url('wa/guide') ?>" class="btn btn-outline-info btn-sm">
+      <i class="ri ri-book-open-line me-1"></i>Panduan Instalasi & Penggunaan
+    </a>
   </div>
 
   <?php if ($flash = $this->session->flashdata('success')): ?>
@@ -52,6 +57,31 @@ $canEdit = (bool)($can_edit ?? false);
           </div>
           <?php endif; ?>
         </form>
+      </div>
+
+      <!-- QR Code Panel -->
+      <div class="card border-0 shadow-sm mb-3" id="qr-panel">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">Scan QR Code</h5>
+          <button class="btn btn-sm btn-outline-success" id="btn-load-qr">
+            <i class="ri ri-qr-code-line me-1"></i>Muat QR Code
+          </button>
+        </div>
+        <div class="card-body text-center">
+          <div id="qr-status-msg" class="text-muted small mb-2">
+            Klik "Muat QR Code" untuk menampilkan kode scan.
+            QR Code akan muncul jika status bot adalah <strong>Menunggu QR</strong>.
+          </div>
+          <div id="qr-container" class="d-flex justify-content-center mb-2"></div>
+          <div id="qr-countdown" class="text-muted small d-none">
+            <i class="ri ri-time-line me-1"></i>QR kadaluarsa dalam <span id="qr-seconds">60</span> detik. Refresh otomatis…
+          </div>
+          <div id="qr-connected" class="d-none">
+            <i class="ri ri-checkbox-circle-line text-success me-1" style="font-size:2rem;"></i>
+            <div class="text-success fw-semibold">WhatsApp Terhubung!</div>
+            <div class="text-muted small" id="qr-phone"></div>
+          </div>
+        </div>
       </div>
 
       <!-- Test Koneksi -->
@@ -132,7 +162,89 @@ $canEdit = (bool)($can_edit ?? false);
   </div>
 </div>
 
+<!-- QR Code library (qrcodejs) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
+// ─── QR Code ───────────────────────────────────────────────
+let qrInterval = null;
+let qrCountdown = 60;
+let qrCountdownTimer = null;
+let currentQrInstance = null;
+
+function clearQrTimers() {
+  if (qrInterval) { clearInterval(qrInterval); qrInterval = null; }
+  if (qrCountdownTimer) { clearInterval(qrCountdownTimer); qrCountdownTimer = null; }
+}
+
+function renderQr(qrString) {
+  const container = document.getElementById('qr-container');
+  container.innerHTML = '';
+  currentQrInstance = new QRCode(container, {
+    text: qrString,
+    width: 220,
+    height: 220,
+    correctLevel: QRCode.CorrectLevel.M
+  });
+}
+
+function showConnected(phone) {
+  clearQrTimers();
+  document.getElementById('qr-container').innerHTML = '';
+  document.getElementById('qr-countdown').classList.add('d-none');
+  document.getElementById('qr-status-msg').classList.add('d-none');
+  const el = document.getElementById('qr-connected');
+  el.classList.remove('d-none');
+  if (phone) document.getElementById('qr-phone').textContent = '📱 ' + phone;
+}
+
+function startCountdown() {
+  qrCountdown = 60;
+  document.getElementById('qr-countdown').classList.remove('d-none');
+  document.getElementById('qr-seconds').textContent = qrCountdown;
+  qrCountdownTimer = setInterval(() => {
+    qrCountdown--;
+    document.getElementById('qr-seconds').textContent = qrCountdown;
+    if (qrCountdown <= 0) {
+      clearInterval(qrCountdownTimer);
+      document.getElementById('qr-countdown').classList.add('d-none');
+    }
+  }, 1000);
+}
+
+function fetchQr() {
+  fetch('<?= site_url('wa/api/qr') ?>', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(r => r.json())
+    .then(data => {
+      const status = (data.status || 'UNKNOWN').toUpperCase();
+      if (status === 'CONNECTED') {
+        showConnected(data.phone || '');
+        return;
+      }
+      if (status === 'WAITING_QR' && data.qr) {
+        document.getElementById('qr-status-msg').textContent = 'Scan QR Code ini dengan WhatsApp di HP Anda.';
+        clearInterval(qrCountdownTimer);
+        startCountdown();
+        renderQr(data.qr);
+      } else if (!data.qr) {
+        document.getElementById('qr-status-msg').textContent = 'Bot belum dalam mode QR. Pastikan wa-bot berjalan dan belum terhubung.';
+      }
+    })
+    .catch(() => {
+      document.getElementById('qr-status-msg').textContent = 'Tidak dapat menghubungi WA Bot. Pastikan bot berjalan.';
+    });
+}
+
+document.getElementById('btn-load-qr')?.addEventListener('click', function () {
+  document.getElementById('qr-connected').classList.add('d-none');
+  document.getElementById('qr-status-msg').classList.remove('d-none');
+  document.getElementById('qr-status-msg').textContent = 'Memuat QR Code…';
+  clearQrTimers();
+  fetchQr();
+  // Poll setiap 5 detik utk cek update QR atau status connected
+  qrInterval = setInterval(fetchQr, 5000);
+});
+
+// ─── Ping ──────────────────────────────────────────────────
 document.getElementById('btn-ping')?.addEventListener('click', function () {
   const result = document.getElementById('ping-result');
   this.disabled = true;

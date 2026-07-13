@@ -30,6 +30,9 @@ $badgeLabel = match($waStatus) {
       <a href="<?= site_url('wa/broadcast/create') ?>" class="btn btn-success btn-sm">
         <i class="ri ri-broadcast-line me-1"></i>Broadcast Baru
       </a>
+      <a href="<?= site_url('wa/guide') ?>" class="btn btn-outline-info btn-sm">
+        <i class="ri ri-book-open-line me-1"></i>Panduan
+      </a>
     </div>
   </div>
 

@@ -490,6 +490,28 @@ class Whatsapp extends MY_Controller
         $this->jsonOut(['ok' => true, 'preview' => $resolved]);
     }
 
+    // JSON API — ambil QR code string dari wa-bot (polling saat WAITING_QR)
+    public function api_qr()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'view');
+        $result = $this->callBotApi('/internal/qr', 'GET');
+        $this->jsonOut($result);
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // PANDUAN
+    // ──────────────────────────────────────────────────────────
+    public function guide()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'view');
+        $session = $this->waSession();
+        $this->render('wa/guide', [
+            'title'       => 'Panduan WhatsApp Bot',
+            'active_menu' => 'wa.settings',
+            'session'     => $session,
+        ]);
+    }
+
     // ──────────────────────────────────────────────────────────
     // PRIVATE HELPERS
     // ──────────────────────────────────────────────────────────

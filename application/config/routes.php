@@ -760,6 +760,8 @@ $route['wa/api/status']                   = 'whatsapp/api_status';
 $route['wa/api/send-test']                = 'whatsapp/api_send_test';
 $route['wa/api/broadcast-start/(:num)']   = 'whatsapp/api_broadcast_start/$1';
 $route['wa/api/template-preview']         = 'whatsapp/api_template_preview';
+$route['wa/api/qr']                       = 'whatsapp/api_qr';
+$route['wa/guide']                        = 'whatsapp/guide';
 
 $route['master/(:any)']                  = 'master/index/$1';
 $route['master/(:any)/create']           = 'master/create/$1';
