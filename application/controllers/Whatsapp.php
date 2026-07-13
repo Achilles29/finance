@@ -539,36 +539,35 @@ class Whatsapp extends MY_Controller
             return;
         }
 
-        $envStr  = $this->buildEnvString($engineDir);
-        $logFile = escapeshellarg($engineDir . '/wa-engine.log');
-        $nodeJs  = escapeshellarg($engineDir . '/index.js');
+        $nodePath = $this->findNodePath();
+        if (!$nodePath) {
+            $this->jsonOut(['ok' => false, 'message' => 'Node.js tidak ditemukan. Install Node.js atau pastikan ada di /usr/local/bin/node atau via NVM.']);
+            return;
+        }
 
-        $cmd = "cd " . escapeshellarg($engineDir) . " && nohup {$envStr}node {$nodeJs} >> {$logFile} 2>&1 & echo \$!";
+        $envStr  = $this->buildEnvString($engineDir);
+        $logPath = $engineDir . '/wa-engine.log';
+        $cmd = "cd " . escapeshellarg($engineDir)
+             . " && nohup {$envStr}" . escapeshellarg($nodePath)
+             . " " . escapeshellarg($engineDir . '/index.js')
+             . " > " . escapeshellarg($logPath) . " 2>&1 & echo \$!";
+
         exec($cmd, $output);
         $pid = (int)trim($output[0] ?? '0');
 
-        usleep(1200000); // tunggu 1.2 detik agar port terbuka
+        usleep(2000000); // tunggu 2 detik agar port terbuka
         exec("lsof -ti :{$port} 2>/dev/null", $checkPids);
         $running = !empty(array_filter(array_map('intval', $checkPids)));
 
         if ($running) {
-            $this->jsonOut(['ok' => true, 'pid' => $pid, 'message' => "wa-engine berjalan (PID {$pid})"]);
+            $this->jsonOut(['ok' => true, 'pid' => $pid, 'message' => "wa-engine berjalan · Node: {$nodePath} · PID {$pid}"]);
         } else {
-            // Baca beberapa baris log untuk diagnosa
-            $logFile = $engineDir . '/wa-engine.log';
-            $logHint = '';
-            if (file_exists($logFile)) {
-                exec("tail -n 5 " . escapeshellarg($logFile) . " 2>/dev/null", $logLines);
-                $logHint = $logLines ? ' | Log: ' . implode(' | ', array_filter($logLines)) : '';
-            } else {
-                // Cek apakah node tersedia
-                exec("which node 2>/dev/null", $nodeOut);
-                $nodeHint = !empty($nodeOut[0]) ? '' : ' node tidak ditemukan di PATH.';
-                // Cek node_modules
-                $hasModules = is_dir($engineDir . '/node_modules');
-                $logHint = $nodeHint . (!$hasModules ? ' node_modules belum ada — jalankan: npm install di folder wa-engine/' : '');
+            $logLines = [];
+            if (file_exists($logPath)) {
+                exec("tail -n 5 " . escapeshellarg($logPath) . " 2>/dev/null", $logLines);
             }
-            $this->jsonOut(['ok' => false, 'message' => "Proses dimulai (PID {$pid}) tapi port {$port} belum terbuka.{$logHint}"]);
+            $logHint = !empty($logLines) ? ' Log: ' . implode(' | ', array_filter($logLines)) : ' (log tidak ada — proses crash seketika)';
+            $this->jsonOut(['ok' => false, 'message' => "PID {$pid} dimulai tapi port {$port} belum terbuka.{$logHint} Node: {$nodePath}"]);
         }
     }
 
@@ -803,6 +802,37 @@ class Whatsapp extends MY_Controller
         $url = $this->waSession()['bot_api_url'] ?? 'http://127.0.0.1:3070';
         if (preg_match('/:(\d+)/', $url, $m)) return (int)$m[1];
         return 3070;
+    }
+
+    private function findNodePath(): string
+    {
+        // Coba which dulu (berhasil jika PATH PHP sudah include node)
+        exec("which node 2>/dev/null", $out);
+        if (!empty($out[0]) && file_exists(trim($out[0]))) return trim($out[0]);
+
+        // NVM paths — cari di root dan semua home user
+        $nvmGlobs = array_merge(
+            glob('/root/.nvm/versions/node/*/bin/node') ?: [],
+            glob('/home/*/.nvm/versions/node/*/bin/node') ?: []
+        );
+        if (!empty($nvmGlobs)) {
+            // Sort semver ascending, ambil yang paling baru
+            usort($nvmGlobs, function ($a, $b) {
+                return version_compare(
+                    basename(dirname(dirname($a))),
+                    basename(dirname(dirname($b)))
+                );
+            });
+            $latest = end($nvmGlobs);
+            if (file_exists($latest)) return $latest;
+        }
+
+        // Path sistem umum
+        foreach (['/usr/local/bin/node', '/usr/bin/node', '/opt/nodejs/bin/node'] as $p) {
+            if (file_exists($p)) return $p;
+        }
+
+        return '';
     }
 
     private function buildEnvString(string $engineDir): string
