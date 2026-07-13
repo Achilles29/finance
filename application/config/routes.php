@@ -745,6 +745,22 @@ $route['landing-page/links/delete/(:num)']    = 'landing_page/links_delete/$1';
 $route['landing-page/links/toggle/(:num)']    = 'landing_page/links_toggle/$1';
 $route['landing-page/links/reorder']          = 'landing_page/links_reorder';
 
+// WhatsApp Module
+$route['wa']                              = 'whatsapp/dashboard';
+$route['wa/dashboard']                    = 'whatsapp/dashboard';
+$route['wa/broadcast']                    = 'whatsapp/broadcast';
+$route['wa/broadcast/create']             = 'whatsapp/broadcast_create';
+$route['wa/broadcast/detail/(:num)']      = 'whatsapp/broadcast_detail/$1';
+$route['wa/broadcast/delete/(:num)']      = 'whatsapp/broadcast_delete/$1';
+$route['wa/template']                     = 'whatsapp/template';
+$route['wa/group']                        = 'whatsapp/group';
+$route['wa/log']                          = 'whatsapp/log';
+$route['wa/settings']                     = 'whatsapp/settings';
+$route['wa/api/status']                   = 'whatsapp/api_status';
+$route['wa/api/send-test']                = 'whatsapp/api_send_test';
+$route['wa/api/broadcast-start/(:num)']   = 'whatsapp/api_broadcast_start/$1';
+$route['wa/api/template-preview']         = 'whatsapp/api_template_preview';
+
 $route['master/(:any)']                  = 'master/index/$1';
 $route['master/(:any)/create']           = 'master/create/$1';
 $route['master/(:any)/detail/(:num)']    = 'master/detail/$1/$2';

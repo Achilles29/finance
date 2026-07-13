@@ -367,3 +367,16 @@ setelah itu lakukan refractur database dan UI sesuai saranmu. pastikan operasion
 
 
 
+
+
+
+saya ingin membuat fitur whatsapp.
+sebelumnya saya sudah berhasil membuat modul aplikasi whatsapp yang dimulai dari scan qr code untuk menanutkan, perintah perintah, grup, wa , broadcast dan lain lain. aplikasi sebelumnya dapat dilihat di directory HTDOCS/wa-bot , kamu bisa pelajari untuk dicontoh
+
+saya ingin buatkan modul halaman di directory finance, agar nanti bisa otomasi WA ke grup, dan broadcast wa ke customer untuk promo.
+
+masukkan halaman ke sidebar dan role matrix database juga.
+buatkan 1 halaman pengaturan dan halaman turunannya dalam 1 menu sidebar.
+buat tabel baru jika perlu dengan prefix wa_
+
+kejutkan saya
