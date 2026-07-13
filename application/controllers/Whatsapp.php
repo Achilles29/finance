@@ -498,6 +498,120 @@ class Whatsapp extends MY_Controller
         $this->jsonOut($result);
     }
 
+    // JSON API — cek apakah proses wa-engine berjalan
+    public function api_engine_status()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'view');
+
+        if (!function_exists('exec')) {
+            $this->jsonOut(['ok' => false, 'running' => false, 'message' => 'PHP exec() dinonaktifkan di server ini.']);
+            return;
+        }
+
+        $port = $this->enginePort();
+        exec("lsof -ti :{$port} 2>/dev/null", $pids);
+        $pids = array_values(array_filter(array_map('intval', $pids)));
+
+        $this->jsonOut(['ok' => true, 'running' => !empty($pids), 'pids' => $pids, 'port' => $port]);
+    }
+
+    // JSON API — mulai wa-engine via nohup
+    public function api_engine_start()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'edit');
+
+        if (!function_exists('exec')) {
+            $this->jsonOut(['ok' => false, 'message' => 'PHP exec() dinonaktifkan di server ini.']);
+            return;
+        }
+
+        $engineDir = realpath(FCPATH . 'wa-engine');
+        if (!$engineDir || !file_exists($engineDir . '/index.js')) {
+            $this->jsonOut(['ok' => false, 'message' => 'Folder wa-engine tidak ditemukan di: ' . FCPATH . 'wa-engine']);
+            return;
+        }
+
+        $port = $this->enginePort();
+        exec("lsof -ti :{$port} 2>/dev/null", $existingPids);
+        $existingPids = array_values(array_filter(array_map('intval', $existingPids)));
+        if (!empty($existingPids)) {
+            $this->jsonOut(['ok' => false, 'message' => "Port {$port} sudah digunakan (PID: " . implode(', ', $existingPids) . "). Hentikan proses dulu."]);
+            return;
+        }
+
+        $envStr  = $this->buildEnvString($engineDir);
+        $logFile = escapeshellarg($engineDir . '/wa-engine.log');
+        $nodeJs  = escapeshellarg($engineDir . '/index.js');
+
+        $cmd = "cd " . escapeshellarg($engineDir) . " && nohup {$envStr}node {$nodeJs} >> {$logFile} 2>&1 & echo \$!";
+        exec($cmd, $output);
+        $pid = (int)trim($output[0] ?? '0');
+
+        usleep(1200000); // tunggu 1.2 detik agar port terbuka
+        exec("lsof -ti :{$port} 2>/dev/null", $checkPids);
+        $running = !empty(array_filter(array_map('intval', $checkPids)));
+
+        if ($running) {
+            $this->jsonOut(['ok' => true, 'pid' => $pid, 'message' => "wa-engine berjalan (PID {$pid})"]);
+        } else {
+            $this->jsonOut(['ok' => false, 'message' => "Proses dimulai (PID {$pid}) tapi port {$port} belum terbuka. Cek log di wa-engine/wa-engine.log"]);
+        }
+    }
+
+    // JSON API — hentikan wa-engine
+    public function api_engine_stop()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'edit');
+
+        if (!function_exists('exec')) {
+            $this->jsonOut(['ok' => false, 'message' => 'PHP exec() dinonaktifkan di server ini.']);
+            return;
+        }
+
+        $port = $this->enginePort();
+        exec("lsof -ti :{$port} 2>/dev/null", $pids);
+        $pids = array_values(array_filter(array_map('intval', $pids)));
+
+        if (empty($pids)) {
+            $this->jsonOut(['ok' => false, 'message' => "Tidak ada proses di port {$port}."]);
+            return;
+        }
+
+        foreach ($pids as $pid) {
+            exec("kill -9 {$pid} 2>/dev/null");
+        }
+
+        usleep(600000);
+        exec("lsof -ti :{$port} 2>/dev/null", $afterPids);
+        $stillRunning = !empty(array_filter(array_map('intval', $afterPids)));
+
+        if (!$stillRunning) {
+            $this->jsonOut(['ok' => true, 'message' => 'wa-engine dihentikan (PID: ' . implode(', ', $pids) . ')']);
+        } else {
+            $this->jsonOut(['ok' => false, 'message' => 'Kill dikirim tapi proses tampaknya dikelola PM2 atau process manager. Hentikan via PM2: pm2 stop wa-engine']);
+        }
+    }
+
+    // JSON API — ambil log terakhir wa-engine
+    public function api_engine_logs()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'view');
+
+        $logFile = FCPATH . 'wa-engine/wa-engine.log';
+        if (!file_exists($logFile)) {
+            $this->jsonOut(['ok' => true, 'logs' => '(Log belum ada — wa-engine belum pernah dijalankan dari UI)']);
+            return;
+        }
+
+        if (!function_exists('exec')) {
+            $lines = array_slice(file($logFile, FILE_IGNORE_NEW_LINES) ?: [], -30);
+        } else {
+            exec("tail -n 30 " . escapeshellarg($logFile) . " 2>/dev/null", $lines);
+        }
+
+        $this->jsonOut(['ok' => true, 'logs' => implode("\n", $lines)]);
+    }
+
     // ──────────────────────────────────────────────────────────
     // PANDUAN
     // ──────────────────────────────────────────────────────────
@@ -656,6 +770,32 @@ class Whatsapp extends MY_Controller
     private function jsonOut(array $data): void
     {
         $this->output->set_content_type('application/json')->set_output(json_encode($data));
+    }
+
+    private function enginePort(): int
+    {
+        $url = $this->waSession()['bot_api_url'] ?? 'http://127.0.0.1:3070';
+        if (preg_match('/:(\d+)/', $url, $m)) return (int)$m[1];
+        return 3070;
+    }
+
+    private function buildEnvString(string $engineDir): string
+    {
+        $envFile = $engineDir . '/.env';
+        if (!file_exists($envFile)) return '';
+
+        $str = '';
+        foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '' || strpos($line, '#') === 0) continue;
+            [$k, $v] = array_pad(explode('=', $line, 2), 2, '');
+            $k = trim($k);
+            $v = trim($v);
+            if ($k !== '' && preg_match('/^[A-Z_][A-Z0-9_]*$/i', $k)) {
+                $str .= $k . '=' . escapeshellarg($v) . ' ';
+            }
+        }
+        return $str;
     }
 
     private function ensureSchema(): void
