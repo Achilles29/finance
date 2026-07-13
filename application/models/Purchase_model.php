@@ -21666,7 +21666,10 @@ class Purchase_model extends CI_Model
             ->join('mst_uom cu', 'cu.id = c.content_uom_id', 'left')
             ->join('mst_item i', 'i.id = c.item_id', 'left')
             ->join('mst_material m', 'm.id = c.material_id', 'left')
-            ->where('c.is_active', 1);
+            ->join('mst_material im', 'im.id = i.material_id', 'left')
+            ->where('c.is_active', 1)
+            ->where('(c.item_id IS NULL OR (i.id IS NOT NULL AND COALESCE(i.is_active, 1) = 1 AND (i.material_id IS NULL OR (im.id IS NOT NULL AND COALESCE(im.is_active, 1) = 1))))', null, false)
+            ->where('(c.material_id IS NULL OR (m.id IS NOT NULL AND COALESCE(m.is_active, 1) = 1))', null, false);
 
         $invalidSameUomExpr = 'COALESCE(c.buy_uom_id, 0) = COALESCE(c.content_uom_id, 0)'
             . ' AND COALESCE(c.buy_uom_id, 0) > 0'
@@ -22005,6 +22008,11 @@ class Purchase_model extends CI_Model
 
         if ($lineKind === 'ITEM' && $itemId === null) {
             return ['ok' => false, 'message' => 'Line ITEM wajib memiliki item_id atau nama item untuk auto create.'];
+        }
+
+        $activeEntityError = $this->validateActiveInventoryEntity($itemId, $materialId);
+        if ($activeEntityError !== null) {
+            return ['ok' => false, 'message' => $activeEntityError];
         }
 
         $qtyBuy = $this->positiveDecimal($line['qty_buy'] ?? 0, 0);
@@ -22557,6 +22565,47 @@ class Purchase_model extends CI_Model
         }
 
         return $snapshot;
+    }
+
+    private function validateActiveInventoryEntity(?int $itemId, ?int $materialId): ?string
+    {
+        if ($itemId !== null && $itemId > 0) {
+            $item = $this->db
+                ->select('i.id, i.item_name, i.is_active, i.material_id, m.material_name, m.is_active AS material_is_active')
+                ->from('mst_item i')
+                ->join('mst_material m', 'm.id = i.material_id', 'left')
+                ->where('i.id', $itemId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if (!$item) {
+                return 'Item tidak ditemukan. Pilih ulang item/material dari katalog aktif.';
+            }
+            if ((int)($item['is_active'] ?? 1) !== 1) {
+                return 'Item ' . (string)($item['item_name'] ?? ('#' . $itemId)) . ' sudah nonaktif. Pilih item/material aktif sebelum menyimpan PO.';
+            }
+            if (!empty($item['material_id']) && (int)($item['material_is_active'] ?? 1) !== 1) {
+                return 'Material ' . (string)($item['material_name'] ?? ('#' . (int)$item['material_id'])) . ' sudah nonaktif. Pilih material aktif sebelum menyimpan PO.';
+            }
+        }
+
+        if ($materialId !== null && $materialId > 0) {
+            $material = $this->db
+                ->select('id, material_name, is_active')
+                ->from('mst_material')
+                ->where('id', $materialId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if (!$material) {
+                return 'Material tidak ditemukan. Pilih ulang item/material dari katalog aktif.';
+            }
+            if ((int)($material['is_active'] ?? 1) !== 1) {
+                return 'Material ' . (string)($material['material_name'] ?? ('#' . $materialId)) . ' sudah nonaktif. Pilih material aktif sebelum menyimpan PO.';
+            }
+        }
+
+        return null;
     }
 
     private function uomCode(int $uomId): ?string

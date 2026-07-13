@@ -1911,11 +1911,14 @@ window.addEventListener('load', function () {
       }
       return data;
     }
-    function currentSystemQty() {
+    function currentProfileSystemQty() {
       if (lotCtx.source_type === 'component') {
         return parseFloat(lotCtx.profile_system_qty || lotCtx.qty_balance || 0) || 0;
       }
       return parseFloat(lotCtx.profile_system_qty_content || lotCtx.qty_balance || 0) || 0;
+    }
+    function currentSystemQty() {
+      return parseFloat(lotCtx.qty_balance || 0) || 0;
     }
     function typeOptionsForDiff() {
       const diff = (parseFloat(physEl.value || 0) || 0) - currentSystemQty();
@@ -1952,12 +1955,14 @@ window.addEventListener('load', function () {
       lotCtx = payload || {};
       const uom = lotCtx.uom_code || '';
       const systemQty = currentSystemQty();
+      const profileQty = currentProfileSystemQty();
       const lotQty = parseFloat(lotCtx.qty_balance || 0) || 0;
       titleEl.textContent = lotCtx.item_name || '-';
       subEl.textContent = (lotCtx.source_type === 'component' ? 'Component' : 'Bahan Baku')
         + ' · ' + (lotCtx.lot_no || '-')
         + ' · ' + (lotCtx.location_type || lotCtx.destination_type || lotCtx.location_scope || '-')
-        + ' · Lot ini ' + fmtNum(lotQty) + ' ' + uom;
+        + ' · Lot ini ' + fmtNum(lotQty) + ' ' + uom
+        + ' · Profil ' + fmtNum(profileQty) + ' ' + uom;
       sysEl.value = fmtNum(systemQty) + ' ' + uom;
       physEl.value = Number(systemQty);
       noteEl.value = '';
@@ -2014,6 +2019,7 @@ window.addEventListener('load', function () {
     submitEl.addEventListener('click', async function () {
       const physical = parseFloat(physEl.value || 0);
       const systemQty = currentSystemQty();
+      const profileSystemQty = currentProfileSystemQty();
       const diff = physical - systemQty;
       if (!dateEl.value) { showLotAlert('danger', 'Tanggal recon wajib diisi.'); return; }
       if (!(physical >= 0)) { showLotAlert('danger', 'Stok fisik tidak valid.'); return; }
@@ -2038,8 +2044,8 @@ window.addEventListener('load', function () {
             component_id: parseInt(lotCtx.component_id || 0, 10),
             uom_id: parseInt(lotCtx.uom_id || 0, 10),
             lot_id: parseInt(lotCtx.lot_id || 0, 10),
-            system_qty: systemQty,
-            physical_qty: physical,
+            system_qty: profileSystemQty,
+            physical_qty: Math.max(0, profileSystemQty + diff),
             avg_cost: parseFloat(lotCtx.unit_cost || 0),
             adjustment_type: typeEl.value,
             reason_code: reasonEl.value || 'other',
@@ -2052,11 +2058,12 @@ window.addEventListener('load', function () {
             division_id: parseInt(lotCtx.division_id || 0, 10),
             destination_type: lotCtx.destination_type || 'OTHER',
             identity_key: lotCtx.identity_key || lotCtx.profile_key || '',
-            physical_qty_content: physical,
-            system_qty_content: systemQty,
+            physical_qty_content: Math.max(0, profileSystemQty + diff),
+            system_qty_content: profileSystemQty,
             adjustment_type: typeEl.value,
             reason_code: reasonEl.value || 'other',
             notes: noteEl.value.trim(),
+            lot_id: parseInt(lotCtx.lot_id || 0, 10) || null,
             item_id: parseInt(lotCtx.item_id || 0, 10) || null,
             material_id: parseInt(lotCtx.material_id || 0, 10) || null,
             buy_uom_id: parseInt(lotCtx.buy_uom_id || 0, 10) || null,

@@ -136,9 +136,10 @@ class Inventory_division extends Purchase
         $matActiveWhere = $this->db->field_exists('is_active', 'mst_material')
             ? 'AND (m.id IS NULL OR COALESCE(m.is_active, 1) = 1)'
             : '';
-        $itemActiveWhere = $this->db->field_exists('is_active', 'mst_item')
-            ? 'AND (i.id IS NULL OR COALESCE(i.is_active, 1) = 1)'
-            : '';
+        // Daily recon is stock-ledger based. Legacy/inactive items can still own current
+        // monthly stock after cutoff generation, so filtering mst_item.is_active here hides
+        // real stock and makes recon look like zero.
+        $itemActiveWhere = '';
         $lotStartEsc = $this->db->escape($targetMonth);
         $lotEndEsc   = $this->db->escape($opnameDate);
 

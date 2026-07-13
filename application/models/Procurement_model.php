@@ -882,7 +882,10 @@ class Procurement_model extends CI_Model
             ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
             ->join('mst_item i', 'i.id = s.item_id', 'left')
             ->join('mst_material m', 'm.id = s.material_id', 'left')
-            ->where('COALESCE(s.closing_qty_content, 0) >', 0);
+            ->join('mst_material im', 'im.id = i.material_id', 'left')
+            ->where('COALESCE(s.closing_qty_content, 0) >', 0)
+            ->where('(s.item_id IS NULL OR (i.id IS NOT NULL AND COALESCE(i.is_active, 1) = 1 AND (i.material_id IS NULL OR (im.id IS NOT NULL AND COALESCE(im.is_active, 1) = 1))))', null, false)
+            ->where('(s.material_id IS NULL OR (m.id IS NOT NULL AND COALESCE(m.is_active, 1) = 1))', null, false);
 
         if ($hasCatalog) {
             $this->db->join('mst_purchase_catalog c', 'c.profile_key = s.profile_key', 'left');
