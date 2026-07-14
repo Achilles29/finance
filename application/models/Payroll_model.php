@@ -4449,13 +4449,15 @@ class Payroll_model extends CI_Model
         }
 
         $sliceSummaryJoin = '';
+        $sliceSummaryJoinOn = '';
         $sliceSummarySelect = '0 AS slice_count';
         if ($this->db->table_exists('pay_bonus_employee_time_slice')) {
-            $sliceSummaryJoin = "LEFT JOIN (
+            $sliceSummaryJoin = "(
                     SELECT employee_daily_id, COUNT(*) AS slice_count
                     FROM pay_bonus_employee_time_slice
                     GROUP BY employee_daily_id
-                ) ts ON ts.employee_daily_id = ed.id";
+                ) ts";
+            $sliceSummaryJoinOn = 'ts.employee_daily_id = ed.id';
             $sliceSummarySelect = 'COALESCE(ts.slice_count,0) AS slice_count';
         }
 
@@ -4485,7 +4487,7 @@ class Payroll_model extends CI_Model
             ->order_by('ed.attendance_date', 'DESC')
             ->order_by('ed.id', 'DESC');
         if ($sliceSummaryJoin !== '') {
-            $dailyDb->join($sliceSummaryJoin, null, 'left', false);
+            $dailyDb->join($sliceSummaryJoin, $sliceSummaryJoinOn, 'left', false);
         }
         $dailyRows = $dailyDb->get()->result_array();
 
@@ -4764,13 +4766,15 @@ class Payroll_model extends CI_Model
         $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
 
         $sliceSummaryJoin = '';
+        $sliceSummaryJoinOn = '';
         $sliceSummarySelect = '0 AS slice_count';
         if ($this->db->table_exists('pay_bonus_employee_time_slice')) {
-            $sliceSummaryJoin = "LEFT JOIN (
+            $sliceSummaryJoin = "(
                     SELECT employee_daily_id, COUNT(*) AS slice_count
                     FROM pay_bonus_employee_time_slice
                     GROUP BY employee_daily_id
-                ) ts ON ts.employee_daily_id = ed.id";
+                ) ts";
+            $sliceSummaryJoinOn = 'ts.employee_daily_id = ed.id';
             $sliceSummarySelect = 'COALESCE(ts.slice_count,0) AS slice_count';
         }
 
@@ -4789,7 +4793,7 @@ class Payroll_model extends CI_Model
             ->where('ed.employee_id', $employeeId)
             ->where("DATE_FORMAT(ed.attendance_date, '%Y-%m') =", $month);
         if ($sliceSummaryJoin !== '') {
-            $db->join($sliceSummaryJoin, null, 'left', false);
+            $db->join($sliceSummaryJoin, $sliceSummaryJoinOn, 'left', false);
         }
 
         if ($publishedOnly) {
@@ -5440,13 +5444,15 @@ class Payroll_model extends CI_Model
         $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
 
         $sliceSummaryJoin = '';
+        $sliceSummaryJoinOn = '';
         $sliceSummarySelect = '0 AS slice_count';
         if ($this->db->table_exists('pay_bonus_employee_time_slice')) {
-            $sliceSummaryJoin = "LEFT JOIN (
+            $sliceSummaryJoin = "(
                     SELECT employee_daily_id, COUNT(*) AS slice_count
                     FROM pay_bonus_employee_time_slice
                     GROUP BY employee_daily_id
-                ) ts ON ts.employee_daily_id = ed.id";
+                ) ts";
+            $sliceSummaryJoinOn = 'ts.employee_daily_id = ed.id';
             $sliceSummarySelect = 'COALESCE(ts.slice_count,0) AS slice_count';
         }
 
@@ -5473,7 +5479,7 @@ class Payroll_model extends CI_Model
             ->join('att_shift s', 's.id = ed.shift_id', 'left')
             ->where("DATE_FORMAT(ed.attendance_date, '%Y-%m') =", $month);
         if ($sliceSummaryJoin !== '') {
-            $db->join($sliceSummaryJoin, null, 'left', false);
+            $db->join($sliceSummaryJoin, $sliceSummaryJoinOn, 'left', false);
         }
 
         if ($q !== '') {
