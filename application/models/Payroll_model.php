@@ -3798,6 +3798,101 @@ class Payroll_model extends CI_Model
             ->get()->result_array();
     }
 
+    private function get_bonus_active_weight_context(int $ruleId = 0, array $targetFrequencies = ['ALL']): array
+    {
+        $context = [
+            'rows' => [],
+            'map' => ['DIVISION' => [], 'POSITION' => [], 'EMPLOYEE' => [], 'SHIFT' => []],
+            'has_rows' => false,
+        ];
+
+        if (!$this->db->table_exists('pay_bonus_weight_rule')) {
+            return $context;
+        }
+
+        $frequencies = array_values(array_unique(array_filter(array_map(static function ($value) {
+            return strtoupper(trim((string)$value));
+        }, $targetFrequencies))));
+        if (empty($frequencies)) {
+            $frequencies = ['ALL'];
+        }
+
+        $db = $this->db->from('pay_bonus_weight_rule')
+            ->where('is_active', 1)
+            ->group_start();
+
+        if ($ruleId > 0) {
+            $db->where('rule_id', $ruleId);
+        } else {
+            $db->where('rule_id IS NULL', null, false);
+        }
+
+        $db->or_group_start()
+            ->where('rule_id IS NULL', null, false);
+        if ($this->table_has_field('pay_bonus_weight_rule', 'target_frequency')) {
+            $db->where_in('target_frequency', $frequencies);
+        }
+        $db->group_end()
+        ->group_end();
+
+        $rows = $db->get()->result_array();
+        $context['rows'] = $rows;
+        $context['has_rows'] = !empty($rows);
+
+        foreach ($rows as $row) {
+            $scope = strtoupper((string)($row['weight_scope'] ?? ''));
+            $scopeId = (int)($row['scope_id'] ?? 0);
+            if ($scope === '' || $scopeId <= 0) {
+                continue;
+            }
+            if (!isset($context['map'][$scope])) {
+                $context['map'][$scope] = [];
+            }
+            $context['map'][$scope][$scopeId] = [
+                'point_weight' => (float)($row['point_weight'] ?? 1),
+                'pool_weight' => (float)($row['pool_weight'] ?? $row['point_weight'] ?? 1),
+            ];
+        }
+
+        return $context;
+    }
+
+    private function bonus_employee_has_active_weight(array $employeeRow, array $weightContext): bool
+    {
+        if (empty($weightContext['has_rows'])) {
+            return false;
+        }
+
+        $divisionId = (int)($employeeRow['division_id'] ?? 0);
+        $positionId = (int)($employeeRow['position_id'] ?? 0);
+        $employeeId = (int)($employeeRow['employee_id'] ?? 0);
+        $shiftId = (int)($employeeRow['shift_id'] ?? 0);
+        $map = (array)($weightContext['map'] ?? []);
+
+        return (
+            ($divisionId > 0 && isset($map['DIVISION'][$divisionId]))
+            || ($positionId > 0 && isset($map['POSITION'][$positionId]))
+            || ($employeeId > 0 && isset($map['EMPLOYEE'][$employeeId]))
+            || ($shiftId > 0 && isset($map['SHIFT'][$shiftId]))
+        );
+    }
+
+    private function bonus_resolve_employee_weight_values(array $employeeRow, array $weightContext): array
+    {
+        $map = (array)($weightContext['map'] ?? []);
+        $divisionId = (int)($employeeRow['division_id'] ?? 0);
+        $positionId = (int)($employeeRow['position_id'] ?? 0);
+        $employeeId = (int)($employeeRow['employee_id'] ?? 0);
+        $shiftId = (int)($employeeRow['shift_id'] ?? 0);
+
+        return [
+            'division_weight' => (float)($map['DIVISION'][$divisionId]['point_weight'] ?? 1),
+            'position_weight' => (float)($map['POSITION'][$positionId]['point_weight'] ?? 1),
+            'employee_weight' => (float)($map['EMPLOYEE'][$employeeId]['point_weight'] ?? 1),
+            'shift_weight' => (float)($map['SHIFT'][$shiftId]['point_weight'] ?? 1),
+        ];
+    }
+
     public function count_bonus_rules(string $q = ''): int
     {
         if (!$this->db->table_exists('pay_bonus_rule')) {
@@ -3999,7 +4094,7 @@ class Payroll_model extends CI_Model
             ->get()->result_array();
     }
 
-    private function build_bonus_pool_query(string $month = '', string $q = ''): CI_DB_query_builder
+    private function build_bonus_pool_query(string $month = '', string $q = '', string $status = 'ALL'): CI_DB_query_builder
     {
         if (!$this->db->table_exists('pay_bonus_pool_daily')) {
             return $this->db;
@@ -4029,6 +4124,10 @@ class Payroll_model extends CI_Model
         $db->join('org_division d', 'd.id = p.division_id', 'left');
 
         $db->where("DATE_FORMAT(p.bonus_date, '%Y-%m') =", $month);
+        $status = strtoupper(trim($status));
+        if (in_array($status, ['DRAFT', 'APPROVED', 'VOID'], true)) {
+            $db->where('p.approval_status', $status);
+        }
         if ($q !== '') {
             $db->group_start()
                 ->like('r.rule_name', $q)
@@ -4052,23 +4151,23 @@ class Payroll_model extends CI_Model
         return $db;
     }
 
-    public function count_bonus_recent_pools(string $month = '', string $q = ''): int
+    public function count_bonus_recent_pools(string $month = '', string $q = '', string $status = 'ALL'): int
     {
         if (!$this->db->table_exists('pay_bonus_pool_daily')) {
             return 0;
         }
 
-        $this->build_bonus_pool_query($month, $q);
+        $this->build_bonus_pool_query($month, $q, $status);
         return (int)$this->db->count_all_results();
     }
 
-    public function list_bonus_recent_pools(string $month = '', string $q = '', int $limit = 25, int $offset = 0): array
+    public function list_bonus_recent_pools(string $month = '', string $q = '', int $limit = 25, int $offset = 0, string $status = 'ALL'): array
     {
         if (!$this->db->table_exists('pay_bonus_pool_daily')) {
             return [];
         }
 
-        return $this->build_bonus_pool_query($month, $q)
+        return $this->build_bonus_pool_query($month, $q, $status)
             ->order_by('p.bonus_date', 'DESC')
             ->order_by('p.id', 'DESC')
             ->limit($limit, $offset)
@@ -5975,33 +6074,9 @@ class Payroll_model extends CI_Model
     ): array {
         $this->sync_bonus_auto_penalties($bonusDate, 0, $actorUserId, (int)($rule['id'] ?? 0));
 
-        $weightRows = [];
-        if ($this->db->table_exists('pay_bonus_weight_rule')) {
-            $weightDb = $this->db->from('pay_bonus_weight_rule')
-                ->where('is_active', 1)
-                ->group_start()
-                    ->where('rule_id', (int)($rule['id'] ?? 0));
-            if ($this->table_has_field('pay_bonus_weight_rule', 'target_frequency')) {
-                $weightDb->or_group_start()
-                    ->where('rule_id IS NULL', null, false)
-                    ->where_in('target_frequency', ['ALL', 'DAILY'])
-                    ->group_end();
-            } else {
-                $weightDb->or_where('rule_id IS NULL', null, false);
-            }
-            $weightDb->group_end();
-            $weightRows = $weightDb->get()->result_array();
-        }
-        $weightMap = ['DIVISION' => [], 'POSITION' => [], 'EMPLOYEE' => [], 'SHIFT' => []];
-        foreach ($weightRows as $weightRow) {
-            $scope = strtoupper((string)($weightRow['weight_scope'] ?? ''));
-            $scopeId = (int)($weightRow['scope_id'] ?? 0);
-            if ($scope !== '' && $scopeId > 0) {
-                $weightMap[$scope][$scopeId] = [
-                    'point_weight' => (float)($weightRow['point_weight'] ?? 1),
-                    'pool_weight' => (float)($weightRow['pool_weight'] ?? 1),
-                ];
-            }
+        $weightContext = $this->get_bonus_active_weight_context((int)($rule['id'] ?? 0), ['ALL', 'DAILY']);
+        if (empty($weightContext['has_rows'])) {
+            return ['ok' => false, 'message' => 'Belum ada bobot bonus aktif untuk target harian ini. Aktifkan dulu bobot di tab Bobot Global.'];
         }
 
         $employeeDb = $this->db->select("
@@ -6078,10 +6153,15 @@ class Payroll_model extends CI_Model
                 continue;
             }
 
-            $divisionWeight = (float)($weightMap['DIVISION'][(int)($employeeRow['division_id'] ?? 0)]['point_weight'] ?? 1);
-            $positionWeight = (float)($weightMap['POSITION'][(int)($employeeRow['position_id'] ?? 0)]['point_weight'] ?? 1);
-            $employeeWeight = (float)($weightMap['EMPLOYEE'][$employeeId]['point_weight'] ?? 1);
-            $shiftWeight = (float)($weightMap['SHIFT'][$shiftId]['point_weight'] ?? 1);
+            if (!$this->bonus_employee_has_active_weight($employeeRow, $weightContext)) {
+                continue;
+            }
+
+            $weightValue = $this->bonus_resolve_employee_weight_values($employeeRow, $weightContext);
+            $divisionWeight = (float)$weightValue['division_weight'];
+            $positionWeight = (float)$weightValue['position_weight'];
+            $employeeWeight = (float)$weightValue['employee_weight'];
+            $shiftWeight = (float)$weightValue['shift_weight'];
             $basePoint = round($divisionWeight * $positionWeight * $employeeWeight * $shiftWeight, 4);
 
             $window = $this->bonus_build_shift_window(
@@ -6597,6 +6677,7 @@ class Payroll_model extends CI_Model
             return ['ok' => false, 'message' => 'Belum ada master penalti AUTO yang aktif.'];
         }
         $defaultPenaltySetting = $this->get_bonus_penalty_currency_setting($ruleId);
+        $weightContext = $this->get_bonus_active_weight_context($ruleId, ['ALL', 'DAILY']);
 
         $db = $this->db->select('ad.*, s.shift_code, s.shift_name, s.end_time' . ($this->table_has_field('att_shift', 'is_overnight') ? ', s.is_overnight' : '') . ', e.division_id', false)
             ->from('att_daily ad')
@@ -6614,6 +6695,18 @@ class Payroll_model extends CI_Model
             $this->db->where('penalty_date', $bonusDate);
         }
         $this->db->where_in('source_type', ['AUTO_ATTENDANCE', 'AUTO_SERVICE', 'AUTO_TARGET', 'AUTO_PEER'])->delete('pay_bonus_penalty_event');
+
+        if (empty($weightContext['has_rows'])) {
+            return ['ok' => true, 'message' => 'Belum ada bobot bonus aktif. Penalti otomatis tidak dibentuk untuk tanggal ini.'];
+        }
+
+        $dailyRows = array_values(array_filter($dailyRows, function ($row) use ($weightContext) {
+            return $this->bonus_employee_has_active_weight((array)$row, $weightContext);
+        }));
+
+        if (empty($dailyRows)) {
+            return ['ok' => true, 'message' => 'Tidak ada pegawai dengan bobot bonus aktif pada tanggal ini. Penalti otomatis dilewati.'];
+        }
 
         $inserted = 0;
         $now = date('Y-m-d H:i:s');
@@ -7481,33 +7574,9 @@ class Payroll_model extends CI_Model
             return ['ok' => false, 'message' => 'Tidak ada pegawai hadir yang cocok untuk rule ini pada tanggal tersebut.'];
         }
 
-        $weightRows = [];
-        if ($this->db->table_exists('pay_bonus_weight_rule')) {
-            $weightDb = $this->db->from('pay_bonus_weight_rule')
-                ->where('is_active', 1)
-                ->group_start()
-                    ->where('rule_id', $ruleId);
-            if ($this->table_has_field('pay_bonus_weight_rule', 'target_frequency')) {
-                $weightDb->or_group_start()
-                    ->where('rule_id IS NULL', null, false)
-                    ->where_in('target_frequency', ['ALL', 'DAILY'])
-                    ->group_end();
-            } else {
-                $weightDb->or_where('rule_id IS NULL', null, false);
-            }
-            $weightDb->group_end();
-            $weightRows = $weightDb->get()->result_array();
-        }
-        $weightMap = ['DIVISION' => [], 'POSITION' => [], 'EMPLOYEE' => [], 'SHIFT' => []];
-        foreach ($weightRows as $weightRow) {
-            $scope = strtoupper((string)($weightRow['weight_scope'] ?? ''));
-            $scopeId = (int)($weightRow['scope_id'] ?? 0);
-            if ($scope !== '' && $scopeId > 0) {
-                $weightMap[$scope][$scopeId] = [
-                    'point_weight' => (float)($weightRow['point_weight'] ?? 1),
-                    'pool_weight' => (float)($weightRow['pool_weight'] ?? 1),
-                ];
-            }
+        $weightContext = $this->get_bonus_active_weight_context($ruleId, ['ALL', 'DAILY']);
+        if (empty($weightContext['has_rows'])) {
+            return ['ok' => false, 'message' => 'Belum ada bobot bonus aktif untuk target harian ini. Aktifkan dulu bobot di tab Bobot Global.'];
         }
 
         $penaltyRows = $this->db->select("
@@ -7564,10 +7633,15 @@ class Payroll_model extends CI_Model
             }
             $employeeCountByShift[$shiftId]++;
 
-            $divisionWeight = (float)($weightMap['DIVISION'][(int)($employeeRow['division_id'] ?? 0)]['point_weight'] ?? 1);
-            $positionWeight = (float)($weightMap['POSITION'][(int)($employeeRow['position_id'] ?? 0)]['point_weight'] ?? 1);
-            $employeeWeight = (float)($weightMap['EMPLOYEE'][$empId]['point_weight'] ?? 1);
-            $shiftWeight = (float)($weightMap['SHIFT'][$shiftId]['point_weight'] ?? 1);
+            if (!$this->bonus_employee_has_active_weight($employeeRow, $weightContext)) {
+                continue;
+            }
+
+            $weightValue = $this->bonus_resolve_employee_weight_values($employeeRow, $weightContext);
+            $divisionWeight = (float)$weightValue['division_weight'];
+            $positionWeight = (float)$weightValue['position_weight'];
+            $employeeWeight = (float)$weightValue['employee_weight'];
+            $shiftWeight = (float)$weightValue['shift_weight'];
             // Absensi, service, dan peer review sekarang dibaca sebagai penalti otomatis,
             // bukan lagi pengurang bobot tersembunyi. Jadi bobot dasar tetap netral.
             $attendanceWeight = 1.0;
@@ -8072,6 +8146,59 @@ class Payroll_model extends CI_Model
         $this->refresh_bonus_monthly_summary($month, $actorUserId);
 
         return ['ok' => true, 'message' => 'Pool bonus berhasil dihapus.', 'pool_id' => $poolId];
+    }
+
+    public function delete_bonus_pool_daily_bulk(array $poolIds, int $actorUserId = 0): array
+    {
+        if (!$this->db->table_exists('pay_bonus_pool_daily')) {
+            return ['ok' => false, 'message' => 'Pool bonus tidak ditemukan.'];
+        }
+
+        $ids = array_values(array_unique(array_filter(array_map('intval', $poolIds), static function ($id) {
+            return $id > 0;
+        })));
+        if (empty($ids)) {
+            return ['ok' => false, 'message' => 'Belum ada pool bonus yang dipilih.'];
+        }
+
+        $rows = $this->db->select('id, approval_status', false)
+            ->from('pay_bonus_pool_daily')
+            ->where_in('id', $ids)
+            ->get()->result_array();
+        if (empty($rows)) {
+            return ['ok' => false, 'message' => 'Pool bonus yang dipilih tidak ditemukan.'];
+        }
+
+        $deleted = 0;
+        $skipped = [];
+        foreach ($rows as $row) {
+            $poolId = (int)($row['id'] ?? 0);
+            $status = strtoupper((string)($row['approval_status'] ?? 'DRAFT'));
+            if ($poolId <= 0) {
+                continue;
+            }
+            if ($status !== 'VOID') {
+                $skipped[] = 'Pool #' . $poolId . ' bukan VOID';
+                continue;
+            }
+            $result = $this->delete_bonus_pool_daily($poolId, $actorUserId);
+            if (!empty($result['ok'])) {
+                $deleted++;
+            } else {
+                $skipped[] = 'Pool #' . $poolId . ' gagal dihapus';
+            }
+        }
+
+        if ($deleted <= 0) {
+            return ['ok' => false, 'message' => 'Tidak ada pool VOID yang berhasil dihapus. ' . implode(' | ', array_slice($skipped, 0, 5))];
+        }
+
+        $message = $deleted . ' pool VOID berhasil dihapus.';
+        if (!empty($skipped)) {
+            $message .= ' Beberapa baris dilewati: ' . implode(' | ', array_slice($skipped, 0, 5));
+        }
+
+        return ['ok' => true, 'message' => $message];
     }
 
     private function generate_bonus_reference_code(string $prefix, string $seed = ''): string

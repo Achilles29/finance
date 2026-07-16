@@ -10,11 +10,7 @@ $bonusUrl = site_url('my/bonus' . (!empty($selectedEmployeeId) ? ('?employee_id=
 $leaveUrl = $leave_url ?? site_url('my/leave-requests' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $attendanceAlerts = is_array($attendance_alerts ?? null) ? $attendance_alerts : [];
 $revisionWindowDays = (int)($revision_window_days ?? 7);
-$bonusSummary = is_array($bonus_summary ?? null) ? $bonus_summary : [];
 $bonusTargetSummary = is_array($bonus_target_summary ?? null) ? $bonus_target_summary : [];
-$bonusPublished = !empty($bonusSummary['is_published']);
-$bonusEstimated = (float)($bonusSummary['estimated_final_amount'] ?? 0);
-$bonusPenaltyEstimated = (float)($bonusSummary['estimated_penalty_amount'] ?? 0);
 $bonusTodayShortfall = (float)($bonusTargetSummary['today_shortfall_amount'] ?? 0);
 $bonusMonthShortfall = (float)($bonusTargetSummary['monthly_shortfall_amount'] ?? 0);
 $bonusTodayNotes = (array)($bonusTargetSummary['today_notes'] ?? []);
@@ -150,21 +146,7 @@ $bonusMonthNotes = (array)($bonusTargetSummary['monthly_notes'] ?? []);
           <a href="<?php echo $bonusUrl; ?>" class="btn btn-sm btn-outline-primary">Buka Detail Bonus</a>
         </div>
         <div class="row g-3">
-          <div class="col-md-3">
-            <div class="border rounded-3 p-3 h-100 bg-light">
-              <div class="small text-muted text-uppercase">Estimasi Bonus</div>
-              <div class="fw-bold fs-5">Rp <?php echo number_format($bonusEstimated, 2, ',', '.'); ?></div>
-              <div class="small text-muted"><?php echo $bonusPublished ? 'Sudah ada angka final/publish.' : 'Masih estimasi dari pool bonus.'; ?></div>
-            </div>
-          </div>
-          <div class="col-md-3">
-            <div class="border rounded-3 p-3 h-100 bg-light">
-              <div class="small text-muted text-uppercase">Estimasi Penalti</div>
-              <div class="fw-bold fs-5 text-danger">Rp <?php echo number_format($bonusPenaltyEstimated, 2, ',', '.'); ?></div>
-              <div class="small text-muted">Potongan yang sudah masuk ke pembacaan bonus.</div>
-            </div>
-          </div>
-          <div class="col-md-3">
+          <div class="col-md-6">
             <div class="border rounded-3 p-3 h-100" style="background:linear-gradient(135deg,#fff7ef,#ffffff);">
               <div class="small text-muted text-uppercase">Kekurangan Target Hari Ini</div>
               <div class="fw-bold fs-5 <?php echo $bonusTodayShortfall > 0 ? 'text-danger' : 'text-success'; ?>">
@@ -175,7 +157,7 @@ $bonusMonthNotes = (array)($bonusTargetSummary['monthly_notes'] ?? []);
               </div>
             </div>
           </div>
-          <div class="col-md-3">
+          <div class="col-md-6">
             <div class="border rounded-3 p-3 h-100" style="background:linear-gradient(135deg,#fff3f6,#ffffff);">
               <div class="small text-muted text-uppercase">Kekurangan Target Bulan Ini</div>
               <div class="fw-bold fs-5 <?php echo $bonusMonthShortfall > 0 ? 'text-danger' : 'text-success'; ?>">
@@ -233,20 +215,8 @@ $bonusMonthNotes = (array)($bonusTargetSummary['monthly_notes'] ?? []);
   <div class="card border-0 shadow-sm mt-2">
     <div class="card-body p-3">
       <div class="fw-semibold mb-2">Ringkasan Bonus Bulan Ini</div>
-      <div class="small text-muted mb-2">Estimasi bonus dan posisi target bulan berjalan.</div>
+      <div class="small text-muted mb-2">Fokus portal pegawai di sini adalah target hari ini dan target bulan ini. Nominal bonus dibuka saat perusahaan mempublikasikannya.</div>
       <div class="row g-2">
-        <div class="col-6">
-          <div class="border rounded-3 p-2 h-100">
-            <div class="small text-muted">Estimasi Bonus</div>
-            <div class="fw-bold">Rp <?php echo number_format($bonusEstimated, 0, ',', '.'); ?></div>
-          </div>
-        </div>
-        <div class="col-6">
-          <div class="border rounded-3 p-2 h-100">
-            <div class="small text-muted">Penalti</div>
-            <div class="fw-bold text-danger">Rp <?php echo number_format($bonusPenaltyEstimated, 0, ',', '.'); ?></div>
-          </div>
-        </div>
         <div class="col-6">
           <div class="border rounded-3 p-2 h-100" style="background:linear-gradient(135deg,#fff7ef,#ffffff);">
             <div class="small text-muted">Kurang Hari Ini</div>

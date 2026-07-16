@@ -20,7 +20,7 @@ $backUrl = $back_url ?? site_url('my/bonus');
 <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
   <div>
     <h4 class="mb-1">Detail Bonus Harian Saya</h4>
-    <div class="text-muted small">Di sini Anda bisa melihat dari jam transaksi mana bonus itu datang, dibagi ke berapa orang aktif, dan berapa bagian Anda.</div>
+    <div class="text-muted small">Di sini Anda bisa melihat transaksi pembentuk hari kerja tersebut, berapa orang aktif di jam yang sama, dan penalti apa yang ikut memengaruhi hasil akhirnya.</div>
   </div>
   <a href="<?php echo html_escape($backUrl); ?>" class="btn btn-outline-secondary">Kembali</a>
 </div>
@@ -31,7 +31,7 @@ $backUrl = $back_url ?? site_url('my/bonus');
       <div class="my-bonus-audit-box">
         <span class="label">Pegawai</span>
         <div class="value"><?php echo html_escape((string)($header['employee_name'] ?? '-')); ?></div>
-        <div class="small text-muted"><?php echo html_escape((string)($header['division_name'] ?? '-')); ?> · <?php echo html_escape((string)($header['position_name'] ?? '-')); ?></div>
+        <div class="small text-muted"><?php echo html_escape((string)($header['division_name'] ?? '-')); ?> � <?php echo html_escape((string)($header['position_name'] ?? '-')); ?></div>
       </div>
       <div class="my-bonus-audit-box">
         <span class="label">Tanggal dan Shift</span>
@@ -39,9 +39,9 @@ $backUrl = $back_url ?? site_url('my/bonus');
         <div class="small text-muted"><?php echo html_escape(trim((string)(($header['shift_code'] ?? '') . ' ' . ($header['shift_name'] ?? '')))); ?></div>
       </div>
       <div class="my-bonus-audit-box">
-        <span class="label">Bonus Akhir Hari Ini</span>
-        <div class="value">Rp <?php echo number_format((float)($header['final_amount'] ?? 0), 2, ',', '.'); ?></div>
-        <div class="small text-muted">Raw Rp <?php echo number_format((float)($header['raw_amount'] ?? 0), 2, ',', '.'); ?> · Potongan Rp <?php echo number_format((float)($header['penalty_amount'] ?? 0), 2, ',', '.'); ?></div>
+        <span class="label">Penalti Hari Ini</span>
+        <div class="value">Rp <?php echo number_format((float)($header['penalty_amount'] ?? 0), 2, ',', '.'); ?></div>
+        <div class="small text-muted">Total poin potong: <?php echo number_format((float)($header['penalty_point'] ?? 0), 2, ',', '.'); ?></div>
       </div>
       <div class="my-bonus-audit-box">
         <span class="label">Status</span>
@@ -58,16 +58,14 @@ $backUrl = $back_url ?? site_url('my/bonus');
             <th>Transaksi</th>
             <th>Shift Sumber</th>
             <th class="text-end">Omzet Slice</th>
-            <th class="text-end">Pool Slice</th>
             <th class="text-center">Orang Aktif</th>
             <th class="text-end">Bobot Saya</th>
-            <th class="text-end">Bagian Saya</th>
             <th class="text-end">Omzet Porsi Saya</th>
           </tr>
         </thead>
         <tbody>
         <?php if (empty($sliceRows)): ?>
-          <tr><td colspan="9" class="text-center text-muted py-4">Belum ada rincian irisan transaksi untuk bonus harian ini.</td></tr>
+          <tr><td colspan="7" class="text-center text-muted py-4">Belum ada rincian irisan transaksi untuk bonus harian ini.</td></tr>
         <?php else: ?>
           <?php foreach ($sliceRows as $row): ?>
             <tr>
@@ -78,10 +76,8 @@ $backUrl = $back_url ?? site_url('my/bonus');
               </td>
               <td><?php echo html_escape(trim((string)(($row['source_shift_code'] ?? '') . ' ' . ($row['source_shift_name'] ?? '')))); ?></td>
               <td class="text-end">Rp <?php echo number_format((float)($row['net_sales_amount'] ?? 0), 2, ',', '.'); ?></td>
-              <td class="text-end">Rp <?php echo number_format((float)($row['payout_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-center"><?php echo number_format((int)($row['active_employee_count'] ?? 0)); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['raw_point'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['raw_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end">Rp <?php echo number_format((float)($row['attributable_revenue'] ?? 0), 2, ',', '.'); ?></td>
             </tr>
           <?php endforeach; ?>

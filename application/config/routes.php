@@ -100,6 +100,7 @@ $route['payroll/bonus/sync-auto-penalties'] = 'payroll/bonus_auto_penalty_sync';
 $route['payroll/bonus/approve-pool/(:num)'] = 'payroll/bonus_pool_approve/$1';
 $route['payroll/bonus/void-pool/(:num)'] = 'payroll/bonus_pool_void/$1';
 $route['payroll/bonus/delete-pool/(:num)'] = 'payroll/bonus_pool_delete/$1';
+$route['payroll/bonus/delete-pool-bulk'] = 'payroll/bonus_pool_bulk_delete';
 $route['payroll/bonus/monthly-detail/(:num)/(:num)'] = 'payroll/bonus_monthly_detail/$1/$2';
 $route['payroll/bonus/daily-detail/(:num)'] = 'payroll/bonus_daily_detail/$1';
 $route['payroll/bonus/generate-service-metric'] = 'payroll/bonus_service_metric_generate';

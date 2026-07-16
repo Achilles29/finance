@@ -654,7 +654,14 @@ class Payroll extends MY_Controller
             $tab = 'overview';
         }
 
-        $poolFilters = ['q' => trim((string)$this->input->get('pool_q', true))];
+        $poolStatus = strtoupper(trim((string)$this->input->get('pool_status', true)));
+        if (!in_array($poolStatus, ['ALL', 'DRAFT', 'APPROVED', 'VOID'], true)) {
+            $poolStatus = 'ALL';
+        }
+        $poolFilters = [
+            'q' => trim((string)$this->input->get('pool_q', true)),
+            'status' => $poolStatus,
+        ];
         $configFilters = ['q' => trim((string)$this->input->get('config_q', true))];
         $ruleFilters = ['q' => trim((string)$this->input->get('rule_q', true))];
         $weightStatus = strtoupper(trim((string)$this->input->get('weight_status', true)));
@@ -677,7 +684,7 @@ class Payroll extends MY_Controller
         $monthlyFilters = ['q' => trim((string)$this->input->get('monthly_q', true))];
 
         $poolPg = $this->build_pagination(
-            $this->Payroll_model->count_bonus_recent_pools($month, $poolFilters['q']),
+            $this->Payroll_model->count_bonus_recent_pools($month, $poolFilters['q'], $poolFilters['status']),
             $this->per_page('pool_per_page'),
             $this->page('pool_page')
         );
@@ -786,7 +793,13 @@ class Payroll extends MY_Controller
             'penalty_event_rows' => $penaltyEventRows,
             'penalty_detail_rows' => $penaltyDetailRows,
             'penalty_event_detail_map' => $penaltyEventDetailMap,
-            'pool_rows' => $this->Payroll_model->list_bonus_recent_pools($month, $poolFilters['q'], $poolPg['per_page'], $poolPg['offset']),
+            'pool_rows' => $this->Payroll_model->list_bonus_recent_pools($month, $poolFilters['q'], $poolPg['per_page'], $poolPg['offset'], $poolFilters['status']),
+            'pool_status_counts' => [
+                'ALL' => $this->Payroll_model->count_bonus_recent_pools($month, '', 'ALL'),
+                'DRAFT' => $this->Payroll_model->count_bonus_recent_pools($month, '', 'DRAFT'),
+                'APPROVED' => $this->Payroll_model->count_bonus_recent_pools($month, '', 'APPROVED'),
+                'VOID' => $this->Payroll_model->count_bonus_recent_pools($month, '', 'VOID'),
+            ],
             'pending_peer_rows' => $this->Payroll_model->list_pending_peer_feedback($peerFilters['q'], $peerPg['per_page'], $peerPg['offset']),
             'service_metric_rows' => $this->Payroll_model->list_bonus_service_metrics($month, $serviceFilters['q'], $servicePg['per_page'], $servicePg['offset']),
             'monthly_summary_rows' => $this->Payroll_model->list_bonus_monthly_recap_rows($month, $monthlyFilters['q'], $monthlyPg['per_page'], $monthlyPg['offset']),
@@ -982,6 +995,28 @@ class Payroll extends MY_Controller
         redirect('payroll/bonus?' . http_build_query([
             'tab' => 'overview',
             'month' => $month,
+        ]));
+    }
+
+    public function bonus_pool_bulk_delete()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        $this->require_permission('payroll.bonus.index', 'delete');
+        $poolIds = $this->input->post('pool_ids');
+        $poolIds = is_array($poolIds) ? $poolIds : [];
+        $result = $this->Payroll_model->delete_bonus_pool_daily_bulk($poolIds, (int)($this->current_user['id'] ?? 0));
+        $month = trim((string)$this->input->post('month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal hapus bulk pool bonus.'));
+        redirect('payroll/bonus?' . http_build_query([
+            'tab' => 'overview',
+            'month' => $month,
+            'pool_status' => 'VOID',
         ]));
     }
 

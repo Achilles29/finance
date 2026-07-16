@@ -422,6 +422,26 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               <button type="button" class="btn btn-primary" id="openGeneratePoolModalBtn">Generate Bulk dari Target Harian</button>
             </div>
           </div>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <?php
+              $poolStatusCounts = is_array($pool_status_counts ?? null) ? $pool_status_counts : [];
+              $poolStatusTabs = [
+                'ALL' => 'Semua',
+                'DRAFT' => 'Draft',
+                'APPROVED' => 'Published',
+                'VOID' => 'Void',
+              ];
+            ?>
+            <?php foreach ($poolStatusTabs as $poolStatusKey => $poolStatusLabel): ?>
+              <a
+                href="<?php echo $buildTableUrl(['tab' => 'overview', 'pool_status' => $poolStatusKey, 'pool_page' => 1]); ?>"
+                class="btn btn-sm <?php echo (($poolFilters['status'] ?? 'ALL') === $poolStatusKey) ? 'btn-primary' : 'btn-outline-primary'; ?>"
+              >
+                <?php echo html_escape($poolStatusLabel); ?>
+                <span class="ms-1">(<?php echo number_format((int)($poolStatusCounts[$poolStatusKey] ?? 0)); ?>)</span>
+              </a>
+            <?php endforeach; ?>
+          </div>
           <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
             <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
             <input type="hidden" name="tab" value="overview">
@@ -438,11 +458,20 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
             <input type="hidden" name="peer_page" value="<?php echo (int)($peerPg['page'] ?? 1); ?>">
             <input type="hidden" name="peer_per_page" value="<?php echo (int)($peerPg['per_page'] ?? 25); ?>">
             <div class="row g-3 align-items-end">
-              <div class="col-md-7">
+              <div class="col-md-5">
                 <label class="form-label">Cari pool bonus</label>
                 <input type="text" name="pool_q" class="form-control" value="<?php echo html_escape((string)($poolFilters['q'] ?? '')); ?>" placeholder="Cari tanggal, nama aturan, outlet, atau status">
               </div>
               <div class="col-md-3">
+                <label class="form-label">Status</label>
+                <select name="pool_status" class="form-select">
+                  <option value="ALL" <?php echo (($poolFilters['status'] ?? 'ALL') === 'ALL') ? 'selected' : ''; ?>>Semua status</option>
+                  <option value="DRAFT" <?php echo (($poolFilters['status'] ?? 'ALL') === 'DRAFT') ? 'selected' : ''; ?>>Draft</option>
+                  <option value="APPROVED" <?php echo (($poolFilters['status'] ?? 'ALL') === 'APPROVED') ? 'selected' : ''; ?>>Published</option>
+                  <option value="VOID" <?php echo (($poolFilters['status'] ?? 'ALL') === 'VOID') ? 'selected' : ''; ?>>Void</option>
+                </select>
+              </div>
+              <div class="col-md-2">
                 <label class="form-label">Baris</label>
                 <select name="pool_per_page" class="form-select">
                   <?php foreach ([10, 25, 50, 100] as $size): ?>
@@ -455,13 +484,19 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               </div>
             </div>
           </form>
-          <div class="bonus-table-wrap bonus-table">
-            <table class="table align-middle mb-0">
-              <thead><tr><th>Tanggal</th><th>Kebijakan</th><th>Target</th><th class="text-end">Penjualan Bersih</th><th class="text-end">Pool</th><th>Status</th><th>Aksi</th></tr></thead>
-              <tbody>
-              <?php if (empty($poolRows)): ?>
-                <tr><td colspan="7" class="text-center text-muted py-4">Belum ada pool bonus pada bulan ini.</td></tr>
-              <?php else: foreach ($poolRows as $row): ?>
+          <form method="post" action="<?php echo site_url('payroll/bonus/delete-pool-bulk'); ?>" onsubmit="return confirm('Hapus semua pool VOID yang dicentang? Data detail pegawai ikut terhapus permanen.');">
+            <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+              <div class="small text-muted">Bulk hapus hanya aman untuk baris berstatus VOID. Baris selain VOID akan dilewati otomatis.</div>
+              <button type="submit" class="btn btn-sm btn-outline-danger">Hapus VOID Terpilih</button>
+            </div>
+            <div class="bonus-table-wrap bonus-table">
+              <table class="table align-middle mb-0">
+                <thead><tr><th style="width:46px;"><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.pool-bulk-checkbox').forEach(cb => cb.checked = this.checked);"></th><th>Tanggal</th><th>Kebijakan</th><th>Target</th><th class="text-end">Penjualan Bersih</th><th class="text-end">Pool</th><th>Status</th><th>Aksi</th></tr></thead>
+                <tbody>
+                <?php if (empty($poolRows)): ?>
+                  <tr><td colspan="8" class="text-center text-muted py-4">Belum ada pool bonus pada bulan ini.</td></tr>
+                <?php else: foreach ($poolRows as $row): ?>
                 <?php
                   $targetPlanName = trim((string)($row['target_plan_name'] ?? ''));
                   $targetScorePercent = (float)($row['target_score_percent'] ?? 100);
@@ -469,6 +504,9 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
                   $status = strtoupper((string)($row['approval_status'] ?? 'DRAFT'));
                 ?>
                 <tr>
+                  <td class="text-center">
+                    <input type="checkbox" class="form-check-input pool-bulk-checkbox" name="pool_ids[]" value="<?php echo (int)($row['id'] ?? 0); ?>">
+                  </td>
                   <td><?php echo html_escape((string)($row['bonus_date'] ?? '-')); ?></td>
                   <td><strong><?php echo html_escape((string)($row['config_name'] ?? $row['rule_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['outlet_name'] ?? $row['division_name'] ?? '-')); ?></div></td>
                   <td>
@@ -524,10 +562,11 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
                     </div>
                   </td>
                 </tr>
-              <?php endforeach; endif; ?>
-              </tbody>
-            </table>
-          </div>
+                <?php endforeach; endif; ?>
+                </tbody>
+              </table>
+            </div>
+          </form>
           <?php $renderPager($poolPg, static function ($overrides) use ($buildTableUrl) { return $buildTableUrl(array_merge(['tab' => 'overview'], $overrides)); }, 'pool_page', 'pool_per_page'); ?>
         </div>
       </div>

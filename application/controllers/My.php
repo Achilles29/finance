@@ -98,7 +98,6 @@ class My extends MY_Controller
             'revision_min_date' => $revisionMinDate,
             'revision_max_date' => $revisionMaxDate,
             'leave_url' => $leaveUrl,
-            'bonus_summary' => $employee ? $this->Payroll_model->get_employee_bonus_overview((int)$employee['id'], date('Y-m')) : [],
             'bonus_target_summary' => $employee ? $this->Payroll_model->get_my_bonus_target_summary(date('Y-m')) : [],
         ];
         $this->render('my/index', $data);

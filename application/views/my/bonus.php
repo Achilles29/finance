@@ -14,11 +14,8 @@ $historyFilters = $history_filters ?? ['q' => ''];
 $dailyPg = $daily_pg ?? ['total' => count($dailyRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1];
 $historyPg = $history_pg ?? ['total' => count($peerHistoryRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1];
 $isPublished = !empty($summary['is_published']);
-$displayFinalAmount = $isPublished ? (float)($summary['total_final_amount'] ?? 0) : 0;
-$displayPenaltyAmount = $isPublished ? (float)($summary['total_penalty_amount'] ?? 0) : 0;
-$estimatedFinalAmount = (float)($summary['estimated_final_amount'] ?? 0);
 $estimatedPenaltyAmount = (float)($summary['estimated_penalty_amount'] ?? 0);
-$displayStatus = $isPublished ? (string)($summary['payout_status'] ?? 'APPROVED') : (($estimatedFinalAmount > 0 || $estimatedPenaltyAmount > 0) ? 'ESTIMASI POOL' : 'MENUNGGU POOL');
+$displayStatus = $isPublished ? (string)($summary['payout_status'] ?? 'APPROVED') : ($estimatedPenaltyAmount > 0 ? 'ESTIMASI POOL' : 'MENUNGGU POOL');
 $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $month, $date, $tab) {
     $base = [
         'employee_id' => $selectedEmployeeId ?: '',
@@ -96,8 +93,6 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
 
   <?php if ($tab === 'summary'): ?>
     <div class="row g-3 mb-4">
-      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Estimasi Bonus Pool</div><div class="value"><?php echo 'Rp ' . number_format($estimatedFinalAmount, 2, ',', '.'); ?></div><div class="small text-muted">Terbaca dari pool bonus yang sudah digenerate bulan ini</div></div></div>
-      <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Bonus Diumumkan</div><div class="value"><?php echo $isPublished ? ('Rp ' . number_format($displayFinalAmount, 2, ',', '.')) : 'Belum dibuka'; ?></div><div class="small text-muted"><?php echo $isPublished ? 'Angka resmi yang sudah dipublikasikan' : 'Belum memotong / menambah kas sebelum pencairan'; ?></div></div></div>
       <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Estimasi Potongan</div><div class="value text-danger"><?php echo 'Rp ' . number_format($estimatedPenaltyAmount, 2, ',', '.'); ?></div><div class="small text-muted">Gabungan penalti otomatis dan manual yang sudah masuk pool</div></div></div>
       <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Nilai Rekan</div><div class="value"><?php echo number_format((float)($summary['peer_avg_star'] ?? 0), 2, ',', '.'); ?></div><div class="small text-muted">Rata-rata bintang yang masuk</div></div></div>
       <div class="col-md-3"><div class="my-bonus-kpi"><div class="label">Status Rekap</div><div class="value"><?php echo html_escape($displayStatus); ?></div><div class="small text-muted">Bonus tetap perhitungan dulu, kas baru bergerak saat pencairan dibuat</div></div></div>
@@ -106,7 +101,7 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
     </div>
 
     <?php if (empty($summary['is_published'])): ?>
-      <div class="alert alert-warning border-0 shadow-sm">Bonus bulan ini belum diumumkan sebagai angka final. Sementara ini yang tampil adalah estimasi dari pool bonus yang sudah digenerate admin, jadi bisa dipakai untuk memantau arah bonus tanpa langsung dianggap final.</div>
+      <div class="alert alert-warning border-0 shadow-sm">Nominal bonus belum ditampilkan di portal pegawai. Pegawai cukup memantau target, penalti, dan status rekap sampai bonus diumumkan perusahaan.</div>
     <?php endif; ?>
 
     <?php if (!empty($target_summary['daily_notes']) || !empty($target_summary['monthly_notes'])): ?>
@@ -179,22 +174,19 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
         </form>
         <div class="table-responsive my-bonus-table-wrap">
           <table class="table align-middle mb-0">
-            <thead><tr><th>Tanggal</th><th>Shift Kerja</th><th>Aturan</th><th class="text-center">Irisan</th><th class="text-end">Omzet Porsi Saya</th><th class="text-end">Bonus Kotor Saya</th><th class="text-end">Potongan</th><th class="text-end">Bonus Akhir</th><th>Status</th><th>Aksi</th></tr></thead>
+            <thead><tr><th>Tanggal</th><th>Shift Kerja</th><th>Aturan</th><th class="text-center">Irisan</th><th class="text-end">Potongan</th><th>Status</th><th>Aksi</th></tr></thead>
             <tbody>
             <?php if (empty($dailyRows)): ?>
-              <tr><td colspan="10" class="text-center text-muted py-4">Belum ada bonus harian yang sudah dipublikasikan untuk bulan ini.</td></tr>
+              <tr><td colspan="7" class="text-center text-muted py-4">Belum ada baris bonus harian untuk bulan ini.</td></tr>
             <?php else: foreach ($dailyRows as $row): ?>
               <tr>
                 <td><?php echo html_escape((string)($row['attendance_date'] ?? $row['bonus_date'] ?? '-')); ?></td>
                 <td><?php echo html_escape(trim((string)(($row['shift_code'] ?? '') . ' ' . ($row['shift_name'] ?? '')))); ?></td>
                 <td><?php echo html_escape((string)($row['rule_name'] ?? '-')); ?></td>
                 <td class="text-center"><?php echo number_format((int)($row['slice_count'] ?? 0)); ?>x</td>
-                <td class="text-end">Rp <?php echo number_format((float)($row['revenue_in_shift'] ?? 0), 2, ',', '.'); ?></td>
-                <td class="text-end">Rp <?php echo number_format((float)($row['raw_amount'] ?? 0), 2, ',', '.'); ?></td>
                 <td class="text-end text-danger">Rp <?php echo number_format((float)($row['penalty_amount'] ?? 0), 2, ',', '.'); ?></td>
-                <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['final_amount'] ?? 0), 2, ',', '.'); ?></td>
                 <td><span class="my-bonus-soft <?php echo strtoupper((string)($row['approval_status'] ?? 'DRAFT')) === 'APPROVED' ? 'ok' : 'warn'; ?>"><?php echo html_escape((string)($row['approval_status'] ?? 'DRAFT')); ?></span></td>
-                <td><a href="<?php echo site_url('my/bonus/daily-detail/' . (int)($row['id'] ?? 0) . ($selectedEmployeeId > 0 ? ('?employee_id=' . (int)$selectedEmployeeId) : '')); ?>" class="btn btn-sm btn-outline-secondary">Audit</a></td>
+                <td><a href="<?php echo site_url('my/bonus/daily-detail/' . (int)($row['id'] ?? 0) . ($selectedEmployeeId > 0 ? ('?employee_id=' . (int)$selectedEmployeeId) : '')); ?>" class="btn btn-sm btn-outline-secondary">Detail Audit</a></td>
               </tr>
             <?php endforeach; endif; ?>
             </tbody>
