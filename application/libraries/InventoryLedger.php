@@ -1156,7 +1156,7 @@ class InventoryLedger
             return null;
         }
 
-        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
         return in_array($value, $allowed, true) ? $value : null;
     }
 

@@ -110,9 +110,9 @@ class Inventory_division extends Purchase
         $destWhere = '';
         if ($destination !== 'ALL') {
             if ($destination === 'REGULER') {
-                $destWhere = "AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+                $destWhere = "AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
             } elseif ($destination === 'EVENT') {
-                $destWhere = "AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+                $destWhere = "AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
             } else {
                 $destWhere = "AND dms.destination_type = " . $this->db->escape($destination);
             }

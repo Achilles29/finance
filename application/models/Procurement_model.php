@@ -2777,10 +2777,14 @@ class Procurement_model extends CI_Model
             $preferredCodes = ['BAR_STOK', 'INV_BAR', 'INV_STOK'];
         } elseif ($destination === 'KITCHEN') {
             $preferredCodes = ['KITCHEN_STOK', 'INV_KITCHEN', 'INV_STOK'];
+        } elseif ($destination === 'ROASTERY') {
+            $preferredCodes = ['ROASTERY_STOK', 'INV_ROASTERY', 'INV_STOK'];
         } elseif ($destination === 'BAR_EVENT') {
             $preferredCodes = ['BAR_STOK_EVENT', 'BAR_STOK', 'INV_BAR', 'INV_STOK'];
         } elseif ($destination === 'KITCHEN_EVENT') {
             $preferredCodes = ['KITCHEN_STOK_EVENT', 'KITCHEN_STOK', 'INV_KITCHEN', 'INV_STOK'];
+        } elseif ($destination === 'ROASTERY_EVENT') {
+            $preferredCodes = ['ROASTERY_STOK_EVENT', 'ROASTERY_STOK', 'INV_ROASTERY', 'INV_STOK'];
         } elseif ($destination === 'OFFICE') {
             $preferredCodes = ['OPERASIONAL_OFFICE', 'INV_STOK'];
         }
@@ -3796,6 +3800,9 @@ class Procurement_model extends CI_Model
         if (strpos($text, 'KITCHEN') !== false || strpos($text, 'DAPUR') !== false) {
             return 'KITCHEN';
         }
+        if (strpos($text, 'ROASTERY') !== false || strpos($text, 'ROASTER') !== false) {
+            return 'ROASTERY';
+        }
         if (strpos($text, 'OFFICE') !== false) {
             return 'OFFICE';
         }
@@ -3810,6 +3817,9 @@ class Procurement_model extends CI_Model
         }
         if ($base === 'KITCHEN') {
             return ['KITCHEN', 'KITCHEN_EVENT'];
+        }
+        if ($base === 'ROASTERY') {
+            return ['ROASTERY', 'ROASTERY_EVENT'];
         }
         if ($base === 'OFFICE') {
             return ['OFFICE'];
@@ -4325,7 +4335,7 @@ class Procurement_model extends CI_Model
     private function normalize_destination(string $destination): ?string
     {
         $destination = strtoupper(trim($destination));
-        $allowed = ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+        $allowed = ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
         if (!in_array($destination, $allowed, true)) {
             return null;
         }

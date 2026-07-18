@@ -7,15 +7,15 @@ $locationFilterOptions = ['' => 'Semua Lokasi', 'REGULER' => 'Reguler', 'EVENT' 
 
 $locationFilterValue = static function ($v): string {
   $v = strtoupper(trim((string)$v));
-  if (in_array($v, ['BAR_EVENT', 'KITCHEN_EVENT', 'EVENT'], true)) return 'EVENT';
-  if (in_array($v, ['BAR', 'KITCHEN', 'REGULER'], true)) return 'REGULER';
+  if (in_array($v, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'EVENT'], true)) return 'EVENT';
+  if (in_array($v, ['BAR', 'KITCHEN', 'ROASTERY', 'REGULER'], true)) return 'REGULER';
   return '';
 };
 $locGroup = static function ($v): string {
   $v = strtoupper(trim((string)$v));
-  if (in_array($v, ['BAR_EVENT', 'KITCHEN_EVENT'], true))
+  if (in_array($v, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true))
     return '<span class="badge bg-danger-subtle text-danger px-1 py-0" style="font-size:.62rem">Event</span>';
-  if (in_array($v, ['BAR', 'KITCHEN'], true))
+  if (in_array($v, ['BAR', 'KITCHEN', 'ROASTERY'], true))
     return '<span class="badge bg-secondary-subtle text-secondary px-1 py-0" style="font-size:.62rem">Reguler</span>';
   return '';
 };

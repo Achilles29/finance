@@ -10,10 +10,10 @@ $dateTo          = (string)($date_to ?? date('Y-m-d'));
 
 $locationGroupLabel = static function ($locationType): string {
     $value = strtoupper(trim((string)$locationType));
-    if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+    if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'ROASTERY_EVENT') {
         return 'EVENT';
     }
-    if ($value === 'BAR' || $value === 'KITCHEN') {
+    if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'ROASTERY') {
         return 'REGULER';
     }
     return $value !== '' ? $value : '-';
@@ -887,6 +887,7 @@ $cbFmt = static function ($num): string {
     if (!d || !g) return '';
     if (d === 'BAR')     return g === 'EVENT' ? 'BAR_EVENT'     : 'BAR';
     if (d === 'KITCHEN') return g === 'EVENT' ? 'KITCHEN_EVENT' : 'KITCHEN';
+    if (d === 'ROASTERY') return g === 'EVENT' ? 'ROASTERY_EVENT' : 'ROASTERY';
     return '';
   }
 
@@ -1495,3 +1496,4 @@ $cbFmt = static function ($num): string {
   renderPage();
 })();
 </script>
+

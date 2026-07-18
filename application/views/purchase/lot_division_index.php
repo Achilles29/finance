@@ -265,6 +265,8 @@ $this->load->view('purchase/_division_stock_generate_btn', [
             <option value="KITCHEN"      <?php echo $selDestination==='KITCHEN'      ?'selected':''; ?>>KITCHEN</option>
             <option value="BAR_EVENT"    <?php echo $selDestination==='BAR_EVENT'    ?'selected':''; ?>>BAR Event</option>
             <option value="KITCHEN_EVENT"<?php echo $selDestination==='KITCHEN_EVENT'?'selected':''; ?>>Kitchen Ev.</option>
+            <option value="ROASTERY"<?php echo $selDestination==='ROASTERY'?'selected':''; ?>>Roastery</option>
+            <option value="ROASTERY_EVENT"<?php echo $selDestination==='ROASTERY_EVENT'?'selected':''; ?>>Roastery Ev.</option>
             <option value="OFFICE"       <?php echo $selDestination==='OFFICE'       ?'selected':''; ?>>OFFICE</option>
           </select>
         </div>

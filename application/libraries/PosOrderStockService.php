@@ -632,9 +632,11 @@ class PosOrderStockService
                     ->limit(1)->get()->row_array();
                 $homeCode = strtoupper(trim((string)($homeRow['division_code'] ?? '')));
                 $resolvedGroup = strpos($locationType, 'KITCHEN') !== false ? 'KITCHEN'
-                    : (strpos($locationType, 'BAR') !== false ? 'BAR' : '');
+                    : (strpos($locationType, 'ROASTERY') !== false ? 'ROASTERY'
+                    : (strpos($locationType, 'BAR') !== false ? 'BAR' : ''));
                 $homeGroup = in_array($homeCode, ['KITCHEN', 'FOOD'], true) ? 'KITCHEN'
-                    : (in_array($homeCode, ['BAR', 'BEVERAGE'], true) ? 'BAR' : '');
+                    : (in_array($homeCode, ['ROASTERY', 'ROASTER'], true) ? 'ROASTERY'
+                    : (in_array($homeCode, ['BAR', 'BEVERAGE'], true) ? 'BAR' : ''));
                 if ($homeGroup !== '' && $resolvedGroup !== '' && $homeGroup !== $resolvedGroup) {
                     return [
                         'ok' => true,
@@ -1760,6 +1762,9 @@ class PosOrderStockService
         if (in_array($divisionName, ['KITCHEN', 'FOOD'], true)) {
             return $isEvent ? 'KITCHEN_EVENT' : 'KITCHEN';
         }
+        if (in_array($divisionName, ['ROASTERY', 'ROASTER'], true)) {
+            return $isEvent ? 'ROASTERY_EVENT' : 'ROASTERY';
+        }
         return 'OTHER';
     }
 
@@ -1959,7 +1964,7 @@ class PosOrderStockService
     private function resolve_component_location_type(array $line, string $orderScope = 'REGULAR'): ?string
     {
         $destinationType = $this->resolve_destination_type($line, $orderScope);
-        return in_array($destinationType, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT'], true) ? $destinationType : null;
+        return in_array($destinationType, ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true) ? $destinationType : null;
     }
 
     private function infer_material_identity(array $line, int $divisionId, string $destinationType): array

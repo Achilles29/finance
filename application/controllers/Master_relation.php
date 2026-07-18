@@ -42,6 +42,9 @@ class Master_relation extends MY_Controller
         if ($code === 'KITCHEN') {
             return 'KITCHEN';
         }
+        if ($code === 'ROASTERY') {
+            return 'ROASTERY';
+        }
         return null;
     }
 

@@ -1371,7 +1371,7 @@ class Purchase extends MY_Controller
     private function stock_opening_import_destination(string $value): string
     {
         $value = strtoupper(trim($value));
-        if (in_array($value, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'], true)) {
+        if (in_array($value, ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'], true)) {
             return $value;
         }
         return 'OTHER';
@@ -2654,7 +2654,7 @@ class Purchase extends MY_Controller
                 $divisionCode = 'KITCHEN';
             }
 
-            if (in_array($divisionCode, ['BAR', 'KITCHEN'], true)) {
+            if (in_array($divisionCode, ['BAR', 'KITCHEN', 'ROASTERY'], true)) {
                 $destination = $destination === 'EVENT' ? ($divisionCode . '_EVENT') : $divisionCode;
             }
         }
@@ -2919,7 +2919,7 @@ class Purchase extends MY_Controller
         if (in_array($destType, ['REGULER', 'REGULAR', 'ALL'], true)) {
             $destType = $divisionDestType;
         }
-        $allowedDestTypes = ['GUDANG', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+        $allowedDestTypes = ['GUDANG', 'BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
         if (!in_array($destType, $allowedDestTypes, true)) {
             $destType = in_array($divisionDestType, $allowedDestTypes, true) ? $divisionDestType : 'OTHER';
         }
@@ -4134,7 +4134,7 @@ class Purchase extends MY_Controller
                 return $x !== '';
             }));
             if (empty($allowed)) {
-                $allowed = ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+                $allowed = ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
             }
             $map[$divisionId] = array_values(array_unique($allowed));
         }
@@ -4147,7 +4147,7 @@ class Purchase extends MY_Controller
         if ($dest === '') {
             $dest = 'ALL';
         }
-        if (!in_array($dest, ['ALL', 'REGULER', 'EVENT', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'], true)) {
+        if (!in_array($dest, ['ALL', 'REGULER', 'EVENT', 'BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'], true)) {
             $dest = 'ALL';
         }
         if ($divisionId <= 0 || !isset($guardMap[$divisionId]) || in_array($dest, ['ALL', 'REGULER', 'EVENT'], true)) {

@@ -1151,9 +1151,11 @@ $uniqueCompCount = count($uniqueComps);
     const div = String(rawDivisionCode || '').toUpperCase().trim();
     if (loc === 'BAR')             return { division_code: 'BAR',     location_type: 'REGULER' };
     if (loc === 'KITCHEN')         return { division_code: 'KITCHEN', location_type: 'REGULER' };
+    if (loc === 'ROASTERY')        return { division_code: 'ROASTERY', location_type: 'REGULER' };
     if (loc === 'BAR_EVENT')       return { division_code: 'BAR',     location_type: 'EVENT' };
     if (loc === 'KITCHEN_EVENT')   return { division_code: 'KITCHEN', location_type: 'EVENT' };
-    if ((loc === 'REGULER' || loc === 'EVENT') && (div === 'BAR' || div === 'KITCHEN')) {
+    if (loc === 'ROASTERY_EVENT')  return { division_code: 'ROASTERY', location_type: 'EVENT' };
+    if ((loc === 'REGULER' || loc === 'EVENT') && (div === 'BAR' || div === 'KITCHEN' || div === 'ROASTERY')) {
       return { division_code: div, location_type: loc };
     }
     return null;
@@ -1172,7 +1174,7 @@ $uniqueCompCount = count($uniqueComps);
     const lotNo    = String(btn.dataset.lotNo || '');
     const adjustScope = String(btn.dataset.adjustScope || 'STOCK').toUpperCase();
     const locDec   = compLocDecode(locType, divCode);
-    if (!locDec) { showAlert('Lokasi component tidak dikenali: ' + locType + '. Hanya BAR / KITCHEN / BAR_EVENT / KITCHEN_EVENT yang didukung.', 'Adjustment'); return; }
+    if (!locDec) { showAlert('Lokasi component tidak dikenali: ' + locType + '. Hanya BAR / KITCHEN / ROASTERY / EVENT yang didukung.', 'Adjustment'); return; }
     const g = id => document.getElementById(id);
     if (g('compAdjModalTitle')) g('compAdjModalTitle').textContent = adjustScope === 'LOT_ONLY' ? 'Adjustment Lot Component' : 'Adjustment Stok Component';
     if (g('compAdjCompName'))   g('compAdjCompName').textContent = compName;

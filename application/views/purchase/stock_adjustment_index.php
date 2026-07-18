@@ -80,8 +80,8 @@ $detailReasonSummary = static function (array $row) use ($resolveReasonLabel): s
 };
 $destinationCategoryLabel = static function (string $dest): string {
   $d = strtoupper(trim($dest));
-  if (in_array($d, ['BAR', 'KITCHEN'], true))              return 'Reguler';
-  if (in_array($d, ['BAR_EVENT', 'KITCHEN_EVENT'], true))  return 'Event';
+  if (in_array($d, ['BAR', 'KITCHEN', 'ROASTERY'], true))              return 'Reguler';
+  if (in_array($d, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true))  return 'Event';
   if ($d === 'OFFICE')                                      return 'Office';
   return 'Other';
 };
@@ -362,8 +362,10 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
             <option value="ALL" <?php echo $selectedDestination === 'ALL' ? 'selected' : ''; ?>>Semua</option>
             <option value="BAR" <?php echo $selectedDestination === 'BAR' ? 'selected' : ''; ?>>BAR</option>
             <option value="KITCHEN" <?php echo $selectedDestination === 'KITCHEN' ? 'selected' : ''; ?>>KITCHEN</option>
+            <option value="ROASTERY" <?php echo $selectedDestination === 'ROASTERY' ? 'selected' : ''; ?>>ROASTERY</option>
             <option value="BAR_EVENT" <?php echo $selectedDestination === 'BAR_EVENT' ? 'selected' : ''; ?>>BAR_EVENT</option>
             <option value="KITCHEN_EVENT" <?php echo $selectedDestination === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>KITCHEN_EVENT</option>
+            <option value="ROASTERY_EVENT" <?php echo $selectedDestination === 'ROASTERY_EVENT' ? 'selected' : ''; ?>>ROASTERY_EVENT</option>
             <option value="OFFICE" <?php echo $selectedDestination === 'OFFICE' ? 'selected' : ''; ?>>OFFICE</option>
             <option value="OTHER" <?php echo $selectedDestination === 'OTHER' ? 'selected' : ''; ?>>OTHER</option>
           </select>
@@ -565,8 +567,10 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
             <option value="ALL" <?php echo $selectedDestination === 'ALL' ? 'selected' : ''; ?>>Semua</option>
             <option value="BAR" <?php echo $selectedDestination === 'BAR' ? 'selected' : ''; ?>>BAR</option>
             <option value="KITCHEN" <?php echo $selectedDestination === 'KITCHEN' ? 'selected' : ''; ?>>KITCHEN</option>
+            <option value="ROASTERY" <?php echo $selectedDestination === 'ROASTERY' ? 'selected' : ''; ?>>ROASTERY</option>
             <option value="BAR_EVENT" <?php echo $selectedDestination === 'BAR_EVENT' ? 'selected' : ''; ?>>BAR_EVENT</option>
             <option value="KITCHEN_EVENT" <?php echo $selectedDestination === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>KITCHEN_EVENT</option>
+            <option value="ROASTERY_EVENT" <?php echo $selectedDestination === 'ROASTERY_EVENT' ? 'selected' : ''; ?>>ROASTERY_EVENT</option>
             <option value="OFFICE" <?php echo $selectedDestination === 'OFFICE' ? 'selected' : ''; ?>>OFFICE</option>
             <option value="OTHER" <?php echo $selectedDestination === 'OTHER' ? 'selected' : ''; ?>>OTHER</option>
           </select>
@@ -749,8 +753,10 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
                 <select class="form-select" id="destination_type" required>
                   <option value="BAR" <?php echo $selectedDestination === 'BAR' ? 'selected' : ''; ?>>BAR (Reguler)</option>
                   <option value="KITCHEN" <?php echo $selectedDestination === 'KITCHEN' ? 'selected' : ''; ?>>KITCHEN (Reguler)</option>
+                  <option value="ROASTERY" <?php echo $selectedDestination === 'ROASTERY' ? 'selected' : ''; ?>>ROASTERY (Reguler)</option>
                   <option value="BAR_EVENT" <?php echo $selectedDestination === 'BAR_EVENT' ? 'selected' : ''; ?>>BAR_EVENT</option>
                   <option value="KITCHEN_EVENT" <?php echo $selectedDestination === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>KITCHEN_EVENT</option>
+                  <option value="ROASTERY_EVENT" <?php echo $selectedDestination === 'ROASTERY_EVENT' ? 'selected' : ''; ?>>ROASTERY_EVENT</option>
                   <option value="OFFICE" <?php echo $selectedDestination === 'OFFICE' ? 'selected' : ''; ?>>OFFICE</option>
                   <option value="OTHER" <?php echo $selectedDestination === 'OTHER' ? 'selected' : ''; ?>>OTHER</option>
                 </select>
@@ -993,14 +999,14 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
   const lineFilterDivisionEl    = document.getElementById('adj-rincian-division');
   const lineFilterDestinationEl = document.getElementById('adj-rincian-destination');
   const formDestinationOptions = [
-    {value:'BAR',label:'BAR (Reguler)'},{value:'KITCHEN',label:'KITCHEN (Reguler)'},
-    {value:'BAR_EVENT',label:'BAR_EVENT'},{value:'KITCHEN_EVENT',label:'KITCHEN_EVENT'},
+    {value:'BAR',label:'BAR (Reguler)'},{value:'KITCHEN',label:'KITCHEN (Reguler)'},{value:'ROASTERY',label:'ROASTERY (Reguler)'},
+    {value:'BAR_EVENT',label:'BAR_EVENT'},{value:'KITCHEN_EVENT',label:'KITCHEN_EVENT'},{value:'ROASTERY_EVENT',label:'ROASTERY_EVENT'},
     {value:'OFFICE',label:'OFFICE'},{value:'OTHER',label:'OTHER'}
   ];
   const filterDestinationOptions = [
     {value:'ALL',label:'Semua'},{value:'REGULER',label:'Reguler'},{value:'EVENT',label:'Event'},
-    {value:'BAR',label:'BAR'},{value:'KITCHEN',label:'KITCHEN'},
-    {value:'BAR_EVENT',label:'BAR_EVENT'},{value:'KITCHEN_EVENT',label:'KITCHEN_EVENT'},
+    {value:'BAR',label:'BAR'},{value:'KITCHEN',label:'KITCHEN'},{value:'ROASTERY',label:'ROASTERY'},
+    {value:'BAR_EVENT',label:'BAR_EVENT'},{value:'KITCHEN_EVENT',label:'KITCHEN_EVENT'},{value:'ROASTERY_EVENT',label:'ROASTERY_EVENT'},
     {value:'OFFICE',label:'OFFICE'},{value:'OTHER',label:'OTHER'}
   ];
 

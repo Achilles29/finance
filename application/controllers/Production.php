@@ -415,6 +415,8 @@ class Production extends MY_Controller
             $specificLocation = $locationGroup === 'EVENT' ? 'BAR_EVENT' : 'BAR';
         } elseif ($divisionCode === 'KITCHEN') {
             $specificLocation = $locationGroup === 'EVENT' ? 'KITCHEN_EVENT' : 'KITCHEN';
+        } elseif ($divisionCode === 'ROASTERY') {
+            $specificLocation = $locationGroup === 'EVENT' ? 'ROASTERY_EVENT' : 'ROASTERY';
         }
 
         $lot = null;
@@ -2408,15 +2410,17 @@ class Production extends MY_Controller
             return;
         }
 
-        // Derive specific location (BAR/KITCHEN/BAR_EVENT/KITCHEN_EVENT) from group + division code
+        // Derive specific location from group + division code.
         $specificLocation = '';
         if ($divCode === 'BAR') {
             $specificLocation = $locationType === 'EVENT' ? 'BAR_EVENT' : 'BAR';
         } elseif ($divCode === 'KITCHEN') {
             $specificLocation = $locationType === 'EVENT' ? 'KITCHEN_EVENT' : 'KITCHEN';
+        } elseif ($divCode === 'ROASTERY') {
+            $specificLocation = $locationType === 'EVENT' ? 'ROASTERY_EVENT' : 'ROASTERY';
         }
         if ($specificLocation === '') {
-            $this->json_error('Lokasi spesifik component tidak dapat ditentukan (divisi harus BAR atau KITCHEN).', 422);
+            $this->json_error('Lokasi spesifik component tidak dapat ditentukan (divisi harus BAR, KITCHEN, atau ROASTERY).', 422);
             return;
         }
 
@@ -2881,10 +2885,10 @@ class Production extends MY_Controller
         if (in_array($value, ['REGULER', 'EVENT'], true)) {
             return $value;
         }
-        if (in_array($value, ['BAR', 'KITCHEN'], true)) {
+        if (in_array($value, ['BAR', 'KITCHEN', 'ROASTERY'], true)) {
             return 'REGULER';
         }
-        if (in_array($value, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+        if (in_array($value, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true)) {
             return 'EVENT';
         }
         return '';
@@ -3089,7 +3093,7 @@ class Production extends MY_Controller
     private function normalize_location_type($value)
     {
         $value = strtoupper(trim((string)$value));
-        return in_array($value, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT'], true) ? $value : '';
+        return in_array($value, ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true) ? $value : '';
     }
 
     private function component_master_filters(): array

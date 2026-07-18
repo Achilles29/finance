@@ -30,8 +30,8 @@ $openingTab = in_array((string)($opening_tab ?? ''), ['documents', 'detail', 'sn
 $locationFilterOptions = ['' => 'Semua Lokasi', 'REGULER' => 'Reguler', 'EVENT' => 'Event'];
 $locationGroupLabel = static function ($locationType): string {
   $value = strtoupper(trim((string)$locationType));
-  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') return 'Event';
-  if ($value === 'BAR' || $value === 'KITCHEN') return 'Reguler';
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'ROASTERY_EVENT') return 'Event';
+  if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'ROASTERY') return 'Reguler';
   return $value !== '' ? $value : '-';
 };
 $componentMap = [];
@@ -109,7 +109,7 @@ foreach ($rows as $r) {
   elseif ($st === 'DRAFT')  $draftDocs++;
   elseif ($st === 'VOID')   $voidDocs++;
   $lt = strtoupper((string)($r['location_type'] ?? ''));
-  if (in_array($lt, ['BAR', 'KITCHEN'])) $regulerDocs++;
+  if (in_array($lt, ['BAR', 'KITCHEN', 'ROASTERY'])) $regulerDocs++;
   else $eventDocs++;
 }
 $snapQty   = 0.0; $snapValue = 0.0;
@@ -119,7 +119,7 @@ foreach ($monthlyRows as $mr) {
   $snapQty   += (float)($mr['opening_qty'] ?? 0);
   $snapValue += (float)($mr['total_value'] ?? 0);
   $lt = strtoupper((string)($mr['location_type'] ?? ''));
-  if (in_array($lt, ['BAR', 'KITCHEN'])) $snapValueReguler += (float)($mr['total_value'] ?? 0);
+  if (in_array($lt, ['BAR', 'KITCHEN', 'ROASTERY'])) $snapValueReguler += (float)($mr['total_value'] ?? 0);
   else $snapValueEvent += (float)($mr['total_value'] ?? 0);
   $dn = (string)($mr['division_name'] ?? '-');
   $divisionValues[$dn] = ($divisionValues[$dn] ?? 0.0) + (float)($mr['total_value'] ?? 0);
@@ -964,6 +964,7 @@ $topDivisions = array_slice($divisionValues, 0, 4, true);
     if (!nd||!ng) return '';
     if (nd==='BAR')     return ng==='EVENT'?'BAR_EVENT':'BAR';
     if (nd==='KITCHEN') return ng==='EVENT'?'KITCHEN_EVENT':'KITCHEN';
+    if (nd==='ROASTERY') return ng==='EVENT'?'ROASTERY_EVENT':'ROASTERY';
     return '';
   }
   function syncHeaderDivisionState() {
@@ -1134,3 +1135,4 @@ $topDivisions = array_slice($divisionValues, 0, 4, true);
   renderLines();
 })();
 </script>
+

@@ -5414,7 +5414,7 @@ class Pos_model extends CI_Model
 
         $this->db->select('id, ' . $codeCol . ' AS code, ' . $nameCol . ' AS name', false)
             ->from('mst_operational_division')
-            ->where("UPPER(TRIM({$codeCol})) IN ('BAR','KITCHEN')", null, false);
+            ->where("UPPER(TRIM({$codeCol})) IN ('BAR','KITCHEN','ROASTERY')", null, false);
 
         if ($this->db->field_exists('is_active', 'mst_operational_division')) {
             $this->db->where('COALESCE(is_active, 1) = 1', null, false);
@@ -10485,7 +10485,7 @@ class Pos_model extends CI_Model
 
         $divisionMeta = $this->resolve_order_operational_division_meta($divisionId);
         $preferredDestination = strtoupper(trim((string)($divisionMeta['code'] ?? '')));
-        if (in_array($preferredDestination, ['BAR', 'KITCHEN'], true)) {
+        if (in_array($preferredDestination, ['BAR', 'KITCHEN', 'ROASTERY'], true)) {
             $sql = "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
                     FROM inv_material_fifo_lot
                     WHERE location_scope = 'DIVISION'
@@ -10563,7 +10563,7 @@ class Pos_model extends CI_Model
 
         $divisionMeta = $divisionId > 0 ? $this->resolve_order_operational_division_meta($divisionId) : [];
         $preferredLocation = strtoupper(trim((string)($divisionMeta['code'] ?? '')));
-        if ($divisionId > 0 && in_array($preferredLocation, ['BAR', 'KITCHEN'], true)) {
+        if ($divisionId > 0 && in_array($preferredLocation, ['BAR', 'KITCHEN', 'ROASTERY'], true)) {
             $frontPreferred = $this->db->query(
                 "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
                  FROM inv_component_lot
@@ -10672,6 +10672,8 @@ class Pos_model extends CI_Model
             $preferred = 'BAR';
         } elseif ($divisionKey === 'FOOD') {
             $preferred = 'KITCHEN';
+        } elseif ($divisionKey === 'ROASTERY') {
+            $preferred = 'ROASTERY';
         }
         if ($preferred === '') {
             return null;

@@ -496,7 +496,7 @@ tr:hover .btn-quickfill { opacity:1; }
                           $dn  = trim((string)($d['name']??''));
                           $dl  = $dc!==''?($dc.' - '.$dn):($dn?:(string)$did);
                           $destDef = strtoupper(trim((string)($d['destination_default']??'BAR')));
-                          $destAlw = trim((string)($d['destination_allowed']??'BAR,KITCHEN,BAR_EVENT,KITCHEN_EVENT,OFFICE'));
+                          $destAlw = trim((string)($d['destination_allowed']??'BAR,KITCHEN,ROASTERY,BAR_EVENT,KITCHEN_EVENT,ROASTERY_EVENT,OFFICE'));
                         ?>
                         <option value="<?php echo $did; ?>"
                           data-code="<?php echo html_escape($dc); ?>"
@@ -512,8 +512,10 @@ tr:hover .btn-quickfill { opacity:1; }
                     <select class="form-select form-select-sm" id="destination_type">
                       <option value="BAR">BAR (Reguler)</option>
                       <option value="KITCHEN">KITCHEN (Reguler)</option>
+                      <option value="ROASTERY">ROASTERY (Reguler)</option>
                       <option value="BAR_EVENT">BAR_EVENT</option>
                       <option value="KITCHEN_EVENT">KITCHEN_EVENT</option>
+                      <option value="ROASTERY_EVENT">ROASTERY_EVENT</option>
                       <option value="OFFICE">OFFICE</option>
                     </select>
                   </div>
@@ -664,7 +666,7 @@ tr:hover .btn-quickfill { opacity:1; }
   var notesEl            = document.getElementById('notes');
   var saveBtnEl          = document.getElementById('btn-save-opening');
 
-  var destLabels = { BAR:'BAR (Reguler)', KITCHEN:'KITCHEN (Reguler)', BAR_EVENT:'BAR_EVENT', KITCHEN_EVENT:'KITCHEN_EVENT', OFFICE:'OFFICE' };
+  var destLabels = { BAR:'BAR (Reguler)', KITCHEN:'KITCHEN (Reguler)', ROASTERY:'ROASTERY (Reguler)', BAR_EVENT:'BAR_EVENT', KITCHEN_EVENT:'KITCHEN_EVENT', ROASTERY_EVENT:'ROASTERY_EVENT', OFFICE:'OFFICE' };
   var itemSearchTimer = null;
   var itemLastQ = '';
   var selectedItemMeta = null;
@@ -698,12 +700,12 @@ tr:hover .btn-quickfill { opacity:1; }
       var c = p.trim().toUpperCase();
       if (destLabels[c] && allowed.indexOf(c) === -1) allowed.push(c);
     });
-    return allowed.length ? allowed : ['BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE'];
+    return allowed.length ? allowed : ['BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE'];
   }
   function applyDivisionDestRule(forceDefault) {
     if (!destinationEl) return;
     var prev = String(destinationEl.value || '').toUpperCase();
-    var allowed = ['BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE'];
+    var allowed = ['BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE'];
     var defDest = 'BAR';
     if (divisionEl && divisionEl.value) {
       var opt = divisionEl.options[divisionEl.selectedIndex];

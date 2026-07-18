@@ -5,8 +5,8 @@ $divisions = is_array($divisions ?? null) ? $divisions : [];
 $locationFilterOptions = ['' => 'Semua Lokasi', 'REGULER' => 'Reguler', 'EVENT' => 'Event'];
 $locationGroupLabel = static function ($locationType): string {
   $value = strtoupper(trim((string)$locationType));
-  if ($value === 'BAR' || $value === 'KITCHEN') return 'Reguler';
-  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') return 'Event';
+  if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'ROASTERY') return 'Reguler';
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'ROASTERY_EVENT') return 'Event';
   return $value !== '' ? $value : '-';
 };
 $divisionLabel = static function (array $row): string {
@@ -346,3 +346,4 @@ $uniqueComponentCount = count($uniqueComponents);
   applyFilter(searchInput ? searchInput.value : '', 1);
 })();
 </script>
+

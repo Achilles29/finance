@@ -1439,7 +1439,7 @@ class Purchase_model extends CI_Model
             $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
             $destinationTypeExpr = $hasDestinationType ? 's.destination_type' : "'OTHER'";
             $destinationGroupExpr = "CASE
-                    WHEN COALESCE({$destinationTypeExpr}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'
+                    WHEN COALESCE({$destinationTypeExpr}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT'
                     ELSE 'REGULER'
                 END";
 
@@ -2461,7 +2461,7 @@ class Purchase_model extends CI_Model
         $divisionCodeSelect = $divisionCodeColumn !== null ? ('d.' . $divisionCodeColumn . ' AS division_code') : 'CAST(s.division_id AS CHAR) AS division_code';
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
         $destinationGroupExpr = "CASE
-                WHEN COALESCE(s.destination_type, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'
+                WHEN COALESCE(s.destination_type, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT'
                 ELSE 'REGULER'
             END";
         $destinationNameExpr = "CASE COALESCE(s.destination_type, 'OTHER')
@@ -2761,9 +2761,9 @@ class Purchase_model extends CI_Model
             }
             if ($destinationFilter !== null && $destinationFilter !== 'ALL' && $hasMovementDestination) {
                 if ($destinationFilter === 'REGULER') {
-                    $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } elseif ($destinationFilter === 'EVENT') {
-                    $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } else {
                     $this->db->where('l.destination_type', $destinationFilter);
                 }
@@ -2832,7 +2832,7 @@ class Purchase_model extends CI_Model
                 if ($destinationType === '' || $destinationType === 'ALL') {
                     $destinationType = 'OTHER';
                 }
-                $destinationGroup = in_array($destinationType, ['BAR_EVENT', 'KITCHEN_EVENT'], true) ? 'EVENT' : 'REGULER';
+                $destinationGroup = in_array($destinationType, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true) ? 'EVENT' : 'REGULER';
                 $destinationNameMap = [
                     'BAR' => 'Bar Reguler',
                     'KITCHEN' => 'Kitchen Reguler',
@@ -3142,9 +3142,9 @@ class Purchase_model extends CI_Model
             }
             if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
                 if ($destinationFilter === 'REGULER') {
-                    $query->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $query->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } elseif ($destinationFilter === 'EVENT') {
-                    $query->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $query->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } else {
                     $query->where('destination_type', $destinationFilter);
                 }
@@ -3434,7 +3434,7 @@ class Purchase_model extends CI_Model
         $map = [];
         foreach ($profiles as $profile) {
             $destinationType = strtoupper((string)($profile['destination_type'] ?? 'OTHER'));
-            $destinationGroup = in_array($destinationType, ['BAR_EVENT', 'KITCHEN_EVENT'], true) ? 'EVENT' : 'REGULER';
+            $destinationGroup = in_array($destinationType, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true) ? 'EVENT' : 'REGULER';
             $groupKey = implode('|', [
                 (int)($profile['division_id'] ?? 0),
                 $destinationGroup,
@@ -3569,7 +3569,7 @@ class Purchase_model extends CI_Model
             return [];
         }
         $cutoff = $this->buildDivisionReconcileLotCutoffContext($asOfDate);
-        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
         $sql  = "SELECT l.division_id, ({$destGroupExpr}) AS destination_group,
                         COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total
                  FROM inv_material_fifo_lot l
@@ -3594,9 +3594,9 @@ class Purchase_model extends CI_Model
             $params[] = $divisionId;
         }
         if ($destinationFilter === 'EVENT') {
-            $sql .= " AND l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $sql .= " AND l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         } elseif ($destinationFilter === 'REGULER') {
-            $sql .= " AND l.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $sql .= " AND l.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         }
         $sql .= ' GROUP BY l.division_id, destination_group, l.material_id';
         $map = [];
@@ -3645,7 +3645,7 @@ class Purchase_model extends CI_Model
             : ($this->db->field_exists('name', 'mst_operational_division') ? 'name' : null);
         $divCodeSelect = $divCodeCol ? "d.{$divCodeCol} AS division_code" : 'CAST(l.division_id AS CHAR) AS division_code';
         $divNameSelect = $divNameCol ? "d.{$divNameCol} AS division_name"  : 'NULL AS division_name';
-        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
         $divFilter = ($divisionId !== null && $divisionId > 0) ? ('AND l.division_id = ' . (int)$divisionId) : '';
         $qFilter = '';
         if ($q !== '') {
@@ -3742,7 +3742,7 @@ class Purchase_model extends CI_Model
         // Group lots by (division_id, destination_group, material_id) only — not item_id/profile_key —
         // because the same material can arrive from different purchase batches with different item_ids.
         // Using item_id in the key would cause cross-batch lots to be missed.
-        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
         $this->db
             ->select("l.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total, SUM(l.qty_balance * COALESCE(l.unit_cost, 0)) AS lot_total_value", false)
             ->from('inv_material_fifo_lot l')
@@ -3795,7 +3795,7 @@ class Purchase_model extends CI_Model
 
             $profileLotResults = $this->db->query("
                 SELECT l.division_id,
-                       CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
+                       CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
                        COALESCE(l.material_id, 0) AS material_id,
                        COALESCE(l.profile_key, '') AS profile_key,
                        SUM(l.qty_balance) AS lot_total,
@@ -3824,7 +3824,7 @@ class Purchase_model extends CI_Model
 
             $profileStockResults = $this->db->query("
                 SELECT ms.division_id,
-                       CASE WHEN ms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
+                       CASE WHEN ms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
                        COALESCE(ms.material_id, 0) AS material_id,
                        COALESCE(ms.profile_key, '') AS profile_key,
                        MAX(ms.profile_name) AS profile_name,
@@ -4003,7 +4003,7 @@ class Purchase_model extends CI_Model
             . ' - COALESCE(s.discarded_qty_content,0) - COALESCE(s.spoil_qty_content,0)'
             . ' - COALESCE(s.process_loss_qty_content,0) + COALESCE(s.variance_qty_content,0)'
             . ', 4)), 4)';
-        $destGroupExpr = "CASE WHEN s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $destGroupExpr = "CASE WHEN s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
 
         // Only check the latest month per material destination to avoid false positives
         // from old months. Reconcile parent rows are material-level, so this check
@@ -4175,7 +4175,7 @@ class Purchase_model extends CI_Model
         $rows = $this->db->query("
             SELECT
                 s.division_id,
-                CASE WHEN s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
+                CASE WHEN s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
                 COALESCE(s.material_id, 0) AS material_id,
                 COALESCE(s.profile_key, '') AS profile_key,
                 ROUND(
@@ -5371,11 +5371,11 @@ class Purchase_model extends CI_Model
         $stockDestWhere = '';
         $lotDestWhere = '';
         if ($destination === 'EVENT') {
-            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $lotDestWhere = " AND l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $lotDestWhere = " AND l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
-            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $lotDestWhere = " AND l.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $lotDestWhere = " AND l.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         } elseif (!in_array($destination, ['ALL', ''], true)) {
             $destEsc = $this->db->escape($destination);
             $stockDestWhere = " AND dms.destination_type = {$destEsc}";
@@ -5558,13 +5558,13 @@ class Purchase_model extends CI_Model
         $stockDestWhere = '';  // used with 'FROM ... dms' alias
         $lotDestCond    = '';  // used without alias
         if ($destination === 'EVENT') {
-            $lotDestWhere   = " AND l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $lotDestCond    = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $lotDestWhere   = " AND l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $lotDestCond    = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         } elseif ($destination === 'REGULER' || $destination === 'REGULAR') {
-            $lotDestWhere   = " AND l.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $lotDestCond    = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $lotDestWhere   = " AND l.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $lotDestCond    = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         }
 
         $divId  = (int)$divisionId;
@@ -5776,10 +5776,10 @@ class Purchase_model extends CI_Model
                 }
 
                 $destType = (string)($sr['destination_type'] ?? 'OTHER');
-                if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true)) {
                     $destType = 'BAR_EVENT';
                 } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)
-                    && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                    && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true)) {
                     $destType = 'OTHER';
                 }
 
@@ -5834,10 +5834,10 @@ class Purchase_model extends CI_Model
                 ")->row_array();
 
                 $destType = $refRow ? (string)($refRow['destination_type'] ?? 'OTHER') : 'OTHER';
-                if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true)) {
                     $destType = 'BAR_EVENT';
                 } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)
-                    && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+                    && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true)) {
                     $destType = 'OTHER';
                 }
 
@@ -5927,15 +5927,33 @@ class Purchase_model extends CI_Model
 
         $divId = $divisionId;
         $matId = $materialId;
+        $divisionCode = '';
+        if ($this->db->table_exists('mst_operational_division')) {
+            $codeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
+                ? 'division_code'
+                : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
+            if ($codeColumn !== null) {
+                $divisionCodeRow = $this->db->select($codeColumn . ' AS division_code', false)
+                    ->from('mst_operational_division')
+                    ->where('id', $divId)
+                    ->get()->row_array();
+                $divisionCode = strtoupper(trim((string)($divisionCodeRow['division_code'] ?? '')));
+            }
+        }
+        $eventDestinationByDivision = [
+            'BAR' => 'BAR_EVENT',
+            'KITCHEN' => 'KITCHEN_EVENT',
+            'ROASTERY' => 'ROASTERY_EVENT',
+        ];
 
         $stockDestWhere = '';
         $lotDestCond    = '';
         if ($destination === 'EVENT') {
-            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $lotDestCond    = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $lotDestCond    = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
-            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $lotDestCond    = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $lotDestCond    = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         }
 
         // Per-profile monthly stock balance (latest month per identity)
@@ -6036,8 +6054,10 @@ class Purchase_model extends CI_Model
                 // Lot deficit → add a correction lot for this profile
                 $shortfall = abs($perKeyGap);
                 $destType  = $pd['destination_type'];
-                if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) { $destType = 'BAR_EVENT'; }
-                elseif (in_array($destination, ['REGULER', 'REGULAR'], true) && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT'], true)) { $destType = 'OTHER'; }
+                if ($destination === 'EVENT' && !in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true)) {
+                    $destType = $eventDestinationByDivision[$divisionCode] ?? 'BAR_EVENT';
+                }
+                elseif (in_array($destination, ['REGULER', 'REGULAR'], true) && in_array($destType, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true)) { $destType = 'OTHER'; }
 
                 $ucRow = $this->db->query("
                     SELECT unit_cost FROM inv_material_fifo_lot
@@ -6134,13 +6154,13 @@ class Purchase_model extends CI_Model
         $stockDestWhere = '';  // 'dms.' alias (for inv_division_monthly_stock)
         $mlDestWhere    = '';  // 'ml.' alias (for inv_stock_movement_log)
         if ($destination === 'EVENT') {
-            $lotDestCond    = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $mlDestWhere    = " AND ml.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $lotDestCond    = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $mlDestWhere    = " AND ml.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
-            $lotDestCond    = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
-            $mlDestWhere    = " AND ml.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            $lotDestCond    = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+            $mlDestWhere    = " AND ml.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         } elseif (!in_array($destination, ['ALL', ''], true)) {
             $dEsc           = $this->db->escape($destination);
             $lotDestCond    = " AND destination_type = {$dEsc}";
@@ -6382,13 +6402,13 @@ class Purchase_model extends CI_Model
             $movementDestWhere = '';
             $lotDestWhere = '';
             if ($destination === 'EVENT') {
-                $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
-                $movementDestWhere = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
-                $lotDestWhere = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT')";
+                $stockDestWhere = " AND dms.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+                $movementDestWhere = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+                $lotDestWhere = " AND destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
             } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
-                $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
-                $movementDestWhere = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
-                $lotDestWhere = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+                $stockDestWhere = " AND dms.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+                $movementDestWhere = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
+                $lotDestWhere = " AND destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
             } elseif (!in_array($destination, ['ALL', ''], true)) {
                 $destEsc = $this->db->escape($destination);
                 $stockDestWhere = " AND dms.destination_type = {$destEsc}";
@@ -6724,15 +6744,15 @@ class Purchase_model extends CI_Model
                         WHERE COALESCE(source_table, '') <> 'pur_purchase_receipt'
                           AND (
                             (location_scope = 'DIVISION' AND division_id = ? AND COALESCE(destination_type, 'OTHER') " . ($destination === 'EVENT'
-                                ? "IN ('BAR_EVENT','KITCHEN_EVENT')"
+                                ? "IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')"
                                 : (in_array($destination, ['REGULER', 'REGULAR'], true)
-                                    ? "NOT IN ('BAR_EVENT','KITCHEN_EVENT')"
+                                    ? "NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')"
                                     : '= ' . $this->db->escape($destination))) . ")
                             OR
                             (target_scope = 'DIVISION' AND target_division_id = ? AND COALESCE(target_destination_type, 'OTHER') " . ($destination === 'EVENT'
-                                ? "IN ('BAR_EVENT','KITCHEN_EVENT')"
+                                ? "IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')"
                                 : (in_array($destination, ['REGULER', 'REGULAR'], true)
-                                    ? "NOT IN ('BAR_EVENT','KITCHEN_EVENT')"
+                                    ? "NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')"
                                     : '= ' . $this->db->escape($destination))) . ")
                           )
                           AND COALESCE(material_id, 0) = ?
@@ -6852,9 +6872,9 @@ class Purchase_model extends CI_Model
             ->where('COALESCE(material_id, 0) = ' . $materialId, null, false);
 
         if ($destination === 'EVENT') {
-            $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
         } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
-            $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
         } elseif (!in_array($destination, ['ALL', ''], true)) {
             $this->db->where('destination_type', $destination);
         }
@@ -6987,9 +7007,9 @@ class Purchase_model extends CI_Model
             ->where('profile_key', $targetProfileKey);
 
         if ($destination === 'EVENT') {
-            $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
         } elseif (in_array($destination, ['REGULER', 'REGULAR'], true)) {
-            $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
         } elseif (!in_array($destination, ['ALL', ''], true)) {
             $this->db->where('destination_type', $destination);
         }
@@ -7223,11 +7243,11 @@ class Purchase_model extends CI_Model
         // Use IN/NOT IN for event types instead of a hardcoded list so that
         // non-standard destination_type values (OTHER, RESTO, etc.) are still matched.
         $destCondSub  = $destinationGroup === 'EVENT'
-            ? "s2.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')"
-            : "s2.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            ? "s2.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')"
+            : "s2.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
         $destCondMain = $destinationGroup === 'EVENT'
-            ? "s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT')"
-            : "s.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT')";
+            ? "s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')"
+            : "s.destination_type NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')";
 
         $monthKeySubQ = $this->db
             ->select('MAX(s2.month_key)', false)
@@ -7610,7 +7630,7 @@ class Purchase_model extends CI_Model
         $adjustmentReasonBaseExpr = $hasAdjustmentReasonCode ? 'l.adjustment_reason_code' : 'NULL';
         $adjustmentCategoryExpr = "CASE WHEN {$openingSourceExpr} = 1 THEN NULL ELSE ({$adjustmentCategoryBaseExpr}) END";
         $adjustmentReasonExpr = "CASE WHEN {$openingSourceExpr} = 1 THEN NULL ELSE ({$adjustmentReasonBaseExpr}) END";
-        $destinationGroupExpr = "CASE WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $destinationGroupExpr = "CASE WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
 
         $this->db
             ->select('l.id, l.movement_no, l.movement_date, l.division_id, l.destination_type, l.movement_type, l.ref_table, l.ref_id, l.receipt_id, l.receipt_line_id, l.item_id, COALESCE(l.material_id, i.material_id) AS material_id, l.buy_uom_id, l.content_uom_id, l.qty_buy_delta, l.qty_content_delta, l.qty_buy_after, l.qty_content_after, l.profile_key, l.profile_name, l.profile_brand, l.profile_description, l.profile_expired_date, l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code, l.unit_cost, l.notes, l.created_at, i.item_code, i.item_name, m.material_code, m.material_name', false)
@@ -7635,9 +7655,9 @@ class Purchase_model extends CI_Model
         }
         if ($hasDestinationType && $destinationFilter !== null && $destinationFilter !== 'ALL') {
             if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
             } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
             } else {
                 $this->db->where('l.destination_type', $destinationFilter);
             }
@@ -7696,9 +7716,9 @@ class Purchase_model extends CI_Model
             }
             if ($hasDestinationType && $destinationFilter !== null && $destinationFilter !== 'ALL') {
                 if ($destinationFilter === 'REGULER') {
-                    $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_not_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } elseif ($destinationFilter === 'EVENT') {
-                    $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_in('l.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } else {
                     $this->db->where('l.destination_type', $destinationFilter);
                 }
@@ -7727,9 +7747,9 @@ class Purchase_model extends CI_Model
             }
             if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
                 if ($destinationFilter === 'REGULER') {
-                    $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } elseif ($destinationFilter === 'EVENT') {
-                    $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } else {
                     $this->db->where('s.destination_type', $destinationFilter);
                 }
@@ -8200,8 +8220,8 @@ class Purchase_model extends CI_Model
         $adjustmentCategoryExpr = "CASE WHEN {$openingSourceExpr} = 1 THEN NULL ELSE ({$adjustmentCategoryBaseExpr}) END";
         $adjustmentReasonExpr = "CASE WHEN {$openingSourceExpr} = 1 THEN NULL ELSE ({$adjustmentReasonBaseExpr}) END";
 
-        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
-        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
+        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
+        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'ROASTERY' THEN 'Roastery Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'ROASTERY_EVENT' THEN 'Roastery Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
 
         $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
             ? 'division_code'
@@ -8343,8 +8363,8 @@ class Purchase_model extends CI_Model
         $adjustmentReasonBaseExpr = $hasAdjustmentReasonCode ? 'l.adjustment_reason_code' : 'NULL';
         $adjustmentCategoryExpr = "CASE WHEN {$openingSourceExpr} = 1 THEN NULL ELSE ({$adjustmentCategoryBaseExpr}) END";
         $adjustmentReasonExpr = "CASE WHEN {$openingSourceExpr} = 1 THEN NULL ELSE ({$adjustmentReasonBaseExpr}) END";
-        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
-        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
+        $destinationGroupExpr = "CASE\n                WHEN COALESCE({$destinationTypeSource}, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT'\n                ELSE 'REGULER'\n            END";
+        $destinationNameExpr = "CASE COALESCE({$destinationTypeSource}, 'OTHER')\n                WHEN 'BAR' THEN 'Bar Reguler'\n                WHEN 'KITCHEN' THEN 'Kitchen Reguler'\n                WHEN 'ROASTERY' THEN 'Roastery Reguler'\n                WHEN 'BAR_EVENT' THEN 'Bar Event'\n                WHEN 'KITCHEN_EVENT' THEN 'Kitchen Event'\n                WHEN 'ROASTERY_EVENT' THEN 'Roastery Event'\n                WHEN 'OFFICE' THEN 'Office Reguler'\n                WHEN 'GUDANG' THEN 'Gudang'\n                ELSE 'Reguler'\n            END";
         $divisionCodeSelect = $hasDivisionCode ? ('dv.' . $divisionCodeColumn . ' AS division_code') : 'CAST(l.division_id AS CHAR) AS division_code';
         $divisionNameSelect = $hasDivisionName ? ('dv.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
@@ -8625,9 +8645,9 @@ class Purchase_model extends CI_Model
         }
         if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
             if ($destinationFilter === 'REGULER') {
-                $this->db->where($destinationExpr . " NOT IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
+                $this->db->where($destinationExpr . " NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')", null, false);
             } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where($destinationExpr . " IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
+                $this->db->where($destinationExpr . " IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')", null, false);
             } else {
                 $this->db->where($destinationExpr . ' = ' . $this->db->escape($destinationFilter), null, false);
             }
@@ -8756,9 +8776,9 @@ class Purchase_model extends CI_Model
         }
         if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
             if ($destinationFilter === 'REGULER') {
-                $this->db->where($effectiveDestinationExpr . " NOT IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
+                $this->db->where($effectiveDestinationExpr . " NOT IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')", null, false);
             } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where($effectiveDestinationExpr . " IN ('BAR_EVENT','KITCHEN_EVENT')", null, false);
+                $this->db->where($effectiveDestinationExpr . " IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT')", null, false);
             } else {
                 $this->db->where($effectiveDestinationExpr . ' = ' . $this->db->escape($destinationFilter), null, false);
             }
@@ -9036,7 +9056,7 @@ class Purchase_model extends CI_Model
 
         $this->db->query("\n            INSERT INTO mst_posting_type (\n                type_code, type_name, affects_inventory, affects_service, affects_asset, affects_payroll, affects_expense, sort_order, notes, is_active\n            )\n            SELECT\n                UPPER(TRIM(cp.posting_code)) AS type_code,\n                cp.posting_name AS type_name,\n                CASE WHEN UPPER(TRIM(cp.posting_code)) = 'INVENTORY' THEN 1 ELSE 0 END AS affects_inventory,\n                CASE WHEN UPPER(TRIM(cp.posting_code)) = 'SERVICE' THEN 1 ELSE 0 END AS affects_service,\n                CASE WHEN UPPER(TRIM(cp.posting_code)) = 'ASSET' THEN 1 ELSE 0 END AS affects_asset,\n                CASE WHEN UPPER(TRIM(cp.posting_code)) = 'PAYROLL' THEN 1 ELSE 0 END AS affects_payroll,\n                CASE WHEN UPPER(TRIM(cp.posting_code)) IN ('EXPENSE','OPEX') THEN 1 ELSE 0 END AS affects_expense,\n                cp.id AS sort_order,\n                {$postingDescriptionExpr} AS notes,\n                {$postingActiveExpr} AS is_active\n            FROM core.m_posting_type cp\n            WHERE cp.posting_code IS NOT NULL AND cp.posting_code <> ''\n            ORDER BY cp.id ASC\n            LIMIT {$limit}\n            ON DUPLICATE KEY UPDATE\n                type_name = VALUES(type_name),\n                affects_inventory = VALUES(affects_inventory),\n                affects_service = VALUES(affects_service),\n                affects_asset = VALUES(affects_asset),\n                affects_payroll = VALUES(affects_payroll),\n                affects_expense = VALUES(affects_expense),\n                sort_order = VALUES(sort_order),\n                notes = VALUES(notes),\n                is_active = VALUES(is_active),\n                updated_at = CURRENT_TIMESTAMP\n        ");
 
-        $this->db->query("\n            INSERT INTO mst_purchase_type (\n                type_code, type_name, posting_type_id, destination_behavior, default_destination, sort_order, notes, is_active\n            )\n            SELECT\n                UPPER(TRIM(ct.type_code)) AS type_code,\n                ct.type_name AS type_name,\n                pt.id AS posting_type_id,\n                CASE WHEN UPPER(TRIM(COALESCE({$purchaseDestBehaviorExpr}, 'REQUIRED'))) = 'NONE' THEN 'NONE' ELSE 'REQUIRED' END AS destination_behavior,\n                CASE\n                    WHEN UPPER(TRIM(COALESCE({$purchaseDefaultDestExpr}, ''))) IN ('GUDANG','BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER')\n                        THEN UPPER(TRIM({$purchaseDefaultDestExpr}))\n                    ELSE NULL\n                END AS default_destination,\n                {$purchaseSortOrderExpr} AS sort_order,\n                {$purchaseNotesExpr} AS notes,\n                {$purchaseActiveExpr} AS is_active\n            FROM core.m_purchase_type ct\n            LEFT JOIN core.m_posting_type cp ON ({$postingJoinExpr})\n            JOIN mst_posting_type pt ON pt.type_code = UPPER(TRIM(cp.posting_code))\n            WHERE ct.type_code IS NOT NULL AND ct.type_code <> ''\n            ORDER BY ct.id ASC\n            LIMIT {$limit}\n            ON DUPLICATE KEY UPDATE\n                type_name = VALUES(type_name),\n                posting_type_id = VALUES(posting_type_id),\n                destination_behavior = VALUES(destination_behavior),\n                default_destination = VALUES(default_destination),\n                sort_order = VALUES(sort_order),\n                notes = VALUES(notes),\n                is_active = VALUES(is_active),\n                updated_at = CURRENT_TIMESTAMP\n        ");
+        $this->db->query("\n            INSERT INTO mst_purchase_type (\n                type_code, type_name, posting_type_id, destination_behavior, default_destination, sort_order, notes, is_active\n            )\n            SELECT\n                UPPER(TRIM(ct.type_code)) AS type_code,\n                ct.type_name AS type_name,\n                pt.id AS posting_type_id,\n                CASE WHEN UPPER(TRIM(COALESCE({$purchaseDestBehaviorExpr}, 'REQUIRED'))) = 'NONE' THEN 'NONE' ELSE 'REQUIRED' END AS destination_behavior,\n                CASE\n                    WHEN UPPER(TRIM(COALESCE({$purchaseDefaultDestExpr}, ''))) IN ('GUDANG','BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE','OTHER')\n                        THEN UPPER(TRIM({$purchaseDefaultDestExpr}))\n                    ELSE NULL\n                END AS default_destination,\n                {$purchaseSortOrderExpr} AS sort_order,\n                {$purchaseNotesExpr} AS notes,\n                {$purchaseActiveExpr} AS is_active\n            FROM core.m_purchase_type ct\n            LEFT JOIN core.m_posting_type cp ON ({$postingJoinExpr})\n            JOIN mst_posting_type pt ON pt.type_code = UPPER(TRIM(cp.posting_code))\n            WHERE ct.type_code IS NOT NULL AND ct.type_code <> ''\n            ORDER BY ct.id ASC\n            LIMIT {$limit}\n            ON DUPLICATE KEY UPDATE\n                type_name = VALUES(type_name),\n                posting_type_id = VALUES(posting_type_id),\n                destination_behavior = VALUES(destination_behavior),\n                default_destination = VALUES(default_destination),\n                sort_order = VALUES(sort_order),\n                notes = VALUES(notes),\n                is_active = VALUES(is_active),\n                updated_at = CURRENT_TIMESTAMP\n        ");
 
         if ($this->db->error()['code']) {
             return [
@@ -11848,7 +11868,7 @@ class Purchase_model extends CI_Model
         if ($value === '') {
             return $strict ? null : 'ALL';
         }
-        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER', 'ALL'];
+        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER', 'ALL'];
         if (!in_array($value, $allowed, true)) {
             return $strict ? null : 'ALL';
         }
@@ -11999,9 +12019,9 @@ class Purchase_model extends CI_Model
             $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
             if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
                 if ($destinationFilter === 'REGULER') {
-                    $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } elseif ($destinationFilter === 'EVENT') {
-                    $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } else {
                     $this->db->where('destination_type', $destinationFilter);
                 }
@@ -13681,9 +13701,9 @@ class Purchase_model extends CI_Model
             }
             if ($destinationFilter !== null) {
                 if ($destinationFilter === 'REGULER') {
-                    $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } elseif ($destinationFilter === 'EVENT') {
-                    $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } else {
                     $this->db->where('destination_type', $destinationFilter);
                 }
@@ -13718,9 +13738,9 @@ class Purchase_model extends CI_Model
             }
             if ($destinationFilter !== null && $openingHasDestinationType) {
                 if ($destinationFilter === 'REGULER') {
-                    $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } elseif ($destinationFilter === 'EVENT') {
-                    $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                    $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
                 } else {
                     $this->db->where('destination_type', $destinationFilter);
                 }
@@ -13743,9 +13763,9 @@ class Purchase_model extends CI_Model
         }
         if ($stockScope === 'DIVISION' && $destinationFilter !== null && $openingHasDestinationType) {
             if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                $this->db->where_not_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
             } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                $this->db->where_in('destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
             } else {
                 $this->db->where('destination_type', $destinationFilter);
             }
@@ -14314,7 +14334,7 @@ class Purchase_model extends CI_Model
         $divisionNameSelect = $hasDivisionName ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
         $destinationGroupExpr = "CASE
-                WHEN COALESCE(s.destination_type, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT') THEN 'EVENT'
+                WHEN COALESCE(s.destination_type, 'OTHER') IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT'
                 ELSE 'REGULER'
             END";
         $destinationNameExpr = "CASE COALESCE(s.destination_type, 'OTHER')
@@ -14364,9 +14384,9 @@ class Purchase_model extends CI_Model
 
         if ($destinationFilter !== null && $destinationFilter !== 'ALL') {
             if ($destinationFilter === 'REGULER') {
-                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                $this->db->where_not_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
             } elseif ($destinationFilter === 'EVENT') {
-                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+                $this->db->where_in('s.destination_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
             } else {
                 $this->db->where('s.destination_type', $destinationFilter);
             }
@@ -20112,7 +20132,7 @@ class Purchase_model extends CI_Model
 
         return [
             'default' => 'OTHER',
-            'allowed' => ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'],
+            'allowed' => ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'],
         ];
     }
 
@@ -20839,7 +20859,7 @@ class Purchase_model extends CI_Model
             if ($destinationDivisionId === null) {
                 $destinationDivisionId = $this->resolveDestinationDivisionId($destinationType);
             }
-            if ($destinationDivisionId === null && in_array($destinationType, ['BAR', 'BAR_EVENT', 'KITCHEN', 'KITCHEN_EVENT', 'OFFICE'], true)) {
+            if ($destinationDivisionId === null && in_array($destinationType, ['BAR', 'BAR_EVENT', 'KITCHEN', 'KITCHEN_EVENT', 'ROASTERY', 'ROASTERY_EVENT', 'OFFICE'], true)) {
                 return [
                     'ok' => false,
                     'message' => 'Divisi tujuan tidak ditemukan untuk destination ' . $destinationType . '.',
@@ -21255,7 +21275,7 @@ class Purchase_model extends CI_Model
             if ($destinationDivisionId === null) {
                 $destinationDivisionId = $this->resolveDestinationDivisionId($destinationType);
             }
-            if ($destinationDivisionId === null && in_array($destinationType, ['BAR', 'BAR_EVENT', 'KITCHEN', 'KITCHEN_EVENT', 'OFFICE'], true)) {
+            if ($destinationDivisionId === null && in_array($destinationType, ['BAR', 'BAR_EVENT', 'KITCHEN', 'KITCHEN_EVENT', 'ROASTERY', 'ROASTERY_EVENT', 'OFFICE'], true)) {
                 return [
                     'ok' => false,
                     'message' => 'Divisi tujuan tidak ditemukan untuk destination ' . $destinationType . '.',
@@ -21626,6 +21646,8 @@ class Purchase_model extends CI_Model
             $divisionCode = 'BAR';
         } elseif ($dest === 'KITCHEN' || $dest === 'KITCHEN_EVENT') {
             $divisionCode = 'KITCHEN';
+        } elseif ($dest === 'ROASTERY' || $dest === 'ROASTERY_EVENT') {
+            $divisionCode = 'ROASTERY';
         } elseif ($dest === 'OFFICE') {
             $divisionCode = 'MANAJEMEN';
         }
@@ -23551,7 +23573,7 @@ class Purchase_model extends CI_Model
             return null;
         }
 
-        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
         return in_array($value, $allowed, true) ? $value : null;
     }
 
@@ -23571,7 +23593,7 @@ class Purchase_model extends CI_Model
 
     private function validDivisionDestinationTypes(): array
     {
-        return ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE'];
+        return ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE'];
     }
 
     private function isValidDivisionDestinationType(?string $value): bool
@@ -23591,12 +23613,12 @@ class Purchase_model extends CI_Model
         }
 
         if ($destinationFilter === 'REGULER') {
-            $this->db->where_in($column, ['BAR', 'KITCHEN', 'OFFICE']);
+            $this->db->where_in($column, ['BAR', 'KITCHEN', 'ROASTERY', 'OFFICE']);
             return;
         }
 
         if ($destinationFilter === 'EVENT') {
-            $this->db->where_in($column, ['BAR_EVENT', 'KITCHEN_EVENT']);
+            $this->db->where_in($column, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
             return;
         }
 

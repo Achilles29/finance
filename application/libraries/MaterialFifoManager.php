@@ -2148,7 +2148,7 @@ class MaterialFifoManager
                 receipt_date DATE NOT NULL,
                 expiry_date DATE NULL,
                 division_id BIGINT(20) UNSIGNED NULL,
-                destination_type ENUM('GUDANG','BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER') NULL,
+                destination_type ENUM('GUDANG','BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE','OTHER') NULL,
                 item_id BIGINT(20) UNSIGNED NULL,
                 material_id BIGINT(20) UNSIGNED NULL,
                 buy_uom_id BIGINT(20) UNSIGNED NULL,
@@ -2186,10 +2186,10 @@ class MaterialFifoManager
                 issue_datetime DATETIME NOT NULL,
                 location_scope ENUM('WAREHOUSE','DIVISION') NOT NULL DEFAULT 'WAREHOUSE',
                 division_id BIGINT(20) UNSIGNED NULL,
-                destination_type ENUM('GUDANG','BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER') NULL,
+                destination_type ENUM('GUDANG','BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE','OTHER') NULL,
                 target_scope ENUM('WAREHOUSE','DIVISION') NULL,
                 target_division_id BIGINT(20) UNSIGNED NULL,
-                target_destination_type ENUM('GUDANG','BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER') NULL,
+                target_destination_type ENUM('GUDANG','BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE','OTHER') NULL,
                 item_id BIGINT(20) UNSIGNED NULL,
                 material_id BIGINT(20) UNSIGNED NULL,
                 buy_uom_id BIGINT(20) UNSIGNED NULL,
@@ -2251,7 +2251,7 @@ class MaterialFifoManager
             $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN location_scope ENUM('WAREHOUSE','DIVISION') NOT NULL DEFAULT 'WAREHOUSE' AFTER lot_no");
         }
         if (!$this->ci->db->field_exists('destination_type', $table)) {
-            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN destination_type ENUM('GUDANG','BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER') NULL AFTER division_id");
+            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN destination_type ENUM('GUDANG','BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE','OTHER') NULL AFTER division_id");
         }
         if (!$this->ci->db->field_exists('buy_uom_id', $table)) {
             $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN buy_uom_id BIGINT(20) UNSIGNED NULL AFTER material_id");
@@ -2298,7 +2298,7 @@ class MaterialFifoManager
             $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN location_scope ENUM('WAREHOUSE','DIVISION') NOT NULL DEFAULT 'WAREHOUSE' AFTER issue_datetime");
         }
         if (!$this->ci->db->field_exists('destination_type', $table)) {
-            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN destination_type ENUM('GUDANG','BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER') NULL AFTER division_id");
+            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN destination_type ENUM('GUDANG','BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE','OTHER') NULL AFTER division_id");
         }
         if (!$this->ci->db->field_exists('target_scope', $table)) {
             $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN target_scope ENUM('WAREHOUSE','DIVISION') NULL AFTER destination_type");
@@ -2307,7 +2307,7 @@ class MaterialFifoManager
             $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN target_division_id BIGINT(20) UNSIGNED NULL AFTER target_scope");
         }
         if (!$this->ci->db->field_exists('target_destination_type', $table)) {
-            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN target_destination_type ENUM('GUDANG','BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER') NULL AFTER target_division_id");
+            $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN target_destination_type ENUM('GUDANG','BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE','OTHER') NULL AFTER target_division_id");
         }
         if (!$this->ci->db->field_exists('buy_uom_id', $table)) {
             $this->ci->db->query("ALTER TABLE {$table} ADD COLUMN buy_uom_id BIGINT(20) UNSIGNED NULL AFTER material_id");
@@ -3133,7 +3133,7 @@ class MaterialFifoManager
     private function normalizeDestinationType(string $destination): ?string
     {
         $destination = strtoupper(trim($destination));
-        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+        $allowed = ['GUDANG', 'BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
         return in_array($destination, $allowed, true) ? $destination : null;
     }
 

@@ -195,3 +195,4 @@ di jam 14.00 - 16.00 ada omzet 3.000.000 , berapa pembagian ke 10 orang tersebut
 estimasi penalty di /my masih 0
 
 sekarang perbaiki logika detail audit bonus di /payroll/bonus?month=2026-07&tab=employee_daily, /payroll/bonus/monthly-detail/9/18?month=2026-07 dan /my/bonus apakah sudah mengadopsi time slice
+

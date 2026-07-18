@@ -169,7 +169,7 @@ foreach ($rowsData as $row) {
                   $name = trim((string)($d['name'] ?? ''));
                   $label = $code !== '' ? ($code . ' - ' . $name) : ($name !== '' ? $name : (string)$id);
                   $destinationDefault = strtoupper(trim((string)($d['destination_default'] ?? 'OTHER')));
-                  $destinationAllowed = trim((string)($d['destination_allowed'] ?? 'BAR,KITCHEN,BAR_EVENT,KITCHEN_EVENT,OFFICE,OTHER'));
+                  $destinationAllowed = trim((string)($d['destination_allowed'] ?? 'BAR,KITCHEN,ROASTERY,BAR_EVENT,KITCHEN_EVENT,ROASTERY_EVENT,OFFICE,OTHER'));
                 ?>
                 <option value="<?php echo $id; ?>"
                   data-code="<?php echo html_escape($code); ?>"
@@ -185,8 +185,10 @@ foreach ($rowsData as $row) {
             <select class="form-select" id="destination_type">
               <option value="BAR" <?php echo $selectedDestination === 'BAR' ? 'selected' : ''; ?>>BAR (Reguler)</option>
               <option value="KITCHEN" <?php echo $selectedDestination === 'KITCHEN' ? 'selected' : ''; ?>>KITCHEN (Reguler)</option>
+              <option value="ROASTERY" <?php echo $selectedDestination === 'ROASTERY' ? 'selected' : ''; ?>>ROASTERY (Reguler)</option>
               <option value="BAR_EVENT" <?php echo $selectedDestination === 'BAR_EVENT' ? 'selected' : ''; ?>>BAR_EVENT</option>
               <option value="KITCHEN_EVENT" <?php echo $selectedDestination === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>KITCHEN_EVENT</option>
+              <option value="ROASTERY_EVENT" <?php echo $selectedDestination === 'ROASTERY_EVENT' ? 'selected' : ''; ?>>ROASTERY_EVENT</option>
               <option value="OFFICE" <?php echo $selectedDestination === 'OFFICE' ? 'selected' : ''; ?>>OFFICE</option>
               <option value="OTHER" <?php echo ($selectedDestination === 'OTHER' || $selectedDestination === 'ALL') ? 'selected' : ''; ?>>OTHER</option>
             </select>
@@ -306,8 +308,10 @@ foreach ($rowsData as $row) {
               <option value="EVENT" <?php echo $selectedDestination === 'EVENT' ? 'selected' : ''; ?>>Event</option>
               <option value="BAR" <?php echo $selectedDestination === 'BAR' ? 'selected' : ''; ?>>BAR</option>
               <option value="KITCHEN" <?php echo $selectedDestination === 'KITCHEN' ? 'selected' : ''; ?>>KITCHEN</option>
+              <option value="ROASTERY" <?php echo $selectedDestination === 'ROASTERY' ? 'selected' : ''; ?>>ROASTERY</option>
               <option value="BAR_EVENT" <?php echo $selectedDestination === 'BAR_EVENT' ? 'selected' : ''; ?>>BAR_EVENT</option>
               <option value="KITCHEN_EVENT" <?php echo $selectedDestination === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>KITCHEN_EVENT</option>
+              <option value="ROASTERY_EVENT" <?php echo $selectedDestination === 'ROASTERY_EVENT' ? 'selected' : ''; ?>>ROASTERY_EVENT</option>
               <option value="OFFICE" <?php echo $selectedDestination === 'OFFICE' ? 'selected' : ''; ?>>OFFICE</option>
               <option value="OTHER" <?php echo $selectedDestination === 'OTHER' ? 'selected' : ''; ?>>OTHER</option>
             </select>
@@ -455,12 +459,14 @@ foreach ($rowsData as $row) {
     KITCHEN: 'KITCHEN (Reguler)',
     BAR_EVENT: 'BAR_EVENT',
     KITCHEN_EVENT: 'KITCHEN_EVENT',
+    ROASTERY: 'ROASTERY (Reguler)',
+    ROASTERY_EVENT: 'ROASTERY_EVENT',
     OFFICE: 'OFFICE',
     OTHER: 'OTHER'
   };
 
   function sanitizeDestinationList(rawList) {
-    var fallback = ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+    var fallback = ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
     var seen = {};
     var allowed = [];
     String(rawList || '')
@@ -487,7 +493,7 @@ foreach ($rowsData as $row) {
     }
 
     var previous = String(destinationEl.value || '').toUpperCase();
-    var allowed = ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT', 'OFFICE', 'OTHER'];
+    var allowed = ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
     var defaultDestination = 'OTHER';
 
     if (divisionEl && divisionEl.value) {
