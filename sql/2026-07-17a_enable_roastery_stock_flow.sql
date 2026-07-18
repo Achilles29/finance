@@ -20,6 +20,103 @@ SET NAMES utf8mb4;
 START TRANSACTION;
 
 -- ------------------------------------------------------------
+-- A0. Normalisasi nilai legacy kosong sebelum enum diperluas
+-- ------------------------------------------------------------
+-- Beberapa data lama menyimpan enum sebagai '' (empty enum value).
+-- Jika langsung MODIFY ENUM, MySQL strict akan memunculkan:
+-- 1265 - Data truncated for column ... at row 1.
+-- Nilai kosong ini bukan destinasi valid, jadi dinormalisasi ke OTHER.
+UPDATE mst_purchase_type
+SET default_destination = NULL
+WHERE COALESCE(TRIM(CAST(default_destination AS CHAR)), '') = '';
+
+UPDATE pur_purchase_order
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE pur_purchase_receipt
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE pur_store_request
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE pur_division_request
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_division_monthly_stock
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_division_stock_opening_snapshot
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_division_monthly_opening
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_division_monthly_opname
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_division_stock_opname
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_material_fifo_lot
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_material_fifo_issue_log
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_stock_movement_log
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_stock_adjustment
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+UPDATE inv_stock_opening_snapshot
+SET destination_type = 'OTHER'
+WHERE COALESCE(TRIM(CAST(destination_type AS CHAR)), '') = '';
+
+-- Untuk component, fallback aman existing adalah KITCHEN agar data lama
+-- tetap masuk lokasi produksi valid.
+UPDATE inv_component_adjustment
+SET location_type = 'KITCHEN'
+WHERE COALESCE(TRIM(CAST(location_type AS CHAR)), '') = '';
+
+UPDATE inv_component_batch
+SET location_type = 'KITCHEN'
+WHERE COALESCE(TRIM(CAST(location_type AS CHAR)), '') = '';
+
+UPDATE inv_component_monthly_opening
+SET location_type = 'KITCHEN'
+WHERE COALESCE(TRIM(CAST(location_type AS CHAR)), '') = '';
+
+UPDATE inv_component_monthly_opname
+SET location_type = 'KITCHEN'
+WHERE COALESCE(TRIM(CAST(location_type AS CHAR)), '') = '';
+
+UPDATE inv_component_monthly_stock
+SET location_type = 'KITCHEN'
+WHERE COALESCE(TRIM(CAST(location_type AS CHAR)), '') = '';
+
+UPDATE inv_component_movement_log
+SET location_type = 'KITCHEN'
+WHERE COALESCE(TRIM(CAST(location_type AS CHAR)), '') = '';
+
+UPDATE inv_component_opening
+SET location_type = 'KITCHEN'
+WHERE COALESCE(TRIM(CAST(location_type AS CHAR)), '') = '';
+
+-- ------------------------------------------------------------
 -- A. Buka enum destination bahan baku / purchase
 -- ------------------------------------------------------------
 ALTER TABLE mst_purchase_type
