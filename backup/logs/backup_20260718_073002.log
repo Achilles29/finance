@@ -3,3 +3,12 @@
 [2026-07-18 07:30:02] Output   : /www/wwwroot/finance/backup/dumps/backup_db_finance_20260718_073002.sql.gz
 [2026-07-18 07:30:07] Dump OK  : 11M
 [2026-07-18 07:30:07] Cleanup  : 0 file lama dihapus (> 3 hari)
+[2026-07-18 07:30:12] [WARN] Git merge gagal: error: Your local changes to the following files would be overwritten by merge:
+	application/models/Purchase_model.php
+	docs/_NOTE.md
+Please commit your changes or stash them before you merge.
+Aborting
+Merge with strategy ort failed.
+[2026-07-18 07:30:12] [WARN] Backup lokal tersimpan.
+[2026-07-18 07:30:12] ====== Backup SELESAI ======
+[2026-07-18 07:30:12] 
