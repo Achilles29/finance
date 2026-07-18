@@ -38,8 +38,10 @@ $storeUrl = site_url('purchase/receipt/store');
           <option value="GUDANG">GUDANG</option>
           <option value="BAR">BAR</option>
           <option value="KITCHEN">KITCHEN</option>
+          <option value="ROASTERY">ROASTERY</option>
           <option value="BAR_EVENT">BAR_EVENT</option>
           <option value="KITCHEN_EVENT">KITCHEN_EVENT</option>
+          <option value="ROASTERY_EVENT">ROASTERY_EVENT</option>
           <option value="OFFICE">OFFICE</option>
           <option value="OTHER">OTHER</option>
         </select>

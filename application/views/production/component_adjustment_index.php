@@ -68,10 +68,10 @@ $formatMoney = static function (float $value): string {
 };
 $locationGroupLabel = static function ($locationType): string {
   $value = strtoupper(trim((string)$locationType));
-  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'ROASTERY_EVENT') {
     return 'Event';
   }
-  if ($value === 'BAR' || $value === 'KITCHEN') {
+  if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'ROASTERY') {
     return 'Reguler';
   }
   return $value !== '' ? $value : '-';
@@ -83,6 +83,8 @@ $locationOptionLabel = static function ($locationType): string {
     'KITCHEN' => 'Kitchen Reguler',
     'BAR_EVENT' => 'Bar Event',
     'KITCHEN_EVENT' => 'Kitchen Event',
+    'ROASTERY' => 'Roastery',
+    'ROASTERY_EVENT' => 'Roastery Event',
   ];
   return (string)($labels[$value] ?? ($value !== '' ? $value : '-'));
 };
@@ -970,6 +972,9 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
     if (raw.includes('KITCHEN')) {
       return 'KITCHEN';
     }
+    if (raw.includes('ROASTERY')) {
+      return 'ROASTERY';
+    }
     if (raw.includes('BAR')) {
       return 'BAR';
     }
@@ -988,6 +993,12 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
       return [
         { value: 'BAR', label: 'Reguler' },
         { value: 'BAR_EVENT', label: 'Event' }
+      ];
+    }
+    if (base === 'ROASTERY') {
+      return [
+        { value: 'ROASTERY', label: 'Reguler' },
+        { value: 'ROASTERY_EVENT', label: 'Event' }
       ];
     }
     return [];
@@ -1191,10 +1202,10 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
 
   function lotLocationLabel(locationType) {
     const value = String(locationType || '').toUpperCase();
-    if (value === 'BAR' || value === 'KITCHEN') {
+    if (value === 'BAR' || value === 'KITCHEN' || value === 'ROASTERY') {
       return 'Reguler';
     }
-    if (value === 'BAR_EVENT' || value === 'KITCHEN_EVENT') {
+    if (value === 'BAR_EVENT' || value === 'KITCHEN_EVENT' || value === 'ROASTERY_EVENT') {
       return 'Event';
     }
     return value || '-';
@@ -1208,11 +1219,17 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
     if (value === 'KITCHEN') {
       return 'Kitchen Reguler';
     }
+    if (value === 'ROASTERY') {
+      return 'Roastery Reguler';
+    }
     if (value === 'BAR_EVENT') {
       return 'Bar Event';
     }
     if (value === 'KITCHEN_EVENT') {
       return 'Kitchen Event';
+    }
+    if (value === 'ROASTERY_EVENT') {
+      return 'Roastery Event';
     }
     return value || '-';
   }

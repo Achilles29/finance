@@ -416,7 +416,7 @@ $formatDivLabel = static function (array $r): string {
 
             $destType  = strtoupper(trim((string)($r['destination_type'] ?? 'OTHER')));
             $destGroup = strtoupper(trim((string)($r['destination_group'] ?? 'REGULER')));
-            $destNames = ['BAR'=>'Bar','KITCHEN'=>'Kitchen','BAR_EVENT'=>'Bar Event','KITCHEN_EVENT'=>'Kitchen Ev.','OFFICE'=>'Office','GUDANG'=>'Gudang'];
+            $destNames = ['BAR'=>'Bar','KITCHEN'=>'Kitchen','ROASTERY'=>'Roastery','BAR_EVENT'=>'Bar Event','KITCHEN_EVENT'=>'Kitchen Ev.','ROASTERY_EVENT'=>'Roastery Ev.','OFFICE'=>'Office','GUDANG'=>'Gudang'];
             $destDisplay = ($destNames[$destType] ?? $destType) . ' · ' . ($destGroup === 'EVENT' ? 'Event' : 'Reguler');
           ?>
           <tr class="<?php echo $typeClass; ?>" data-mvt-type="<?php echo html_escape($typeRaw); ?>">

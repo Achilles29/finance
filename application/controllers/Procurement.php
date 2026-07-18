@@ -1267,6 +1267,8 @@ class Procurement extends MY_Controller
             $allowedCodes = ['BAR', 'BAR_EVENT'];
         } elseif ($divisionCode === 'KITCHEN') {
             $allowedCodes = ['KITCHEN', 'KITCHEN_EVENT'];
+        } elseif ($divisionCode === 'ROASTERY') {
+            $allowedCodes = ['ROASTERY', 'ROASTERY_EVENT'];
         }
 
         if (empty($allowedCodes)) {

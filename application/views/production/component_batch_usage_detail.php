@@ -12,10 +12,10 @@ $voidProjection = is_array($detail['void_projection'] ?? null) ? $detail['void_p
 $voidWillGoNegative = !empty($voidProjection['available']) && !empty($voidProjection['would_go_negative']);
 $locationLabel = static function ($locationType): string {
     $value = strtoupper(trim((string)$locationType));
-    if ($value === 'BAR' || $value === 'KITCHEN') {
+    if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'ROASTERY') {
         return 'Reguler';
     }
-    if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+    if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'ROASTERY_EVENT') {
         return 'Event';
     }
     return $value !== '' ? $value : '-';
@@ -288,3 +288,4 @@ $locationLabel = static function ($locationType): string {
     <?php endif; ?>
   </div>
 </div>
+

@@ -87,6 +87,9 @@ class Production_model extends CI_Model
         if ($code === 'KITCHEN') {
             return 'KITCHEN';
         }
+        if ($code === 'ROASTERY') {
+            return 'ROASTERY';
+        }
         return null;
     }
 
@@ -179,7 +182,7 @@ class Production_model extends CI_Model
             return null;
         }
 
-        $validLocations = ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT'];
+        $validLocations = ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'];
         if (in_array($locationType, $validLocations, true)) {
             return $locationType;
         }
@@ -195,6 +198,9 @@ class Production_model extends CI_Model
         if ($divisionCode === 'KITCHEN') {
             return $locationType === 'EVENT' ? 'KITCHEN_EVENT' : 'KITCHEN';
         }
+        if ($divisionCode === 'ROASTERY') {
+            return $locationType === 'EVENT' ? 'ROASTERY_EVENT' : 'ROASTERY';
+        }
 
         return null;
     }
@@ -202,10 +208,10 @@ class Production_model extends CI_Model
     private function location_to_group(string $locationType): string
     {
         $locationType = strtoupper(trim($locationType));
-        if ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT') {
+        if ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT' || $locationType === 'ROASTERY_EVENT') {
             return 'EVENT';
         }
-        if ($locationType === 'BAR' || $locationType === 'KITCHEN') {
+        if ($locationType === 'BAR' || $locationType === 'KITCHEN' || $locationType === 'ROASTERY') {
             return 'REGULER';
         }
         return $locationType;
@@ -218,12 +224,12 @@ class Production_model extends CI_Model
             return [];
         }
         if ($locationType === 'REGULER') {
-            return ['BAR', 'KITCHEN'];
+            return ['BAR', 'KITCHEN', 'ROASTERY'];
         }
         if ($locationType === 'EVENT') {
-            return ['BAR_EVENT', 'KITCHEN_EVENT'];
+            return ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'];
         }
-        if (in_array($locationType, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT'], true)) {
+        if (in_array($locationType, ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true)) {
             return [$locationType];
         }
         return [];
@@ -4344,9 +4350,9 @@ class Production_model extends CI_Model
             $this->db->where('b.division_id', $divisionId);
         }
         if ($locType === 'REGULER') {
-            $this->db->where_in('b.location_type', ['BAR', 'KITCHEN']);
+            $this->db->where_in('b.location_type', ['BAR', 'KITCHEN', 'ROASTERY']);
         } elseif ($locType === 'EVENT') {
-            $this->db->where_in('b.location_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            $this->db->where_in('b.location_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
         } elseif ($locType !== '') {
             $this->db->where('b.location_type', $locType);
         }
@@ -5255,11 +5261,13 @@ class Production_model extends CI_Model
         $effectiveLocationType = $locationType;
         if ($effectiveDivisionId !== $divisionId) {
             $srcCode = $this->operational_division_code($effectiveDivisionId);
-            $isEvent = in_array(strtoupper($locationType), ['BAR_EVENT', 'KITCHEN_EVENT'], true);
+            $isEvent = in_array(strtoupper($locationType), ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true);
             if ($srcCode === 'BAR') {
                 $effectiveLocationType = $isEvent ? 'BAR_EVENT' : 'BAR';
             } elseif ($srcCode === 'KITCHEN') {
                 $effectiveLocationType = $isEvent ? 'KITCHEN_EVENT' : 'KITCHEN';
+            } elseif ($srcCode === 'ROASTERY') {
+                $effectiveLocationType = $isEvent ? 'ROASTERY_EVENT' : 'ROASTERY';
             }
         }
         $stockState = $this->component_batch_material_stock_state(
@@ -6784,9 +6792,9 @@ class Production_model extends CI_Model
             $parts[] = 'Exp ' . $expiryDate;
         }
         $locationType = strtoupper(trim((string)($lotRow['location_type'] ?? '')));
-        if ($locationType === 'BAR' || $locationType === 'KITCHEN') {
+        if ($locationType === 'BAR' || $locationType === 'KITCHEN' || $locationType === 'ROASTERY') {
             $parts[] = 'Reguler';
-        } elseif ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT') {
+        } elseif ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT' || $locationType === 'ROASTERY_EVENT') {
             $parts[] = 'Event';
         } elseif ($locationType !== '') {
             $parts[] = $locationType;
@@ -6816,9 +6824,9 @@ class Production_model extends CI_Model
             $locationSuffix = '';
             if ($showLocation) {
                 $locationType = strtoupper(trim((string)($row['location_type'] ?? '')));
-                if ($locationType === 'BAR' || $locationType === 'KITCHEN') {
+                if ($locationType === 'BAR' || $locationType === 'KITCHEN' || $locationType === 'ROASTERY') {
                     $locationSuffix = ' / Reguler';
-                } elseif ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT') {
+                } elseif ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT' || $locationType === 'ROASTERY_EVENT') {
                     $locationSuffix = ' / Event';
                 } elseif ($locationType !== '') {
                     $locationSuffix = ' / ' . $locationType;

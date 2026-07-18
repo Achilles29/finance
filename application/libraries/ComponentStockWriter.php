@@ -27,12 +27,15 @@ class ComponentStockWriter
             ->row_array() ?: [];
 
         $divisionCode = strtoupper(trim((string)($division['code'] ?? $division['name'] ?? '')));
-        $isEvent = in_array($fallbackLocationType, ['BAR_EVENT', 'KITCHEN_EVENT'], true);
+        $isEvent = in_array($fallbackLocationType, ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true);
         if ($divisionCode === 'BAR') {
             return $isEvent ? 'BAR_EVENT' : 'BAR';
         }
         if ($divisionCode === 'KITCHEN') {
             return $isEvent ? 'KITCHEN_EVENT' : 'KITCHEN';
+        }
+        if ($divisionCode === 'ROASTERY') {
+            return $isEvent ? 'ROASTERY_EVENT' : 'ROASTERY';
         }
 
         return $this->resolve_inventory_destination_type($fallbackLocationType);
@@ -1635,13 +1638,13 @@ class ComponentStockWriter
 
     private function valid_location(string $locationType): bool
     {
-        return in_array($locationType, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT'], true);
+        return in_array($locationType, ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true);
     }
 
     private function resolve_inventory_destination_type(string $locationType): ?string
     {
         $locationType = strtoupper(trim($locationType));
-        return in_array($locationType, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT'], true) ? $locationType : null;
+        return in_array($locationType, ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true) ? $locationType : null;
     }
 
     private function formatThrowableMessage(string $prefix, Throwable $e): string

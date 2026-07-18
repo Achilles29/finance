@@ -101,6 +101,8 @@ $baseUrl    = site_url('inventory/stock/stok-awal/division');
           <option value="KITCHEN"      <?php echo $selDest === 'KITCHEN'      ? 'selected' : ''; ?>>Kitchen Reguler</option>
           <option value="BAR_EVENT"    <?php echo $selDest === 'BAR_EVENT'    ? 'selected' : ''; ?>>Bar Event</option>
           <option value="KITCHEN_EVENT"<?php echo $selDest === 'KITCHEN_EVENT'? 'selected' : ''; ?>>Kitchen Event</option>
+          <option value="ROASTERY"     <?php echo $selDest === 'ROASTERY'     ? 'selected' : ''; ?>>Roastery Reguler</option>
+          <option value="ROASTERY_EVENT"<?php echo $selDest === 'ROASTERY_EVENT'? 'selected' : ''; ?>>Roastery Event</option>
           <option value="OFFICE"       <?php echo $selDest === 'OFFICE'       ? 'selected' : ''; ?>>Office</option>
         </select>
       </div>

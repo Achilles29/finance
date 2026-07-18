@@ -418,8 +418,10 @@ $paginationQs = http_build_query($pParams);
             <option value="EVENT" <?php echo $destinationValue === 'EVENT' ? 'selected' : ''; ?>>Event</option>
             <option value="BAR" <?php echo $destinationValue === 'BAR' ? 'selected' : ''; ?>>Bar Reg</option>
             <option value="KITCHEN" <?php echo $destinationValue === 'KITCHEN' ? 'selected' : ''; ?>>Kitchen Reg</option>
+            <option value="ROASTERY" <?php echo $destinationValue === 'ROASTERY' ? 'selected' : ''; ?>>Roastery Reg</option>
             <option value="BAR_EVENT" <?php echo $destinationValue === 'BAR_EVENT' ? 'selected' : ''; ?>>Bar Event</option>
             <option value="KITCHEN_EVENT" <?php echo $destinationValue === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>Kitchen Evt</option>
+            <option value="ROASTERY_EVENT" <?php echo $destinationValue === 'ROASTERY_EVENT' ? 'selected' : ''; ?>>Roastery Evt</option>
             <option value="OFFICE" <?php echo $destinationValue === 'OFFICE' ? 'selected' : ''; ?>>Office</option>
           </select>
         </div>
@@ -460,8 +462,10 @@ $paginationQs = http_build_query($pParams);
     { value: 'EVENT', label: 'Event' },
     { value: 'BAR', label: 'Bar Reg' },
     { value: 'KITCHEN', label: 'Kitchen Reg' },
+    { value: 'ROASTERY', label: 'Roastery Reg' },
     { value: 'BAR_EVENT', label: 'Bar Event' },
     { value: 'KITCHEN_EVENT', label: 'Kitchen Evt' },
+    { value: 'ROASTERY_EVENT', label: 'Roastery Evt' },
     { value: 'OFFICE', label: 'Office' }
   ];
   function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

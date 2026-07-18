@@ -13,10 +13,10 @@ $adjustmentReasonOptions = function_exists('component_adjustment_reason_options'
   : [];
 $locationGroupLabel = static function ($locationType): string {
   $value = strtoupper(trim((string)$locationType));
-  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'ROASTERY_EVENT') {
     return 'Event';
   }
-  if ($value === 'BAR' || $value === 'KITCHEN') {
+  if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'ROASTERY') {
     return 'Reguler';
   }
   return $value !== '' ? $value : '-';
@@ -83,7 +83,7 @@ foreach ($rows as $summaryRow) {
   }
 
   $locationType = strtoupper(trim((string)($summaryRow['location_type'] ?? '')));
-  if ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT') {
+  if ($locationType === 'BAR_EVENT' || $locationType === 'KITCHEN_EVENT' || $locationType === 'ROASTERY_EVENT') {
     $summaryEvent++;
   } else {
     $summaryReguler++;
@@ -657,10 +657,10 @@ $summaryUsageRate = $summaryTurnoverBase > 0 ? round((max($summaryOutQty, 0) / $
 <?php
 $locationFilterValue = static function ($locationType): string {
   $value = strtoupper(trim((string)$locationType));
-  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'EVENT') {
+  if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'ROASTERY_EVENT' || $value === 'EVENT') {
     return 'EVENT';
   }
-  if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'REGULER') {
+  if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'ROASTERY' || $value === 'REGULER') {
     return 'REGULER';
   }
   return '';
@@ -1899,3 +1899,4 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
   });
 })();
 </script>
+

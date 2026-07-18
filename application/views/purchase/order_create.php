@@ -481,8 +481,10 @@ foreach ($detailLines as $ln) {
           <option value="GUDANG" <?php echo $initialDestinationType === 'GUDANG' ? 'selected' : ''; ?>>GUDANG</option>
           <option value="BAR" <?php echo $initialDestinationType === 'BAR' ? 'selected' : ''; ?>>BAR</option>
           <option value="KITCHEN" <?php echo $initialDestinationType === 'KITCHEN' ? 'selected' : ''; ?>>KITCHEN</option>
+          <option value="ROASTERY" <?php echo $initialDestinationType === 'ROASTERY' ? 'selected' : ''; ?>>ROASTERY</option>
           <option value="BAR_EVENT" <?php echo $initialDestinationType === 'BAR_EVENT' ? 'selected' : ''; ?>>BAR_EVENT</option>
           <option value="KITCHEN_EVENT" <?php echo $initialDestinationType === 'KITCHEN_EVENT' ? 'selected' : ''; ?>>KITCHEN_EVENT</option>
+          <option value="ROASTERY_EVENT" <?php echo $initialDestinationType === 'ROASTERY_EVENT' ? 'selected' : ''; ?>>ROASTERY_EVENT</option>
           <option value="OFFICE" <?php echo $initialDestinationType === 'OFFICE' ? 'selected' : ''; ?>>OFFICE</option>
           <option value="OTHER" <?php echo $initialDestinationType === 'OTHER' ? 'selected' : ''; ?>>OTHER</option>
         </select>
@@ -2035,6 +2037,7 @@ foreach ($detailLines as $ln) {
     var d = String(dest || '').toUpperCase();
     if (d === 'BAR' || d === 'BAR_EVENT') return 'BAR';
     if (d === 'KITCHEN' || d === 'KITCHEN_EVENT') return 'KITCHEN';
+    if (d === 'ROASTERY' || d === 'ROASTERY_EVENT') return 'ROASTERY';
     if (d === 'OFFICE') return 'MANAJEMEN';
     return '';
   }

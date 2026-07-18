@@ -11,10 +11,10 @@ $canVoid = !empty($detail['can_void']);
 $blockReason = trim((string)($detail['block_reason'] ?? ''));
 $locationLabel = static function ($locationType): string {
     $value = strtoupper(trim((string)$locationType));
-    if ($value === 'BAR' || $value === 'KITCHEN') {
+    if ($value === 'BAR' || $value === 'KITCHEN' || $value === 'ROASTERY') {
         return 'Reguler';
     }
-    if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT') {
+    if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'ROASTERY_EVENT') {
         return 'Event';
     }
     return $value !== '' ? $value : '-';

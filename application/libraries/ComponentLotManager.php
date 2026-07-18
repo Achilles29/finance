@@ -563,9 +563,9 @@ class ComponentLotManager
             $db->where('l.division_id', $divisionId);
         }
         if ($locationType === 'REGULER') {
-            $db->where_in('l.location_type', ['BAR', 'KITCHEN']);
+            $db->where_in('l.location_type', ['BAR', 'KITCHEN', 'ROASTERY']);
         } elseif ($locationType === 'EVENT') {
-            $db->where_in('l.location_type', ['BAR_EVENT', 'KITCHEN_EVENT']);
+            $db->where_in('l.location_type', ['BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT']);
         } elseif ($this->validLocation($locationType)) {
             $db->where('l.location_type', $locationType);
         }
@@ -866,7 +866,7 @@ class ComponentLotManager
 
     private function validLocation(string $locationType): bool
     {
-        return in_array($locationType, ['BAR', 'KITCHEN', 'BAR_EVENT', 'KITCHEN_EVENT'], true);
+        return in_array($locationType, ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT'], true);
     }
 
     private function normalizeDate(string $value): ?string

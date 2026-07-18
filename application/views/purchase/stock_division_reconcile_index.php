@@ -1843,7 +1843,7 @@ document.addEventListener('DOMContentLoaded', function () {
     'VARIANCE'         => ['over_usage' => 'Over Usage', 'under_usage' => 'Under Usage', 'unrecorded_usage' => 'Unrecorded Usage', 'counting_error' => 'Counting Error', 'system_mismatch' => 'System Mismatch', 'unknown_shrinkage' => 'Unknown Shrinkage', 'other' => 'Other'],
   ], JSON_UNESCAPED_UNICODE); ?>;
 
-  var validAdjDests = ['BAR','KITCHEN','BAR_EVENT','KITCHEN_EVENT','OFFICE','OTHER'];
+  var validAdjDests = ['BAR','KITCHEN','ROASTERY','BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT','OFFICE','OTHER'];
   function qaMapDest(d) { return validAdjDests.indexOf(String(d).toUpperCase()) >= 0 ? String(d).toUpperCase() : 'OTHER'; }
 
   function qaUpdateReasonOpts(adjType) {
