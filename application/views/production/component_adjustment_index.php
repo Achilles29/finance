@@ -66,6 +66,14 @@ foreach ($lineRows as $moneyRow) {
 $formatMoney = static function (float $value): string {
   return number_format($value, 2, ',', '.');
 };
+$transactionTime = static function (array $row, string $prefix = ''): string {
+  $raw = trim((string)($row[$prefix . 'created_at'] ?? ($row[$prefix . 'posted_at'] ?? ($row[$prefix . 'updated_at'] ?? ''))));
+  if ($raw === '' || $raw === '0000-00-00 00:00:00') {
+    return '';
+  }
+  $ts = strtotime($raw);
+  return $ts ? date('H:i', $ts) : '';
+};
 $locationGroupLabel = static function ($locationType): string {
   $value = strtoupper(trim((string)$locationType));
   if ($value === 'BAR_EVENT' || $value === 'KITCHEN_EVENT' || $value === 'ROASTERY_EVENT') {
@@ -533,7 +541,13 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
                     $row['status'] ?? '',
                   ]))); ?>">
                     <td style="font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?php echo html_escape($adjNo); ?></td>
-                    <td style="font-size:.8rem;white-space:nowrap;overflow:hidden"><?php echo html_escape((string)($row['adjustment_date'] ?? '')); ?></td>
+                    <td style="font-size:.8rem;white-space:nowrap;overflow:hidden">
+                      <div><?php echo html_escape((string)($row['adjustment_date'] ?? '')); ?></div>
+                      <?php $notaTime = $transactionTime((array)$row); ?>
+                      <?php if ($notaTime !== ''): ?>
+                        <div class="text-muted" style="font-size:.7rem;line-height:1.15">Jam <?php echo html_escape($notaTime); ?></div>
+                      <?php endif; ?>
+                    </td>
                     <td style="font-size:.8rem;white-space:nowrap;overflow:hidden"><?php echo html_escape($locationGroupLabel((string)($row['location_type'] ?? ''))); ?></td>
                     <td style="font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($row['division_name'] ?? '-')); ?>"><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
                     <td style="font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($row['notes'] ?? '-')); ?>"><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>
@@ -607,7 +621,13 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
                     $jenisTeks,
                   ]))); ?>">
                     <td style="font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($lineRow['adjustment_no'] ?? '')); ?></td>
-                    <td style="font-size:.78rem;white-space:nowrap;overflow:hidden"><?php echo html_escape((string)($lineRow['adjustment_date'] ?? '')); ?></td>
+                    <td style="font-size:.78rem;white-space:nowrap;overflow:hidden">
+                      <div><?php echo html_escape((string)($lineRow['adjustment_date'] ?? '')); ?></div>
+                      <?php $lineTime = $transactionTime((array)$lineRow, 'adjustment_'); ?>
+                      <?php if ($lineTime !== ''): ?>
+                        <div class="text-muted" style="font-size:.68rem;line-height:1.15">Jam <?php echo html_escape($lineTime); ?></div>
+                      <?php endif; ?>
+                    </td>
                     <td style="overflow:hidden">
                       <div class="fw-semibold" style="font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?php echo html_escape((string)($lineRow['component_name'] ?? '-')); ?>"><?php echo html_escape((string)($lineRow['component_name'] ?? '-')); ?></div>
                       <div class="text-muted" style="font-size:.68rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo html_escape((string)($lineRow['component_type'] ?? '-')); ?><?php if ($uomCode): ?> · <?php echo html_escape($uomCode); ?><?php endif; ?></div>

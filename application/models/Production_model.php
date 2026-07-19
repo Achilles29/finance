@@ -4174,7 +4174,7 @@ class Production_model extends CI_Model
         $divisionNameColumn = $this->division_name_column();
         $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
-        $this->db->select('h.id AS adjustment_id, h.adjustment_no, h.adjustment_date, h.location_type, h.division_id, h.notes AS header_notes, h.status', false)
+        $this->db->select('h.id AS adjustment_id, h.adjustment_no, h.adjustment_date, h.location_type, h.division_id, h.notes AS header_notes, h.status, h.created_at AS adjustment_created_at, h.posted_at AS adjustment_posted_at, h.updated_at AS adjustment_updated_at', false)
             ->select($divisionNameSelect, false)
             ->select('l.*, c.component_name, c.component_code, c.component_type, u.code AS uom_code')
             ->from('inv_component_adjustment_line l')

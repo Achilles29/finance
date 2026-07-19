@@ -56,6 +56,14 @@ $avgCost           = $totalBatch > 0 ? ($totalCost / $totalBatch) : 0;
 $cbFmt = static function ($num): string {
     return 'Rp ' . number_format((float)$num, 0, ',', '.');
 };
+$cbTransactionTime = static function (array $row): string {
+    $raw = trim((string)($row['created_at'] ?? ($row['posted_at'] ?? ($row['updated_at'] ?? ''))));
+    if ($raw === '' || $raw === '0000-00-00 00:00:00') {
+        return '';
+    }
+    $ts = strtotime($raw);
+    return $ts ? date('H:i', $ts) : '';
+};
 ?>
 
 <style>
@@ -411,7 +419,13 @@ $cbFmt = static function ($num): string {
               data-batch-no="<?php echo html_escape(strtolower((string)($row['batch_no'] ?? ''))); ?>"
               data-component="<?php echo html_escape(strtolower((string)($row['component_name'] ?? ''))); ?>">
             <td class="ps-3 fw-semibold small"><?php echo html_escape((string)($row['batch_no'] ?? '')); ?></td>
-            <td class="small"><?php echo html_escape((string)($row['batch_date'] ?? '')); ?></td>
+            <td class="small">
+              <div><?php echo html_escape((string)($row['batch_date'] ?? '')); ?></div>
+              <?php $batchTime = $cbTransactionTime((array)$row); ?>
+              <?php if ($batchTime !== ''): ?>
+                <div class="text-muted" style="font-size:.72rem;line-height:1.15">Jam <?php echo html_escape($batchTime); ?></div>
+              <?php endif; ?>
+            </td>
             <td class="small">
               <span class="badge <?php echo $locGroup === 'EVENT' ? 'text-bg-info' : 'text-bg-secondary'; ?>">
                 <?php echo html_escape($locGroup); ?>
@@ -1496,4 +1510,3 @@ $cbFmt = static function ($num): string {
   renderPage();
 })();
 </script>
-
