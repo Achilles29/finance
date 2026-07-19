@@ -91,15 +91,15 @@ class Pos_order_monitor_model extends CI_Model
             return;
         }
 
-        $operationalDivisionId = (int)($scope['operational_division_id'] ?? 0);
-        if ($operationalDivisionId > 0 && $this->db->field_exists('operational_division_id', 'pos_order_line')) {
-            $db->where($lineAlias . '.operational_division_id', $operationalDivisionId);
-            return;
-        }
-
         $stationRole = (string)($scope['station_role'] ?? 'ALL');
         if ($taskAlias !== '' && in_array($stationRole, ['BAR', 'KITCHEN'], true)) {
             $db->where($taskAlias . '.station_role', $stationRole);
+            return;
+        }
+
+        $operationalDivisionId = (int)($scope['operational_division_id'] ?? 0);
+        if ($operationalDivisionId > 0 && $this->db->field_exists('operational_division_id', 'pos_order_line')) {
+            $db->where($lineAlias . '.operational_division_id', $operationalDivisionId);
         }
     }
 

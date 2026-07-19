@@ -20891,12 +20891,14 @@ class Purchase_model extends CI_Model
             $currencyCode = 'IDR';
         }
 
+        $storedDestinationType = $destinationType ?? 'OTHER';
+
         $orderData = [
             'po_no' => $poNo,
             'request_date' => $requestDate,
             'expected_date' => $expectedDate,
             'purchase_type_id' => $purchaseTypeId,
-            'destination_type' => $destinationType,
+            'destination_type' => $storedDestinationType,
             'destination_division_id' => $destinationDivisionId,
             'vendor_id' => $vendorId,
             'status' => $status,
@@ -20920,10 +20922,15 @@ class Purchase_model extends CI_Model
         $this->db->insert('pur_purchase_order', $orderData);
         $orderId = (int)$this->db->insert_id();
         if ($orderId <= 0) {
+            $dbError = $this->db->error();
             $this->db->trans_rollback();
+            $message = 'Gagal membuat header purchase order.';
+            if (!empty($dbError['message'])) {
+                $message .= ' DB: ' . (string)$dbError['message'];
+            }
             return [
                 'ok' => false,
-                'message' => 'Gagal membuat header purchase order.',
+                'message' => $message,
             ];
         }
 
@@ -20992,7 +20999,7 @@ class Purchase_model extends CI_Model
             'payload' => [
                 'request_date' => $requestDate,
                 'purchase_type_id' => $purchaseTypeId,
-                'destination_type' => $destinationType,
+                'destination_type' => $storedDestinationType,
                 'destination_division_id' => $destinationDivisionId,
                 'vendor_id' => $vendorId,
                 'subtotal' => $subtotal,
@@ -21019,7 +21026,7 @@ class Purchase_model extends CI_Model
                 'id' => $orderId,
                 'request_date' => $requestDate,
                 'purchase_type_id' => $purchaseTypeId,
-                'destination_type' => $destinationType,
+                'destination_type' => $storedDestinationType,
                 'destination_division_id' => $destinationDivisionId,
                 'payment_account_id' => $paymentAccountId,
                 'grand_total' => $grandTotal,
@@ -21316,11 +21323,13 @@ class Purchase_model extends CI_Model
             ? $this->nullableString($header['external_ref_no'] ?? null)
             : $this->nullableString($order['external_ref_no'] ?? null);
 
+        $storedDestinationType = $destinationType ?? 'OTHER';
+
         $orderData = [
             'request_date' => $requestDate,
             'expected_date' => $expectedDate,
             'purchase_type_id' => $purchaseTypeId,
-            'destination_type' => $destinationType,
+            'destination_type' => $storedDestinationType,
             'destination_division_id' => $destinationDivisionId,
             'vendor_id' => $vendorId,
             'currency_code' => $currencyCode,
@@ -21341,10 +21350,15 @@ class Purchase_model extends CI_Model
 
         $this->db->where('id', $purchaseOrderId)->update('pur_purchase_order', $orderData);
         if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+            $dbError = $this->db->error();
             $this->db->trans_rollback();
+            $message = 'Gagal update header purchase order.';
+            if (!empty($dbError['message'])) {
+                $message .= ' DB: ' . (string)$dbError['message'];
+            }
             return [
                 'ok' => false,
-                'message' => 'Gagal update header purchase order.',
+                'message' => $message,
             ];
         }
 
@@ -21459,7 +21473,7 @@ class Purchase_model extends CI_Model
                 'after_payload' => json_encode([
                     'request_date' => $requestDate,
                     'purchase_type_id' => $purchaseTypeId,
-                    'destination_type' => $destinationType,
+                    'destination_type' => $storedDestinationType,
                     'destination_division_id' => $destinationDivisionId,
                     'vendor_id' => $vendorId,
                     'payment_account_id' => $paymentAccountId,
@@ -21485,7 +21499,7 @@ class Purchase_model extends CI_Model
             'payload' => [
                 'request_date' => $requestDate,
                 'purchase_type_id' => $purchaseTypeId,
-                'destination_type' => $destinationType,
+                'destination_type' => $storedDestinationType,
                 'destination_division_id' => $destinationDivisionId,
                 'vendor_id' => $vendorId,
                 'payment_account_id' => $paymentAccountId,
