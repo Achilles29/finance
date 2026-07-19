@@ -361,3 +361,5 @@ buat tabel baru jika perlu dengan prefix wa_
 kejutkan saya
 
 
+- halaman rekon keuangan
+- halaman generate qris,  dari pos, muncul ke halaman khusus qris 
