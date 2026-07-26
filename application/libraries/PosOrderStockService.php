@@ -667,6 +667,7 @@ class PosOrderStockService
                 'source_id' => (int)($header['id'] ?? 0),
                 'source_line_id' => (int)($line['id'] ?? 0),
                 'notes' => 'POS component usage',
+                'allow_partial_issue' => true,
             ]);
             if ($lot['ok'] ?? false) {
                 $lotIssueId = (int)($lot['data']['issue_id'] ?? 0);

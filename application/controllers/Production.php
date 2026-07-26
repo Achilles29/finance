@@ -2015,6 +2015,7 @@ class Production extends MY_Controller
             $opnameDate = date('Y-m-d');
         }
         $targetMonth = date('Y-m-01', strtotime($opnameDate));
+        $nextMonth = date('Y-m-01', strtotime($targetMonth . ' +1 month'));
 
         $locationType = strtoupper(trim((string)$this->input->get('location_type', true)));
         if (!in_array($locationType, ['REGULER', 'EVENT'], true)) {
@@ -2134,6 +2135,8 @@ class Production extends MY_Controller
                 FROM inv_component_lot l
                 WHERE l.component_id IN ({$compIds})
                   AND l.status = 'OPEN'
+                  AND l.receipt_date >= " . $this->db->escape($targetMonth) . "
+                  AND l.receipt_date < " . $this->db->escape($nextMonth) . "
                 ORDER BY l.receipt_date ASC, l.id ASC
             ";
             $lotResult = $this->db->query($lotSql);

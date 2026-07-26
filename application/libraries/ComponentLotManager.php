@@ -84,6 +84,7 @@ class ComponentLotManager
         $selectedLotId = $this->nullableInt($payload['lot_id'] ?? null);
         $issueDate = $this->normalizeDate((string)($payload['issue_date'] ?? ($payload['movement_date'] ?? '')));
         $qtyNeed = round((float)($payload['qty_out'] ?? ($payload['qty_content_out'] ?? 0)), 4);
+        $allowPartialIssue = !empty($payload['allow_partial_issue']);
 
         if (!$this->validLocation($locationType) || $componentId <= 0 || $uomId <= 0 || $issueDate === null) {
             return ['ok' => false, 'message' => 'Pemakaian lot component membutuhkan lokasi, komponen, satuan, dan tanggal issue yang valid.'];
@@ -151,10 +152,21 @@ class ComponentLotManager
         }
         $available = round($available, 4);
         if ($available + 0.0001 < $qtyNeed) {
+            if (!$allowPartialIssue || $available <= 0.0001) {
+                return [
+                    'ok' => false,
+                    'message' => ($selectedLotId !== null ? 'Saldo lot component yang dipilih tidak cukup. ' : 'Saldo lot component tidak cukup. ')
+                        . 'Dibutuhkan ' . number_format($qtyNeed, 4, '.', '') . ', tersedia ' . number_format($available, 4, '.', '') . '.',
+                ];
+            }
+
+            $qtyNeed = $available;
+        }
+
+        if ($qtyNeed <= 0.0001) {
             return [
                 'ok' => false,
-                'message' => ($selectedLotId !== null ? 'Saldo lot component yang dipilih tidak cukup. ' : 'Saldo lot component tidak cukup. ')
-                    . 'Dibutuhkan ' . number_format($qtyNeed, 4, '.', '') . ', tersedia ' . number_format($available, 4, '.', '') . '.',
+                'message' => 'Tidak ada saldo lot component yang dapat dipakai.',
             ];
         }
 
@@ -253,7 +265,9 @@ class ComponentLotManager
         }
 
         if ($remaining > 0.0001) {
-            return ['ok' => false, 'message' => 'Issue lot component tidak lengkap.'];
+            if (!$allowPartialIssue || empty($allocations)) {
+                return ['ok' => false, 'message' => 'Issue lot component tidak lengkap.'];
+            }
         }
 
         $this->ci->db->where('id', $issueId)->update('inv_component_lot_issue_log', [
@@ -270,6 +284,8 @@ class ComponentLotManager
                 'allocations' => $allocations,
                 'total_cost' => $totalCost,
                 'avg_unit_cost' => $qtyNeed > 0 ? round($totalCost / $qtyNeed, 6) : 0.0,
+                'issued_qty' => round($qtyNeed, 4),
+                'is_partial' => $allowPartialIssue && $available + 0.0001 < (float)($payload['qty_out'] ?? ($payload['qty_content_out'] ?? 0)),
             ],
         ];
     }
