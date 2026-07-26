@@ -3057,9 +3057,38 @@ class Purchase extends MY_Controller
             $logEntry['adjustment_reason_code'] = 'LOG_GAP_REPAIR';
         }
 
+        $existingQb = $this->db
+            ->select('id, movement_no')
+            ->from('inv_stock_movement_log')
+            ->where('movement_scope', 'DIVISION')
+            ->where('movement_date', $adjustDate)
+            ->where('division_id', $divisionId)
+            ->where('destination_type', $destType)
+            ->where('ref_table', 'div_log_repair')
+            ->where('material_id', $materialId);
+        if ($itemId > 0) {
+            $existingQb->where('item_id', $itemId);
+        } else {
+            $existingQb->where('item_id IS NULL', null, false);
+        }
+        if ($profileKey !== '') {
+            $existingQb->where('profile_key', $profileKey);
+        } else {
+            $existingQb->where('profile_key IS NULL', null, false);
+        }
+        $existingRepair = $existingQb->order_by('id', 'DESC')->limit(1)->get()->row_array();
+
         $oldDbDebug = $this->db->db_debug;
         $this->db->db_debug = false;
-        $inserted = $this->db->insert('inv_stock_movement_log', $logEntry);
+        if (!empty($existingRepair['id'])) {
+            unset($logEntry['movement_no'], $logEntry['created_at']);
+            $inserted = $this->db
+                ->where('id', (int)$existingRepair['id'])
+                ->update('inv_stock_movement_log', $logEntry);
+            $movementNo = (string)($existingRepair['movement_no'] ?? $movementNo);
+        } else {
+            $inserted = $this->db->insert('inv_stock_movement_log', $logEntry);
+        }
         $dbError = $this->db->error();
         $this->db->db_debug = $oldDbDebug;
 
