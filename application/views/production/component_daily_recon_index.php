@@ -582,7 +582,7 @@ function reconRowButtons(row, iid) {
 }
 
 function cmpNeedsConfirm(row) {
-    return !!(row && row.must_row_confirm && (!row.confirmed_open || !row.confirmed_close));
+    return !!(row && row.must_row_confirm && !row.confirmed_close);
 }
 
 // ── Expand / collapse lots ────────────────────────────────────
@@ -1044,7 +1044,6 @@ loadData();
 </script>
 
 <?php $this->load->view('layout/footer'); ?>
-
 
 
 

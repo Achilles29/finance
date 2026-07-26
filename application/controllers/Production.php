@@ -2109,13 +2109,15 @@ class Production extends MY_Controller
         unset($stockRow);
 
         $confirmedComponentLines = [];
-        if ($divisionId > 0 && $this->db->table_exists('inv_daily_recon_checkpoint_line')) {
-            foreach ($this->db->select('line_key, checkpoint_stage')
+        if ($this->db->table_exists('inv_daily_recon_checkpoint_line')) {
+            $lineQuery = $this->db->select('line_key, checkpoint_stage')
                 ->from('inv_daily_recon_checkpoint_line')
                 ->where('checkpoint_date', $opnameDate)
-                ->where('recon_domain', 'COMPONENT')
-                ->where('division_id', $divisionId)
-                ->get()->result_array() as $lineRow) {
+                ->where('recon_domain', 'COMPONENT');
+            if ($divisionId > 0) {
+                $lineQuery->where('division_id', $divisionId);
+            }
+            foreach ($lineQuery->get()->result_array() as $lineRow) {
                 $confirmedComponentLines[(string)$lineRow['line_key'] . '|' . strtoupper((string)$lineRow['checkpoint_stage'])] = true;
             }
         }

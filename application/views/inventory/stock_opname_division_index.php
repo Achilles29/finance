@@ -521,7 +521,7 @@ function stockInLabel(p) {
     return prefix + (last || first);
 }
 function opnNeedsConfirm(row) {
-    return !!(row && row.must_row_confirm && (!row.confirmed_open || !row.confirmed_close));
+    return !!(row && row.must_row_confirm && !row.confirmed_close);
 }
 
 function initTooltips(root) {
@@ -730,17 +730,47 @@ function actionCell(p, iid) {
     return '<td class="action-cell">' + reconHtml + '</td>';
 }
 
+function lotDetailRows(p, parentIid, grpIid) {
+    var lots = Array.isArray(p && p.lots) ? p.lots : [];
+    if (lots.length <= 1) return '';
+    return lots.map(function (lot) {
+        var lotIid = 'lot_' + parentIid + '_' + cssid(lot.lot_id || lot.lot_no || '');
+        var qty = Number(lot.qty_balance || 0);
+        var cost = Number(lot.unit_cost || 0);
+        var val = Number(lot.total_value || (qty * cost));
+        var source = stockInSourceLabel(lot.source_table || '') || 'Lot';
+        var grpAttr = grpIid ? ' data-grp="' + grpIid + '"' : '';
+        return '<tr id="row-' + lotIid + '" class="opn-lot-child text-muted"'
+            + grpAttr
+            + ' data-system-val="' + qty + '"'
+            + ' data-div-id="' + esc(String(p.division_id || '')) + '"'
+            + ' data-confirm-required="0">'
+            + '<td class="opn-div-cell" style="padding-left:18px;border-left:3px solid #e2e8f0">'
+            + '<div style="font-size:.7rem;font-weight:700">Lot</div>'
+            + '<div style="font-size:.66rem">' + esc(source) + '</div>'
+            + '</td>'
+            + '<td></td>'
+            + '<td class="text-start">'
+            + '<div class="fw-semibold" style="font-size:.76rem">' + esc(lot.lot_no || '-') + '</div>'
+            + '<div class="text-muted" style="font-size:.68rem">Masuk: ' + esc(fmtDateOnly(lot.receipt_date || '') || '-') + '</div>'
+            + '</td>'
+            + '<td class="text-muted" style="font-size:.8rem">' + esc(p.profile_content_uom_code || '-') + '</td>'
+            + '<td class="text-end" style="font-size:.82rem">' + fmt4(qty) + '</td>'
+            + '<td></td>'
+            + '<td class="text-end text-muted small">Rp ' + val.toLocaleString('id-ID', { maximumFractionDigits: 0 }) + '</td>'
+            + '<td></td><td></td>'
+            + '</tr>';
+    }).join('');
+}
+
 function reconRowButtons(p, iid) {
     if (!p || !p.must_row_confirm) return '';
     var reason = p.must_row_confirm_reason ? '<div class="text-muted" style="font-size:.62rem;line-height:1.1">' + esc(p.must_row_confirm_reason) + '</div>' : '';
-    var openBtn = p.confirmed_open
-        ? '<span class="badge bg-success-subtle text-success border border-success-subtle">Buka OK</span>'
-        : '<button type="button" class="btn btn-sm btn-outline-warning py-0" onclick="event.stopPropagation();opnConfirmReconRow(\'' + iid + '\',\'OPEN\')">Buka</button>';
     var closeBtn = p.confirmed_close
         ? '<span class="badge bg-success-subtle text-success border border-success-subtle">Tutup OK</span>'
         : '<button type="button" class="btn btn-sm btn-outline-success py-0" onclick="event.stopPropagation();opnConfirmReconRow(\'' + iid + '\',\'CLOSE\')">Tutup</button>';
     return '<div class="opn-row-confirm d-flex flex-column gap-1">' + reason
-        + '<div class="d-flex gap-1 justify-content-center">' + openBtn + closeBtn + '</div></div>';
+        + '<div class="d-flex gap-1 justify-content-center">' + closeBtn + '</div></div>';
 }
 
 function requiredReconPending(stage) {
@@ -778,7 +808,8 @@ window.opnConfirmReconRow = function (iid, stage) {
     var form = el('opnForm');
     if (!p || !form) return;
     var date = form.querySelector('[name=opname_date]')?.value || '';
-    var divisionId = Number(form.querySelector('[name=division_id]')?.value || p.division_id || 0);
+    var formDivisionId = Number(form.querySelector('[name=division_id]')?.value || 0);
+    var divisionId = formDivisionId > 0 ? formDivisionId : Number(p.division_id || 0);
     if (divisionId <= 0) {
         showAlert('warning', 'Pilih satu divisi dulu sebelum konfirmasi baris recon.');
         return;
@@ -809,11 +840,7 @@ window.opnConfirmReconRow = function (iid, stage) {
         }
         if (stage === 'OPEN') p.confirmed_open = true;
         if (stage === 'CLOSE') p.confirmed_close = true;
-        var row = el('row-' + iid);
-        if (row) {
-            var tdAction = row.querySelector('td.action-cell');
-            if (tdAction) tdAction.outerHTML = actionCell(p, iid);
-        }
+        renderTable(currentData);
         showAlert('success', res.json.message || 'Baris recon berhasil dikonfirmasi.');
     })
     .catch(function (e) { showAlert('danger', 'Konfirmasi baris gagal: ' + e.message); });
@@ -906,7 +933,8 @@ function renderTable(divisions) {
     divisions.forEach(function (div) {
         div.materials.forEach(function (mat) {
             var multiProf = mat.profiles.length > 1;
-            var grpIid   = multiProf ? cssid(div.division_id + '_grp_' + mat.material_id) : null;
+            var groupDest = mat.destination_type || ((mat.profiles[0] && mat.profiles[0].destination_type) ? mat.profiles[0].destination_type : 'ALL');
+            var grpIid   = multiProf ? cssid(div.division_id + '_grp_' + groupDest + '_' + mat.material_id + '_' + mat.item_id) : null;
 
             if (multiProf) {
                 var sysTotal  = mat.system_total;
@@ -962,7 +990,7 @@ function renderTable(divisions) {
             }
 
             mat.profiles.forEach(function (p) {
-                var iid      = cssid(p.division_id + '_' + p.identity_key);
+                var iid      = cssid(p.recon_line_key || (p.division_id + '_' + p.destination_type + '_' + p.identity_key));
                 profileMap[iid] = p;
                 var physVal  = p.physical_qty_content !== null ? p.physical_qty_content : '';
                 var contentUom = esc(p.profile_content_uom_code || '—');
@@ -1025,6 +1053,7 @@ function renderTable(divisions) {
                     + adjColHtml(p, iid)
                     + actionCell(p, iid)
                     + '</tr>';
+                html += lotDetailRows(p, iid, multiProf ? grpIid : null);
             });
         });
     });
@@ -1089,7 +1118,7 @@ function confirmDailyRecon(stage) {
         return;
     }
     var label = stage === 'OPEN' ? 'buka kasir' : 'tutup kasir';
-    var pending = requiredReconPending(stage);
+    var pending = stage === 'CLOSE' ? requiredReconPending(stage) : [];
     if (pending.length > 0) {
         showRequiredReconWarning(stage, pending);
         return;

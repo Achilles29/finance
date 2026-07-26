@@ -353,7 +353,7 @@ class Inventory_division extends Purchase
 
         // Load opname records for this date (all or specific division)
         $opnameQuery = $this->db->table_exists('inv_division_stock_opname')
-            ? $this->db->select('division_id, identity_key, physical_qty_content, notes, adjustment_id')
+            ? $this->db->select('division_id, destination_type, identity_key, physical_qty_content, notes, adjustment_id')
                 ->from('inv_division_stock_opname')
                 ->where('opname_date', $opnameDate)
             : null;
@@ -364,7 +364,7 @@ class Inventory_division extends Purchase
 
         $opnameMap = [];
         foreach ($opnameRows as $row) {
-            $opnameMap[$row['division_id'] . '|' . $row['identity_key']] = $row;
+            $opnameMap[$this->division_opname_profile_key($row)] = $row;
         }
 
         // Group: division -> material -> profiles
@@ -372,9 +372,10 @@ class Inventory_division extends Purchase
         foreach ($stockRows as $r) {
             $divId   = (int)$r['division_id'];
             $divName = (string)$r['division_name'];
-            $matKey  = $divId . '|' . ($r['material_id'] ?: ('item_' . $r['item_id']));
+            $destKey = strtoupper((string)($r['destination_type'] ?? 'OTHER'));
+            $matKey  = $divId . '|' . $destKey . '|' . ($r['material_id'] ?: ('item_' . $r['item_id']));
             $ikey    = (string)$r['identity_key'];
-            $opname  = $opnameMap[$divId . '|' . $ikey] ?? null;
+            $opname  = $opnameMap[$this->division_opname_profile_key($r)] ?? null;
 
             $profile = [
                 'division_id'         => $divId,
@@ -431,6 +432,7 @@ class Inventory_division extends Purchase
                     'material_id'   => (int)$r['material_id'],
                     'material_code' => $r['material_code'],
                     'material_name' => $r['material_name'] ?: $r['item_name'],
+                    'destination_type' => $r['destination_type'],
                     'item_id'          => (int)$r['item_id'],
                     'content_uom_code' => $r['profile_content_uom_code'],
                     'category_name'    => (string)($r['category_name'] ?? ''),
@@ -884,6 +886,7 @@ class Inventory_division extends Purchase
 
         $lotCounts = [];
         $lotMeta = [];
+        $lotsByKey = [];
         if (!empty($materialIds) && $this->db->table_exists('inv_material_fifo_lot')) {
             $lotMonthStart = date('Y-m-01', strtotime($date));
             // Jangan pakai Query Builder where_in untuk daftar besar. CI3 akan memproses
@@ -938,6 +941,52 @@ class Inventory_division extends Purchase
                         'source_tables'      => (string)($lotRow['source_tables'] ?? ''),
                     ];
                 }
+
+                $lotDetailSql = "
+                    SELECT
+                        l.id AS lot_id,
+                        l.lot_no,
+                        l.receipt_date,
+                        l.source_table,
+                        l.source_id,
+                        l.division_id,
+                        COALESCE(l.destination_type, 'OTHER') AS destination_type,
+                        COALESCE(l.item_id, 0) AS item_id,
+                        COALESCE(l.material_id, li.material_id, 0) AS material_id,
+                        COALESCE(l.buy_uom_id, 0) AS buy_uom_id,
+                        COALESCE(l.content_uom_id, 0) AS content_uom_id,
+                        COALESCE(l.profile_key, '') AS profile_key,
+                        l.qty_balance,
+                        l.unit_cost,
+                        ROUND(COALESCE(l.qty_balance, 0) * COALESCE(l.unit_cost, 0), 2) AS total_value
+                    FROM inv_material_fifo_lot l
+                    LEFT JOIN mst_item li ON li.id = l.item_id
+                    WHERE l.location_scope = 'DIVISION'
+                      AND l.status = 'OPEN'
+                      AND ABS(COALESCE(l.qty_balance, 0)) > 0.0001
+                      AND l.receipt_date >= " . $this->db->escape($lotMonthStart) . "
+                      AND l.receipt_date <= " . $this->db->escape($date) . "
+                      AND COALESCE(l.material_id, li.material_id) IN (" . implode(',', $materialChunk) . ")
+                      {$divWhere}
+                    ORDER BY l.receipt_date ASC, l.id ASC
+                ";
+                $lotDetailQuery = $this->db->query($lotDetailSql);
+                foreach ($lotDetailQuery ? $lotDetailQuery->result_array() : [] as $lotRow) {
+                    $lotKey = $this->material_lot_count_key($lotRow);
+                    if (!isset($lotsByKey[$lotKey])) {
+                        $lotsByKey[$lotKey] = [];
+                    }
+                    $lotsByKey[$lotKey][] = [
+                        'lot_id'       => (int)($lotRow['lot_id'] ?? 0),
+                        'lot_no'       => (string)($lotRow['lot_no'] ?? ''),
+                        'receipt_date' => (string)($lotRow['receipt_date'] ?? ''),
+                        'source_table' => (string)($lotRow['source_table'] ?? ''),
+                        'source_id'    => (int)($lotRow['source_id'] ?? 0),
+                        'qty_balance'  => (float)($lotRow['qty_balance'] ?? 0),
+                        'unit_cost'    => (float)($lotRow['unit_cost'] ?? 0),
+                        'total_value'  => (float)($lotRow['total_value'] ?? 0),
+                    ];
+                }
             }
         }
 
@@ -959,7 +1008,7 @@ class Inventory_division extends Purchase
                     FROM inv_daily_recon_checkpoint_line
                     WHERE checkpoint_date = " . $this->db->escape($date) . "
                       AND recon_domain = 'MATERIAL'
-                      AND division_id = " . (int)$divisionId . "
+                      " . ($divisionId > 0 ? 'AND division_id = ' . (int)$divisionId : '') . "
                       AND line_key IN ({$lineKeySql})
                 ";
                 $lineQuery = $this->db->query($lineSql);
@@ -996,6 +1045,7 @@ class Inventory_division extends Purchase
 
             $lineKey = (string)($row['recon_line_key'] ?? '');
             $row['lot_count'] = $lotCount;
+            $row['lots'] = $lotsByKey[$lotKey] ?? [];
             $row['must_row_confirm'] = !empty($reasons);
             $row['must_row_confirm_reason'] = implode(', ', array_unique($reasons));
             $row['confirmed_open'] = isset($confirmed[$lineKey . '|OPEN']);
@@ -1014,6 +1064,15 @@ class Inventory_division extends Purchase
             (int)($row['material_id'] ?? 0),
             (int)($row['buy_uom_id'] ?? 0),
             (int)($row['content_uom_id'] ?? 0),
+            (string)($row['identity_key'] ?? ($row['profile_key'] ?? '')),
+        ]);
+    }
+
+    private function division_opname_profile_key(array $row): string
+    {
+        return implode('|', [
+            (int)($row['division_id'] ?? 0),
+            strtoupper((string)($row['destination_type'] ?? 'OTHER')),
             (string)($row['identity_key'] ?? ($row['profile_key'] ?? '')),
         ]);
     }

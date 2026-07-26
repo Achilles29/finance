@@ -4403,8 +4403,8 @@ class Payroll_model extends CI_Model
                     SUM(CASE WHEN t.penalty_code IN ('LATE_MINOR','LATE_MAJOR','LATE_SEVERE') THEN 1 ELSE 0 END) AS late_count,
                     SUM(CASE WHEN t.penalty_code = 'ALPHA' THEN 1 ELSE 0 END) AS alpha_count,
                     SUM(CASE WHEN t.penalty_code = 'BONUS-PH-TAKEN' THEN 1 ELSE 0 END) AS ph_taken_count,
-                    COALESCE(SUM(e.points_deducted),0) AS total_penalty_point_month,
-                    COALESCE(SUM(e.amount_deducted),0) AS total_penalty_amount_month
+                    COALESCE(SUM(CASE WHEN e.source_type = 'MANUAL' THEN e.points_deducted ELSE 0 END),0) AS total_penalty_point_month,
+                    COALESCE(SUM(CASE WHEN e.source_type = 'MANUAL' THEN e.amount_deducted ELSE 0 END),0) AS total_penalty_amount_month
                 ", false)
                 ->from('pay_bonus_penalty_event e')
                 ->join('pay_bonus_penalty_type t', 't.id = e.penalty_type_id', 'inner')
@@ -4415,28 +4415,6 @@ class Payroll_model extends CI_Model
                 ->get()->result_array();
             foreach ($penaltyRows as $penaltyRow) {
                 $penaltyMap[(int)($penaltyRow['employee_id'] ?? 0)] = $penaltyRow;
-            }
-        }
-
-        $teamPenaltyByDivision = [];
-        if ($this->db->table_exists('pay_bonus_penalty_event')) {
-            $teamPenaltyRows = $this->db->select("
-                    COALESCE(division_id, 0) AS division_id,
-                    COALESCE(SUM(points_deducted),0) AS total_penalty_point_month,
-                    COALESCE(SUM(amount_deducted),0) AS total_penalty_amount_month
-                ", false)
-                ->from('pay_bonus_penalty_event')
-                ->where('penalty_scope', 'TEAM')
-                ->where('employee_id IS NULL', null, false)
-                ->where("DATE_FORMAT(penalty_date, '%Y-%m') =", $month)
-                ->where('status <>', 'VOID')
-                ->group_by('COALESCE(division_id, 0)', false)
-                ->get()->result_array();
-            foreach ($teamPenaltyRows as $teamPenaltyRow) {
-                $teamPenaltyByDivision[(int)($teamPenaltyRow['division_id'] ?? 0)] = [
-                    'point' => (float)($teamPenaltyRow['total_penalty_point_month'] ?? 0),
-                    'amount' => (float)($teamPenaltyRow['total_penalty_amount_month'] ?? 0),
-                ];
             }
         }
 
@@ -4472,20 +4450,16 @@ class Payroll_model extends CI_Model
             $row['late_count'] = (int)($penalty['late_count'] ?? 0);
             $row['alpha_count'] = (int)($penalty['alpha_count'] ?? 0);
             $row['ph_taken_count'] = (int)($penalty['ph_taken_count'] ?? 0);
-            $teamPenalty = (array)($teamPenaltyByDivision[(int)($row['division_id'] ?? 0)] ?? []);
-            $globalTeamPenalty = (array)($teamPenaltyByDivision[0] ?? []);
-            $row['penalty_event_point_total'] = round(
-                (float)($penalty['total_penalty_point_month'] ?? 0)
-                + (float)($teamPenalty['point'] ?? 0)
-                + (float)($globalTeamPenalty['point'] ?? 0),
-                4
-            );
-            $row['penalty_event_amount_total'] = round(
-                (float)($penalty['total_penalty_amount_month'] ?? 0)
-                + (float)($teamPenalty['amount'] ?? 0)
-                + (float)($globalTeamPenalty['amount'] ?? 0),
-                2
-            );
+            $dailyPenaltyPoint = (float)($row['total_penalty_point'] ?? 0);
+            $dailyPenaltyAmount = (float)($row['total_penalty_amount'] ?? 0);
+            $eventPenaltyPoint = (float)($penalty['total_penalty_point_month'] ?? 0);
+            $eventPenaltyAmount = (float)($penalty['total_penalty_amount_month'] ?? 0);
+            $row['penalty_event_point_total'] = round($eventPenaltyPoint, 4);
+            $row['penalty_event_amount_total'] = round($eventPenaltyAmount, 2);
+            $row['total_penalty_point'] = round($dailyPenaltyPoint + $eventPenaltyPoint, 4);
+            $row['total_penalty_amount'] = round($dailyPenaltyAmount + $eventPenaltyAmount, 2);
+            $row['total_final_point'] = round(max(0, (float)($row['total_raw_point'] ?? 0) - (float)$row['total_penalty_point']), 4);
+            $row['total_final_amount'] = round(max(0, (float)($row['total_raw_amount'] ?? 0) - (float)$row['total_penalty_amount']), 2);
             $row['peer_avg_star'] = round((float)($peerMap[$employeeId] ?? 0), 2);
         }
         unset($row);
@@ -4689,12 +4663,14 @@ class Payroll_model extends CI_Model
             'total_final_amount' => 0.0,
             'estimated_raw_amount' => 0.0,
             'estimated_penalty_amount' => 0.0,
+            'estimated_manual_penalty_amount' => 0.0,
             'estimated_final_amount' => 0.0,
             'total_raw_point' => 0.0,
             'total_penalty_point' => 0.0,
             'total_final_point' => 0.0,
             'estimated_raw_point' => 0.0,
             'estimated_penalty_point' => 0.0,
+            'estimated_manual_penalty_point' => 0.0,
             'estimated_final_point' => 0.0,
             'peer_avg_star' => 0.0,
             'service_avg_score' => 0.0,
@@ -4795,13 +4771,6 @@ class Payroll_model extends CI_Model
         }
 
         if ($this->db->table_exists('pay_bonus_penalty_event')) {
-            $employee = $this->db->select('id, division_id')
-                ->from('org_employee')
-                ->where('id', $employeeId)
-                ->limit(1)
-                ->get()->row_array();
-            $divisionId = (int)($employee['division_id'] ?? 0);
-
             $penaltyDb = $this->db->select("
                     COALESCE(SUM(pe.points_deducted),0) AS estimated_penalty_point_event,
                     COALESCE(SUM(pe.amount_deducted),0) AS estimated_penalty_amount_event
@@ -4809,30 +4778,16 @@ class Payroll_model extends CI_Model
                 ->from('pay_bonus_penalty_event pe')
                 ->where("DATE_FORMAT(pe.penalty_date, '%Y-%m') =", $month)
                 ->where('pe.status <>', 'VOID')
-                ->group_start()
-                    ->where('pe.employee_id', $employeeId)
-                    ->or_group_start()
-                        ->where('pe.penalty_scope', 'TEAM')
-                        ->group_start()
-                            ->where('pe.division_id', $divisionId);
-            if ($divisionId <= 0) {
-                $penaltyDb->or_where('pe.division_id IS NULL', null, false);
-            } else {
-                $penaltyDb->or_where('pe.division_id IS NULL', null, false);
-            }
-            $penaltyDb->group_end()
-                    ->group_end()
-                ->group_end();
+                ->where('pe.employee_id', $employeeId)
+                ->where('pe.source_type', 'MANUAL');
 
             $penaltyRoll = $penaltyDb->get()->row_array();
-            $summary['estimated_penalty_point'] = round(max(
-                (float)($summary['estimated_penalty_point'] ?? 0),
-                (float)($penaltyRoll['estimated_penalty_point_event'] ?? 0)
-            ), 4);
-            $summary['estimated_penalty_amount'] = round(max(
-                (float)($summary['estimated_penalty_amount'] ?? 0),
-                (float)($penaltyRoll['estimated_penalty_amount_event'] ?? 0)
-            ), 2);
+            $manualPenaltyPoint = (float)($penaltyRoll['estimated_penalty_point_event'] ?? 0);
+            $manualPenaltyAmount = (float)($penaltyRoll['estimated_penalty_amount_event'] ?? 0);
+            $summary['estimated_manual_penalty_point'] = round($manualPenaltyPoint, 4);
+            $summary['estimated_manual_penalty_amount'] = round($manualPenaltyAmount, 2);
+            $summary['estimated_penalty_point'] = round((float)($summary['estimated_penalty_point'] ?? 0) + $manualPenaltyPoint, 4);
+            $summary['estimated_penalty_amount'] = round((float)($summary['estimated_penalty_amount'] ?? 0) + $manualPenaltyAmount, 2);
             $summary['estimated_final_amount'] = round(max(
                 0,
                 (float)($summary['estimated_raw_amount'] ?? 0) - (float)($summary['estimated_penalty_amount'] ?? 0)
@@ -4930,12 +4885,6 @@ class Payroll_model extends CI_Model
         }
 
         $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
-        $employee = $this->db->select('id, division_id')
-            ->from('org_employee')
-            ->where('id', $employeeId)
-            ->limit(1)
-            ->get()->row_array();
-        $divisionId = (int)($employee['division_id'] ?? 0);
 
         $db = $this->db->select("
                 pe.*,
@@ -4951,20 +4900,7 @@ class Payroll_model extends CI_Model
             ->join('att_shift s', 's.id = pe.shift_id', 'left')
             ->where("DATE_FORMAT(pe.penalty_date, '%Y-%m') =", $month)
             ->where('pe.status <>', 'VOID')
-            ->group_start()
-                ->where('pe.employee_id', $employeeId)
-                ->or_group_start()
-                    ->where('pe.penalty_scope', 'TEAM')
-                    ->group_start()
-                        ->where('pe.division_id', $divisionId);
-        if ($divisionId <= 0) {
-            $db->or_where('pe.division_id IS NULL', null, false);
-        } else {
-            $db->or_where('pe.division_id IS NULL', null, false);
-        }
-        $db->group_end()
-                ->group_end()
-            ->group_end()
+            ->where('pe.employee_id', $employeeId)
             ->order_by('pe.penalty_date', 'DESC')
             ->order_by('pe.id', 'DESC');
 
@@ -5169,10 +5105,7 @@ class Payroll_model extends CI_Model
             ->from('perf_peer_feedback pf')
             ->join('org_employee ef', 'ef.id = pf.from_employee_id', 'left')
             ->join('org_employee et', 'et.id = pf.to_employee_id', 'left')
-            ->group_start()
-                ->where('pf.from_employee_id', $employeeId)
-                ->or_where('pf.to_employee_id', $employeeId)
-            ->group_end()
+            ->where('pf.from_employee_id', $employeeId)
             ->where("DATE_FORMAT(pf.feedback_date, '%Y-%m') =", $month);
 
         if ($q !== '') {
@@ -5603,7 +5536,8 @@ class Payroll_model extends CI_Model
         }
 
         $this->build_bonus_employee_daily_admin_query($month, $q);
-        return (int)$this->db->count_all_results();
+        return (int)$this->db->count_all_results()
+            + $this->count_bonus_employee_daily_manual_only_rows($month, $q);
     }
 
     public function list_bonus_employee_daily_admin_rows(string $month = '', string $q = '', int $limit = 25, int $offset = 0): array
@@ -5612,12 +5546,119 @@ class Payroll_model extends CI_Model
             return [];
         }
 
-        return $this->build_bonus_employee_daily_admin_query($month, $q)
+        $rows = $this->build_bonus_employee_daily_admin_query($month, $q)
             ->order_by('ed.attendance_date', 'DESC')
             ->order_by('e.employee_name', 'ASC')
             ->order_by('ed.id', 'DESC')
-            ->limit($limit, $offset)
             ->get()->result_array();
+
+        $rows = array_merge($rows, $this->list_bonus_employee_daily_manual_only_rows($month, $q));
+        usort($rows, static function ($a, $b) {
+            $dateCmp = strcmp((string)($b['attendance_date'] ?? ''), (string)($a['attendance_date'] ?? ''));
+            if ($dateCmp !== 0) {
+                return $dateCmp;
+            }
+            $nameCmp = strcmp((string)($a['employee_name'] ?? ''), (string)($b['employee_name'] ?? ''));
+            if ($nameCmp !== 0) {
+                return $nameCmp;
+            }
+            return (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0);
+        });
+
+        return array_slice($rows, max(0, $offset), max(1, $limit));
+    }
+
+    private function count_bonus_employee_daily_manual_only_rows(string $month = '', string $q = ''): int
+    {
+        if (!$this->db->table_exists('pay_bonus_penalty_event')) {
+            return 0;
+        }
+
+        $db = $this->build_bonus_employee_daily_manual_only_query($month, $q);
+        $row = $db->select("COUNT(DISTINCT CONCAT(pe.employee_id, '|', pe.penalty_date)) AS total_rows", false)->get()->row_array();
+        return (int)($row['total_rows'] ?? 0);
+    }
+
+    private function list_bonus_employee_daily_manual_only_rows(string $month = '', string $q = ''): array
+    {
+        if (!$this->db->table_exists('pay_bonus_penalty_event')) {
+            return [];
+        }
+
+        $rows = $this->build_bonus_employee_daily_manual_only_query($month, $q)
+            ->select("
+                0 AS id,
+                pe.employee_id,
+                pe.penalty_date AS attendance_date,
+                pe.penalty_date AS bonus_date,
+                NULL AS pool_id,
+                NULL AS pool_shift_id,
+                COALESCE(MAX(pe.shift_id), 0) AS shift_id,
+                'PENALTY_ONLY' AS attendance_status,
+                0 AS raw_point,
+                COALESCE(SUM(pe.points_deducted),0) AS penalty_point,
+                0 AS final_point,
+                0 AS revenue_in_shift,
+                0 AS raw_amount,
+                COALESCE(SUM(pe.amount_deducted),0) AS penalty_amount,
+                0 AS final_amount,
+                'ESTIMASI' AS approval_status,
+                'ESTIMASI' AS pool_status,
+                0 AS slice_count,
+                'Penalty manual / custom' AS config_name,
+                GROUP_CONCAT(DISTINCT pt.penalty_name ORDER BY pt.penalty_name SEPARATOR ', ') AS rule_name,
+                MAX(e.employee_name) AS employee_name,
+                MAX(d.division_name) AS division_name,
+                MAX(pos.position_name) AS position_name,
+                MAX(s.shift_code) AS shift_code,
+                MAX(s.shift_name) AS shift_name
+            ", false)
+            ->group_by(['pe.employee_id', 'pe.penalty_date'])
+            ->get()->result_array();
+
+        foreach ($rows as &$row) {
+            $row['final_amount'] = 0.0;
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    private function build_bonus_employee_daily_manual_only_query(string $month = '', string $q = ''): CI_DB_query_builder
+    {
+        $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
+
+        $db = $this->db->from('pay_bonus_penalty_event pe')
+            ->join('pay_bonus_penalty_type pt', 'pt.id = pe.penalty_type_id', 'left')
+            ->join('org_employee e', 'e.id = pe.employee_id', 'left')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->join('org_position pos', 'pos.id = e.position_id', 'left')
+            ->join('att_shift s', 's.id = pe.shift_id', 'left')
+            ->where("DATE_FORMAT(pe.penalty_date, '%Y-%m') =", $month)
+            ->where('pe.status <>', 'VOID')
+            ->where('pe.source_type', 'MANUAL')
+            ->where('pe.employee_id IS NOT NULL', null, false)
+            ->where("NOT EXISTS (
+                SELECT 1
+                FROM pay_bonus_employee_daily ed
+                WHERE ed.employee_id = pe.employee_id
+                  AND ed.attendance_date = pe.penalty_date
+                  AND COALESCE(ed.approval_status, 'DRAFT') <> 'VOID'
+            )", null, false);
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('e.employee_name', $q)
+                ->or_like('d.division_name', $q)
+                ->or_like('pos.position_name', $q)
+                ->or_like('pt.penalty_name', $q)
+                ->or_like('pt.penalty_code', $q)
+                ->or_like('s.shift_code', $q)
+                ->or_like('s.shift_name', $q)
+                ->group_end();
+        }
+
+        return $db;
     }
 
     public function get_my_bonus_daily_audit_detail(int $employeeDailyId, int $employeeId): ?array
@@ -7206,7 +7247,9 @@ class Payroll_model extends CI_Model
                     e.employee_id,
                     SUM(CASE WHEN t.penalty_code IN ('LATE_MINOR','LATE_MAJOR','LATE_SEVERE') THEN 1 ELSE 0 END) AS late_count,
                     SUM(CASE WHEN t.penalty_code = 'ALPHA' THEN 1 ELSE 0 END) AS alpha_count,
-                    SUM(CASE WHEN t.penalty_code = 'BONUS-PH-TAKEN' THEN 1 ELSE 0 END) AS ph_taken_count
+                    SUM(CASE WHEN t.penalty_code = 'BONUS-PH-TAKEN' THEN 1 ELSE 0 END) AS ph_taken_count,
+                    COALESCE(SUM(CASE WHEN e.source_type = 'MANUAL' THEN e.points_deducted ELSE 0 END),0) AS total_penalty_point_month,
+                    COALESCE(SUM(CASE WHEN e.source_type = 'MANUAL' THEN e.amount_deducted ELSE 0 END),0) AS total_penalty_amount_month
                 ", false)
                 ->from('pay_bonus_penalty_event e')
                 ->join('pay_bonus_penalty_type t', 't.id = e.penalty_type_id', 'inner')
@@ -7279,7 +7322,15 @@ class Payroll_model extends CI_Model
                 continue;
             }
             $manual = $manualMap[$employeeId] ?? ['point_delta' => 0, 'amount_delta' => 0, 'adjustment_count' => 0];
-            $penalty = $penaltyMap[$employeeId] ?? ['late_count' => 0, 'alpha_count' => 0, 'ph_taken_count' => 0];
+            $penalty = $penaltyMap[$employeeId] ?? [
+                'late_count' => 0,
+                'alpha_count' => 0,
+                'ph_taken_count' => 0,
+                'total_penalty_point_month' => 0,
+                'total_penalty_amount_month' => 0,
+            ];
+            $totalPenaltyPoint = round((float)($dailyRow['total_penalty_point'] ?? 0) + (float)($penalty['total_penalty_point_month'] ?? 0), 4);
+            $totalPenaltyAmount = round((float)($dailyRow['total_penalty_amount'] ?? 0) + (float)($penalty['total_penalty_amount_month'] ?? 0), 2);
             $notes = [];
             if ((int)($manual['adjustment_count'] ?? 0) > 0) {
                 $notes[] = 'manual adj ' . (int)$manual['adjustment_count'];
@@ -7292,11 +7343,11 @@ class Payroll_model extends CI_Model
                 'outlet_id' => !empty($dailyRow['outlet_id']) ? (int)$dailyRow['outlet_id'] : null,
                 'division_id' => !empty($dailyRow['division_id']) ? (int)$dailyRow['division_id'] : null,
                 'total_raw_point' => round((float)($dailyRow['total_raw_point'] ?? 0), 4),
-                'total_penalty_point' => round((float)($dailyRow['total_penalty_point'] ?? 0), 4),
-                'total_final_point' => round((float)($dailyRow['total_final_point'] ?? 0) + (float)($manual['point_delta'] ?? 0), 4),
+                'total_penalty_point' => $totalPenaltyPoint,
+                'total_final_point' => round(max(0, (float)($dailyRow['total_raw_point'] ?? 0) - $totalPenaltyPoint) + (float)($manual['point_delta'] ?? 0), 4),
                 'total_raw_amount' => round((float)($dailyRow['total_raw_amount'] ?? 0), 2),
-                'total_penalty_amount' => round((float)($dailyRow['total_penalty_amount'] ?? 0), 2),
-                'total_final_amount' => round((float)($dailyRow['total_final_amount'] ?? 0) + (float)($manual['amount_delta'] ?? 0), 2),
+                'total_penalty_amount' => $totalPenaltyAmount,
+                'total_final_amount' => round(max(0, (float)($dailyRow['total_raw_amount'] ?? 0) - $totalPenaltyAmount) + (float)($manual['amount_delta'] ?? 0), 2),
                 'ph_taken_count' => (int)($penalty['ph_taken_count'] ?? 0),
                 'late_count' => (int)($penalty['late_count'] ?? 0),
                 'alpha_count' => (int)($penalty['alpha_count'] ?? 0),
@@ -8702,8 +8753,16 @@ class Payroll_model extends CI_Model
             return 0;
         }
 
+        $penaltyName = trim($penaltyName) !== '' ? trim($penaltyName) : 'Penalti Custom Superadmin';
+        $slug = strtoupper(preg_replace('/[^A-Z0-9]+/', '_', $penaltyName));
+        $slug = trim((string)$slug, '_');
+        if ($slug === '') {
+            $slug = 'SUPERADMIN';
+        }
+        $penaltyCode = 'CUSTOM_' . substr($slug, 0, 22) . '_' . substr(sha1($penaltyName), 0, 8);
+
         $row = $this->db->from('pay_bonus_penalty_type')
-            ->where('penalty_code', 'CUSTOM_SUPERADMIN')
+            ->where('penalty_code', $penaltyCode)
             ->limit(1)
             ->get()->row_array();
         if (!empty($row['id'])) {
@@ -8711,8 +8770,8 @@ class Payroll_model extends CI_Model
         }
 
         $payload = [
-            'penalty_code' => 'CUSTOM_SUPERADMIN',
-            'penalty_name' => $penaltyName !== '' ? $penaltyName : 'Penalti Custom Superadmin',
+            'penalty_code' => $penaltyCode,
+            'penalty_name' => $penaltyName,
             'category' => 'OTHER',
             'deduction_mode' => 'FIXED_POINT',
             'default_points_deducted' => 0,
@@ -8720,7 +8779,7 @@ class Payroll_model extends CI_Model
             'applies_scope' => 'BOTH',
             'is_manual_only' => 1,
             'behavior_mode' => 'MANUAL',
-            'auto_source' => '',
+            'auto_source' => null,
             'attendance_trigger' => null,
             'verification_cycle' => 'PER_EVENT',
             'approval_required' => 1,

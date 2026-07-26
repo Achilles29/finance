@@ -819,7 +819,13 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               <td class="text-end text-danger">Rp <?php echo number_format((float)($row['penalty_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['final_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td><span class="bonus-soft-badge <?php echo strtoupper((string)($row['approval_status'] ?? 'DRAFT')) === 'APPROVED' ? 'ok' : 'warn'; ?>"><?php echo html_escape((string)($row['approval_status'] ?? 'DRAFT')); ?></span></td>
-              <td><a href="<?php echo site_url('payroll/bonus/daily-detail/' . (int)($row['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-secondary">Audit</a></td>
+              <td>
+                <?php if ((int)($row['id'] ?? 0) > 0): ?>
+                  <a href="<?php echo site_url('payroll/bonus/daily-detail/' . (int)($row['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-secondary">Audit</a>
+                <?php else: ?>
+                  <span class="text-muted small">Penalty manual</span>
+                <?php endif; ?>
+              </td>
             </tr>
           <?php endforeach; endif; ?>
           </tbody>
@@ -2708,7 +2714,6 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     resetPenaltyEventForm();
   })();
 </script>
-
 
 
 
