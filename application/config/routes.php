@@ -409,6 +409,11 @@ $route['production/component-formulas/delete/(:num)'] = 'production/component_fo
 $route['production/component-cost-variables'] = 'production/component_cost_variables';
 $route['production/component-cost-variables/save'] = 'production/component_cost_variable_save';
 
+// Roastery
+$route['roastery/packaging-labels'] = 'roastery/packaging_labels';
+$route['roastery/packaging-labels/save'] = 'roastery/packaging_label_save';
+$route['roastery/packaging-labels/delete/(:num)'] = 'roastery/packaging_label_delete/$1';
+
 // POS Master
 $route['master/lookup-search/(:any)/(:any)'] = 'master/lookup_search/$1/$2';
 $route['pos/members'] = 'pos/members';
