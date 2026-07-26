@@ -412,6 +412,9 @@ $route['production/component-cost-variables/save'] = 'production/component_cost_
 // Roastery
 $route['roastery/packaging-labels'] = 'roastery/packaging_labels';
 $route['roastery/packaging-labels/save'] = 'roastery/packaging_label_save';
+$route['roastery/packaging-labels/print/(:num)'] = 'roastery/packaging_label_print/$1';
+$route['roastery/packaging-labels/duplicate/(:num)'] = 'roastery/packaging_label_duplicate/$1';
+$route['roastery/packaging-labels/activate/(:num)'] = 'roastery/packaging_label_activate/$1';
 $route['roastery/packaging-labels/delete/(:num)'] = 'roastery/packaging_label_delete/$1';
 
 // POS Master
