@@ -119,12 +119,12 @@ $methodLabel = static function (array $method): string {
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label small text-muted mb-1">Mode buka tutup</label>
-                <select class="form-select" name="open_mode">
+                <select class="form-select" name="open_mode" id="online_food_open_mode">
                   <option value="MANUAL" <?php echo (string)($settings['open_mode'] ?? '') === 'MANUAL' ? 'selected' : ''; ?>>Manual</option>
                   <option value="SCHEDULE" <?php echo (string)($settings['open_mode'] ?? '') === 'SCHEDULE' ? 'selected' : ''; ?>>Otomatis jam</option>
                 </select>
               </div>
-              <div class="col-md-6">
+              <div class="col-md-6" id="online_food_manual_status_wrap">
                 <label class="form-label small text-muted mb-1">Status manual</label>
                 <select class="form-select" name="manual_status">
                   <option value="OPEN" <?php echo (string)($settings['manual_status'] ?? '') === 'OPEN' ? 'selected' : ''; ?>>Buka</option>
@@ -141,10 +141,11 @@ $methodLabel = static function (array $method): string {
               </div>
               <div class="col-12">
                 <label class="form-label small text-muted mb-1">Hari aktif</label>
+                <input type="hidden" name="schedule_days_csv" id="online_food_schedule_days_csv" value="<?php echo html_escape(implode(',', $selectedDays)); ?>">
                 <div class="online-food-check-grid">
                   <?php foreach ($dayOptions as $dayValue => $dayLabel): ?>
                     <label class="online-food-check">
-                      <input type="checkbox" name="schedule_days[]" value="<?php echo html_escape($dayValue); ?>" <?php echo in_array($dayValue, $selectedDays, true) ? 'checked' : ''; ?>>
+                      <input type="checkbox" class="online-food-schedule-day" name="schedule_days[]" value="<?php echo html_escape($dayValue); ?>" <?php echo in_array($dayValue, $selectedDays, true) ? 'checked' : ''; ?>>
                       <span><?php echo html_escape($dayLabel); ?></span>
                     </label>
                   <?php endforeach; ?>
@@ -346,6 +347,19 @@ document.addEventListener('DOMContentLoaded', function () {
   let mapInit = false;
   let map = null;
   let marker = null;
+  function syncOperationalUi() {
+    const mode = document.getElementById('online_food_open_mode');
+    const manualWrap = document.getElementById('online_food_manual_status_wrap');
+    if (mode && manualWrap) {
+      manualWrap.style.display = String(mode.value || '').toUpperCase() === 'SCHEDULE' ? 'none' : '';
+    }
+    const csv = document.getElementById('online_food_schedule_days_csv');
+    if (csv) {
+      csv.value = Array.from(document.querySelectorAll('.online-food-schedule-day:checked'))
+        .map(function (item) { return item.value; })
+        .join(',');
+    }
+  }
   function syncBaseUrlFromOnlineUrl() {
     const onlineUrl = document.getElementById('online_order_url');
     const baseUrl = document.getElementById('member_base_url');
@@ -433,9 +447,18 @@ document.addEventListener('DOMContentLoaded', function () {
     onlineUrl.addEventListener('input', syncBaseUrlFromOnlineUrl);
     onlineUrl.addEventListener('change', syncBaseUrlFromOnlineUrl);
   }
+  const openMode = document.getElementById('online_food_open_mode');
+  if (openMode) openMode.addEventListener('change', syncOperationalUi);
+  document.querySelectorAll('.online-food-schedule-day').forEach(function (input) {
+    input.addEventListener('change', syncOperationalUi);
+  });
+  syncOperationalUi();
   const form = document.querySelector('form.online-food-shell');
   if (form) {
-    form.addEventListener('submit', syncBaseUrlFromOnlineUrl);
+    form.addEventListener('submit', function () {
+      syncOperationalUi();
+      syncBaseUrlFromOnlineUrl();
+    });
   }
 });
 </script>

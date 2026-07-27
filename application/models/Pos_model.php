@@ -722,7 +722,7 @@ class Pos_model extends CI_Model
         if (!in_array($paymentDefault, ['AUTO', 'MANUAL'], true)) {
             $paymentDefault = 'MANUAL';
         }
-        $days = $data['schedule_days'] ?? [];
+        $days = $data['schedule_days'] ?? ($data['schedule_days_csv'] ?? []);
         if (!is_array($days)) {
             $days = explode(',', (string)$days);
         }

@@ -2340,13 +2340,13 @@ foreach ($detailLines as $ln) {
   function renderVendorResults(rows) {
     if (!rows.length) {
       resultBox.innerHTML = '<div class="po-vendor-item" style="color:#888;">Tidak ada vendor ditemukan.</div>';
-      resultBox.style.display = '';
+      resultBox.style.display = 'block';
       return;
     }
     resultBox.innerHTML = rows.map(function (row) {
       return '<div class="po-vendor-item" data-val="' + esc(String(row.value)) + '" data-lbl="' + esc(String(row.label)) + '">' + esc(String(row.label)) + '</div>';
     }).join('');
-    resultBox.style.display = '';
+    resultBox.style.display = 'block';
     Array.prototype.forEach.call(resultBox.querySelectorAll('.po-vendor-item[data-val]'), function (item) {
       item.addEventListener('mousedown', function (e) {
         e.preventDefault();
@@ -2371,7 +2371,7 @@ foreach ($detailLines as $ln) {
 
   dispInput.addEventListener('focus', function () {
     if (resultBox.innerHTML.trim()) {
-      resultBox.style.display = '';
+      resultBox.style.display = 'block';
     } else if (!hiddenSel.value) {
       doVendorSearch('');
     }

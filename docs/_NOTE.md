@@ -198,8 +198,10 @@ sekarang perbaiki logika detail audit bonus di /payroll/bonus?month=2026-07&tab=
 
 
 
-- modifikasi /purchase-orders/create agar pencarian Vendor tetap muncul dropdown tapi dapat diketik ajax
-- modifikasi /master/material/create agar pencarian kategori dan satuan isi tetap muncul dropdown tapi dapat diketik ajax
-- modifikasi /master/item/create agar pencarian kategori, satuan beli,  satuan isi, bahan baku existing tetap muncul dropdown tapi dapat diketik ajax
+- kalau masih tutup seharusnya online order masih tutup  , customer tidak bisa melakukan order
 
-- modifikasi agar /master/purchase-catalog/create  pencarian item, material UOM beli, UOM isi,  tetap muncul dropdown tapi dapat diketik ajax
+- terkati ongkir ini baiknya gimana? karena ongkir ini bukan termmasuk sales, karena bisa jadi menggunakan jasa ojek online untuk mengirim. ongkir tetap harus tercatat tapi tidak serta merta masuk kas. kalau sudah terlanjur kamu ubah, lakukan revisi lagi.
+
+- Lalu ada satu moment ketika customer juga tidak perlu membayar ongkir, mungkin karena jarak terjangkau atau sudah langganan. bagaimana baiknya pengaturannya?
+
+- ketika customer melakukan pencarian lokasi, berikan dropdown pilihan paling sesuai dengan jarak terdekat. lalu saya ingin ada opsi lokasi terimpan seperti di grab dengan beberapa keterangan yang diperlukan seperti di grab
