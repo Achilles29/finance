@@ -653,54 +653,59 @@ $renderReadonlyValue = static function ($value, string $type): string {
         .catch(function () {});
     }
 
+    function buildItemHtml(row) {
+      var thumb = showThumb && row.thumb_url ? '<img class="master-ajax-item-thumb" src="' + escapeHtml(row.thumb_url) + '" alt="' + escapeHtml(row.label || '') + '">' : '';
+      var meta = row.meta ? '<div class="master-ajax-item-meta">' + escapeHtml(row.meta) + '</div>' : '';
+      return '<div class="master-ajax-item" data-value="' + escapeHtml(row.value) + '" data-label="' + escapeHtml(row.label) + '" data-meta="' + escapeHtml(row.meta || '') + '" data-thumb-url="' + escapeHtml(row.thumb_url || '') + '"><div class="master-ajax-item-layout">' + thumb + '<div><div class="master-ajax-item-title">' + escapeHtml(row.label) + '</div>' + meta + '</div></div></div>';
+    }
+
+    function attachItemClicks() {
+      Array.prototype.forEach.call(result.querySelectorAll('.master-ajax-item[data-value]'), function (item) {
+        item.addEventListener('click', function () {
+          setSelected(box, {
+            value: item.getAttribute('data-value'),
+            label: item.getAttribute('data-label'),
+            meta: item.getAttribute('data-meta'),
+            thumb_url: item.getAttribute('data-thumb-url')
+          });
+        });
+      });
+    }
+
+    function doSearch(q) {
+      fetch(searchUrl + '?q=' + encodeURIComponent(q), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.text(); })
+        .then(function (t) {
+          var json = JSON.parse(t);
+          var rows = Array.isArray(json.rows) ? json.rows : [];
+          if (!rows.length) {
+            result.innerHTML = '<div class="master-ajax-item"><div class="master-ajax-item-title">Tidak ada hasil.</div></div>';
+            result.classList.add('is-open');
+            return;
+          }
+          result.innerHTML = rows.map(buildItemHtml).join('');
+          result.classList.add('is-open');
+          attachItemClicks();
+        })
+        .catch(function () {
+          result.innerHTML = '<div class="master-ajax-item"><div class="master-ajax-item-title">Gagal memuat hasil.</div></div>';
+          result.classList.add('is-open');
+        });
+    }
+
     display.addEventListener('input', function () {
       hidden.value = '';
       renderSelectedPreview(box, null);
       var q = display.value.trim();
       if (timer) window.clearTimeout(timer);
-      if (q.length < 2) {
-        result.classList.remove('is-open');
-        result.innerHTML = '';
-        return;
-      }
-      timer = window.setTimeout(function () {
-        fetch(searchUrl + '?q=' + encodeURIComponent(q), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-          .then(function (r) { return r.text(); })
-          .then(function (t) {
-            var json = JSON.parse(t);
-            var rows = Array.isArray(json.rows) ? json.rows : [];
-            if (!rows.length) {
-              result.innerHTML = '<div class="master-ajax-item"><div class="master-ajax-item-title">Tidak ada hasil.</div></div>';
-              result.classList.add('is-open');
-              return;
-            }
-            result.innerHTML = rows.map(function (row) {
-              var thumb = showThumb && row.thumb_url ? '<img class="master-ajax-item-thumb" src="' + escapeHtml(row.thumb_url) + '" alt="' + escapeHtml(row.label || '') + '">' : '';
-              var meta = row.meta ? '<div class="master-ajax-item-meta">' + escapeHtml(row.meta) + '</div>' : '';
-              return '<div class="master-ajax-item" data-value="' + escapeHtml(row.value) + '" data-label="' + escapeHtml(row.label) + '" data-meta="' + escapeHtml(row.meta || '') + '" data-thumb-url="' + escapeHtml(row.thumb_url || '') + '"><div class="master-ajax-item-layout">' + thumb + '<div><div class="master-ajax-item-title">' + escapeHtml(row.label) + '</div>' + meta + '</div></div></div>';
-            }).join('');
-            result.classList.add('is-open');
-            Array.prototype.forEach.call(result.querySelectorAll('.master-ajax-item[data-value]'), function (item) {
-              item.addEventListener('click', function () {
-                setSelected(box, {
-                  value: item.getAttribute('data-value'),
-                  label: item.getAttribute('data-label'),
-                  meta: item.getAttribute('data-meta'),
-                  thumb_url: item.getAttribute('data-thumb-url')
-                });
-              });
-            });
-          })
-          .catch(function () {
-            result.innerHTML = '<div class="master-ajax-item"><div class="master-ajax-item-title">Gagal memuat hasil pencarian.</div></div>';
-            result.classList.add('is-open');
-          });
-      }, 280);
+      timer = window.setTimeout(function () { doSearch(q); }, 280);
     });
 
     display.addEventListener('focus', function () {
       if (result.innerHTML.trim() !== '') {
         result.classList.add('is-open');
+      } else if (!hidden.value) {
+        doSearch('');
       }
     });
   }

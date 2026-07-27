@@ -59,10 +59,25 @@ $methodLabel = static function (array $method): string {
   }
   .online-food-tab-pane { display:none; }
   .online-food-tab-pane.is-active { display:block; }
+  .online-food-option-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:1rem; }
+  .online-food-pay-card {
+    border:1px solid #d9c9be; border-radius:14px; padding:1rem; background:#fff;
+    min-height:100%; display:grid; gap:.85rem;
+  }
+  .online-food-pay-card.is-primary { border-color:#1f6f58; box-shadow:0 14px 28px rgba(31,111,88,.12); }
+  .online-food-pay-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; }
+  .online-food-pay-title { font-weight:900; color:#302827; line-height:1.2; }
+  .online-food-pay-desc { color:#786d66; font-size:.86rem; line-height:1.45; margin-top:.2rem; }
+  .online-food-map {
+    width:100%; min-height:360px; border:1px solid #d8c9bd; border-radius:14px; overflow:hidden; background:#eef2ec;
+  }
+  .online-food-map-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-top:.7rem; }
   @media (max-width: 575.98px) {
     .online-food-check-grid { grid-template-columns:1fr; }
+    .online-food-option-grid { grid-template-columns:1fr; }
   }
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 
 <div class="container-xxl py-3">
   <?php $this->load->view('pos/_master_tabs', ['pos_master_tab_active' => 'online-food']); ?>
@@ -153,75 +168,69 @@ $methodLabel = static function (array $method): string {
         <div class="card online-food-card h-100">
           <div class="card-body">
             <h5 class="mb-3">Pembayaran</h5>
-            <div class="row g-3">
-              <div class="col-md-6">
-                <div class="form-check form-switch border rounded-3 px-3 py-2 h-100">
-                  <input class="form-check-input" type="checkbox" role="switch" id="payment_manual_enabled" name="payment_manual_enabled" value="1" <?php echo !empty($settings['payment_manual_enabled']) ? 'checked' : ''; ?>>
-                  <label class="form-check-label ms-2" for="payment_manual_enabled">Manual admin / konfirmasi WhatsApp</label>
+            <div class="online-food-option-grid">
+              <div class="online-food-pay-card <?php echo (string)($settings['payment_default'] ?? '') === 'AUTO' ? 'is-primary' : ''; ?>">
+                <div class="online-food-pay-head">
+                  <div>
+                    <div class="online-food-pay-title">QRIS Otomatis</div>
+                    <div class="online-food-pay-desc">Customer bayar QRIS. Setelah payment terdeteksi lunas, kasir verifikasi dan order masuk pesanan terbayar.</div>
+                  </div>
+                  <input class="form-check-input mt-1" type="checkbox" role="switch" id="payment_auto_enabled" name="payment_auto_enabled" value="1" <?php echo !empty($settings['payment_auto_enabled']) ? 'checked' : ''; ?>>
                 </div>
-              </div>
-              <div class="col-md-6">
-                <div class="form-check form-switch border rounded-3 px-3 py-2 h-100">
-                  <input class="form-check-input" type="checkbox" role="switch" id="payment_auto_enabled" name="payment_auto_enabled" value="1" <?php echo !empty($settings['payment_auto_enabled']) ? 'checked' : ''; ?>>
-                  <label class="form-check-label ms-2" for="payment_auto_enabled">Otomatis QRIS Midtrans</label>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small text-muted mb-1">Payment utama</label>
-                <select class="form-select" name="payment_default">
-                  <option value="MANUAL" <?php echo (string)($settings['payment_default'] ?? '') === 'MANUAL' ? 'selected' : ''; ?>>Manual admin</option>
-                  <option value="AUTO" <?php echo (string)($settings['payment_default'] ?? '') === 'AUTO' ? 'selected' : ''; ?>>Otomatis QRIS</option>
-                </select>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small text-muted mb-1">Provider otomatis</label>
-                <input type="text" class="form-control" value="MIDTRANS" readonly>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small text-muted mb-1">Payment method QRIS</label>
+                <label class="form-label small text-muted mb-1">Metode POS untuk transaksi Midtrans</label>
                 <select class="form-select" name="qris_payment_method_id">
-                  <option value="">Pilih metode QRIS...</option>
+                  <option value="">Pilih metode POS...</option>
                   <?php foreach ($paymentMethods as $method): ?>
-                    <?php $methodType = strtoupper((string)($method['method_type'] ?? '')); ?>
-                    <?php if ($methodType !== 'QRIS'): ?><?php continue; ?><?php endif; ?>
                     <option value="<?php echo (int)$method['id']; ?>" <?php echo (int)($settings['qris_payment_method_id'] ?? 0) === (int)$method['id'] ? 'selected' : ''; ?>>
                       <?php echo html_escape($methodLabel($method)); ?>
                     </option>
                   <?php endforeach; ?>
                 </select>
+                <div class="online-food-muted">Pilih metode/rekening POS yang akan dipakai untuk mencatat settlement Midtrans, misalnya MIDTRANS.</div>
+                <div class="row g-2">
+                  <div class="col-md-6">
+                    <label class="form-label small text-muted mb-1">Midtrans Server Key</label>
+                    <textarea class="form-control" name="midtrans_server_key" rows="3"><?php echo html_escape((string)($settings['midtrans_server_key'] ?? '')); ?></textarea>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small text-muted mb-1">Midtrans Client Key</label>
+                    <textarea class="form-control" name="midtrans_client_key" rows="3"><?php echo html_escape((string)($settings['midtrans_client_key'] ?? '')); ?></textarea>
+                  </div>
+                </div>
+                <label class="online-food-check">
+                  <input type="checkbox" name="midtrans_is_production" value="1" <?php echo !empty($settings['midtrans_is_production']) ? 'checked' : ''; ?>>
+                  <span>Gunakan Midtrans production</span>
+                </label>
+              </div>
+
+              <div class="online-food-pay-card <?php echo (string)($settings['payment_default'] ?? '') !== 'AUTO' ? 'is-primary' : ''; ?>">
+                <div class="online-food-pay-head">
+                  <div>
+                    <div class="online-food-pay-title">Manual Admin</div>
+                    <div class="online-food-pay-desc">Customer klik WhatsApp. Setelah admin/kasir deal, kasir verifikasi order agar masuk Order Aktif POS dan payment dilakukan di POS seperti biasa.</div>
+                  </div>
+                  <input class="form-check-input mt-1" type="checkbox" role="switch" id="payment_manual_enabled" name="payment_manual_enabled" value="1" <?php echo !empty($settings['payment_manual_enabled']) ? 'checked' : ''; ?>>
+                </div>
+                <label class="form-label small text-muted mb-1">Nomor WhatsApp admin</label>
+                <input type="text" class="form-control" name="manual_whatsapp_number" value="<?php echo html_escape((string)($settings['manual_whatsapp_number'] ?? '')); ?>" placeholder="62812xxxx">
+                <label class="form-label small text-muted mb-1">Template pesan WhatsApp</label>
+                <input type="text" class="form-control" name="manual_whatsapp_template" value="<?php echo html_escape((string)($settings['manual_whatsapp_template'] ?? '')); ?>">
+                <label class="form-label small text-muted mb-1">Instruksi singkat untuk customer</label>
+                <textarea class="form-control" name="manual_payment_instructions" rows="3"><?php echo html_escape((string)($settings['manual_payment_instructions'] ?? '')); ?></textarea>
+              </div>
+            </div>
+
+            <div class="row g-3 mt-1">
+              <div class="col-md-6">
+                <label class="form-label small text-muted mb-1">Payment utama yang dipilih otomatis di member</label>
+                <select class="form-select" name="payment_default">
+                  <option value="MANUAL" <?php echo (string)($settings['payment_default'] ?? '') === 'MANUAL' ? 'selected' : ''; ?>>Manual admin</option>
+                  <option value="AUTO" <?php echo (string)($settings['payment_default'] ?? '') === 'AUTO' ? 'selected' : ''; ?>>QRIS otomatis</option>
+                </select>
               </div>
               <div class="col-md-6">
                 <label class="form-label small text-muted mb-1">Minimal order</label>
                 <input type="number" step="0.01" min="0" class="form-control" name="min_order_amount" value="<?php echo html_escape($formatNumber($settings['min_order_amount'] ?? 0)); ?>">
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small text-muted mb-1">Midtrans Server Key</label>
-                <textarea class="form-control" name="midtrans_server_key" rows="3"><?php echo html_escape((string)($settings['midtrans_server_key'] ?? '')); ?></textarea>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small text-muted mb-1">Midtrans Client Key</label>
-                <textarea class="form-control" name="midtrans_client_key" rows="3"><?php echo html_escape((string)($settings['midtrans_client_key'] ?? '')); ?></textarea>
-              </div>
-              <div class="col-md-6">
-                <div class="form-check form-switch border rounded-3 px-3 py-2">
-                  <input class="form-check-input" type="checkbox" role="switch" id="midtrans_is_production" name="midtrans_is_production" value="1" <?php echo !empty($settings['midtrans_is_production']) ? 'checked' : ''; ?>>
-                  <label class="form-check-label ms-2" for="midtrans_is_production">Gunakan Midtrans production</label>
-                </div>
-              </div>
-              <div class="col-12">
-                <label class="form-label small text-muted mb-1">Metode pembayaran tampil di Online Food</label>
-                <div class="online-food-check-grid">
-                  <?php foreach ($paymentMethods as $method): ?>
-                    <?php $methodId = (int)($method['id'] ?? 0); ?>
-                    <label class="online-food-check">
-                      <input type="checkbox" name="payment_method_ids[]" value="<?php echo $methodId; ?>" <?php echo in_array($methodId, $selectedMethods, true) ? 'checked' : ''; ?>>
-                      <span><?php echo html_escape($methodLabel($method)); ?></span>
-                    </label>
-                  <?php endforeach; ?>
-                </div>
-                <?php if (empty($paymentMethods)): ?>
-                  <div class="small text-danger mt-2">Belum ada payment method aktif.</div>
-                <?php endif; ?>
               </div>
             </div>
           </div>
@@ -291,33 +300,26 @@ $methodLabel = static function (array $method): string {
           <div class="card-body">
             <h5 class="mb-3">Outlet & Link Member</h5>
             <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label small text-muted mb-1">URL Online Food</label>
+                <input type="url" class="form-control" name="online_order_url" id="online_order_url" value="<?php echo html_escape((string)($settings['online_order_url'] ?? '')); ?>" placeholder="https://member.domain.com/online-order">
+                <input type="hidden" name="member_base_url" id="member_base_url" value="<?php echo html_escape((string)($settings['member_base_url'] ?? '')); ?>">
+              </div>
+              <div class="col-12">
+                <label class="form-label small text-muted mb-1">Titik outlet untuk hitung jarak</label>
+                <div id="online_food_map" class="online-food-map"></div>
+                <div class="online-food-map-actions">
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="online_food_use_browser_location">Gunakan Lokasi Browser</button>
+                  <span class="online-food-muted" id="online_food_map_status">Geser pin pada map untuk menentukan titik outlet.</span>
+                </div>
+              </div>
               <div class="col-md-6">
                 <label class="form-label small text-muted mb-1">Latitude outlet</label>
-                <input type="number" step="0.0000001" class="form-control" name="outlet_lat" value="<?php echo html_escape((string)($settings['outlet_lat'] ?? '')); ?>">
+                <input type="number" step="0.0000001" class="form-control" name="outlet_lat" id="outlet_lat" value="<?php echo html_escape((string)($settings['outlet_lat'] ?? '')); ?>">
               </div>
               <div class="col-md-6">
                 <label class="form-label small text-muted mb-1">Longitude outlet</label>
-                <input type="number" step="0.0000001" class="form-control" name="outlet_lng" value="<?php echo html_escape((string)($settings['outlet_lng'] ?? '')); ?>">
-              </div>
-              <div class="col-12">
-                <label class="form-label small text-muted mb-1">Base URL aplikasi member</label>
-                <input type="url" class="form-control" name="member_base_url" value="<?php echo html_escape((string)($settings['member_base_url'] ?? '')); ?>" placeholder="https://member.domain.com/">
-              </div>
-              <div class="col-12">
-                <label class="form-label small text-muted mb-1">URL Online Food</label>
-                <div class="online-food-preview"><?php echo html_escape((string)($settings['online_order_url'] ?? '-')); ?></div>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small text-muted mb-1">Nomor WhatsApp admin</label>
-                <input type="text" class="form-control" name="manual_whatsapp_number" value="<?php echo html_escape((string)($settings['manual_whatsapp_number'] ?? '')); ?>" placeholder="62812xxxx">
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small text-muted mb-1">Template pesan WhatsApp</label>
-                <input type="text" class="form-control" name="manual_whatsapp_template" value="<?php echo html_escape((string)($settings['manual_whatsapp_template'] ?? '')); ?>">
-              </div>
-              <div class="col-12">
-                <label class="form-label small text-muted mb-1">Instruksi pembayaran manual</label>
-                <textarea class="form-control" name="manual_payment_instructions" rows="3"><?php echo html_escape((string)($settings['manual_payment_instructions'] ?? '')); ?></textarea>
+                <input type="number" step="0.0000001" class="form-control" name="outlet_lng" id="outlet_lng" value="<?php echo html_escape((string)($settings['outlet_lng'] ?? '')); ?>">
               </div>
               <div class="col-12">
                 <label class="form-label small text-muted mb-1">Catatan internal</label>
@@ -341,6 +343,77 @@ $methodLabel = static function (array $method): string {
 document.addEventListener('DOMContentLoaded', function () {
   const buttons = Array.from(document.querySelectorAll('[data-online-food-tab]'));
   const panes = Array.from(document.querySelectorAll('[data-online-food-pane]'));
+  let mapInit = false;
+  let map = null;
+  let marker = null;
+  function syncBaseUrlFromOnlineUrl() {
+    const onlineUrl = document.getElementById('online_order_url');
+    const baseUrl = document.getElementById('member_base_url');
+    if (!onlineUrl || !baseUrl) return;
+    let value = String(onlineUrl.value || '').trim();
+    if (value === '') return;
+    value = value.replace(/\/online-order\/?$/i, '/');
+    if (!/\/$/.test(value)) value += '/';
+    baseUrl.value = value;
+  }
+  function initOutletMap() {
+    if (mapInit || typeof L === 'undefined') return;
+    const latEl = document.getElementById('outlet_lat');
+    const lngEl = document.getElementById('outlet_lng');
+    const statusEl = document.getElementById('online_food_map_status');
+    const mapEl = document.getElementById('online_food_map');
+    if (!latEl || !lngEl || !mapEl) return;
+    const initialLat = parseFloat(latEl.value || '-6.2000000');
+    const initialLng = parseFloat(lngEl.value || '106.8166667');
+    const setPoint = function (lat, lng, moveMap) {
+      latEl.value = Number(lat).toFixed(7);
+      lngEl.value = Number(lng).toFixed(7);
+      if (marker) marker.setLatLng([lat, lng]);
+      if (moveMap && map) map.setView([lat, lng], Math.max(map.getZoom(), 15));
+      if (statusEl) statusEl.textContent = 'Titik outlet: ' + Number(lat).toFixed(7) + ', ' + Number(lng).toFixed(7);
+    };
+    map = L.map(mapEl).setView([initialLat, initialLng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+    marker = L.marker([initialLat, initialLng], { draggable: true }).addTo(map);
+    marker.on('dragend', function () {
+      const point = marker.getLatLng();
+      setPoint(point.lat, point.lng, false);
+    });
+    map.on('click', function (event) {
+      setPoint(event.latlng.lat, event.latlng.lng, false);
+    });
+    latEl.addEventListener('change', function () {
+      const lat = parseFloat(latEl.value);
+      const lng = parseFloat(lngEl.value);
+      if (!Number.isNaN(lat) && !Number.isNaN(lng)) setPoint(lat, lng, true);
+    });
+    lngEl.addEventListener('change', function () {
+      const lat = parseFloat(latEl.value);
+      const lng = parseFloat(lngEl.value);
+      if (!Number.isNaN(lat) && !Number.isNaN(lng)) setPoint(lat, lng, true);
+    });
+    const browserBtn = document.getElementById('online_food_use_browser_location');
+    if (browserBtn) {
+      browserBtn.addEventListener('click', function () {
+        if (!navigator.geolocation) {
+          if (statusEl) statusEl.textContent = 'Browser tidak mendukung geolocation.';
+          return;
+        }
+        if (statusEl) statusEl.textContent = 'Mengambil lokasi browser...';
+        navigator.geolocation.getCurrentPosition(function (pos) {
+          setPoint(pos.coords.latitude, pos.coords.longitude, true);
+        }, function () {
+          if (statusEl) statusEl.textContent = 'Gagal mengambil lokasi browser. Geser pin secara manual.';
+        }, { enableHighAccuracy: true, timeout: 12000 });
+      });
+    }
+    setPoint(initialLat, initialLng, false);
+    mapInit = true;
+    setTimeout(function () { map.invalidateSize(); }, 120);
+  }
   buttons.forEach(function (button) {
     button.addEventListener('click', function () {
       const target = button.getAttribute('data-online-food-tab');
@@ -350,7 +423,20 @@ document.addEventListener('DOMContentLoaded', function () {
       panes.forEach(function (pane) {
         pane.classList.toggle('is-active', pane.getAttribute('data-online-food-pane') === target);
       });
+      if (target === 'admin') {
+        initOutletMap();
+      }
     });
   });
+  const onlineUrl = document.getElementById('online_order_url');
+  if (onlineUrl) {
+    onlineUrl.addEventListener('input', syncBaseUrlFromOnlineUrl);
+    onlineUrl.addEventListener('change', syncBaseUrlFromOnlineUrl);
+  }
+  const form = document.querySelector('form.online-food-shell');
+  if (form) {
+    form.addEventListener('submit', syncBaseUrlFromOnlineUrl);
+  }
 });
 </script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>

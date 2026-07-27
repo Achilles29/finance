@@ -661,8 +661,8 @@ class Pos_model extends CI_Model
             'outlet_lat' => '',
             'outlet_lng' => '',
             'manual_whatsapp_number' => '',
-            'manual_whatsapp_template' => 'Halo admin, saya ingin konfirmasi order online food {order_no}.',
-            'manual_payment_instructions' => '',
+            'manual_whatsapp_template' => 'Halo admin, saya mau konfirmasi pesanan Online Food {order_no} dengan total Rp {total}. Mohon dibantu untuk metode pembayaran manual/COD dan estimasi pengantarannya.',
+            'manual_payment_instructions' => 'Untuk pembayaran manual, hubungi admin melalui tombol WhatsApp. Setelah admin mengonfirmasi pesanan, kasir akan memproses order dan pembayaran dilakukan melalui POS.',
             'member_base_url' => $this->default_self_order_member_base_url(),
             'notes' => '',
             'payment_method_ids' => [],
@@ -782,6 +782,12 @@ class Pos_model extends CI_Model
             $value = trim((string)$value);
             return $value === '' ? null : (float)$value;
         };
+        $memberBaseInput = trim((string)($data['online_order_url'] ?? ''));
+        if ($memberBaseInput !== '') {
+            $memberBaseInput = preg_replace('#/online-order/?$#i', '/', $memberBaseInput);
+        } else {
+            $memberBaseInput = (string)($data['member_base_url'] ?? '');
+        }
 
         $this->db->trans_begin();
         try {
@@ -819,7 +825,7 @@ class Pos_model extends CI_Model
                 'manual_whatsapp_number' => $this->nullable_text($data['manual_whatsapp_number'] ?? ''),
                 'manual_whatsapp_template' => $this->nullable_text($data['manual_whatsapp_template'] ?? ''),
                 'manual_payment_instructions' => $this->nullable_text($data['manual_payment_instructions'] ?? ''),
-                'member_base_url' => $this->normalize_member_base_url((string)($data['member_base_url'] ?? '')),
+                'member_base_url' => $this->normalize_member_base_url($memberBaseInput),
                 'notes' => $this->nullable_text($data['notes'] ?? ''),
             ]));
 

@@ -165,6 +165,11 @@ foreach ($detailLines as $ln) {
   .po-vendor-inline { display: flex; gap: .5rem; align-items: stretch; }
   .po-vendor-select { flex: 1 1 auto; min-width: 0; }
   .po-vendor-add { flex: 0 0 auto; white-space: nowrap; }
+  .po-vendor-search-wrap { flex: 1 1 auto; min-width: 0; position: relative; }
+  .po-vendor-dropdown { display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 50; background: #fff; border: 1px solid #dee2e6; border-radius: .375rem; box-shadow: 0 4px 12px rgba(0,0,0,.12); max-height: 260px; overflow-y: auto; }
+  .po-vendor-item { padding: .5rem .75rem; cursor: pointer; border-bottom: 1px solid #f1e4db; font-size: .9rem; }
+  .po-vendor-item:last-child { border-bottom: 0; }
+  .po-vendor-item:hover { background: #fff7f1; }
   #po-form .form-select {
     background-image: none !important;
     padding-right: .85rem;
@@ -430,15 +435,20 @@ foreach ($detailLines as $ln) {
       <div class="col-lg-3 col-md-6">
         <label class="form-label">Vendor</label>
         <div class="po-vendor-inline">
-          <select id="vendor_id" class="form-select po-vendor-select" required <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>
-            <option value="">Pilih Vendor...</option>
+          <div class="po-vendor-search-wrap">
+            <input type="text" id="vendor_display_input" class="form-control" placeholder="Cari vendor..." autocomplete="off" <?php echo $isPaymentOnlyEdit ? 'readonly' : ''; ?>>
+            <div id="vendor_search_result" class="po-vendor-dropdown"></div>
+          </div>
+          <!-- Hidden select as data store (value + QuickVendor compatibility) -->
+          <select id="vendor_id" style="display:none;" <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>
+            <option value=""></option>
             <?php foreach (($vendors ?? []) as $v): ?>
               <option value="<?php echo (int)$v['id']; ?>" <?php echo ((int)$v['id'] === $initialVendorId) ? 'selected' : ''; ?>><?php echo html_escape((string)$v['vendor_code'] . ' - ' . (string)$v['vendor_name']); ?></option>
             <?php endforeach; ?>
           </select>
           <button type="button" class="btn btn-outline-primary po-vendor-add" id="btn-po-add-vendor" <?php echo $isPaymentOnlyEdit ? 'disabled' : ''; ?>>+ Vendor</button>
         </div>
-        <small class="text-muted d-block mt-1">Jika vendor belum ada, tambah cepat dari form ini.</small>
+        <small class="text-muted d-block mt-1">Ketik nama/kode untuk cari vendor. Jika belum ada, klik + Vendor.</small>
       </div>
       <div class="col-lg-3 col-md-6">
         <label class="form-label">Metode Pembayaran (Rekening)</label>
@@ -969,7 +979,11 @@ foreach ($detailLines as $ln) {
     if (!window.FinanceQuickVendor) {
       return;
     }
-    window.FinanceQuickVendor.upsertSelectOption(document.getElementById('vendor_id'), vendor);
+    var sel = document.getElementById('vendor_id');
+    window.FinanceQuickVendor.upsertSelectOption(sel, vendor);
+    var disp = document.getElementById('vendor_display_input');
+    if (disp) disp.value = window.FinanceQuickVendor.vendorLabel(vendor) || '';
+    if (sel) sel.dispatchEvent(new Event('change'));
   }
 
   function buildUomOptions(selectedId) {
@@ -1481,10 +1495,8 @@ foreach ($detailLines as $ln) {
     };
 
     var statusTarget = normalizeStatus((reviewData.header || {}).status || initialStatus);
-    var vendorSelect = document.getElementById('vendor_id');
-    var vendorLabel = vendorSelect && vendorSelect.selectedIndex >= 0
-      ? String(vendorSelect.options[vendorSelect.selectedIndex].text || '-')
-      : '-';
+    var vendorDisplayEl = document.getElementById('vendor_display_input');
+    var vendorLabel = vendorDisplayEl ? String(vendorDisplayEl.value || '-') : '-';
     var destinationType = String((reviewData.header || {}).destination_type || '-');
     var warningList = (reviewData.warnings || []).map(function (row) {
       return '<li>' + esc(row) + '</li>';
@@ -2108,9 +2120,10 @@ foreach ($detailLines as $ln) {
   }
 
   var vendorEl = document.getElementById('vendor_id');
+  var vendorDisplayEl = document.getElementById('vendor_display_input');
   if (vendorEl) {
     vendorEl.addEventListener('change', function () {
-      vendorEl.classList.remove('is-invalid');
+      if (vendorDisplayEl) vendorDisplayEl.classList.remove('is-invalid');
       refreshAllLineSuggestions(true);
     });
   }
@@ -2173,7 +2186,7 @@ foreach ($detailLines as $ln) {
       return;
     }
     if (!header.vendor_id) {
-      var vendorField = document.getElementById('vendor_id');
+      var vendorField = document.getElementById('vendor_display_input');
       if (vendorField) {
         vendorField.classList.add('is-invalid');
         vendorField.focus();
@@ -2272,6 +2285,105 @@ foreach ($detailLines as $ln) {
   document.addEventListener('click', function (e) {
     if (!catalogPreviewWrap.contains(e.target) && e.target !== catalogKeywordEl) {
       catalogPreviewWrap.style.display = 'none';
+    }
+  });
+})();
+</script>
+
+<script>
+(function () {
+  'use strict';
+  var VENDOR_SEARCH_URL = '<?php echo site_url('master/lookup-search/purchase-catalog-vendor/vendor_id'); ?>';
+  var dispInput = document.getElementById('vendor_display_input');
+  var hiddenSel = document.getElementById('vendor_id');
+  var resultBox = document.getElementById('vendor_search_result');
+  if (!dispInput || !hiddenSel || !resultBox) return;
+
+  // Initialize display input from hidden select on page load
+  if (hiddenSel.value) {
+    var selOpt = hiddenSel.options[hiddenSel.selectedIndex];
+    if (selOpt && selOpt.value) dispInput.value = selOpt.text || '';
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (m) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[m];
+    });
+  }
+
+  function selectVendor(id, label) {
+    // Update hidden select (find or create option)
+    var found = false;
+    for (var i = 0; i < hiddenSel.options.length; i++) {
+      if (String(hiddenSel.options[i].value) === String(id)) {
+        hiddenSel.value = String(id);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      var opt = document.createElement('option');
+      opt.value = String(id);
+      opt.textContent = label;
+      hiddenSel.appendChild(opt);
+      hiddenSel.value = String(id);
+    }
+    // Update display
+    dispInput.value = label;
+    dispInput.classList.remove('is-invalid');
+    resultBox.style.display = 'none';
+    resultBox.innerHTML = '';
+    // Dispatch change to trigger line suggestion refresh
+    hiddenSel.dispatchEvent(new Event('change'));
+  }
+
+  function renderVendorResults(rows) {
+    if (!rows.length) {
+      resultBox.innerHTML = '<div class="po-vendor-item" style="color:#888;">Tidak ada vendor ditemukan.</div>';
+      resultBox.style.display = '';
+      return;
+    }
+    resultBox.innerHTML = rows.map(function (row) {
+      return '<div class="po-vendor-item" data-val="' + esc(String(row.value)) + '" data-lbl="' + esc(String(row.label)) + '">' + esc(String(row.label)) + '</div>';
+    }).join('');
+    resultBox.style.display = '';
+    Array.prototype.forEach.call(resultBox.querySelectorAll('.po-vendor-item[data-val]'), function (item) {
+      item.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        selectVendor(item.getAttribute('data-val'), item.getAttribute('data-lbl'));
+      });
+    });
+  }
+
+  var vendorTimer = null;
+  function doVendorSearch(q) {
+    fetch(VENDOR_SEARCH_URL + '?q=' + encodeURIComponent(q), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (json) { renderVendorResults(Array.isArray(json.rows) ? json.rows : []); })
+      .catch(function () {});
+  }
+
+  dispInput.addEventListener('input', function () {
+    hiddenSel.value = '';
+    clearTimeout(vendorTimer);
+    vendorTimer = setTimeout(function () { doVendorSearch(dispInput.value.trim()); }, 280);
+  });
+
+  dispInput.addEventListener('focus', function () {
+    if (resultBox.innerHTML.trim()) {
+      resultBox.style.display = '';
+    } else if (!hiddenSel.value) {
+      doVendorSearch('');
+    }
+  });
+
+  dispInput.addEventListener('blur', function () {
+    setTimeout(function () { resultBox.style.display = 'none'; }, 200);
+  });
+
+  document.addEventListener('click', function (e) {
+    if (!dispInput.contains(e.target) && !resultBox.contains(e.target)) {
+      resultBox.style.display = 'none';
     }
   });
 })();

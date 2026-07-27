@@ -594,6 +594,10 @@ class Master extends MY_Controller
             }
         }
 
+        if ($fieldName === 'vendor_id' && ($lookup['table'] ?? '') === 'mst_vendor') {
+            return $this->searchVendorLookupRows($q, $id);
+        }
+
         return $this->Master_model->search_options(
             (string)($lookup['table'] ?? ''),
             (string)($lookup['value'] ?? 'id'),
@@ -603,6 +607,29 @@ class Master extends MY_Controller
             (bool)($lookup['active_only'] ?? true),
             20
         );
+    }
+
+    private function searchVendorLookupRows(string $q, int $id): array
+    {
+        if (!$this->db->table_exists('mst_vendor')) return [];
+        $this->db->select("id AS value, CONCAT(COALESCE(vendor_code,''), ' - ', vendor_name) AS label", false);
+        $this->db->from('mst_vendor');
+        if ($id > 0) {
+            $this->db->where('id', $id);
+            return $this->db->limit(1)->get()->result_array();
+        }
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('vendor_name', $q)
+                ->or_like('vendor_code', $q)
+                ->group_end();
+        }
+        if ($this->db->field_exists('is_active', 'mst_vendor')) {
+            $this->db->where('is_active', 1);
+        }
+        $this->db->order_by('vendor_name', 'ASC');
+        $this->db->limit(20);
+        return $this->db->get()->result_array();
     }
 
     private function searchExtraProductLookupRows(string $q, int $id): array
@@ -3073,8 +3100,8 @@ class Master extends MY_Controller
                 'fields' => [
                     ['name' => 'material_code', 'label' => 'Kode', 'type' => 'text'],
                     ['name' => 'material_name', 'label' => 'Nama', 'type' => 'text'],
-                    ['name' => 'item_category_id', 'label' => 'Kategori', 'type' => 'select', 'lookup' => ['table' => 'mst_item_category', 'value' => 'id', 'label' => 'name']],
-                    ['name' => 'content_uom_id', 'label' => 'Satuan Isi', 'type' => 'select', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name']],
+                    ['name' => 'item_category_id', 'label' => 'Kategori', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_item_category', 'value' => 'id', 'label' => 'name']],
+                    ['name' => 'content_uom_id', 'label' => 'Satuan Isi', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name']],
                     ['name' => 'hpp_standard', 'label' => 'HPP Standar', 'type' => 'number', 'step' => '0.0001'],
                     ['name' => 'shelf_life_days', 'label' => 'Shelf Life (hari)', 'type' => 'number'],
                     ['name' => 'reorder_level_content', 'label' => 'Reorder Level', 'type' => 'number', 'step' => '0.0001'],
@@ -3117,14 +3144,14 @@ class Master extends MY_Controller
                 'fields' => [
                     ['name' => 'item_code', 'label' => 'Kode', 'type' => 'text'],
                     ['name' => 'item_name', 'label' => 'Nama', 'type' => 'text'],
-                    ['name' => 'item_category_id', 'label' => 'Kategori', 'type' => 'select', 'lookup' => ['table' => 'mst_item_category', 'value' => 'id', 'label' => 'name']],
-                    ['name' => 'buy_uom_id', 'label' => 'Satuan Beli', 'type' => 'select', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name']],
-                    ['name' => 'content_uom_id', 'label' => 'Satuan Isi', 'type' => 'select', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name']],
+                    ['name' => 'item_category_id', 'label' => 'Kategori', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_item_category', 'value' => 'id', 'label' => 'name']],
+                    ['name' => 'buy_uom_id', 'label' => 'Satuan Beli', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name']],
+                    ['name' => 'content_uom_id', 'label' => 'Satuan Isi', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name']],
                     ['name' => 'content_per_buy', 'label' => 'Isi per Beli', 'type' => 'number', 'step' => '0.0001'],
                     ['name' => 'min_stock_content', 'label' => 'Min Stok', 'type' => 'number', 'step' => '0.0001'],
                     ['name' => 'last_buy_price', 'label' => 'Harga Beli Terakhir', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'is_material', 'label' => 'Item ini Bahan Baku', 'type' => 'checkbox'],
-                    ['name' => 'material_id', 'label' => 'Bahan Baku Existing', 'type' => 'select', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
+                    ['name' => 'material_id', 'label' => 'Bahan Baku Existing', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
                     ['name' => 'default_usage_purpose', 'label' => 'Default Tujuan Pemakaian', 'type' => 'select', 'options' => [
                         ['value' => 'BAHAN_BAKU', 'label' => 'Persediaan Produksi'],
                         ['value' => 'OPERASIONAL', 'label' => 'Kebutuhan Operasional'],
@@ -3404,13 +3431,13 @@ class Master extends MY_Controller
                         ['value' => 'SERVICE', 'label' => 'SERVICE'],
                         ['value' => 'ASSET', 'label' => 'ASSET'],
                     ]],
-                    ['name' => 'item_id', 'label' => 'Item', 'type' => 'select', 'lookup' => ['table' => 'mst_item', 'value' => 'id', 'label' => 'item_name', 'active_only' => false]],
-                    ['name' => 'material_id', 'label' => 'Material', 'type' => 'select', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
+                    ['name' => 'item_id', 'label' => 'Item', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_item', 'value' => 'id', 'label' => 'item_name', 'active_only' => false]],
+                    ['name' => 'material_id', 'label' => 'Material', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_material', 'value' => 'id', 'label' => 'material_name', 'active_only' => false]],
                     ['name' => 'catalog_name', 'label' => 'Nama Katalog', 'type' => 'text'],
                     ['name' => 'brand_name', 'label' => 'Merk', 'type' => 'text'],
                     ['name' => 'line_description', 'label' => 'Keterangan', 'type' => 'textarea'],
-                    ['name' => 'buy_uom_id', 'label' => 'UOM Beli', 'type' => 'select', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
-                    ['name' => 'content_uom_id', 'label' => 'UOM Isi', 'type' => 'select', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
+                    ['name' => 'buy_uom_id', 'label' => 'UOM Beli', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
+                    ['name' => 'content_uom_id', 'label' => 'UOM Isi', 'type' => 'ajax_lookup', 'lookup' => ['table' => 'mst_uom', 'value' => 'id', 'label' => 'name', 'active_only' => false]],
                     ['name' => 'content_per_buy', 'label' => 'Isi per Beli', 'type' => 'number', 'step' => '0.0001'],
                     ['name' => 'conversion_factor_to_content', 'label' => 'Factor ke Isi', 'type' => 'number', 'step' => '0.00000001'],
                     ['name' => 'standard_price', 'label' => 'Harga Standar', 'type' => 'number', 'step' => '0.01'],

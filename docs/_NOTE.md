@@ -196,3 +196,10 @@ estimasi penalty di /my masih 0
 
 sekarang perbaiki logika detail audit bonus di /payroll/bonus?month=2026-07&tab=employee_daily, /payroll/bonus/monthly-detail/9/18?month=2026-07 dan /my/bonus apakah sudah mengadopsi time slice
 
+
+
+- modifikasi /purchase-orders/create agar pencarian Vendor tetap muncul dropdown tapi dapat diketik ajax
+- modifikasi /master/material/create agar pencarian kategori dan satuan isi tetap muncul dropdown tapi dapat diketik ajax
+- modifikasi /master/item/create agar pencarian kategori, satuan beli,  satuan isi, bahan baku existing tetap muncul dropdown tapi dapat diketik ajax
+
+- modifikasi agar /master/purchase-catalog/create  pencarian item, material UOM beli, UOM isi,  tetap muncul dropdown tapi dapat diketik ajax
