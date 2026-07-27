@@ -542,6 +542,7 @@ class Role_model extends CI_Model
                 return ['DASHBOARD'];
             case 'pos.cashier':
             case 'pos.self_order':
+            case 'pos.online_food':
             case 'grp.pos':
             case 'pos.report.group':
                 return ['POS'];
@@ -592,6 +593,7 @@ class Role_model extends CI_Model
                 return 'DASHBOARD';
             case 'pos.cashier':
             case 'pos.self_order':
+            case 'pos.online_food':
             case 'grp.pos':
             case 'pos.report.group':
                 return 'POS';

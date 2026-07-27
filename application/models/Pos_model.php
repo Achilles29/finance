@@ -628,6 +628,226 @@ class Pos_model extends CI_Model
         }
     }
 
+    public function online_food_settings(): array
+    {
+        $settings = [
+            'is_enabled' => 1,
+            'open_mode' => 'MANUAL',
+            'manual_status' => 'OPEN',
+            'timezone' => 'Asia/Jakarta',
+            'open_time' => '08:00',
+            'close_time' => '22:00',
+            'schedule_days' => ['1', '2', '3', '4', '5', '6', '0'],
+            'allow_cod' => 1,
+            'allow_qris' => 0,
+            'payment_default' => 'MANUAL',
+            'payment_auto_enabled' => 0,
+            'payment_manual_enabled' => 1,
+            'auto_payment_provider' => 'MIDTRANS',
+            'midtrans_server_key' => '',
+            'midtrans_client_key' => '',
+            'midtrans_is_production' => 0,
+            'qris_payment_method_id' => 0,
+            'delivery_fee_mode' => 'DISTANCE',
+            'delivery_flat_fee' => 0,
+            'delivery_base_fee' => 5000,
+            'delivery_base_km' => 2,
+            'delivery_per_km_fee' => 2500,
+            'delivery_min_fee' => 5000,
+            'delivery_max_distance_km' => 10,
+            'free_delivery_min_order' => 0,
+            'packaging_fee_default' => 0,
+            'min_order_amount' => 0,
+            'outlet_lat' => '',
+            'outlet_lng' => '',
+            'manual_whatsapp_number' => '',
+            'manual_whatsapp_template' => 'Halo admin, saya ingin konfirmasi order online food {order_no}.',
+            'manual_payment_instructions' => '',
+            'member_base_url' => $this->default_self_order_member_base_url(),
+            'notes' => '',
+            'payment_method_ids' => [],
+        ];
+
+        if ($this->db->table_exists('pos_online_food_setting')) {
+            $row = $this->db->get_where('pos_online_food_setting', ['id' => 1])->row_array();
+            if ($row) {
+                foreach ($settings as $key => $default) {
+                    if ($key === 'payment_method_ids' || !array_key_exists($key, $row)) {
+                        continue;
+                    }
+                    $settings[$key] = $row[$key];
+                }
+                $settings['schedule_days'] = array_values(array_filter(array_map('trim', explode(',', (string)($row['schedule_days'] ?? ''))), static function ($value) {
+                    return $value !== '';
+                }));
+            }
+        }
+
+        if ($this->db->table_exists('pos_online_food_payment_method')) {
+            $rows = $this->db->select('payment_method_id')
+                ->from('pos_online_food_payment_method')
+                ->where('setting_id', 1)
+                ->where('is_active', 1)
+                ->get()
+                ->result_array();
+            $settings['payment_method_ids'] = array_map('intval', array_column($rows, 'payment_method_id'));
+        }
+
+        $settings['open_time'] = substr((string)($settings['open_time'] ?? '08:00'), 0, 5);
+        $settings['close_time'] = substr((string)($settings['close_time'] ?? '22:00'), 0, 5);
+        $settings['member_base_url'] = $this->normalize_member_base_url((string)($settings['member_base_url'] ?? ''));
+        $settings['online_order_url'] = $settings['member_base_url'] . 'online-order';
+        return $settings;
+    }
+
+    public function save_online_food_settings(array $data): array
+    {
+        if (!$this->db->table_exists('pos_online_food_setting') || !$this->db->table_exists('pos_online_food_payment_method')) {
+            return ['ok' => false, 'message' => 'Schema online food belum lengkap. Jalankan migration online food terlebih dulu.'];
+        }
+
+        $openMode = strtoupper(trim((string)($data['open_mode'] ?? 'MANUAL')));
+        if (!in_array($openMode, ['MANUAL', 'SCHEDULE'], true)) {
+            $openMode = 'MANUAL';
+        }
+        $manualStatus = strtoupper(trim((string)($data['manual_status'] ?? 'OPEN')));
+        if (!in_array($manualStatus, ['OPEN', 'CLOSED'], true)) {
+            $manualStatus = 'OPEN';
+        }
+        $deliveryFeeMode = strtoupper(trim((string)($data['delivery_fee_mode'] ?? 'DISTANCE')));
+        if (!in_array($deliveryFeeMode, ['FLAT', 'DISTANCE'], true)) {
+            $deliveryFeeMode = 'DISTANCE';
+        }
+        $paymentDefault = strtoupper(trim((string)($data['payment_default'] ?? 'MANUAL')));
+        if (!in_array($paymentDefault, ['AUTO', 'MANUAL'], true)) {
+            $paymentDefault = 'MANUAL';
+        }
+        $days = $data['schedule_days'] ?? [];
+        if (!is_array($days)) {
+            $days = explode(',', (string)$days);
+        }
+        $days = array_values(array_intersect(['1', '2', '3', '4', '5', '6', '0'], array_map(static function ($day) {
+            return trim((string)$day);
+        }, $days)));
+        if (empty($days)) {
+            $days = ['1', '2', '3', '4', '5', '6', '0'];
+        }
+
+        $paymentMethodIds = $data['payment_method_ids'] ?? [];
+        if (!is_array($paymentMethodIds)) {
+            $paymentMethodIds = [$paymentMethodIds];
+        }
+        $paymentMethodIds = array_values(array_unique(array_filter(array_map('intval', $paymentMethodIds))));
+        $qrisPaymentMethodId = max(0, (int)($data['qris_payment_method_id'] ?? 0));
+
+        foreach ($paymentMethodIds as $methodId) {
+            $method = $this->find_payment_method($methodId);
+            if (!$method || (int)($method['is_active'] ?? 0) !== 1) {
+                return ['ok' => false, 'message' => 'Ada metode pembayaran online food yang tidak ditemukan atau tidak aktif.'];
+            }
+        }
+
+        $autoEnabled = !empty($data['payment_auto_enabled']);
+        $manualEnabled = !empty($data['payment_manual_enabled']);
+        if (!$autoEnabled && !$manualEnabled) {
+            $manualEnabled = true;
+            $paymentDefault = 'MANUAL';
+        }
+        if ($paymentDefault === 'AUTO' && !$autoEnabled) {
+            $paymentDefault = 'MANUAL';
+        }
+        if ($paymentDefault === 'MANUAL' && !$manualEnabled) {
+            $paymentDefault = 'AUTO';
+        }
+
+        if ($autoEnabled) {
+            if ($qrisPaymentMethodId <= 0) {
+                return ['ok' => false, 'message' => 'Pilih metode pembayaran QRIS untuk payment otomatis online food.'];
+            }
+            $qrisMethod = $this->find_payment_method($qrisPaymentMethodId);
+            if (!$qrisMethod || (int)($qrisMethod['is_active'] ?? 0) !== 1) {
+                return ['ok' => false, 'message' => 'Metode pembayaran QRIS online food tidak ditemukan atau tidak aktif.'];
+            }
+            if (!in_array($qrisPaymentMethodId, $paymentMethodIds, true)) {
+                $paymentMethodIds[] = $qrisPaymentMethodId;
+            }
+        } else {
+            $qrisPaymentMethodId = 0;
+        }
+
+        $number = static function ($value): float {
+            return max(0, round((float)$value, 2));
+        };
+        $nullableDecimal = static function ($value) {
+            $value = trim((string)$value);
+            return $value === '' ? null : (float)$value;
+        };
+
+        $this->db->trans_begin();
+        try {
+            $this->db->replace('pos_online_food_setting', $this->filter_table_payload('pos_online_food_setting', [
+                'id' => 1,
+                'is_enabled' => !empty($data['is_enabled']) ? 1 : 0,
+                'open_mode' => $openMode,
+                'manual_status' => $manualStatus,
+                'timezone' => trim((string)($data['timezone'] ?? 'Asia/Jakarta')) ?: 'Asia/Jakarta',
+                'open_time' => trim((string)($data['open_time'] ?? '08:00')) ?: null,
+                'close_time' => trim((string)($data['close_time'] ?? '22:00')) ?: null,
+                'schedule_days' => implode(',', $days),
+                'allow_cod' => $manualEnabled ? 1 : 0,
+                'allow_qris' => $autoEnabled ? 1 : 0,
+                'payment_default' => $paymentDefault,
+                'payment_auto_enabled' => $autoEnabled ? 1 : 0,
+                'payment_manual_enabled' => $manualEnabled ? 1 : 0,
+                'auto_payment_provider' => 'MIDTRANS',
+                'midtrans_server_key' => trim((string)($data['midtrans_server_key'] ?? '')),
+                'midtrans_client_key' => trim((string)($data['midtrans_client_key'] ?? '')),
+                'midtrans_is_production' => !empty($data['midtrans_is_production']) ? 1 : 0,
+                'qris_payment_method_id' => $qrisPaymentMethodId > 0 ? $qrisPaymentMethodId : null,
+                'delivery_fee_mode' => $deliveryFeeMode,
+                'delivery_flat_fee' => $number($data['delivery_flat_fee'] ?? 0),
+                'delivery_base_fee' => $number($data['delivery_base_fee'] ?? 0),
+                'delivery_base_km' => $number($data['delivery_base_km'] ?? 0),
+                'delivery_per_km_fee' => $number($data['delivery_per_km_fee'] ?? 0),
+                'delivery_min_fee' => $number($data['delivery_min_fee'] ?? 0),
+                'delivery_max_distance_km' => $number($data['delivery_max_distance_km'] ?? 0),
+                'free_delivery_min_order' => $number($data['free_delivery_min_order'] ?? 0),
+                'packaging_fee_default' => $number($data['packaging_fee_default'] ?? 0),
+                'min_order_amount' => $number($data['min_order_amount'] ?? 0),
+                'outlet_lat' => $nullableDecimal($data['outlet_lat'] ?? ''),
+                'outlet_lng' => $nullableDecimal($data['outlet_lng'] ?? ''),
+                'manual_whatsapp_number' => $this->nullable_text($data['manual_whatsapp_number'] ?? ''),
+                'manual_whatsapp_template' => $this->nullable_text($data['manual_whatsapp_template'] ?? ''),
+                'manual_payment_instructions' => $this->nullable_text($data['manual_payment_instructions'] ?? ''),
+                'member_base_url' => $this->normalize_member_base_url((string)($data['member_base_url'] ?? '')),
+                'notes' => $this->nullable_text($data['notes'] ?? ''),
+            ]));
+
+            $this->db->where('setting_id', 1)->delete('pos_online_food_payment_method');
+            foreach ($paymentMethodIds as $methodId) {
+                $this->db->insert('pos_online_food_payment_method', [
+                    'setting_id' => 1,
+                    'payment_method_id' => $methodId,
+                    'is_active' => 1,
+                ]);
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan pengaturan online food.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function online_food_payment_method_options(): array
+    {
+        return $this->deposit_payment_method_options();
+    }
+
     public function self_order_qris_payment_method_options(): array
     {
         $db = $this->coredb;
@@ -1005,6 +1225,178 @@ class Pos_model extends CI_Model
         ];
     }
 
+    public function online_food_order_filter_options(): array
+    {
+        return [
+            'outlets' => $this->local_outlet_options(),
+        ];
+    }
+
+    public function online_food_order_rows(array $filters = []): array
+    {
+        if (!$this->db->table_exists('pos_order')) {
+            return [
+                'rows' => [],
+                'counts' => $this->self_order_empty_counts(),
+                'meta' => ['total' => 0, 'page' => 1, 'limit' => 20, 'total_pages' => 1],
+            ];
+        }
+
+        $hasCustomerName = $this->ensure_pos_order_customer_name_column();
+        $hasTableNo = $this->db->field_exists('table_no', 'pos_order');
+        $q = trim((string)($filters['q'] ?? ''));
+        $outletId = max(0, (int)($filters['outlet_id'] ?? 0));
+        $paymentTab = strtoupper(trim((string)($filters['payment_tab'] ?? 'ALL')));
+        if (!in_array($paymentTab, ['ALL', 'KASIR', 'QRIS'], true)) {
+            $paymentTab = 'ALL';
+        }
+        $statusTab = strtoupper(trim((string)($filters['status_tab'] ?? 'ALL')));
+        if (!in_array($statusTab, ['ALL', 'NEEDS_VERIFY', 'WAITING_PAYMENT', 'ACTIVE_CASHIER', 'PAID_ORDER', 'REJECTED'], true)) {
+            $statusTab = 'ALL';
+        }
+        $page = max(1, (int)($filters['page'] ?? 1));
+        $limit = max(1, min(100, (int)($filters['limit'] ?? 20)));
+
+        $dateFrom = $this->normalize_self_order_filter_date((string)($filters['date_from'] ?? ''));
+        $dateTo = $this->normalize_self_order_filter_date((string)($filters['date_to'] ?? ''));
+        if ($dateFrom === '') {
+            $dateFrom = date('Y-m-d');
+        }
+        if ($dateTo === '') {
+            $dateTo = $dateFrom;
+        }
+        if ($dateFrom > $dateTo) {
+            [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+        }
+
+        $customerDisplayExpr = $this->order_customer_display_expr('o', 'm');
+        $rows = $this->db
+            ->select('
+                o.id,
+                o.order_no,
+                o.order_channel,
+                o.outlet_id,
+                o.service_type,
+                o.status,
+                o.stock_commit_status,
+                o.kitchen_status,
+                o.ordered_at,
+                o.confirmed_at,
+                o.paid_at,
+                o.grand_total,
+                o.paid_total,
+                o.guest_count,
+                o.notes,
+                ' . ($hasTableNo ? 'o.table_no' : 'NULL AS table_no') . ',
+                ' . ($hasCustomerName ? 'o.customer_name' : 'NULL AS customer_name') . ',
+                ' . $customerDisplayExpr . ' AS customer_display_name,
+                po.outlet_name,
+                m.member_no,
+                m.member_name,
+                m.mobile_phone AS member_mobile_phone,
+                e.employee_name AS cashier_employee_name,
+                UPPER(COALESCE(au.username, \'\')) AS cashier_username
+            ', false)
+            ->from('pos_order o')
+            ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
+            ->join('crm_member m', 'm.id = o.member_id', 'left')
+            ->join('org_employee e', 'e.id = o.cashier_employee_id', 'left')
+            ->join('auth_user au', 'au.employee_id = o.cashier_employee_id', 'left')
+            ->where('o.order_channel', 'DELIVERY')
+            ->where('DATE(o.ordered_at) >=', $dateFrom)
+            ->where('DATE(o.ordered_at) <=', $dateTo)
+            ->order_by('o.ordered_at', 'DESC')
+            ->order_by('o.id', 'DESC')
+            ->get()
+            ->result_array();
+
+        if (empty($rows)) {
+            return [
+                'rows' => [],
+                'counts' => $this->self_order_empty_counts(),
+                'meta' => ['total' => 0, 'page' => 1, 'limit' => $limit, 'total_pages' => 1],
+            ];
+        }
+
+        $orderIds = array_map('intval', array_column($rows, 'id'));
+        $paymentMap = $this->self_order_final_payment_map($orderIds);
+        $rejectionMap = $this->self_order_rejection_info_map($orderIds);
+        $prepared = [];
+        foreach ($rows as $row) {
+            $orderId = (int)($row['id'] ?? 0);
+            $payment = (array)($paymentMap[$orderId] ?? []);
+            $rejection = (array)($rejectionMap[$orderId] ?? []);
+            $row = $this->self_order_apply_reject_state($row, $rejection);
+            $flow = $this->self_order_flow_state($row, $payment);
+
+            $customerName = $this->resolve_order_customer_name($row['customer_name'] ?? '', $row['member_name'] ?? '');
+            $searchHaystack = strtoupper(implode(' ', array_filter([
+                (string)($row['order_no'] ?? ''),
+                (string)$customerName,
+                (string)($row['member_no'] ?? ''),
+                (string)($row['member_mobile_phone'] ?? ''),
+                (string)($row['table_no'] ?? ''),
+                (string)($payment['payment_mode'] ?? ''),
+                (string)($payment['method_name'] ?? ''),
+            ])));
+            if ($q !== '' && strpos($searchHaystack, strtoupper($q)) === false) {
+                continue;
+            }
+            if ($outletId > 0 && (int)($row['outlet_id'] ?? 0) !== $outletId) {
+                continue;
+            }
+            if ($paymentTab !== 'ALL' && strtoupper((string)($flow['payment_mode'] ?? 'KASIR')) !== $paymentTab) {
+                continue;
+            }
+
+            $prepared[] = $row + $flow + [
+                'customer_name_display' => $customerName !== '' ? $customerName : 'Walk in',
+                'cashier_name_display' => trim((string)($row['cashier_username'] ?? '')) !== ''
+                    ? strtoupper(trim((string)$row['cashier_username']))
+                    : trim((string)($row['cashier_employee_name'] ?? '-')),
+                'payment_reference' => (string)($payment['reference_no'] ?? ''),
+                'payment_method_name' => (string)($payment['method_name'] ?? ''),
+                'payment_method_type' => (string)($payment['method_type'] ?? ''),
+                'rejected_reason' => (string)($rejection['reason'] ?? ''),
+                'rejected_by_name' => (string)($rejection['actor_name'] ?? ''),
+            ];
+        }
+
+        $counts = $this->self_order_empty_counts();
+        foreach ($prepared as $row) {
+            $counts['ALL']++;
+            $code = strtoupper((string)($row['flow_code'] ?? ''));
+            if (isset($counts[$code])) {
+                $counts[$code]++;
+            }
+        }
+
+        if ($statusTab !== 'ALL') {
+            $prepared = array_values(array_filter($prepared, static function (array $row) use ($statusTab): bool {
+                return strtoupper((string)($row['flow_code'] ?? '')) === $statusTab;
+            }));
+        }
+
+        $total = count($prepared);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+        $rows = array_slice($prepared, $offset, $limit);
+
+        return [
+            'rows' => $rows,
+            'counts' => $counts,
+            'meta' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'total_pages' => $totalPages,
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'payment_tab' => $paymentTab,
+                'status_tab' => $statusTab,
+            ],
+        ];
+    }
+
     public function self_order_verification_context(int $orderId): array
     {
         if ($orderId <= 0) {
@@ -1102,6 +1494,103 @@ class Pos_model extends CI_Model
         return $order;
     }
 
+    public function online_food_verification_context(int $orderId): array
+    {
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Order online food tidak valid.'];
+        }
+
+        $order = $this->find_online_food_order($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order online food tidak ditemukan.'];
+        }
+
+        $header = (array)($order['header'] ?? []);
+        if (strtoupper(trim((string)($header['order_channel'] ?? ''))) !== 'DELIVERY') {
+            return ['ok' => false, 'message' => 'Order ini bukan order online food.'];
+        }
+
+        $paymentMap = $this->self_order_final_payment_map([$orderId]);
+        $payment = (array)($paymentMap[$orderId] ?? []);
+        $flow = $this->self_order_flow_state($header, $payment);
+        if (empty($flow['can_verify'])) {
+            return [
+                'ok' => false,
+                'message' => (string)($flow['verify_message'] ?? 'Order online food belum siap diverifikasi.'),
+                'flow' => $flow,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'header' => $header,
+            'payment' => $payment,
+            'flow' => $flow,
+            'payment_mode' => (string)($flow['payment_mode'] ?? 'KASIR'),
+            'payment_status' => (string)($flow['payment_status'] ?? 'PENDING'),
+            'is_paid' => !empty($flow['is_paid']),
+        ];
+    }
+
+    public function online_food_rejection_context(int $orderId): array
+    {
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Order online food tidak valid.'];
+        }
+
+        $order = $this->find_online_food_order($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order online food tidak ditemukan.'];
+        }
+
+        $header = (array)($order['header'] ?? []);
+        if (strtoupper(trim((string)($header['order_channel'] ?? ''))) !== 'DELIVERY') {
+            return ['ok' => false, 'message' => 'Order ini bukan order online food.'];
+        }
+
+        $paymentMap = $this->self_order_final_payment_map([$orderId]);
+        $payment = (array)($paymentMap[$orderId] ?? []);
+        $flow = $this->self_order_flow_state($header, $payment);
+        if (empty($flow['can_reject'])) {
+            return [
+                'ok' => false,
+                'message' => (string)($flow['reject_message'] ?? 'Order online food ini tidak bisa ditolak.'),
+                'flow' => $flow,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'header' => $header,
+            'payment' => $payment,
+            'flow' => $flow,
+        ];
+    }
+
+    public function find_online_food_order(int $id): ?array
+    {
+        $order = $this->find_order_draft($id);
+        if (!$order) {
+            return null;
+        }
+
+        $header = (array)($order['header'] ?? []);
+        if (strtoupper(trim((string)($header['order_channel'] ?? ''))) !== 'DELIVERY') {
+            return null;
+        }
+
+        $rejection = $this->self_order_rejection_info_map([$id]);
+        $rejectInfo = (array)($rejection[$id] ?? []);
+        if (!empty($rejectInfo)) {
+            $order['header'] = $this->self_order_apply_reject_state((array)$order['header'], $rejectInfo);
+            $order['reject_info'] = $rejectInfo;
+            $order['header']['reject_reason'] = (string)($rejectInfo['reason'] ?? '');
+            $order['header']['reject_actor_name'] = (string)($rejectInfo['actor_name'] ?? '');
+        }
+
+        return $order;
+    }
+
     public function finalize_self_order_verification(int $orderId, int $snapshotId, int $actorEmployeeId, array $context = []): array
     {
         $row = $this->db->from('pos_order')->where('id', $orderId)->limit(1)->get()->row_array();
@@ -1109,6 +1598,14 @@ class Pos_model extends CI_Model
             return ['ok' => false, 'message' => 'Order self order tidak ditemukan saat finalisasi verifikasi.'];
         }
 
+        $orderLabel = trim((string)($context['order_label'] ?? 'Self order'));
+        if ($orderLabel === '') {
+            $orderLabel = 'Self order';
+        }
+        $eventPrefix = strtoupper(trim((string)($context['event_prefix'] ?? 'SELF_ORDER')));
+        if ($eventPrefix === '') {
+            $eventPrefix = 'SELF_ORDER';
+        }
         $paymentMode = strtoupper(trim((string)($context['payment_mode'] ?? 'KASIR')));
         $isPaid = !empty($context['is_paid']);
         $paymentContext = (array)($context['payment'] ?? []);
@@ -1216,9 +1713,9 @@ class Pos_model extends CI_Model
             }
 
             if ($isPaid) {
-                $note = 'Self order diverifikasi setelah pembayaran diterima.';
+                $note = $orderLabel . ' diverifikasi setelah pembayaran diterima.';
             } else {
-                $note = 'Self order diverifikasi untuk dibayar di kasir.';
+                $note = $orderLabel . ' diverifikasi untuk dibayar di kasir.';
             }
             if ($stockCommitStatus === 'NOT_REQUIRED' || $snapshotId <= 0) {
                 $note .= ' Snapshot stock commit dilewati karena recipe product belum tersedia.';
@@ -1230,13 +1727,13 @@ class Pos_model extends CI_Model
                 (string)($row['status'] ?? 'PENDING'),
                 $targetStatus,
                 $isPaid
-                    ? 'SELF_ORDER_VERIFY_PAID'
-                    : 'SELF_ORDER_VERIFY_CASHIER',
+                    ? $eventPrefix . '_VERIFY_PAID'
+                    : $eventPrefix . '_VERIFY_CASHIER',
                 $actorEmployeeId,
                 $note
             );
             if ($this->db->trans_status() === false) {
-                throw new RuntimeException('Gagal memfinalkan verifikasi order self order.');
+                throw new RuntimeException('Gagal memfinalkan verifikasi order ' . strtolower($orderLabel) . '.');
             }
             $this->db->trans_commit();
             $this->db->db_debug = $previousDbDebug;
@@ -1313,6 +1810,72 @@ class Pos_model extends CI_Model
             $this->insert_order_state_log($orderId, $existingStatus !== '' ? $existingStatus : 'PENDING', 'REJECTED', 'SELF_ORDER_REJECT', $actorEmployeeId, $note);
             if ($this->db->trans_status() === false) {
                 throw new RuntimeException('Gagal menyimpan penolakan self order.');
+            }
+            $this->db->trans_commit();
+            return ['ok' => true, 'id' => $orderId, 'status' => 'REJECTED', 'reason' => $reason];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function reject_online_food_order(int $orderId, int $actorEmployeeId, string $reason = ''): array
+    {
+        $context = $this->online_food_rejection_context($orderId);
+        if (!($context['ok'] ?? false)) {
+            return $context;
+        }
+
+        $header = (array)($context['header'] ?? []);
+        $payment = (array)($context['payment'] ?? []);
+        $existingStatus = strtoupper(trim((string)($header['status'] ?? 'PENDING')));
+        if ($this->self_order_is_rejected_status($existingStatus)) {
+            return ['ok' => true, 'id' => $orderId, 'status' => 'REJECTED', 'reason' => trim($reason)];
+        }
+
+        $reason = trim($reason);
+        if ($reason === '') {
+            return ['ok' => false, 'message' => 'Alasan penolakan wajib diisi.'];
+        }
+
+        $paymentId = (int)($payment['id'] ?? 0);
+        $paymentMeta = $this->decode_json_assoc((string)($payment['notes'] ?? ''));
+        $paymentMeta['payment_status_label'] = 'VOID';
+        unset($paymentMeta['payment_qr_url'], $paymentMeta['payment_qr_string']);
+        $paymentNotes = $this->encode_self_order_payment_meta($paymentMeta);
+
+        $this->db->trans_begin();
+        try {
+            $orderPayload = [
+                'status' => 'VOID',
+                'kitchen_status' => 'VOID',
+                'paid_at' => null,
+                'paid_total' => 0,
+            ];
+            if ($actorEmployeeId > 0 && $this->db->field_exists('cashier_employee_id', 'pos_order')) {
+                $orderPayload['cashier_employee_id'] = $actorEmployeeId;
+            }
+            $this->db->where('id', $orderId)->update('pos_order', $this->filter_table_payload('pos_order', $orderPayload));
+
+            if ($paymentId > 0) {
+                $paymentPayload = ['payment_status' => 'VOID', 'paid_at' => null];
+                if ($paymentNotes !== null && $this->db->field_exists('notes', 'pos_payment')) {
+                    $paymentPayload['notes'] = $paymentNotes;
+                }
+                $this->db->where('id', $paymentId)->update('pos_payment', $this->filter_table_payload('pos_payment', $paymentPayload));
+                if ($this->db->table_exists('pos_payment_line')) {
+                    $linePayload = ['status' => 'VOID'];
+                    if ($this->db->field_exists('received_at', 'pos_payment_line')) {
+                        $linePayload['received_at'] = null;
+                    }
+                    $this->db->where('payment_id', $paymentId)->update('pos_payment_line', $this->filter_table_payload('pos_payment_line', $linePayload));
+                }
+            }
+
+            $note = 'Online food ditolak. Alasan penolakan: ' . $reason;
+            $this->insert_order_state_log($orderId, $existingStatus !== '' ? $existingStatus : 'PENDING', 'REJECTED', 'ONLINE_FOOD_REJECT', $actorEmployeeId, $note);
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan penolakan online food.');
             }
             $this->db->trans_commit();
             return ['ok' => true, 'id' => $orderId, 'status' => 'REJECTED', 'reason' => $reason];
@@ -1468,7 +2031,7 @@ class Pos_model extends CI_Model
             ->from('pos_order_state_log l')
             ->join('org_employee e', 'e.id = l.actor_employee_id', 'left')
             ->where_in('l.order_id', $orderIds)
-            ->where('l.event_code', 'SELF_ORDER_REJECT')
+            ->where_in('l.event_code', ['SELF_ORDER_REJECT', 'ONLINE_FOOD_REJECT'])
             ->order_by('l.id', 'DESC')
             ->get()
             ->result_array();

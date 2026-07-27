@@ -951,6 +951,97 @@ public function self_order_tables_print()
         ]);
     }
 
+    public function online_food()
+    {
+        redirect('pos/online-food/orders');
+    }
+
+    public function online_food_orders()
+    {
+        $this->require_permission('pos.online_food.index', 'view');
+        $filters = $this->self_order_order_filters();
+        $this->render('pos/online_food_orders', [
+            'page_title' => 'Orderan Online Food',
+            'active_menu' => 'pos.online_food.index',
+            'filters' => $filters,
+            'filter_options' => $this->Pos_model->online_food_order_filter_options(),
+        ]);
+    }
+
+    public function online_food_orders_data()
+    {
+        $this->require_permission('pos.online_food.index', 'view');
+        $this->json_ok($this->Pos_model->online_food_order_rows($this->self_order_order_filters()));
+    }
+
+    public function online_food_order_detail($id)
+    {
+        $this->require_permission('pos.online_food.index', 'view');
+        $result = $this->Pos_model->find_online_food_order((int)$id);
+        if (!$result) {
+            $this->json_error('Order online food tidak ditemukan.', 404);
+            return;
+        }
+        $this->json_ok($result + [
+            'payments' => $this->Pos_report_model->order_payment_rows((int)$id),
+            'refunds' => $this->Pos_report_model->order_refund_rows((int)$id),
+            'voids' => $this->Pos_report_model->order_void_rows((int)$id),
+        ]);
+    }
+
+    public function online_food_order_verify($id)
+    {
+        $this->require_permission('pos.online_food.index', 'edit');
+        $payload = $this->request_payload();
+        $this->verify_self_order_and_respond((int)$id, $this->current_actor_employee_id(), $payload, [
+            'context_method' => 'online_food_verification_context',
+            'label' => 'online food',
+            'label_title' => 'Online Food',
+            'event_source' => 'ONLINE_FOOD_VERIFY',
+            'event_prefix' => 'ONLINE_FOOD',
+        ]);
+    }
+
+    public function online_food_order_reject($id)
+    {
+        $this->require_permission('pos.online_food.index', 'edit');
+        $payload = $this->request_payload();
+        $reason = trim((string)($payload['reason'] ?? ''));
+        $result = $this->Pos_model->reject_online_food_order((int)$id, $this->current_actor_employee_id(), $reason);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menolak order online food.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)($result['id'] ?? 0),
+            'status' => (string)($result['status'] ?? 'REJECTED'),
+            'reason' => (string)($result['reason'] ?? ''),
+        ]);
+    }
+
+    public function online_food_settings()
+    {
+        $this->require_permission('pos.online_food.index', 'view');
+
+        if (strtoupper((string)$this->input->method()) === 'POST') {
+            $this->require_permission('pos.online_food.index', 'edit');
+            $result = $this->Pos_model->save_online_food_settings($this->input->post(null, false) ?: []);
+            $this->session->set_flashdata(
+                ($result['ok'] ?? false) ? 'success' : 'error',
+                (string)($result['message'] ?? (($result['ok'] ?? false) ? 'Pengaturan online food berhasil disimpan.' : 'Gagal menyimpan pengaturan online food.'))
+            );
+            redirect('pos/online-food/settings');
+            return;
+        }
+
+        $this->render('pos/online_food_settings', [
+            'page_title' => 'Online Food POS',
+            'active_menu' => 'pos.online_food.index',
+            'settings' => $this->Pos_model->online_food_settings(),
+            'payment_method_options' => $this->Pos_model->online_food_payment_method_options(),
+        ]);
+    }
+
     public function deposit_member_search()
     {
         $this->require_permission('pos.deposit.index', 'view');
@@ -4115,14 +4206,20 @@ public function self_order_tables_print()
         ];
     }
 
-    private function verify_self_order_and_respond(int $orderId, int $actorEmployeeId, array $payload = []): void
+    private function verify_self_order_and_respond(int $orderId, int $actorEmployeeId, array $payload = [], array $options = []): void
     {
         $this->load->library('PosStockCommitService');
         $this->load->library('PosRuntimeJobService');
 
-        $context = $this->Pos_model->self_order_verification_context($orderId);
+        $contextMethod = (string)($options['context_method'] ?? 'self_order_verification_context');
+        $label = (string)($options['label'] ?? 'self order');
+        $labelTitle = (string)($options['label_title'] ?? 'Self Order');
+        $eventSource = (string)($options['event_source'] ?? 'SELF_ORDER_VERIFY');
+        $eventPrefix = (string)($options['event_prefix'] ?? 'SELF_ORDER');
+
+        $context = $this->Pos_model->{$contextMethod}($orderId);
         if (!($context['ok'] ?? false)) {
-            $this->json_error((string)($context['message'] ?? 'Order self order belum siap diverifikasi.'), 422);
+            $this->json_error((string)($context['message'] ?? 'Order ' . $label . ' belum siap diverifikasi.'), 422);
             return;
         }
 
@@ -4130,7 +4227,7 @@ public function self_order_tables_print()
             'allowed_statuses' => ['PENDING', 'PAID'],
         ]);
         if (!($resolved['ok'] ?? false)) {
-            $this->json_error((string)($resolved['message'] ?? 'Gagal menyiapkan stock commit order self order.'), 422);
+            $this->json_error((string)($resolved['message'] ?? 'Gagal menyiapkan stock commit order ' . $label . '.'), 422);
             return;
         }
         $warningMessage = trim((string)($resolved['warning_message'] ?? ''));
@@ -4144,9 +4241,11 @@ public function self_order_tables_print()
                 'payment' => (array)($context['payment'] ?? []),
                 'stock_commit_status' => 'NOT_REQUIRED',
                 'verify_destination' => $verifyDestination,
+                'order_label' => $labelTitle,
+                'event_prefix' => $eventPrefix,
             ]);
             if (!($finalize['ok'] ?? false)) {
-                $this->json_error((string)($finalize['message'] ?? 'Order self order gagal difinalkan.'), 422);
+                $this->json_error((string)($finalize['message'] ?? 'Order ' . $label . ' gagal difinalkan.'), 422);
                 return;
             }
             $this->Pos_order_monitor_model->sync_order_tasks($orderId);
@@ -4160,7 +4259,7 @@ public function self_order_tables_print()
                 'runtime_kickoff' => [
                     'ok' => false,
                     'mode' => 'not_required',
-                    'message' => 'Stock commit dilewati karena item self order belum memiliki recipe product.',
+                    'message' => 'Stock commit dilewati karena item ' . $label . ' belum memiliki recipe product.',
                 ],
                 'stock_sync' => [
                     'queued' => false,
@@ -4180,16 +4279,16 @@ public function self_order_tables_print()
 
         $snapshot = $this->posstockcommitservice->create_snapshot($orderId, (array)($resolved['header'] ?? []), (array)($resolved['lines'] ?? []));
         if (!($snapshot['ok'] ?? false)) {
-            $this->json_error((string)($snapshot['message'] ?? 'Gagal membuat snapshot stock commit self order.'), 422);
+            $this->json_error((string)($snapshot['message'] ?? 'Gagal membuat snapshot stock commit ' . $label . '.'), 422);
             return;
         }
 
         $queued = $this->posruntimejobservice->queue_order_confirm_commit($orderId, (int)$snapshot['id'], $actorEmployeeId, [
-            'event_source' => 'SELF_ORDER_VERIFY',
+            'event_source' => $eventSource,
             'event_id' => $orderId,
         ]);
         if (!($queued['ok'] ?? false)) {
-            $this->json_error((string)($queued['message'] ?? 'Snapshot berhasil, tetapi queue runtime self order gagal dibuat.'), 422, [
+            $this->json_error((string)($queued['message'] ?? 'Snapshot berhasil, tetapi queue runtime ' . $label . ' gagal dibuat.'), 422, [
                 'snapshot_id' => (int)$snapshot['id'],
                 'commit_no' => (string)($snapshot['commit_no'] ?? ''),
             ]);
@@ -4198,8 +4297,8 @@ public function self_order_tables_print()
 
         $markQueued = $this->posstockcommitservice->mark_queued((int)$snapshot['id']);
         if (!($markQueued['ok'] ?? false)) {
-            $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Snapshot self order gagal ditandai queued.');
-            $this->json_error((string)($markQueued['message'] ?? 'Gagal menandai stock commit self order sebagai queued.'), 422);
+            $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Snapshot ' . $label . ' gagal ditandai queued.');
+            $this->json_error((string)($markQueued['message'] ?? 'Gagal menandai stock commit ' . $label . ' sebagai queued.'), 422);
             return;
         }
 
@@ -4210,10 +4309,12 @@ public function self_order_tables_print()
             'payment' => (array)($context['payment'] ?? []),
             'stock_commit_status' => 'QUEUED',
             'verify_destination' => $verifyDestination,
+            'order_label' => $labelTitle,
+            'event_prefix' => $eventPrefix,
         ]);
         if (!($finalize['ok'] ?? false)) {
-            $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Order self order gagal difinalkan setelah queue dibuat.');
-            $this->json_error((string)($finalize['message'] ?? 'Order self order gagal difinalkan.'), 422, [
+            $this->posruntimejobservice->cancel_job((int)($queued['job_id'] ?? 0), 'Order ' . $label . ' gagal difinalkan setelah queue dibuat.');
+            $this->json_error((string)($finalize['message'] ?? 'Order ' . $label . ' gagal difinalkan.'), 422, [
                 'snapshot_id' => (int)$snapshot['id'],
                 'commit_no' => (string)($snapshot['commit_no'] ?? ''),
             ]);
@@ -4225,7 +4326,7 @@ public function self_order_tables_print()
         $kickoff = [
             'ok' => false,
             'mode' => 'client_trigger_required',
-            'message' => 'Queue stok self order akan dipicu dari client setelah response verify diterima.',
+            'message' => 'Queue stok ' . $label . ' akan dipicu dari client setelah response verify diterima.',
         ];
         if (function_exists('fastcgi_finish_request')) {
             $kickoff = $this->schedule_runtime_job_processing($orderId, (int)($queued['job_id'] ?? 0), 1);
