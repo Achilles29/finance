@@ -209,3 +209,10 @@ alamat/member langganan lewat flag free_delivery_enabled di lokasi tersimpan.
 apakah sudah ada pengaturannya?
 
 customer bisa simpan lebih dari 1 alamat. apakah sudah?
+
+lakukan perbaikan:
+member : 
+- /online-order/addresses modal tambah terpotong dan tidak responsif
+- gambar 3 , bedanya ketiga opsi itu apa? 
+- tadi sudah saya tes pembayaran qris, tagihan yang muncul hanya untuk produk, ongkirnya belum tertagih. seharusnya nilai tagihan termasuk ongkir, kecuali gratis ongkir
+- pesanan maasuk belum ada notifikasi , buat sound dan flare notifikasi di semua halaman seperti pada self_order

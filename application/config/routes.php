@@ -12,6 +12,10 @@ $route['logout'] = 'auth/logout';
 // Dashboard
 $route['dashboard'] = 'dashboard/index';
 
+// Settings
+$route['settings']                  = 'settings/index';
+$route['settings/change-password']  = 'settings/change_password';
+
 // Attendance
 $route['attendance/settings'] = 'attendance/settings';
 $route['attendance/daily'] = 'attendance/daily';

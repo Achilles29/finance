@@ -25,15 +25,29 @@ if (!$globalNotifierConfig) {
     $viewUser = is_array($current_user ?? null) ? $current_user : $sessionUser;
     $viewPerms = is_array($user_perms ?? null) ? $user_perms : $sessionPerms;
     $canGlobalSelfOrderNotify = !empty($viewUser['is_superadmin']) || !empty($viewPerms['pos.self_order.index']['can_view']);
+    $canGlobalOnlineFoodNotify = !empty($viewUser['is_superadmin']) || !empty($viewPerms['pos.online_food.index']['can_view']);
     $globalNotifierConfig = [
-        'enabled' => $canGlobalSelfOrderNotify,
-        'channel' => 'self_order',
-        'poll_ms' => 12000,
-        'current_path' => trim((string)uri_string(), '/'),
-        'skip_paths' => ['pos/self-order/orders'],
-        'endpoint' => site_url('pos/self-order/orders/data'),
         'sound_url' => base_url('assets/sounds/notifikasi.mp3'),
-        'title' => 'Self Order',
+        'notifiers' => [
+            [
+                'enabled' => $canGlobalSelfOrderNotify,
+                'channel' => 'self_order',
+                'poll_ms' => 12000,
+                'current_path' => trim((string)uri_string(), '/'),
+                'skip_paths' => ['pos/self-order/orders'],
+                'endpoint' => site_url('pos/self-order/orders/data'),
+                'title' => 'Self Order',
+            ],
+            [
+                'enabled' => $canGlobalOnlineFoodNotify,
+                'channel' => 'online_food',
+                'poll_ms' => 12000,
+                'current_path' => trim((string)uri_string(), '/'),
+                'skip_paths' => ['pos/online-food/orders'],
+                'endpoint' => site_url('pos/online-food/orders/data'),
+                'title' => 'Online Food',
+            ],
+        ],
     ];
 }
 ?>
@@ -41,6 +55,6 @@ if (!$globalNotifierConfig) {
 window.FINANCE_GLOBAL_NOTIFIER_CONFIG = <?= json_encode($globalNotifierConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 </script>
 <!-- Finance App JS -->
-<script src="<?= base_url('assets/js/app.js?v=20260620a') ?>"></script>
+<script src="<?= base_url('assets/js/app.js?v=20260728a') ?>"></script>
 </body>
 </html>

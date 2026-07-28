@@ -465,7 +465,9 @@ $(function () {
             + '.finance-global-notify-toast.is-visible{opacity:1;transform:translateY(0);}'
             + '.finance-global-notify-toast-title{font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.8;margin-bottom:.15rem;}'
             + '.finance-global-notify-toast-body{font-size:.88rem;font-weight:600;line-height:1.4;}'
-            + '.finance-global-notify-toast-icon{flex:0 0 auto;width:2rem;height:2rem;border-radius:999px;background:rgba(255,255,255,.14);display:inline-flex;align-items:center;justify-content:center;font-size:1rem;}';
+            + '.finance-global-notify-toast-icon{flex:0 0 auto;width:2rem;height:2rem;border-radius:999px;background:rgba(255,255,255,.14);display:inline-flex;align-items:center;justify-content:center;font-size:1rem;}'
+            + '.finance-global-notify-flare{position:fixed;inset:0;z-index:1999;pointer-events:none;border:0 solid rgba(220,38,38,.38);box-shadow:inset 0 0 0 0 rgba(220,38,38,.18);animation:financeNotifyFlare .9s ease-out 1;}'
+            + '@keyframes financeNotifyFlare{0%{border-width:0;box-shadow:inset 0 0 0 0 rgba(220,38,38,.18);}32%{border-width:10px;box-shadow:inset 0 0 0 999px rgba(220,38,38,.035);}100%{border-width:0;box-shadow:inset 0 0 0 0 rgba(220,38,38,0);}}';
         document.head.appendChild(style);
 
         var root = document.createElement('div');
@@ -498,6 +500,14 @@ $(function () {
             bodyEl.textContent = String(message || '');
         }
         root.appendChild(toast);
+        var flare = document.createElement('div');
+        flare.className = 'finance-global-notify-flare';
+        document.body.appendChild(flare);
+        window.setTimeout(function () {
+            if (flare.parentNode) {
+                flare.parentNode.removeChild(flare);
+            }
+        }, 950);
 
         window.requestAnimationFrame(function () {
             toast.classList.add('is-visible');
@@ -514,11 +524,21 @@ $(function () {
     }
 
     function initGlobalSelfOrderNotifier() {
-        var cfg = window.FINANCE_GLOBAL_NOTIFIER_CONFIG || {};
+        var rootCfg = window.FINANCE_GLOBAL_NOTIFIER_CONFIG || {};
+        var configs = Array.isArray(rootCfg.notifiers) ? rootCfg.notifiers : [rootCfg];
+        configs.forEach(function (rawCfg) {
+            var cfg = Object.assign({}, rawCfg || {});
+            if (!cfg.sound_url && rootCfg.sound_url) {
+                cfg.sound_url = rootCfg.sound_url;
+            }
+            startGlobalOrderNotifier(cfg);
+        });
+    }
+
+    function startGlobalOrderNotifier(cfg) {
         if (!cfg || !cfg.enabled || !cfg.endpoint) {
             return;
         }
-
         var currentPath = String(cfg.current_path || '').replace(/^\/+|\/+$/g, '');
         var skipPaths = Array.isArray(cfg.skip_paths) ? cfg.skip_paths.map(function (path) {
             return String(path || '').replace(/^\/+|\/+$/g, '');
@@ -595,7 +615,7 @@ $(function () {
             }
             var json = await response.json();
             if (!json || json.ok === false) {
-                throw new Error(json && json.message ? json.message : 'Gagal memuat notifikasi self order.');
+                throw new Error(json && json.message ? json.message : 'Gagal memuat notifikasi order.');
             }
             return Array.isArray(json.rows) ? json.rows : [];
         }
@@ -628,11 +648,11 @@ $(function () {
 
                 if (newRows.length) {
                     var newest = newRows[0] || {};
-                    var orderNo = String(newest.order_no || 'SELF-ORDER');
+                    var orderNo = String(newest.order_no || 'ORDER');
                     var tableNo = String(newest.table_no || '').trim();
                     var message = 'Order baru masuk: ' + orderNo + (tableNo ? ' | ' + tableNo : '');
                     playAudio();
-                    showGlobalNotifyToast(message, cfg.title || 'Self Order');
+                    showGlobalNotifyToast(message, cfg.title || 'Order');
                 }
             } catch (error) {
                 // Fail silently so global polling never disturbs the current page.

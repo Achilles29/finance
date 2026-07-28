@@ -267,11 +267,11 @@ $methodLabel = static function (array $method): string {
               <div class="col-md-4">
                 <label class="form-label small text-muted mb-1">Penagihan ongkir</label>
                 <select class="form-select" name="delivery_fee_charge_mode">
-                  <option value="CUSTOMER_TO_DRIVER" <?php echo (string)($settings['delivery_fee_charge_mode'] ?? '') === 'CUSTOMER_TO_DRIVER' ? 'selected' : ''; ?>>Customer bayar ke driver</option>
-                  <option value="RECORD_ONLY" <?php echo (string)($settings['delivery_fee_charge_mode'] ?? '') === 'RECORD_ONLY' ? 'selected' : ''; ?>>Catat saja</option>
-                  <option value="MERCHANT_COLLECT" <?php echo (string)($settings['delivery_fee_charge_mode'] ?? '') === 'MERCHANT_COLLECT' ? 'selected' : ''; ?>>Merchant koleksi terpisah</option>
+                  <option value="CUSTOMER_TO_DRIVER" <?php echo (string)($settings['delivery_fee_charge_mode'] ?? '') === 'CUSTOMER_TO_DRIVER' ? 'selected' : ''; ?>>Customer bayar langsung ke driver</option>
+                  <option value="RECORD_ONLY" <?php echo (string)($settings['delivery_fee_charge_mode'] ?? '') === 'RECORD_ONLY' ? 'selected' : ''; ?>>Catat estimasi saja</option>
+                  <option value="MERCHANT_COLLECT" <?php echo (string)($settings['delivery_fee_charge_mode'] ?? '') === 'MERCHANT_COLLECT' ? 'selected' : ''; ?>>Tagihkan ke customer, catat terpisah</option>
                 </select>
-                <div class="online-food-muted mt-1">Ongkir tidak masuk sales POS. Pilih cara penyelesaiannya untuk delivery.</div>
+                <div class="online-food-muted mt-1">QRIS online menagihkan ongkir bila tidak gratis. Nilai sales POS tetap hanya menu; ongkir dicatat di delivery.</div>
               </div>
               <div class="col-md-4">
                 <label class="form-label small text-muted mb-1">Ongkir flat</label>

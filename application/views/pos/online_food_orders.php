@@ -91,6 +91,15 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   .self-order-toast.success { background:#176b3a; }
   .self-order-toast.info { background:#2f4b8f; }
   .self-order-toast.warning { background:#9a4e0f; }
+  .online-food-incoming-flare {
+    position:fixed; inset:0; z-index:1999; pointer-events:none;
+    animation:onlineFoodIncomingFlare .9s ease-out 1;
+  }
+  @keyframes onlineFoodIncomingFlare {
+    0% { box-shadow:inset 0 0 0 0 rgba(220,38,38,.18); }
+    32% { box-shadow:inset 0 0 0 999px rgba(220,38,38,.035), inset 0 0 0 10px rgba(220,38,38,.34); }
+    100% { box-shadow:inset 0 0 0 0 rgba(220,38,38,0); }
+  }
   .self-order-btn-spinner {
     width:1rem; height:1rem; border:.15em solid currentColor; border-right-color:transparent;
     border-radius:50%; display:inline-block; animation:selfOrderSpin .7s linear infinite;
@@ -436,6 +445,12 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       toast.style.transition = 'all .2s ease';
       setTimeout(() => toast.remove(), 220);
     }, 2600);
+    if (type === 'info') {
+      const flare = document.createElement('div');
+      flare.className = 'online-food-incoming-flare';
+      document.body.appendChild(flare);
+      setTimeout(() => flare.remove(), 950);
+    }
   }
 
   function unlockNotifyAudio() {

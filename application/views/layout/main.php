@@ -8,15 +8,29 @@ $isPurchaseScope = strpos($activeMenuCode, 'purchase.') === 0;
 $isMyScope = strpos($activeMenuCode, 'my.') === 0;
 $isSuperadmin = !empty($current_user['is_superadmin']);
 $canGlobalSelfOrderNotify = $isSuperadmin || !empty($user_perms['pos.self_order.index']['can_view']);
+$canGlobalOnlineFoodNotify = $isSuperadmin || !empty($user_perms['pos.online_food.index']['can_view']);
 $globalNotifierConfig = [
-  'enabled' => $canGlobalSelfOrderNotify,
-  'channel' => 'self_order',
-  'poll_ms' => 12000,
-  'current_path' => trim((string)uri_string(), '/'),
-  'skip_paths' => ['pos/self-order/orders'],
-  'endpoint' => site_url('pos/self-order/orders/data'),
   'sound_url' => base_url('assets/sounds/notifikasi.mp3'),
-  'title' => 'Self Order',
+  'notifiers' => [
+    [
+      'enabled' => $canGlobalSelfOrderNotify,
+      'channel' => 'self_order',
+      'poll_ms' => 12000,
+      'current_path' => trim((string)uri_string(), '/'),
+      'skip_paths' => ['pos/self-order/orders'],
+      'endpoint' => site_url('pos/self-order/orders/data'),
+      'title' => 'Self Order',
+    ],
+    [
+      'enabled' => $canGlobalOnlineFoodNotify,
+      'channel' => 'online_food',
+      'poll_ms' => 12000,
+      'current_path' => trim((string)uri_string(), '/'),
+      'skip_paths' => ['pos/online-food/orders'],
+      'endpoint' => site_url('pos/online-food/orders/data'),
+      'title' => 'Online Food',
+    ],
+  ],
 ];
 $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
 ?>

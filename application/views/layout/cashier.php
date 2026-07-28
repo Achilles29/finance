@@ -9,15 +9,29 @@ $canPaid = $_isSuper || !empty($user_perms['pos.order.paid.index']['can_view']) 
 $canPrinter = $_isSuper || !empty($user_perms['pos.printer.index']['can_view']);
 $canDraft = $_isSuper || !empty($user_perms['pos.order.draft.index']['can_view']);
 $canGlobalSelfOrderNotify = $_isSuper || !empty($user_perms['pos.self_order.index']['can_view']);
+$canGlobalOnlineFoodNotify = $_isSuper || !empty($user_perms['pos.online_food.index']['can_view']);
 $globalNotifierConfig = [
-    'enabled' => $canGlobalSelfOrderNotify,
-    'channel' => 'self_order',
-    'poll_ms' => 12000,
-    'current_path' => trim((string)uri_string(), '/'),
-    'skip_paths' => ['pos/self-order/orders'],
-    'endpoint' => site_url('pos/self-order/orders/data'),
     'sound_url' => base_url('assets/sounds/notifikasi.mp3'),
-    'title' => 'Self Order',
+    'notifiers' => [
+        [
+            'enabled' => $canGlobalSelfOrderNotify,
+            'channel' => 'self_order',
+            'poll_ms' => 12000,
+            'current_path' => trim((string)uri_string(), '/'),
+            'skip_paths' => ['pos/self-order/orders'],
+            'endpoint' => site_url('pos/self-order/orders/data'),
+            'title' => 'Self Order',
+        ],
+        [
+            'enabled' => $canGlobalOnlineFoodNotify,
+            'channel' => 'online_food',
+            'poll_ms' => 12000,
+            'current_path' => trim((string)uri_string(), '/'),
+            'skip_paths' => ['pos/online-food/orders'],
+            'endpoint' => site_url('pos/online-food/orders/data'),
+            'title' => 'Online Food',
+        ],
+    ],
 ];
 ?>
 <style>
