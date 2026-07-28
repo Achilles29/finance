@@ -697,6 +697,7 @@ class Pos_model extends CI_Model
 
         $settings['open_time'] = substr((string)($settings['open_time'] ?? '08:00'), 0, 5);
         $settings['close_time'] = substr((string)($settings['close_time'] ?? '22:00'), 0, 5);
+        $settings['schedule_days_csv'] = implode(',', array_map('strval', (array)($settings['schedule_days'] ?? [])));
         $settings['member_base_url'] = $this->normalize_member_base_url((string)($settings['member_base_url'] ?? ''));
         $settings['online_order_url'] = $settings['member_base_url'] . 'online-order';
         return $settings;

@@ -198,10 +198,11 @@ sekarang perbaiki logika detail audit bonus di /payroll/bonus?month=2026-07&tab=
 
 
 
-- kalau masih tutup seharusnya online order masih tutup  , customer tidak bisa melakukan order
 
-- terkati ongkir ini baiknya gimana? karena ongkir ini bukan termmasuk sales, karena bisa jadi menggunakan jasa ojek online untuk mengirim. ongkir tetap harus tercatat tapi tidak serta merta masuk kas. kalau sudah terlanjur kamu ubah, lakukan revisi lagi.
 
-- Lalu ada satu moment ketika customer juga tidak perlu membayar ongkir, mungkin karena jarak terjangkau atau sudah langganan. bagaimana baiknya pengaturannya?
+tadi kamu Gratis ongkir bisa otomatis dari:
+jarak dekat (free_delivery_distance_km)
+minimum belanja
+alamat/member langganan lewat flag free_delivery_enabled di lokasi tersimpan.
 
-- ketika customer melakukan pencarian lokasi, berikan dropdown pilihan paling sesuai dengan jarak terdekat. lalu saya ingin ada opsi lokasi terimpan seperti di grab dengan beberapa keterangan yang diperlukan seperti di grab
+apakah sudah ada pengaturannya?

@@ -2,7 +2,8 @@
 $settings = is_array($settings ?? null) ? $settings : [];
 $paymentMethods = is_array($payment_method_options ?? null) ? $payment_method_options : [];
 $selectedMethods = array_map('intval', (array)($settings['payment_method_ids'] ?? []));
-$rawSelectedDays = $settings['schedule_days'] ?? [];
+$selectedDaysCsv = trim((string)($settings['schedule_days_csv'] ?? ''));
+$rawSelectedDays = $selectedDaysCsv !== '' ? $selectedDaysCsv : ($settings['schedule_days'] ?? []);
 if (is_string($rawSelectedDays)) {
     $rawSelectedDays = explode(',', $rawSelectedDays);
 }
@@ -11,6 +12,7 @@ $selectedDays = array_values(array_unique(array_filter(array_map(static function
 }, (array)$rawSelectedDays), static function ($day): bool {
     return in_array($day, ['1', '2', '3', '4', '5', '6', '0'], true);
 })));
+$selectedDaysCsv = implode(',', $selectedDays);
 $dayOptions = [
     '1' => 'Senin',
     '2' => 'Selasa',
@@ -149,7 +151,7 @@ $methodLabel = static function (array $method): string {
               </div>
               <div class="col-12">
                 <label class="form-label small text-muted mb-1">Hari aktif</label>
-                <input type="hidden" name="schedule_days_csv" id="online_food_schedule_days_csv" value="<?php echo html_escape(implode(',', $selectedDays)); ?>">
+                <input type="hidden" name="schedule_days_csv" id="online_food_schedule_days_csv" value="<?php echo html_escape($selectedDaysCsv); ?>">
                 <div class="online-food-check-grid">
                   <?php foreach ($dayOptions as $dayValue => $dayLabel): ?>
                     <label class="online-food-check">
@@ -368,6 +370,17 @@ document.addEventListener('DOMContentLoaded', function () {
   let mapInit = false;
   let map = null;
   let marker = null;
+  function restoreScheduleDaysFromCsv() {
+    const csv = document.getElementById('online_food_schedule_days_csv');
+    if (!csv) return;
+    const selected = new Set(String(csv.value || '').split(',').map(function (value) {
+      return value.trim();
+    }).filter(Boolean));
+    if (!selected.size) return;
+    document.querySelectorAll('.online-food-schedule-day').forEach(function (input) {
+      input.checked = selected.has(String(input.value || '').trim());
+    });
+  }
   function syncOperationalUi() {
     const mode = document.getElementById('online_food_open_mode');
     const manualWrap = document.getElementById('online_food_manual_status_wrap');
@@ -473,6 +486,7 @@ document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('.online-food-schedule-day').forEach(function (input) {
     input.addEventListener('change', syncOperationalUi);
   });
+  restoreScheduleDaysFromCsv();
   syncOperationalUi();
   const form = document.querySelector('form.online-food-shell');
   if (form) {
