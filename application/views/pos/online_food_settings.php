@@ -2,7 +2,15 @@
 $settings = is_array($settings ?? null) ? $settings : [];
 $paymentMethods = is_array($payment_method_options ?? null) ? $payment_method_options : [];
 $selectedMethods = array_map('intval', (array)($settings['payment_method_ids'] ?? []));
-$selectedDays = array_map('strval', (array)($settings['schedule_days'] ?? []));
+$rawSelectedDays = $settings['schedule_days'] ?? [];
+if (is_string($rawSelectedDays)) {
+    $rawSelectedDays = explode(',', $rawSelectedDays);
+}
+$selectedDays = array_values(array_unique(array_filter(array_map(static function ($day): string {
+    return trim((string)$day);
+}, (array)$rawSelectedDays), static function ($day): bool {
+    return in_array($day, ['1', '2', '3', '4', '5', '6', '0'], true);
+})));
 $dayOptions = [
     '1' => 'Senin',
     '2' => 'Selasa',
