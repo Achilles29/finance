@@ -1,6 +1,7 @@
 <?php
 $filters = is_array($filters ?? null) ? $filters : [];
 ?>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 
 <style>
   .online-location-shell { display:grid; gap:1rem; }
@@ -77,12 +78,56 @@ $filters = is_array($filters ?? null) ? $filters : [];
   }
   .online-location-badge.free { background:#dcfce7; color:#166534; }
   .online-location-badge.normal { background:#f1f5f9; color:#475569; }
-  .online-location-modal-note {
-    border:1px solid rgba(224,209,198,.7);
+  .online-location-actions { display:flex; justify-content:center; gap:.4rem; flex-wrap:wrap; }
+  .online-location-member-search { position:relative; }
+  .online-location-member-result {
+    position:absolute;
+    left:0;
+    right:0;
+    top:calc(100% + 6px);
+    z-index:1060;
+    border:1px solid rgba(54,42,35,.14);
+    border-radius:12px;
+    overflow:hidden;
+    background:#fff;
+    box-shadow:0 14px 28px rgba(58,38,30,.12);
+  }
+  .online-location-member-option {
+    width:100%;
+    border:0;
+    background:#fff;
+    text-align:left;
+    padding:.65rem .8rem;
+    border-bottom:1px solid rgba(54,42,35,.08);
+  }
+  .online-location-member-option:last-child { border-bottom:0; }
+  .online-location-member-option strong { display:block; font-size:.86rem; color:#2f2925; }
+  .online-location-member-option span { display:block; font-size:.74rem; color:#7a6d66; margin-top:.12rem; }
+  .online-location-map-tools { display:grid; grid-template-columns:1fr auto; gap:.5rem; }
+  .online-location-search-result {
+    border:1px solid rgba(54,42,35,.14);
+    border-radius:12px;
+    overflow:hidden;
+    background:#fff;
+    margin-top:.5rem;
+  }
+  .online-location-search-option {
+    width:100%;
+    border:0;
+    background:#fff;
+    text-align:left;
+    padding:.65rem .8rem;
+    border-bottom:1px solid rgba(54,42,35,.08);
+  }
+  .online-location-search-option:last-child { border-bottom:0; }
+  .online-location-search-option strong { display:block; font-size:.84rem; color:#2f2925; }
+  .online-location-search-option span { display:block; font-size:.72rem; color:#7a6d66; margin-top:.12rem; }
+  .online-location-map {
+    height:280px;
     border-radius:14px;
-    padding:.75rem .85rem;
-    background:#fff7f2;
-    color:#755f56;
+    overflow:hidden;
+    border:1px solid rgba(54,42,35,.14);
+    background:#eef2ec;
   }
   .online-location-toast-wrap {
     position:fixed;
@@ -106,6 +151,7 @@ $filters = is_array($filters ?? null) ? $filters : [];
   @media (max-width: 767.98px) {
     .online-location-summary { grid-template-columns:1fr; }
     .online-location-address { max-width:none; }
+    .online-location-map-tools { grid-template-columns:1fr; }
   }
 </style>
 
@@ -116,8 +162,9 @@ $filters = is_array($filters ?? null) ? $filters : [];
   <div class="fin-page-header">
     <div>
       <h4 class="fin-page-title mb-1">Alamat Online Food</h4>
-      <p class="fin-page-subtitle mb-0">Kelola alamat tersimpan customer dan tandai lokasi yang mendapat gratis ongkir khusus.</p>
+      <p class="fin-page-subtitle mb-0">Alamat ini bisa dibuat dari member saat order, atau dibuat manual oleh admin untuk pelanggan langganan/gratis ongkir.</p>
     </div>
+    <button type="button" class="btn btn-primary" id="online_location_new">Tambah Alamat</button>
   </div>
 
   <div class="online-location-shell">
@@ -165,13 +212,13 @@ $filters = is_array($filters ?? null) ? $filters : [];
                 <th>Koordinat</th>
                 <th class="text-center">Gratis Ongkir</th>
                 <th>Terakhir Dipakai</th>
-                <th class="text-center" style="width:132px;">Aksi</th>
+                <th class="text-center" style="width:150px;">Aksi</th>
               </tr>
             </thead>
             <tbody id="online_location_body"></tbody>
           </table>
         </div>
-        <div id="online_location_empty_state" class="online-location-empty d-none">Belum ada alamat customer pada filter ini.</div>
+        <div id="online_location_empty_state" class="online-location-empty d-none">Belum ada alamat customer pada filter ini. Gunakan tombol Tambah Alamat untuk membuat alamat khusus dari finance.</div>
         <div class="d-flex justify-content-between align-items-center mt-3">
           <small id="online_location_pagination_info" class="text-muted"></small>
           <div class="d-flex gap-1" id="online_location_pagination"></div>
@@ -188,23 +235,78 @@ $filters = is_array($filters ?? null) ? $filters : [];
     <div class="modal-content border-0 shadow-lg" style="border-radius:18px;">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title mb-1">Pengaturan Gratis Ongkir</h5>
-          <div class="small text-muted" id="online_location_modal_meta">Alamat belum dipilih.</div>
+          <h5 class="modal-title mb-1" id="online_location_modal_title">Tambah Alamat Online Food</h5>
+          <div class="small text-muted" id="online_location_modal_meta">Pilih member lalu isi alamat pengantaran.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
         <form id="online_location_form" class="row g-3">
           <input type="hidden" name="id" value="">
+          <input type="hidden" name="member_id" value="">
+          <div class="col-12 online-location-member-search">
+            <label class="form-label small text-muted mb-1">Member</label>
+            <input type="text" class="form-control" id="online_location_member_search" placeholder="Cari nama / no HP / nomor member">
+            <div class="online-location-member-result d-none" id="online_location_member_result"></div>
+            <div class="small text-muted mt-1" id="online_location_member_selected">Belum ada member dipilih.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small text-muted mb-1">Label alamat</label>
+            <input type="text" class="form-control" name="label" maxlength="80" placeholder="Rumah / Kantor / Toko">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small text-muted mb-1">Default customer</label>
+            <select class="form-select" name="is_default">
+              <option value="0">Tidak</option>
+              <option value="1">Ya, jadikan default</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small text-muted mb-1">Nama penerima</label>
+            <input type="text" class="form-control" name="recipient_name" maxlength="150">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small text-muted mb-1">Nomor HP penerima</label>
+            <input type="text" class="form-control" name="recipient_phone" maxlength="32">
+          </div>
           <div class="col-12">
-            <div class="online-location-modal-note" id="online_location_modal_address">-</div>
+            <label class="form-label small text-muted mb-1">Alamat</label>
+            <textarea class="form-control" name="address" rows="2" maxlength="255" placeholder="Alamat lengkap atau patokan utama"></textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label small text-muted mb-1">Catatan/patokan</label>
+            <input type="text" class="form-control" name="address_note" maxlength="255" placeholder="Contoh: pagar hitam, depan minimarket">
+          </div>
+          <div class="col-12">
+            <label class="form-label small text-muted mb-1">Cari titik di map</label>
+            <div class="online-location-map-tools">
+              <input type="search" class="form-control" id="online_location_map_search" placeholder="Cari alamat, gedung, atau patokan">
+              <button type="button" class="btn btn-outline-primary" id="online_location_map_find">Cari</button>
+            </div>
+            <div class="online-location-search-result d-none" id="online_location_map_result"></div>
+          </div>
+          <div class="col-12">
+            <div class="online-location-map" id="online_location_map"></div>
+            <div class="small text-muted mt-1">Geser pin atau klik map untuk menentukan titik pengantaran.</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-muted mb-1">Latitude</label>
+            <input type="number" step="0.0000001" class="form-control" name="latitude" placeholder="-6.2000000">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-muted mb-1">Longitude</label>
+            <input type="number" step="0.0000001" class="form-control" name="longitude" placeholder="106.8166667">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-muted mb-1">Akurasi meter</label>
+            <input type="number" step="0.01" min="0" class="form-control" name="location_accuracy" placeholder="Opsional">
           </div>
           <div class="col-12">
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" role="switch" id="free_delivery_enabled" name="free_delivery_enabled" value="1">
               <label class="form-check-label fw-semibold" for="free_delivery_enabled">Aktifkan gratis ongkir khusus untuk alamat ini</label>
             </div>
-            <div class="small text-muted mt-1">Dipakai untuk pelanggan langganan, area dekat yang diset manual, atau kompensasi khusus. Nilai ongkir tetap tercatat sebagai delivery terpisah dari sales POS.</div>
+            <div class="small text-muted mt-1">Cocok untuk pelanggan langganan, area dekat yang diset manual, atau kompensasi. Ongkir tetap dicatat terpisah dari sales POS.</div>
           </div>
           <div class="col-12">
             <label class="form-label small text-muted mb-1">Alasan / catatan internal</label>
@@ -212,14 +314,18 @@ $filters = is_array($filters ?? null) ? $filters : [];
           </div>
         </form>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
-        <button type="button" class="btn btn-primary" id="online_location_save">Simpan</button>
+      <div class="modal-footer justify-content-between">
+        <button type="button" class="btn btn-outline-danger" id="online_location_delete">Hapus</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
+          <button type="button" class="btn btn-primary" id="online_location_save">Simpan</button>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const initialFilters = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
@@ -231,7 +337,9 @@ document.addEventListener('DOMContentLoaded', function () {
   };
 
   const dataUrl = '<?php echo site_url('pos/online-food/locations/data'); ?>';
+  const memberSearchUrl = '<?php echo site_url('pos/online-food/locations/member-search'); ?>';
   const saveUrl = '<?php echo site_url('pos/online-food/locations/save'); ?>';
+  const deleteUrlBase = '<?php echo site_url('pos/online-food/locations/delete'); ?>';
   const body = document.getElementById('online_location_body');
   const emptyState = document.getElementById('online_location_empty_state');
   const paginationInfo = document.getElementById('online_location_pagination_info');
@@ -241,9 +349,19 @@ document.addEventListener('DOMContentLoaded', function () {
   const modalEl = document.getElementById('onlineLocationModal');
   const modal = (window.bootstrap && window.bootstrap.Modal) ? new window.bootstrap.Modal(modalEl) : null;
   const form = document.getElementById('online_location_form');
+  const modalTitle = document.getElementById('online_location_modal_title');
   const modalMeta = document.getElementById('online_location_modal_meta');
-  const modalAddress = document.getElementById('online_location_modal_address');
+  const memberInput = document.getElementById('online_location_member_search');
+  const memberResult = document.getElementById('online_location_member_result');
+  const memberSelected = document.getElementById('online_location_member_selected');
+  const deleteBtn = document.getElementById('online_location_delete');
+  const mapSearchInput = document.getElementById('online_location_map_search');
+  const mapFindBtn = document.getElementById('online_location_map_find');
+  const mapResult = document.getElementById('online_location_map_result');
   const rowMap = {};
+  let selectedMember = null;
+  let modalMap = null;
+  let modalMarker = null;
 
   function escapeHtml(value) {
     return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, function (m) {
@@ -296,7 +414,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const response = await fetch(url, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload || {})
     });
     const text = await response.text();
     let json = null;
@@ -367,7 +485,10 @@ document.addEventListener('DOMContentLoaded', function () {
           '<td class="online-location-coord">' + escapeHtml(row.latitude || '-') + '<br>' + escapeHtml(row.longitude || '-') + '</td>' +
           '<td class="text-center">' + badge(row) + '</td>' +
           '<td class="text-nowrap">' + escapeHtml(formatDate(row.last_used_at)) + '</td>' +
-          '<td class="text-center"><button type="button" class="btn btn-sm btn-outline-primary online-location-edit" data-id="' + escapeHtml(row.id) + '">Atur</button></td>' +
+          '<td class="text-center"><div class="online-location-actions">' +
+            '<button type="button" class="btn btn-sm btn-outline-primary online-location-edit" data-id="' + escapeHtml(row.id) + '">Edit</button>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger online-location-remove" data-id="' + escapeHtml(row.id) + '">Hapus</button>' +
+          '</div></td>' +
         '</tr>';
     }).join('');
   }
@@ -382,9 +503,7 @@ document.addEventListener('DOMContentLoaded', function () {
     paginationInfo.textContent = totalRows ? ('Menampilkan ' + from + '-' + to + ' dari ' + totalRows + ' alamat') : 'Tidak ada data';
     pagination.innerHTML = '';
     const pages = [];
-    for (let p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p += 1) {
-      pages.push(p);
-    }
+    for (let p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p += 1) pages.push(p);
     if (page > 1) pages.unshift(page - 1);
     if (page < totalPages) pages.push(page + 1);
     Array.from(new Set(pages)).sort(function (a, b) { return a - b; }).forEach(function (p) {
@@ -404,7 +523,7 @@ document.addEventListener('DOMContentLoaded', function () {
     syncControls();
     try {
       const json = await getJson(dataUrl + '?' + qsFromState());
-      const data = json.data || {};
+      const data = json.data || json;
       const rows = data.rows || [];
       const meta = data.pagination || {};
       state.page = Number(meta.page || state.page || 1);
@@ -419,17 +538,241 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  function openModal(row) {
-    form.reset();
+  function setSelectedMember(member) {
+    selectedMember = member || null;
+    form.elements.member_id.value = selectedMember ? String(selectedMember.id || '') : '';
+    if (selectedMember) {
+      memberInput.value = selectedMember.member_name || '';
+      memberSelected.textContent = [selectedMember.member_no || '', selectedMember.member_name || '', selectedMember.mobile_phone || ''].filter(Boolean).join(' | ');
+    } else {
+      memberInput.value = '';
+      memberSelected.textContent = 'Belum ada member dipilih.';
+    }
+  }
+
+  function fillForm(row) {
     form.elements.id.value = row.id || '';
+    form.elements.member_id.value = row.member_id || '';
+    form.elements.label.value = row.label || '';
+    form.elements.is_default.value = String(row.is_default || 0);
+    form.elements.recipient_name.value = row.recipient_name || '';
+    form.elements.recipient_phone.value = row.recipient_phone || '';
+    form.elements.address.value = row.address || '';
+    form.elements.address_note.value = row.address_note || '';
+    form.elements.latitude.value = row.latitude || '';
+    form.elements.longitude.value = row.longitude || '';
+    form.elements.location_accuracy.value = row.location_accuracy || '';
     form.elements.free_delivery_reason.value = row.free_delivery_reason || '';
     form.elements.free_delivery_enabled.checked = Number(row.free_delivery_enabled || 0) === 1;
-    modalMeta.textContent = (row.member_name || '-') + ' | ' + (row.mobile_phone || row.member_no || '-');
-    modalAddress.innerHTML = '<strong>' + escapeHtml(row.label || '-') + '</strong><br>' +
-      escapeHtml(row.address || '-') +
-      (row.address_note ? '<br><span class="small">' + escapeHtml(row.address_note) + '</span>' : '');
-    if (modal) modal.show();
   }
+
+  function currentPoint() {
+    const lat = Number(form.elements.latitude.value || 0);
+    const lng = Number(form.elements.longitude.value || 0);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 && (lat !== 0 || lng !== 0)) {
+      return [lat, lng];
+    }
+    return [-6.2, 106.8166667];
+  }
+
+  function setPoint(lat, lng, address) {
+    lat = Number(lat);
+    lng = Number(lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    form.elements.latitude.value = lat.toFixed(7);
+    form.elements.longitude.value = lng.toFixed(7);
+    if (address && !String(form.elements.address.value || '').trim()) {
+      form.elements.address.value = String(address).slice(0, 255);
+    }
+    if (modalMarker) modalMarker.setLatLng([lat, lng]);
+    if (modalMap) modalMap.setView([lat, lng], 16);
+  }
+
+  function ensureModalMap() {
+    if (typeof L === 'undefined') return;
+    const point = currentPoint();
+    if (!modalMap) {
+      modalMap = L.map('online_location_map').setView(point, 15);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(modalMap);
+      modalMarker = L.marker(point, {draggable:true}).addTo(modalMap).bindPopup('Titik pengantaran');
+      modalMarker.on('dragend', function () {
+        const pos = modalMarker.getLatLng();
+        setPoint(pos.lat, pos.lng);
+      });
+      modalMap.on('click', function (event) {
+        setPoint(event.latlng.lat, event.latlng.lng);
+      });
+    } else {
+      modalMarker.setLatLng(point);
+      modalMap.setView(point, 15);
+    }
+    setTimeout(function () { modalMap.invalidateSize(); }, 160);
+  }
+
+  function openModal(row) {
+    const isEdit = !!(row && row.id);
+    form.reset();
+    setSelectedMember(null);
+    if (isEdit) {
+      fillForm(row);
+      setSelectedMember({
+        id: row.member_id || 0,
+        member_no: row.member_no || '',
+        member_name: row.member_name || '',
+        mobile_phone: row.mobile_phone || ''
+      });
+    } else {
+      form.elements.label.value = 'Rumah';
+      form.elements.is_default.value = '0';
+      form.elements.free_delivery_enabled.checked = true;
+      form.elements.free_delivery_reason.value = 'Langganan';
+    }
+    modalTitle.textContent = isEdit ? 'Edit Alamat Online Food' : 'Tambah Alamat Online Food';
+    modalMeta.textContent = isEdit ? 'Ubah alamat, koordinat, atau status gratis ongkir.' : 'Pilih member lalu isi alamat pengantaran.';
+    deleteBtn.classList.toggle('d-none', !isEdit);
+    memberResult.classList.add('d-none');
+    if (modal) modal.show();
+    setTimeout(ensureModalMap, 220);
+  }
+
+  function payloadFromForm() {
+    return {
+      id: parseInt(form.elements.id.value || '0', 10) || 0,
+      member_id: parseInt(form.elements.member_id.value || '0', 10) || 0,
+      label: form.elements.label.value || '',
+      is_default: form.elements.is_default.value === '1' ? 1 : 0,
+      recipient_name: form.elements.recipient_name.value || '',
+      recipient_phone: form.elements.recipient_phone.value || '',
+      address: form.elements.address.value || '',
+      address_note: form.elements.address_note.value || '',
+      latitude: form.elements.latitude.value || '',
+      longitude: form.elements.longitude.value || '',
+      location_accuracy: form.elements.location_accuracy.value || '',
+      free_delivery_enabled: form.elements.free_delivery_enabled.checked ? 1 : 0,
+      free_delivery_reason: form.elements.free_delivery_reason.value || ''
+    };
+  }
+
+  const searchMember = debounce(async function () {
+    const q = String(memberInput.value || '').trim();
+    if (q.length < 2) {
+      memberResult.classList.add('d-none');
+      return;
+    }
+    try {
+      const json = await getJson(memberSearchUrl + '?q=' + encodeURIComponent(q) + '&limit=8');
+      const rows = (json.data && json.data.rows) ? json.data.rows : (json.rows || []);
+      if (!rows.length) {
+        memberResult.innerHTML = '<button type="button" class="online-location-member-option" disabled><strong>Tidak ditemukan</strong><span>Coba nama atau nomor HP lain.</span></button>';
+        memberResult.classList.remove('d-none');
+        return;
+      }
+      memberResult.innerHTML = rows.map(function (row, idx) {
+        return '<button type="button" class="online-location-member-option" data-idx="' + idx + '">' +
+          '<strong>' + escapeHtml(row.member_name || '-') + '</strong>' +
+          '<span>' + escapeHtml([row.member_no || '', row.mobile_phone || '', row.member_tier || ''].filter(Boolean).join(' | ')) + '</span>' +
+        '</button>';
+      }).join('');
+      memberResult.classList.remove('d-none');
+      memberResult.onclick = function (event) {
+        const btn = event.target.closest('.online-location-member-option');
+        if (!btn || btn.disabled) return;
+        const row = rows[Number(btn.getAttribute('data-idx') || 0)];
+        if (row) {
+          setSelectedMember(row);
+          memberResult.classList.add('d-none');
+        }
+      };
+    } catch (error) {
+      showToast(error.message || 'Gagal mencari member.', 'warning');
+    }
+  }, 300);
+
+  function renderMapResults(rows) {
+    if (!mapResult) return;
+    if (!rows.length) {
+      mapResult.classList.add('d-none');
+      return;
+    }
+    mapResult.innerHTML = rows.map(function (row, idx) {
+      return '<button type="button" class="online-location-search-option" data-idx="' + idx + '">' +
+        '<strong>' + escapeHtml(row.title || 'Lokasi') + '</strong>' +
+        '<span>' + escapeHtml(row.address || '') + '</span>' +
+      '</button>';
+    }).join('');
+    mapResult.classList.remove('d-none');
+    mapResult.onclick = function (event) {
+      const btn = event.target.closest('.online-location-search-option');
+      if (!btn) return;
+      const row = rows[Number(btn.getAttribute('data-idx') || 0)];
+      if (!row) return;
+      setPoint(row.lat, row.lng, row.address);
+      form.elements.address.value = String(row.address || '').slice(0, 255);
+      mapResult.classList.add('d-none');
+    };
+  }
+
+  async function searchMapAddress() {
+    const q = String(mapSearchInput && mapSearchInput.value || '').trim();
+    if (q.length < 3) {
+      showToast('Ketik minimal 3 karakter alamat.', 'warning');
+      return;
+    }
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=id&q=' + encodeURIComponent(q);
+      const response = await fetch(url, {headers:{'Accept':'application/json'}});
+      const json = await response.json();
+      const rows = (Array.isArray(json) ? json : []).map(function (row) {
+        const lat = Number(row && row.lat);
+        const lng = Number(row && row.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const address = String(row.display_name || q);
+        return {
+          lat: lat,
+          lng: lng,
+          title: String(row.name || address.split(',')[0] || 'Lokasi'),
+          address: address
+        };
+      }).filter(Boolean);
+      renderMapResults(rows);
+      if (!rows.length) showToast('Lokasi tidak ditemukan. Geser pin di map atau isi koordinat manual.', 'warning');
+    } catch (error) {
+      showToast('Pencarian map belum tersedia. Geser pin di map atau isi koordinat manual.', 'warning');
+    }
+  }
+
+  document.getElementById('online_location_new').addEventListener('click', function () {
+    openModal(null);
+  });
+
+  memberInput.addEventListener('input', function () {
+    form.elements.member_id.value = '';
+    selectedMember = null;
+    memberSelected.textContent = 'Belum ada member dipilih.';
+    searchMember();
+  });
+  if (mapFindBtn) mapFindBtn.addEventListener('click', searchMapAddress);
+  if (mapSearchInput) {
+    mapSearchInput.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        searchMapAddress();
+      }
+    });
+  }
+  form.elements.latitude.addEventListener('change', function () {
+    const point = currentPoint();
+    if (modalMarker) modalMarker.setLatLng(point);
+    if (modalMap) modalMap.setView(point, 16);
+  });
+  form.elements.longitude.addEventListener('change', function () {
+    const point = currentPoint();
+    if (modalMarker) modalMarker.setLatLng(point);
+    if (modalMap) modalMap.setView(point, 16);
+  });
 
   document.getElementById('online_location_q').addEventListener('input', debounce(function (event) {
     state.q = event.target.value;
@@ -460,25 +803,70 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   body.addEventListener('click', function (event) {
-    const btn = event.target.closest('.online-location-edit');
-    if (!btn) return;
-    const row = rowMap[String(btn.dataset.id || '')];
-    if (row) openModal(row);
+    const editBtn = event.target.closest('.online-location-edit');
+    const removeBtn = event.target.closest('.online-location-remove');
+    if (editBtn) {
+      const row = rowMap[String(editBtn.dataset.id || '')];
+      if (row) openModal(row);
+      return;
+    }
+    if (removeBtn) {
+      const row = rowMap[String(removeBtn.dataset.id || '')];
+      if (row) deleteLocation(row);
+    }
+  });
+
+  async function deleteLocation(row) {
+    if (!row || !row.id) return;
+    const label = (row.label || 'alamat') + ' - ' + (row.member_name || '');
+    if (!confirm('Hapus ' + label + '?')) return;
+    try {
+      await postJson(deleteUrlBase + '/' + encodeURIComponent(String(row.id)), {});
+      showToast('Alamat online food berhasil dihapus.', 'success');
+      loadRows();
+    } catch (error) {
+      showToast(error.message || 'Gagal menghapus alamat.', 'warning');
+    }
+  }
+
+  document.getElementById('online_location_delete').addEventListener('click', function () {
+    const id = parseInt(form.elements.id.value || '0', 10) || 0;
+    const row = rowMap[String(id)] || {id: id, label: form.elements.label.value || 'alamat', member_name: memberInput.value || ''};
+    if (modal) modal.hide();
+    deleteLocation(row);
   });
 
   document.getElementById('online_location_save').addEventListener('click', async function () {
-    const payload = {
-      id: parseInt(form.elements.id.value || '0', 10) || 0,
-      free_delivery_enabled: form.elements.free_delivery_enabled.checked ? 1 : 0,
-      free_delivery_reason: form.elements.free_delivery_reason.value || ''
-    };
+    const payload = payloadFromForm();
+    if (!payload.member_id) {
+      showToast('Pilih member dulu.', 'warning');
+      return;
+    }
+    if (!String(payload.label || '').trim()) {
+      showToast('Label alamat wajib diisi.', 'warning');
+      return;
+    }
+    if (!String(payload.address || '').trim()) {
+      showToast('Alamat wajib diisi.', 'warning');
+      return;
+    }
+    if (!payload.latitude || !payload.longitude) {
+      showToast('Latitude dan longitude wajib diisi.', 'warning');
+      return;
+    }
     try {
       await postJson(saveUrl, payload);
       if (modal) modal.hide();
-      showToast('Pengaturan gratis ongkir alamat berhasil disimpan.', 'success');
+      showToast('Alamat online food berhasil disimpan.', 'success');
       loadRows();
     } catch (error) {
       showToast(error.message || 'Gagal menyimpan data alamat.', 'warning');
+    }
+  });
+
+  document.addEventListener('click', function (event) {
+    if (!memberResult.contains(event.target) && event.target !== memberInput) {
+      memberResult.classList.add('d-none');
     }
   });
 

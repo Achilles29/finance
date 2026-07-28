@@ -207,3 +207,5 @@ minimum belanja
 alamat/member langganan lewat flag free_delivery_enabled di lokasi tersimpan.
 
 apakah sudah ada pengaturannya?
+
+customer bisa simpan lebih dari 1 alamat. apakah sudah?

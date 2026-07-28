@@ -917,6 +917,7 @@ class Pos_model extends CI_Model
                 l.address_note,
                 l.latitude,
                 l.longitude,
+                l.location_accuracy,
                 l.is_default,
                 l.free_delivery_enabled,
                 l.free_delivery_reason,
@@ -956,21 +957,44 @@ class Pos_model extends CI_Model
         ];
     }
 
-    public function save_online_food_location_free_delivery(array $data): array
+    public function save_online_food_location(array $data): array
     {
         $db = $this->coredb;
-        if (!$db->table_exists('crm_member_delivery_location')) {
+        if (!$db->table_exists('crm_member_delivery_location') || !$db->table_exists('crm_member')) {
             return ['ok' => false, 'message' => 'Tabel alamat online food belum tersedia. Jalankan SQL migration online food terlebih dulu.'];
         }
 
         $id = (int)($data['id'] ?? 0);
-        if ($id <= 0) {
-            return ['ok' => false, 'message' => 'Alamat customer belum dipilih.'];
+        $existing = null;
+        if ($id > 0) {
+            $existing = $db->from('crm_member_delivery_location')->where('id', $id)->limit(1)->get()->row_array();
+            if (!$existing) {
+                return ['ok' => false, 'message' => 'Alamat customer tidak ditemukan.'];
+            }
         }
 
-        $row = $db->select('id')->from('crm_member_delivery_location')->where('id', $id)->limit(1)->get()->row_array();
-        if (!$row) {
-            return ['ok' => false, 'message' => 'Alamat customer tidak ditemukan.'];
+        $memberId = (int)($data['member_id'] ?? ($existing['member_id'] ?? 0));
+        if ($memberId <= 0) {
+            return ['ok' => false, 'message' => 'Member wajib dipilih.'];
+        }
+        $member = $db->select('id')->from('crm_member')->where('id', $memberId)->limit(1)->get()->row_array();
+        if (!$member) {
+            return ['ok' => false, 'message' => 'Member tidak ditemukan.'];
+        }
+
+        $label = $this->nullable_text($data['label'] ?? '');
+        $address = $this->nullable_text($data['address'] ?? '');
+        if ($label === null) {
+            return ['ok' => false, 'message' => 'Label alamat wajib diisi.'];
+        }
+        if ($address === null) {
+            return ['ok' => false, 'message' => 'Alamat wajib diisi.'];
+        }
+
+        $lat = is_numeric($data['latitude'] ?? null) ? (float)$data['latitude'] : null;
+        $lng = is_numeric($data['longitude'] ?? null) ? (float)$data['longitude'] : null;
+        if ($lat === null || $lng === null || $lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
+            return ['ok' => false, 'message' => 'Koordinat alamat belum valid.'];
         }
 
         $enabled = (int)($data['free_delivery_enabled'] ?? 0) === 1 ? 1 : 0;
@@ -980,6 +1004,16 @@ class Pos_model extends CI_Model
         }
 
         $payload = [
+            'member_id' => $memberId,
+            'label' => substr($label, 0, 80),
+            'recipient_name' => $this->nullable_text($data['recipient_name'] ?? ''),
+            'recipient_phone' => $this->nullable_text($data['recipient_phone'] ?? ''),
+            'address' => substr($address, 0, 255),
+            'address_note' => $this->nullable_text($data['address_note'] ?? ''),
+            'latitude' => $lat,
+            'longitude' => $lng,
+            'location_accuracy' => is_numeric($data['location_accuracy'] ?? null) ? max(0, (float)$data['location_accuracy']) : null,
+            'is_default' => (int)($data['is_default'] ?? 0) === 1 ? 1 : 0,
             'free_delivery_enabled' => $enabled,
             'free_delivery_reason' => $enabled === 1 ? $reason : null,
         ];
@@ -987,11 +1021,69 @@ class Pos_model extends CI_Model
             $payload['updated_at'] = date('Y-m-d H:i:s');
         }
 
-        $db->where('id', $id)->update('crm_member_delivery_location', $payload);
-        if ($db->affected_rows() < 0) {
-            return ['ok' => false, 'message' => 'Gagal menyimpan pengaturan gratis ongkir alamat.'];
+        $db->trans_begin();
+        try {
+            if ((int)$payload['is_default'] === 1) {
+                $db->where('member_id', $memberId);
+                if ($id > 0) {
+                    $db->where('id !=', $id);
+                }
+                $db->update('crm_member_delivery_location', ['is_default' => 0]);
+            }
+
+            if ($id > 0) {
+                $db->where('id', $id)->update('crm_member_delivery_location', $payload);
+            } else {
+                $payload['created_at'] = date('Y-m-d H:i:s');
+                $db->insert('crm_member_delivery_location', $payload);
+                $id = (int)$db->insert_id();
+            }
+
+            if ($db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan alamat online food.');
+            }
+            $db->trans_commit();
+            return ['ok' => true, 'id' => $id];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function save_online_food_location_free_delivery(array $data): array
+    {
+        if ((int)($data['id'] ?? 0) <= 0) {
+            return ['ok' => false, 'message' => 'Alamat customer belum dipilih.'];
         }
 
+        $db = $this->coredb;
+        if (!$db->table_exists('crm_member_delivery_location')) {
+            return ['ok' => false, 'message' => 'Tabel alamat online food belum tersedia. Jalankan SQL migration online food terlebih dulu.'];
+        }
+
+        $row = $db->from('crm_member_delivery_location')->where('id', (int)$data['id'])->limit(1)->get()->row_array();
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Alamat customer tidak ditemukan.'];
+        }
+
+        return $this->save_online_food_location($data + $row);
+    }
+
+    public function delete_online_food_location(int $id): array
+    {
+        $db = $this->coredb;
+        if (!$db->table_exists('crm_member_delivery_location')) {
+            return ['ok' => false, 'message' => 'Tabel alamat online food belum tersedia.'];
+        }
+        if ($id <= 0) {
+            return ['ok' => false, 'message' => 'Alamat customer belum dipilih.'];
+        }
+
+        $row = $db->select('id')->from('crm_member_delivery_location')->where('id', $id)->limit(1)->get()->row_array();
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Alamat customer tidak ditemukan.'];
+        }
+        $db->where('id', $id)->delete('crm_member_delivery_location');
         return ['ok' => true, 'id' => $id];
     }
 

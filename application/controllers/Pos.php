@@ -1059,12 +1059,35 @@ public function self_order_tables_print()
         $this->json_ok($this->Pos_model->online_food_location_rows($this->online_food_location_filters()));
     }
 
+    public function online_food_location_member_search()
+    {
+        $this->require_permission('pos.online_food.index', 'view');
+        $q = trim((string)$this->input->get('q', true));
+        $limit = max(1, min(15, (int)$this->input->get('limit', true) ?: 8));
+        $this->json_ok([
+            'rows' => $this->Pos_model->order_member_search($q, $limit),
+        ]);
+    }
+
     public function online_food_location_save()
     {
         $this->require_permission('pos.online_food.index', 'edit');
-        $result = $this->Pos_model->save_online_food_location_free_delivery($this->request_payload());
+        $result = $this->Pos_model->save_online_food_location($this->request_payload());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan pengaturan alamat online food.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)($result['id'] ?? 0),
+        ]);
+    }
+
+    public function online_food_location_delete($id)
+    {
+        $this->require_permission('pos.online_food.index', 'delete');
+        $result = $this->Pos_model->delete_online_food_location((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menghapus alamat online food.'), 422);
             return;
         }
         $this->json_ok([
