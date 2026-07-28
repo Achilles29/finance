@@ -181,16 +181,6 @@ tampilan tabel /payroll/bonus?tab=weights&month=2026-07 kolom status terlalu leb
 
 
 
-untuk pembagian bonus per shift saya klarifikasi dulu.
-setelah kita buat detail nya, sekarnag kelihatan suumber omzet dan pembagiannya.
-nah sekarang saya mau tanya.
-bonus sekarang kan dibagi omzet shift, sementara shift pagi itu bisa beberapa shift DAN JAM nya bisa beda beda, misalnya MORNING BAR 08.00-17.00, MORNING KITHCEN 08.00-17.00 , PURCHASE 07.00-16.00
-misal MB ada 2 orang dengan masing masing bobot 0,8  dan 1, MK ada 3 orang dengan masing masing bobot 0,8 0,9  dan 1, P ada 1 orang dengan Bobot 0,5.
-jam 9-jam 12 ada omzet 1.000.000 berapa pembagian ke 6 orang tersebut?
-
-lalu shif EVENING BAR masuk 14.00 - 23.00 ada 4 orang masuk dengan bobot 0,9 semua
-di jam 14.00 - 16.00 ada omzet 3.000.000 , berapa pembagian ke 10 orang tersebut?
-
 
 estimasi penalty di /my masih 0
 
@@ -199,20 +189,7 @@ sekarang perbaiki logika detail audit bonus di /payroll/bonus?month=2026-07&tab=
 
 
 
-
-tadi kamu jelaskan :
-Gratis ongkir bisa otomatis dari:
-jarak dekat (free_delivery_distance_km)
-minimum belanja
-alamat/member langganan lewat flag free_delivery_enabled di lokasi tersimpan.
-
-apakah sudah ada pengaturannya?
-
-customer bisa simpan lebih dari 1 alamat. apakah sudah?
-
 lakukan perbaikan:
 member : 
-- /online-order/addresses modal tambah terpotong dan tidak responsif
-- gambar 3 , bedanya ketiga opsi itu apa? 
 - tadi sudah saya tes pembayaran qris, tagihan yang muncul hanya untuk produk, ongkirnya belum tertagih. seharusnya nilai tagihan termasuk ongkir, kecuali gratis ongkir
 - pesanan maasuk belum ada notifikasi , buat sound dan flare notifikasi di semua halaman seperti pada self_order

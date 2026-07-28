@@ -340,7 +340,6 @@ belanja untuk bahan baku
 
 laporan penggunaan bahan baku , batch produksi, spoil waste dan lainnya, pos
 
-
 laporan profit net, di penjualan dan produk berdasarkan hpp live
 
 
@@ -358,8 +357,7 @@ masukkan halaman ke sidebar dan role matrix database juga.
 buatkan 1 halaman pengaturan dan halaman turunannya dalam 1 menu sidebar.
 buat tabel baru jika perlu dengan prefix wa_
 
+
 kejutkan saya
-
-
 - halaman rekon keuangan
 - halaman generate qris,  dari pos, muncul ke halaman khusus qris 
