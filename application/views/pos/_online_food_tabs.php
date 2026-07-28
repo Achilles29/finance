@@ -13,6 +13,12 @@ $tabs = [
         'hint' => 'Jam, bayar, ongkir',
         'url' => site_url('pos/online-food/settings'),
     ],
+    [
+        'key' => 'locations',
+        'label' => 'Alamat',
+        'hint' => 'Gratis ongkir',
+        'url' => site_url('pos/online-food/locations'),
+    ],
 ];
 ?>
 

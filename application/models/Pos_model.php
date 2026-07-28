@@ -863,6 +863,138 @@ class Pos_model extends CI_Model
         return $this->deposit_payment_method_options();
     }
 
+    public function online_food_location_rows(array $filters = []): array
+    {
+        $db = $this->coredb;
+        if (!$db->table_exists('crm_member_delivery_location') || !$db->table_exists('crm_member')) {
+            return [
+                'rows' => [],
+                'pagination' => [
+                    'page' => 1,
+                    'limit' => max(1, min(200, (int)($filters['limit'] ?? 50))),
+                    'total_rows' => 0,
+                    'total_pages' => 1,
+                ],
+            ];
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        $freeStatus = strtoupper(trim((string)($filters['free_status'] ?? 'ALL')));
+        $page = max(1, (int)($filters['page'] ?? 1));
+        $limit = max(1, min(200, (int)($filters['limit'] ?? 50)));
+
+        $db->from('crm_member_delivery_location l')
+            ->join('crm_member m', 'm.id = l.member_id', 'left');
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('m.member_no', $q)
+                ->or_like('m.member_name', $q)
+                ->or_like('m.mobile_phone', $q)
+                ->or_like('l.label', $q)
+                ->or_like('l.address', $q)
+                ->or_like('l.address_note', $q)
+                ->or_like('l.recipient_name', $q)
+                ->or_like('l.recipient_phone', $q)
+                ->group_end();
+        }
+        if ($freeStatus === 'FREE') {
+            $db->where('l.free_delivery_enabled', 1);
+        } elseif ($freeStatus === 'NORMAL') {
+            $db->where('l.free_delivery_enabled', 0);
+        }
+
+        $total = (int)$db->count_all_results('', false);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+
+        $rows = $db->select('
+                l.id,
+                l.member_id,
+                l.label,
+                l.recipient_name,
+                l.recipient_phone,
+                l.address,
+                l.address_note,
+                l.latitude,
+                l.longitude,
+                l.is_default,
+                l.free_delivery_enabled,
+                l.free_delivery_reason,
+                l.last_used_at,
+                l.created_at,
+                l.updated_at,
+                m.member_no,
+                m.member_name,
+                m.mobile_phone
+            ', false)
+            ->order_by('l.free_delivery_enabled', 'DESC')
+            ->order_by('l.last_used_at IS NULL', 'ASC', false)
+            ->order_by('l.last_used_at', 'DESC')
+            ->order_by('l.id', 'DESC')
+            ->limit($limit, $offset)
+            ->get()
+            ->result_array();
+
+        foreach ($rows as &$row) {
+            $row['id'] = (int)($row['id'] ?? 0);
+            $row['member_id'] = (int)($row['member_id'] ?? 0);
+            $row['is_default'] = (int)($row['is_default'] ?? 0);
+            $row['free_delivery_enabled'] = (int)($row['free_delivery_enabled'] ?? 0);
+            $row['latitude'] = isset($row['latitude']) ? (float)$row['latitude'] : null;
+            $row['longitude'] = isset($row['longitude']) ? (float)$row['longitude'] : null;
+        }
+        unset($row);
+
+        return [
+            'rows' => $rows,
+            'pagination' => [
+                'page' => $page,
+                'limit' => $limit,
+                'total_rows' => $total,
+                'total_pages' => $totalPages,
+            ],
+        ];
+    }
+
+    public function save_online_food_location_free_delivery(array $data): array
+    {
+        $db = $this->coredb;
+        if (!$db->table_exists('crm_member_delivery_location')) {
+            return ['ok' => false, 'message' => 'Tabel alamat online food belum tersedia. Jalankan SQL migration online food terlebih dulu.'];
+        }
+
+        $id = (int)($data['id'] ?? 0);
+        if ($id <= 0) {
+            return ['ok' => false, 'message' => 'Alamat customer belum dipilih.'];
+        }
+
+        $row = $db->select('id')->from('crm_member_delivery_location')->where('id', $id)->limit(1)->get()->row_array();
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Alamat customer tidak ditemukan.'];
+        }
+
+        $enabled = (int)($data['free_delivery_enabled'] ?? 0) === 1 ? 1 : 0;
+        $reason = $this->nullable_text($data['free_delivery_reason'] ?? '');
+        if ($enabled === 1 && $reason === null) {
+            $reason = 'Langganan';
+        }
+
+        $payload = [
+            'free_delivery_enabled' => $enabled,
+            'free_delivery_reason' => $enabled === 1 ? $reason : null,
+        ];
+        if ($db->field_exists('updated_at', 'crm_member_delivery_location')) {
+            $payload['updated_at'] = date('Y-m-d H:i:s');
+        }
+
+        $db->where('id', $id)->update('crm_member_delivery_location', $payload);
+        if ($db->affected_rows() < 0) {
+            return ['ok' => false, 'message' => 'Gagal menyimpan pengaturan gratis ongkir alamat.'];
+        }
+
+        return ['ok' => true, 'id' => $id];
+    }
+
     public function self_order_qris_payment_method_options(): array
     {
         $db = $this->coredb;

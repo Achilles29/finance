@@ -1042,6 +1042,36 @@ public function self_order_tables_print()
         ]);
     }
 
+    public function online_food_locations()
+    {
+        $this->require_permission('pos.online_food.index', 'view');
+
+        $this->render('pos/online_food_locations', [
+            'page_title' => 'Alamat Online Food',
+            'active_menu' => 'pos.online_food.index',
+            'filters' => $this->online_food_location_filters(),
+        ]);
+    }
+
+    public function online_food_locations_data()
+    {
+        $this->require_permission('pos.online_food.index', 'view');
+        $this->json_ok($this->Pos_model->online_food_location_rows($this->online_food_location_filters()));
+    }
+
+    public function online_food_location_save()
+    {
+        $this->require_permission('pos.online_food.index', 'edit');
+        $result = $this->Pos_model->save_online_food_location_free_delivery($this->request_payload());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan pengaturan alamat online food.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)($result['id'] ?? 0),
+        ]);
+    }
+
     public function deposit_member_search()
     {
         $this->require_permission('pos.deposit.index', 'view');
@@ -4203,6 +4233,21 @@ public function self_order_tables_print()
             'date_to' => $this->optional_report_date_input('date_to') ?: date('Y-m-d'),
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 20)),
+        ];
+    }
+
+    private function online_food_location_filters(): array
+    {
+        $freeStatus = strtoupper(trim((string)$this->input->get('free_status', true)));
+        if (!in_array($freeStatus, ['ALL', 'FREE', 'NORMAL'], true)) {
+            $freeStatus = 'ALL';
+        }
+
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'free_status' => $freeStatus,
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(10, min(200, (int)$this->input->get('limit', true) ?: 50)),
         ];
     }
 

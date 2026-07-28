@@ -200,7 +200,8 @@ sekarang perbaiki logika detail audit bonus di /payroll/bonus?month=2026-07&tab=
 
 
 
-tadi kamu Gratis ongkir bisa otomatis dari:
+tadi kamu jelaskan :
+Gratis ongkir bisa otomatis dari:
 jarak dekat (free_delivery_distance_km)
 minimum belanja
 alamat/member langganan lewat flag free_delivery_enabled di lokasi tersimpan.
