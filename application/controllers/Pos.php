@@ -3549,6 +3549,24 @@ public function self_order_tables_print()
         ]);
     }
 
+    public function report_sales_extra()
+    {
+        $pageCode = $this->report_view_page_code('pos.report.sales.extra.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->sales_report_filters();
+        $dataset = $this->Pos_report_model->sales_extra_report($filters);
+        $this->render('pos/report_sales_extra_index', [
+            'page_title' => 'Laporan Penjualan Extra POS',
+            'active_menu' => 'pos.report.sales.extra',
+            'report_nav_active' => 'sales_extra',
+            'filters' => $filters,
+            'rows' => (array)($dataset['rows'] ?? []),
+            'overview' => (array)($dataset['overview'] ?? []),
+            'meta' => (array)($dataset['meta'] ?? []),
+            'outlets' => $this->Pos_report_model->outlet_options(),
+        ]);
+    }
+
     public function report_sales_transaction($id)
     {
         $pageCode = $this->report_view_page_code('pos.report.sales.detail.index');

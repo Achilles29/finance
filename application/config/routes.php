@@ -612,6 +612,7 @@ $route['pos/reports/daily-sales/print'] = 'pos/report_daily_sales_print';
 $route['pos/reports/sales/payment-line/update/(:num)'] = 'pos/report_sales_payment_line_update/$1';
 $route['pos/reports/sales-detail'] = 'pos/report_sales_detail';
 $route['pos/reports/sales-detail/(:num)'] = 'pos/report_sales_transaction/$1';
+$route['pos/reports/sales-extra'] = 'pos/report_sales_extra';
 $route['pos/reports/payments'] = 'pos/report_payments';
 $route['pos/reports/payments/(:num)'] = 'pos/report_payment_detail/$1';
 $route['pos/reports/payment-methods'] = 'pos/report_payment_methods';

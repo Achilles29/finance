@@ -62,6 +62,26 @@ class Pos_report_model extends CI_Model
         ];
     }
 
+    public function sales_extra_report(array $filters): array
+    {
+        $page = max(1, (int)($filters['page'] ?? 1));
+        $limit = max(1, min(200, (int)($filters['limit'] ?? 25)));
+        $total = $this->count_sales_extra($filters);
+        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
+
+        return [
+            'rows' => $this->sales_extra_rows($filters, $limit, $offset),
+            'overview' => $this->sales_extra_overview($filters),
+            'meta' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'total_pages' => $totalPages,
+                'offset' => $offset,
+            ],
+        ];
+    }
+
     public function payment_report(array $filters): array
     {
         $page = max(1, (int)($filters['page'] ?? 1));
@@ -880,6 +900,140 @@ class Pos_report_model extends CI_Model
         return $this->db->select('COALESCE(SUM(rl.qty_refunded), 0) AS refund_qty, COALESCE(SUM(rl.amount_refunded), 0) AS refund_amount', false)
             ->get()
             ->row_array() ?: [];
+    }
+
+    private function sales_extra_rows(array $filters, int $limit, int $offset): array
+    {
+        $this->sales_extra_base_query($filters);
+
+        $rows = $this->db->select("\n                ex.id AS extra_id,\n                ex.extra_code,\n                ex.extra_name,\n                ex.extra_type,\n                ex.source_kind,\n                ex.selling_price,\n                ex.cost_amount,\n                COUNT(DISTINCT o.id) AS order_count,\n                COUNT(DISTINCT l.product_id) AS product_count,\n                COALESCE(SUM(x.qty), 0) AS qty_total,\n                COALESCE(SUM(x.net_amount), 0) AS gross_sales,\n                COALESCE(SUM(x.cost_amount_snapshot), 0) AS cogs_amount\n            ", false)
+            ->group_by(['ex.id', 'ex.extra_code', 'ex.extra_name', 'ex.extra_type', 'ex.source_kind', 'ex.selling_price', 'ex.cost_amount'])
+            ->order_by('gross_sales', 'DESC', false)
+            ->order_by('ex.extra_name', 'ASC')
+            ->limit($limit, $offset)
+            ->get()
+            ->result_array();
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $refundMap = $this->sales_extra_refund_rows($filters, array_map('intval', array_column($rows, 'extra_id')));
+        foreach ($rows as &$row) {
+            $extraId = (int)($row['extra_id'] ?? 0);
+            $refund = $refundMap[$extraId] ?? ['refund_qty' => 0, 'refund_amount' => 0];
+            $grossSales = (float)($row['gross_sales'] ?? 0);
+            $refundAmount = (float)($refund['refund_amount'] ?? 0);
+            $cogsAmount = (float)($row['cogs_amount'] ?? 0);
+            $row['refund_qty'] = (float)($refund['refund_qty'] ?? 0);
+            $row['refund_amount'] = $refundAmount;
+            $row['net_sales'] = round($grossSales - $refundAmount, 2);
+            $row['gross_profit'] = round((float)$row['net_sales'] - $cogsAmount, 2);
+        }
+        unset($row);
+
+        usort($rows, static function (array $left, array $right): int {
+            $netCompare = (float)($right['net_sales'] ?? 0) <=> (float)($left['net_sales'] ?? 0);
+            if ($netCompare !== 0) {
+                return $netCompare;
+            }
+
+            return strcasecmp((string)($left['extra_name'] ?? ''), (string)($right['extra_name'] ?? ''));
+        });
+
+        return $rows;
+    }
+
+    private function count_sales_extra(array $filters): int
+    {
+        $this->sales_extra_base_query($filters);
+        $row = $this->db->select('COUNT(DISTINCT ex.id) AS total', false)
+            ->get()
+            ->row_array();
+
+        return (int)($row['total'] ?? 0);
+    }
+
+    private function sales_extra_overview(array $filters): array
+    {
+        $this->sales_extra_base_query($filters);
+        $overview = $this->db->select("\n                COUNT(DISTINCT ex.id) AS extra_count,\n                COUNT(DISTINCT o.id) AS order_count,\n                COUNT(DISTINCT l.product_id) AS product_count,\n                COALESCE(SUM(x.qty), 0) AS qty_total,\n                COALESCE(SUM(x.net_amount), 0) AS gross_sales,\n                COALESCE(SUM(x.cost_amount_snapshot), 0) AS cogs_amount\n            ", false)
+            ->get()
+            ->row_array() ?: [];
+
+        $refundOverview = $this->sales_extra_refund_overview($filters);
+        $overview['refund_qty'] = (float)($refundOverview['refund_qty'] ?? 0);
+        $overview['refund_amount'] = (float)($refundOverview['refund_amount'] ?? 0);
+        $overview['net_sales'] = round((float)($overview['gross_sales'] ?? 0) - (float)($overview['refund_amount'] ?? 0), 2);
+        $overview['gross_profit'] = round((float)($overview['net_sales'] ?? 0) - (float)($overview['cogs_amount'] ?? 0), 2);
+
+        return $overview;
+    }
+
+    private function sales_extra_base_query(array $filters): void
+    {
+        $this->db->from('pos_order_line_extra x')
+            ->join('pos_order_line l', 'l.id = x.order_line_id', 'inner')
+            ->join('pos_order o', 'o.id = x.order_id', 'inner')
+            ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
+            ->join('crm_member m', 'm.id = o.member_id', 'left')
+            ->join('mst_extra ex', 'ex.id = x.extra_id', 'left')
+            ->join('mst_product p', 'p.id = l.product_id', 'left')
+            ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+            ->join('mst_product_category pc', 'pc.id = p.product_category_id', 'left')
+            ->where_not_in('o.status', ['DRAFT', 'PENDING', 'VOID'])
+            ->where('l.line_status <>', 'VOID');
+
+        $this->apply_order_filters($filters, 'o', ['ex.extra_name', 'ex.extra_code', 'ex.extra_type', 'ex.source_kind', 'p.product_name', 'p.product_code', 'pd.name', 'pc.name', 'x.notes']);
+    }
+
+    private function sales_extra_refund_rows(array $filters, array $extraIds): array
+    {
+        $extraIds = array_values(array_filter(array_map('intval', $extraIds), static function (int $id): bool {
+            return $id > 0;
+        }));
+        if (empty($extraIds)) {
+            return [];
+        }
+
+        $this->sales_extra_refund_base_query($filters);
+        $rows = $this->db->select('rl.extra_id, COALESCE(SUM(rl.qty_refunded), 0) AS refund_qty, COALESCE(SUM(rl.amount_refunded), 0) AS refund_amount', false)
+            ->where_in('rl.extra_id', $extraIds)
+            ->group_by('rl.extra_id')
+            ->get()
+            ->result_array();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int)($row['extra_id'] ?? 0)] = $row;
+        }
+
+        return $map;
+    }
+
+    private function sales_extra_refund_overview(array $filters): array
+    {
+        $this->sales_extra_refund_base_query($filters);
+        return $this->db->select('COALESCE(SUM(rl.qty_refunded), 0) AS refund_qty, COALESCE(SUM(rl.amount_refunded), 0) AS refund_amount', false)
+            ->get()
+            ->row_array() ?: [];
+    }
+
+    private function sales_extra_refund_base_query(array $filters): void
+    {
+        $this->db->from('pos_refund_line rl')
+            ->join('pos_order_line_extra x', 'x.id = rl.order_extra_line_id', 'left')
+            ->join('pos_order_line l', 'l.id = COALESCE(rl.order_line_id, x.order_line_id)', 'left', false)
+            ->join('pos_order o', 'o.id = COALESCE(x.order_id, l.order_id)', 'inner', false)
+            ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
+            ->join('crm_member m', 'm.id = o.member_id', 'left')
+            ->join('mst_extra ex', 'ex.id = rl.extra_id', 'left')
+            ->join('mst_product p', 'p.id = l.product_id', 'left')
+            ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
+            ->join('mst_product_category pc', 'pc.id = p.product_category_id', 'left')
+            ->where('rl.line_type', 'EXTRA');
+
+        $this->apply_order_filters($filters, 'o', ['ex.extra_name', 'ex.extra_code', 'ex.extra_type', 'ex.source_kind', 'p.product_name', 'p.product_code', 'pd.name', 'pc.name']);
     }
 
     private function payment_rows(array $filters, int $limit, int $offset): array
