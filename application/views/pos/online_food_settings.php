@@ -255,6 +255,15 @@ $methodLabel = static function (array $method): string {
                 </select>
               </div>
               <div class="col-md-4">
+                <label class="form-label small text-muted mb-1">Penagihan ongkir</label>
+                <select class="form-select" name="delivery_fee_charge_mode">
+                  <option value="CUSTOMER_TO_DRIVER" <?php echo (string)($settings['delivery_fee_charge_mode'] ?? '') === 'CUSTOMER_TO_DRIVER' ? 'selected' : ''; ?>>Customer bayar ke driver</option>
+                  <option value="RECORD_ONLY" <?php echo (string)($settings['delivery_fee_charge_mode'] ?? '') === 'RECORD_ONLY' ? 'selected' : ''; ?>>Catat saja</option>
+                  <option value="MERCHANT_COLLECT" <?php echo (string)($settings['delivery_fee_charge_mode'] ?? '') === 'MERCHANT_COLLECT' ? 'selected' : ''; ?>>Merchant koleksi terpisah</option>
+                </select>
+                <div class="online-food-muted mt-1">Ongkir tidak masuk sales POS. Pilih cara penyelesaiannya untuk delivery.</div>
+              </div>
+              <div class="col-md-4">
                 <label class="form-label small text-muted mb-1">Ongkir flat</label>
                 <input type="number" step="0.01" min="0" class="form-control" name="delivery_flat_fee" value="<?php echo html_escape($formatNumber($settings['delivery_flat_fee'] ?? 0)); ?>">
               </div>
@@ -281,6 +290,10 @@ $methodLabel = static function (array $method): string {
               <div class="col-md-4">
                 <label class="form-label small text-muted mb-1">Gratis ongkir min belanja</label>
                 <input type="number" step="0.01" min="0" class="form-control" name="free_delivery_min_order" value="<?php echo html_escape($formatNumber($settings['free_delivery_min_order'] ?? 0)); ?>">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small text-muted mb-1">Gratis ongkir sampai KM</label>
+                <input type="number" step="0.01" min="0" class="form-control" name="free_delivery_distance_km" value="<?php echo html_escape($formatNumber($settings['free_delivery_distance_km'] ?? 0)); ?>">
               </div>
               <div class="col-md-4">
                 <label class="form-label small text-muted mb-1">Biaya kemasan default</label>

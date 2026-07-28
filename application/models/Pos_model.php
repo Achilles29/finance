@@ -649,6 +649,7 @@ class Pos_model extends CI_Model
             'midtrans_is_production' => 0,
             'qris_payment_method_id' => 0,
             'delivery_fee_mode' => 'DISTANCE',
+            'delivery_fee_charge_mode' => 'CUSTOMER_TO_DRIVER',
             'delivery_flat_fee' => 0,
             'delivery_base_fee' => 5000,
             'delivery_base_km' => 2,
@@ -656,6 +657,7 @@ class Pos_model extends CI_Model
             'delivery_min_fee' => 5000,
             'delivery_max_distance_km' => 10,
             'free_delivery_min_order' => 0,
+            'free_delivery_distance_km' => 0,
             'packaging_fee_default' => 0,
             'min_order_amount' => 0,
             'outlet_lat' => '',
@@ -717,6 +719,10 @@ class Pos_model extends CI_Model
         $deliveryFeeMode = strtoupper(trim((string)($data['delivery_fee_mode'] ?? 'DISTANCE')));
         if (!in_array($deliveryFeeMode, ['FLAT', 'DISTANCE'], true)) {
             $deliveryFeeMode = 'DISTANCE';
+        }
+        $deliveryFeeChargeMode = strtoupper(trim((string)($data['delivery_fee_charge_mode'] ?? 'CUSTOMER_TO_DRIVER')));
+        if (!in_array($deliveryFeeChargeMode, ['CUSTOMER_TO_DRIVER', 'RECORD_ONLY', 'MERCHANT_COLLECT'], true)) {
+            $deliveryFeeChargeMode = 'CUSTOMER_TO_DRIVER';
         }
         $paymentDefault = strtoupper(trim((string)($data['payment_default'] ?? 'MANUAL')));
         if (!in_array($paymentDefault, ['AUTO', 'MANUAL'], true)) {
@@ -811,6 +817,7 @@ class Pos_model extends CI_Model
                 'midtrans_is_production' => !empty($data['midtrans_is_production']) ? 1 : 0,
                 'qris_payment_method_id' => $qrisPaymentMethodId > 0 ? $qrisPaymentMethodId : null,
                 'delivery_fee_mode' => $deliveryFeeMode,
+                'delivery_fee_charge_mode' => $deliveryFeeChargeMode,
                 'delivery_flat_fee' => $number($data['delivery_flat_fee'] ?? 0),
                 'delivery_base_fee' => $number($data['delivery_base_fee'] ?? 0),
                 'delivery_base_km' => $number($data['delivery_base_km'] ?? 0),
@@ -818,6 +825,7 @@ class Pos_model extends CI_Model
                 'delivery_min_fee' => $number($data['delivery_min_fee'] ?? 0),
                 'delivery_max_distance_km' => $number($data['delivery_max_distance_km'] ?? 0),
                 'free_delivery_min_order' => $number($data['free_delivery_min_order'] ?? 0),
+                'free_delivery_distance_km' => $number($data['free_delivery_distance_km'] ?? 0),
                 'packaging_fee_default' => $number($data['packaging_fee_default'] ?? 0),
                 'min_order_amount' => $number($data['min_order_amount'] ?? 0),
                 'outlet_lat' => $nullableDecimal($data['outlet_lat'] ?? ''),
