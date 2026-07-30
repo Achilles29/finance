@@ -3,3 +3,12 @@
 [2026-07-30 15:00:01] Output   : /www/wwwroot/finance/backup/dumps/backup_db_finance_20260730_150001.sql.gz
 [2026-07-30 15:00:06] Dump OK  : 13M
 [2026-07-30 15:00:06] Cleanup  : 1 file lama dihapus (> 3 hari)
+[2026-07-30 15:02:44] [WARN] Git push gagal (exit 128): Received disconnect from 20.205.243.166 port 22:11: Bye Bye
+Disconnected from 20.205.243.166 port 22
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+[2026-07-30 15:02:44] [WARN] Backup lokal tetap tersimpan.
+[2026-07-30 15:02:44] ====== Backup SELESAI ======
+[2026-07-30 15:02:44] 
