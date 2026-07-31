@@ -114,7 +114,7 @@ $scopeLabel = !empty($scopeParts) ? implode(' - ', $scopeParts) : 'Global';
   <div class="card border-0 shadow-sm">
     <div class="card-header bg-white border-0 pb-0">
       <h6 class="mb-1">Detail Penalti Bulanan</h6>
-      <div class="small text-muted">Bagian ini sekarang menampilkan dua sumber sekaligus: penalti otomatis yang sudah menempel ke bonus harian, dan penalti event manual/custom pada bulan yang sama.</div>
+      <div class="small text-muted">Semua penalti di bawah ini dibaca dari sumber yang sama, yaitu kejadian penalti pegawai pada bulan ini. Jadi nominal di sini seharusnya sejalan dengan rekap penalti bulanan.</div>
     </div>
     <div class="card-body">
       <div class="table-responsive bonus-detail-table-wrap">
@@ -127,30 +127,25 @@ $scopeLabel = !empty($scopeParts) ? implode(' - ', $scopeParts) : 'Global';
               <th class="text-end">Poin</th>
               <th class="text-end">Nominal</th>
               <th>Status</th>
+              <th>Sumber</th>
               <th>Alasan</th>
             </tr>
           </thead>
           <tbody>
           <?php if (empty($penaltyRows)): ?>
-            <tr><td colspan="7" class="text-center text-muted py-4">Belum ada penalti bulan ini.</td></tr>
+            <tr><td colspan="8" class="text-center text-muted py-4">Belum ada penalti bulan ini.</td></tr>
           <?php else: foreach ($penaltyRows as $row): ?>
             <tr>
               <td><?php echo html_escape((string)($row['penalty_date'] ?? '-')); ?></td>
               <td>
                 <strong><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?></strong>
-                <div class="small text-muted">
-                  <?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?>
-                  <?php if (strtoupper((string)($row['source_bucket'] ?? 'EVENT')) === 'DAILY'): ?>
-                    | OTOMATIS HARIAN
-                  <?php else: ?>
-                    | EVENT
-                  <?php endif; ?>
-                </div>
+                <div class="small text-muted"><?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?></div>
               </td>
               <td><?php echo html_escape(trim((string)(($row['shift_code'] ?? '') . ' ' . ($row['shift_name'] ?? '')))); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['points_deducted'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end text-danger">Rp <?php echo number_format((float)($row['amount_deducted'] ?? 0), 2, ',', '.'); ?></td>
               <td><span class="badge bg-light text-dark border"><?php echo html_escape((string)($row['status'] ?? '-')); ?></span></td>
+              <td><?php echo html_escape((string)($row['source_type'] ?? 'MANUAL')); ?></td>
               <td><?php echo html_escape((string)($row['reason_text'] ?? '-')); ?></td>
             </tr>
           <?php endforeach; endif; ?>

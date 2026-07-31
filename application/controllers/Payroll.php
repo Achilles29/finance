@@ -1089,6 +1089,30 @@ class Payroll extends MY_Controller
         ]));
     }
 
+    public function bonus_service_metric_generate_month()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+
+        @set_time_limit(300);
+        $this->require_permission('payroll.bonus.index', 'edit');
+        $month = trim((string)$this->input->post('month', true));
+        $outletId = (int)$this->input->post('outlet_id', true);
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+            $month = date('Y-m');
+        }
+
+        $dateStart = $month . '-01';
+        $dateEnd = date('Y-m-t', strtotime($dateStart));
+        $result = $this->Payroll_model->generate_bonus_service_metric_range($dateStart, $dateEnd, $outletId);
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal membangun metric layanan bulanan.'));
+        redirect('payroll/bonus?' . http_build_query([
+            'tab' => 'service',
+            'month' => $month,
+        ]));
+    }
+
     public function bonus_monthly_summary_generate()
     {
         if ($this->input->method() !== 'post') {

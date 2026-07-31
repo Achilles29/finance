@@ -1322,9 +1322,21 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   <div class="card bonus-card">
     <div class="card-header bg-white border-0 pb-0">
       <h5 class="mb-1">Metric layanan harian</h5>
-      <div class="small text-muted">Di sini kita lihat kualitas layanan per hari, per outlet, dan per shift. Data ini nanti ikut membentuk bobot bonus operasional.</div>
+      <div class="small text-muted">Di sini kita lihat kualitas layanan per hari, per outlet, dan per shift. Data ini dipakai untuk penalti layanan otomatis dan audit bonus operasional.</div>
     </div>
     <div class="card-body">
+      <div class="bonus-toolbar mb-3">
+        <div class="copy">
+          <h6 class="mb-1">Sumber data metric layanan</h6>
+          <div class="bonus-subcopy">Metric ini dibentuk dari order POS yang punya jejak `ordered_at`, `served_at`, dan status kitchen `SERVED`. Kalau bulan ini kosong, biasanya metric bulan itu belum digenerate atau data saji di POS belum lengkap.</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <form method="post" action="<?php echo site_url('payroll/bonus/service-metric-generate-month'); ?>">
+            <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+            <button type="submit" class="btn btn-primary">Generate Metric 1 Bulan</button>
+          </form>
+        </div>
+      </div>
       <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
         <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
         <input type="hidden" name="tab" value="service">
@@ -1381,7 +1393,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
           </thead>
           <tbody>
           <?php if (empty($serviceMetricRows)): ?>
-            <tr><td colspan="9" class="text-center text-muted py-4">Belum ada metric layanan untuk bulan ini. Jalankan generator dari tab Ringkasan.</td></tr>
+            <tr><td colspan="9" class="text-center text-muted py-4">Belum ada metric layanan untuk bulan ini. Klik <strong>Generate Metric 1 Bulan</strong> di atas. Jika sesudah itu tetap kosong, berarti order di bulan ini belum punya data saji yang cukup untuk dihitung.</td></tr>
           <?php else: foreach ($serviceMetricRows as $row): ?>
             <?php
               $scopeBits = [];
@@ -1394,7 +1406,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               } else {
                   $scopeBits[] = 'Gabungan shift';
               }
-              $serviceScore = (float)($row['service_score_percent'] ?? 0);
+              $serviceScore = (float)($row['score_percent'] ?? 0);
             ?>
             <tr>
               <td><?php echo html_escape((string)($row['metric_date'] ?? '-')); ?></td>

@@ -9,10 +9,13 @@ $summary = $summary ?? [];
 $dailyRows = $daily_rows ?? [];
 $pendingPeerFeedback = $pending_peer_feedback ?? [];
 $peerHistoryRows = $peer_history_rows ?? [];
+$penaltyTypeRows = $penalty_type_rows ?? [];
 $dailyFilters = $daily_filters ?? ['q' => ''];
 $historyFilters = $history_filters ?? ['q' => ''];
+$penaltyTypeFilters = $penalty_type_filters ?? ['q' => ''];
 $dailyPg = $daily_pg ?? ['total' => count($dailyRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1];
 $historyPg = $history_pg ?? ['total' => count($peerHistoryRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1];
+$penaltyTypePg = $penalty_type_pg ?? ['total' => count($penaltyTypeRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1];
 $isPublished = !empty($summary['is_published']);
 $estimatedPenaltyAmount = (float)($summary['estimated_penalty_amount'] ?? 0);
 $estimatedRawAmount = (float)($summary['estimated_raw_amount'] ?? 0);
@@ -99,6 +102,7 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
 
   <ul class="nav nav-pills my-bonus-nav gap-2 mb-4">
     <li class="nav-item"><a class="nav-link <?php echo $tab === 'summary' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'summary']); ?>">Ringkasan Bonus</a></li>
+    <li class="nav-item"><a class="nav-link <?php echo $tab === 'penalties' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'penalties']); ?>">Master Penalti</a></li>
     <li class="nav-item"><a class="nav-link <?php echo $tab === '360' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => '360']); ?>">Penilaian 360</a></li>
     <li class="nav-item"><a class="nav-link <?php echo $tab === 'history' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'history']); ?>">Riwayat</a></li>
   </ul>
@@ -215,6 +219,96 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
             <a class="btn btn-sm btn-outline-secondary <?php echo ((int)($dailyPg['page'] ?? 1) <= 1) ? 'disabled' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'summary', 'daily_q' => (string)($dailyFilters['q'] ?? ''), 'daily_per_page' => (int)($dailyPg['per_page'] ?? 25), 'daily_page' => $dailyPrev]); ?>">Sebelumnya</a>
             <span class="btn btn-sm btn-light disabled">Hal. <?php echo (int)($dailyPg['page'] ?? 1); ?> / <?php echo (int)($dailyPg['total_pages'] ?? 1); ?></span>
             <a class="btn btn-sm btn-outline-secondary <?php echo ((int)($dailyPg['page'] ?? 1) >= (int)($dailyPg['total_pages'] ?? 1)) ? 'disabled' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'summary', 'daily_q' => (string)($dailyFilters['q'] ?? ''), 'daily_per_page' => (int)($dailyPg['per_page'] ?? 25), 'daily_page' => $dailyNext]); ?>">Berikutnya</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  <?php elseif ($tab === 'penalties'): ?>
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-0 pb-0">
+        <h6 class="mb-1">Master Penalti Bonus</h6>
+        <div class="small text-muted">Halaman ini dipakai agar pegawai tahu hal-hal apa saja yang bisa mengurangi poin atau bonus. Ini hanya panduan baca, bukan tempat mengubah data.</div>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-light border shadow-sm mb-3">
+          <div class="fw-semibold mb-1">Cara baca cepat</div>
+          <div class="small text-muted">
+            `Otomatis` berarti sistem bisa membuat penalti sendiri dari absensi, layanan, atau hasil moderasi.
+            `Manual` berarti leader / superadmin mencatat kejadian tertentu.
+            `Semi manual` berarti butuh verifikasi admin terlebih dulu.
+          </div>
+        </div>
+        <form method="get" action="<?php echo site_url('my/bonus'); ?>" class="row g-2 align-items-end mb-3">
+          <?php if ($selectedEmployeeId > 0): ?><input type="hidden" name="employee_id" value="<?php echo $selectedEmployeeId; ?>"><?php endif; ?>
+          <input type="hidden" name="tab" value="penalties">
+          <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+          <input type="hidden" name="date" value="<?php echo html_escape($date); ?>">
+          <div class="col-md-8">
+            <label class="form-label small text-muted mb-1">Cari master penalti</label>
+            <input type="text" name="penalty_type_q" class="form-control" value="<?php echo html_escape((string)($penaltyTypeFilters['q'] ?? '')); ?>" placeholder="Cari nama, kode, kategori, atau sumber otomatis">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-1">Baris</label>
+            <select name="penalty_type_per_page" class="form-select">
+              <?php foreach ([10, 25, 50, 100] as $pp): ?>
+                <option value="<?php echo $pp; ?>" <?php echo ((int)($penaltyTypePg['per_page'] ?? 25) === $pp) ? 'selected' : ''; ?>><?php echo $pp; ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-primary">Filter</button>
+          </div>
+        </form>
+        <div class="table-responsive my-bonus-table-wrap">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Kode</th>
+                <th>Nama Penalti</th>
+                <th>Kategori</th>
+                <th>Mode</th>
+                <th>Sumber</th>
+                <th class="text-end">Poin Default</th>
+                <th class="text-end">Nominal Default</th>
+                <th>Catatan</th>
+              </tr>
+            </thead>
+            <tbody>
+            <?php if (empty($penaltyTypeRows)): ?>
+              <tr><td colspan="8" class="text-center text-muted py-4">Belum ada master penalti yang aktif.</td></tr>
+            <?php else: foreach ($penaltyTypeRows as $row): ?>
+              <?php
+                $behavior = strtoupper((string)($row['behavior_mode'] ?? 'MANUAL'));
+                $behaviorLabel = $behavior === 'AUTO' ? 'Otomatis' : ($behavior === 'SEMI_MANUAL' ? 'Semi manual' : 'Manual');
+                $sourceLabel = trim((string)($row['auto_source'] ?? ''));
+                if ($sourceLabel === '') {
+                    $sourceLabel = 'Input admin';
+                }
+              ?>
+              <tr>
+                <td><strong><?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?></strong></td>
+                <td>
+                  <strong><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?></strong>
+                  <div class="small text-muted"><?php echo (int)($row['approval_required'] ?? 0) === 1 ? 'Butuh persetujuan admin' : 'Bisa langsung dipakai'; ?></div>
+                </td>
+                <td><?php echo html_escape((string)($row['category'] ?? '-')); ?></td>
+                <td><span class="my-bonus-soft <?php echo $behavior === 'AUTO' ? 'ok' : 'warn'; ?>"><?php echo html_escape($behaviorLabel); ?></span></td>
+                <td><?php echo html_escape($sourceLabel); ?></td>
+                <td class="text-end"><?php echo number_format((float)($row['default_points_deducted'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="text-end text-danger">Rp <?php echo number_format((float)($row['default_amount_deducted'] ?? 0), 2, ',', '.'); ?></td>
+                <td class="small text-muted"><?php echo html_escape((string)($row['notes'] ?? '-')); ?></td>
+              </tr>
+            <?php endforeach; endif; ?>
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+          <div class="small text-muted">Total <?php echo number_format((int)($penaltyTypePg['total'] ?? 0)); ?> baris</div>
+          <div class="btn-group">
+            <?php $penaltyPrev = max(1, (int)($penaltyTypePg['page'] ?? 1) - 1); $penaltyNext = min((int)($penaltyTypePg['total_pages'] ?? 1), (int)($penaltyTypePg['page'] ?? 1) + 1); ?>
+            <a class="btn btn-sm btn-outline-secondary <?php echo ((int)($penaltyTypePg['page'] ?? 1) <= 1) ? 'disabled' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'penalties', 'penalty_type_q' => (string)($penaltyTypeFilters['q'] ?? ''), 'penalty_type_per_page' => (int)($penaltyTypePg['per_page'] ?? 25), 'penalty_type_page' => $penaltyPrev]); ?>">Sebelumnya</a>
+            <span class="btn btn-sm btn-light disabled">Hal. <?php echo (int)($penaltyTypePg['page'] ?? 1); ?> / <?php echo (int)($penaltyTypePg['total_pages'] ?? 1); ?></span>
+            <a class="btn btn-sm btn-outline-secondary <?php echo ((int)($penaltyTypePg['page'] ?? 1) >= (int)($penaltyTypePg['total_pages'] ?? 1)) ? 'disabled' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'penalties', 'penalty_type_q' => (string)($penaltyTypeFilters['q'] ?? ''), 'penalty_type_per_page' => (int)($penaltyTypePg['per_page'] ?? 25), 'penalty_type_page' => $penaltyNext]); ?>">Berikutnya</a>
           </div>
         </div>
       </div>

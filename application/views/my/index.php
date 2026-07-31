@@ -7,6 +7,11 @@ $profileUrl = site_url('my/profile' . (!empty($selectedEmployeeId) ? ('?employee
 $scheduleUrl = site_url('my/schedule' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $payrollUrl = site_url('my/payroll' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $bonusUrl = site_url('my/bonus' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
+$bonusPenaltyGuideUrl = site_url('my/bonus?' . http_build_query(array_filter([
+    'employee_id' => !empty($selectedEmployeeId) ? (int)$selectedEmployeeId : null,
+    'tab' => 'penalties',
+    'month' => date('Y-m'),
+])));
 $leaveUrl = $leave_url ?? site_url('my/leave-requests' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $attendanceAlerts = is_array($attendance_alerts ?? null) ? $attendance_alerts : [];
 $revisionRule = is_array($revision_window_rule ?? null) ? $revision_window_rule : ['enabled' => true, 'days' => 7, 'mode' => 'ON'];
@@ -47,6 +52,10 @@ $bonusMonthNotes = (array)($bonusTargetSummary['monthly_notes'] ?? []);
     <a href="<?php echo $bonusUrl; ?>" class="my-mobile-tile">
       <span class="my-mobile-tile-icon"><i class="ri ri-medal-line"></i></span>
       <span class="my-mobile-tile-text">Bonus Saya</span>
+    </a>
+    <a href="<?php echo $bonusPenaltyGuideUrl; ?>" class="my-mobile-tile">
+      <span class="my-mobile-tile-icon"><i class="ri ri-alert-line"></i></span>
+      <span class="my-mobile-tile-text">Master Penalti</span>
     </a>
   </div>
 </div>
@@ -133,6 +142,7 @@ $bonusMonthNotes = (array)($bonusTargetSummary['monthly_notes'] ?? []);
         <div class="d-flex flex-wrap gap-2">
           <a href="<?php echo $attendanceUrl; ?>" class="btn btn-outline-primary btn-sm">Absensi Saya</a>
           <a href="<?php echo $bonusUrl; ?>" class="btn btn-outline-secondary btn-sm">Bonus Saya</a>
+          <a href="<?php echo $bonusPenaltyGuideUrl; ?>" class="btn btn-outline-secondary btn-sm">Master Penalti</a>
           <a href="<?php echo $profileUrl; ?>" class="btn btn-outline-secondary btn-sm">Profil & Kontrak</a>
           <a href="<?php echo $scheduleUrl; ?>" class="btn btn-outline-secondary btn-sm">Jadwal Shift</a>
           <a href="<?php echo $payrollUrl; ?>" class="btn btn-outline-secondary btn-sm">Slip Gaji</a>
@@ -170,6 +180,18 @@ $bonusMonthNotes = (array)($bonusTargetSummary['monthly_notes'] ?? []);
               </div>
               <div class="small text-muted">
                 <?php echo !empty($bonusMonthNotes) ? html_escape(implode(' | ', $bonusMonthNotes)) : 'Gerbang target bulanan bulan ini sedang aman.'; ?>
+              </div>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="border rounded-3 p-3 h-100" style="background:linear-gradient(135deg,#fff9f3,#ffffff);">
+              <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                <div>
+                  <div class="small text-muted text-uppercase">Panduan Penalti Bonus</div>
+                  <div class="fw-bold fs-6 text-dark">Lihat daftar hal yang bisa mengurangi bonus</div>
+                  <div class="small text-muted">Supaya pegawai bisa tahu mana yang otomatis, mana yang manual, dan mana yang butuh verifikasi admin.</div>
+                </div>
+                <a href="<?php echo $bonusPenaltyGuideUrl; ?>" class="btn btn-sm btn-outline-danger">Buka Master Penalti</a>
               </div>
             </div>
           </div>
@@ -213,6 +235,10 @@ $bonusMonthNotes = (array)($bonusTargetSummary['monthly_notes'] ?? []);
         <a href="<?php echo $bonusUrl; ?>" class="my-mobile-tile">
           <span class="my-mobile-tile-icon"><i class="ri ri-medal-line"></i></span>
           <span class="my-mobile-tile-text">Bonus Saya</span>
+        </a>
+        <a href="<?php echo $bonusPenaltyGuideUrl; ?>" class="my-mobile-tile">
+          <span class="my-mobile-tile-icon"><i class="ri ri-alert-line"></i></span>
+          <span class="my-mobile-tile-text">Master Penalti</span>
         </a>
       </div>
     </div>

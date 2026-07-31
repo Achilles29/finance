@@ -918,6 +918,7 @@ class My_portal_model extends CI_Model
         $events = $this->get_presence_events_by_type($employeeId, $date);
         $effectiveCheckinTs = $this->select_effective_checkin_ts((array)($events['CHECKIN'] ?? []), $startTs);
         $effectiveCheckoutTs = $this->select_effective_checkout_ts((array)($events['CHECKOUT'] ?? []), $endTs);
+        $effectiveCheckoutTs = $this->normalize_checkout_for_overnight_shift($effectiveCheckinTs, $effectiveCheckoutTs, $schedule);
         $checkinAt = $effectiveCheckinTs > 0 ? date('Y-m-d H:i:s', $effectiveCheckinTs) : null;
         $checkoutAt = $effectiveCheckoutTs > 0 ? date('Y-m-d H:i:s', $effectiveCheckoutTs) : null;
 
@@ -979,6 +980,7 @@ class My_portal_model extends CI_Model
 
         // Check-out boleh terus membaik (mendekati/jika melewati jam pulang), jadi pertahankan yang paling akhir.
         $existingCheckoutTs = !empty($daily['checkout_at']) ? strtotime((string)$daily['checkout_at']) : 0;
+        $existingCheckoutTs = $this->normalize_checkout_for_overnight_shift($effectiveCheckinTs, $existingCheckoutTs, $schedule);
         if ($existingCheckoutTs > 0 && $existingCheckoutTs > $effectiveCheckoutTs) {
             $effectiveCheckoutTs = $existingCheckoutTs;
             $checkoutAt = date('Y-m-d H:i:s', $effectiveCheckoutTs);
@@ -1242,6 +1244,22 @@ class My_portal_model extends CI_Model
         }
 
         return (int)max($checkoutTsList);
+    }
+
+    private function normalize_checkout_for_overnight_shift(int $checkinTs, int $checkoutTs, array $schedule): int
+    {
+        if ($checkinTs <= 0 || $checkoutTs <= 0 || $checkoutTs > $checkinTs) {
+            return $checkoutTs;
+        }
+
+        $startTime = trim((string)($schedule['start_time'] ?? ''));
+        $endTime = trim((string)($schedule['end_time'] ?? ''));
+        $isOvernight = (int)($schedule['is_overnight'] ?? 0) === 1;
+        if ($isOvernight || ($startTime !== '' && $endTime !== '' && $endTime <= $startTime)) {
+            return (int)strtotime('+1 day', $checkoutTs);
+        }
+
+        return $checkoutTs;
     }
 
     private function get_manual_overtime_pay(int $employeeId, string $date): float

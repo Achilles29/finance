@@ -108,6 +108,7 @@ $route['payroll/bonus/delete-pool-bulk'] = 'payroll/bonus_pool_bulk_delete';
 $route['payroll/bonus/monthly-detail/(:num)/(:num)'] = 'payroll/bonus_monthly_detail/$1/$2';
 $route['payroll/bonus/daily-detail/(:num)'] = 'payroll/bonus_daily_detail/$1';
 $route['payroll/bonus/generate-service-metric'] = 'payroll/bonus_service_metric_generate';
+$route['payroll/bonus/service-metric-generate-month'] = 'payroll/bonus_service_metric_generate_month';
 $route['payroll/bonus/generate-monthly-summary'] = 'payroll/bonus_monthly_summary_generate';
 $route['payroll/bonus/config-save'] = 'payroll/bonus_config_save';
 $route['payroll/bonus/config-delete/(:num)'] = 'payroll/bonus_config_delete/$1';

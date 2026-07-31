@@ -4403,8 +4403,8 @@ class Payroll_model extends CI_Model
                     SUM(CASE WHEN t.penalty_code IN ('LATE_MINOR','LATE_MAJOR','LATE_SEVERE') THEN 1 ELSE 0 END) AS late_count,
                     SUM(CASE WHEN t.penalty_code = 'ALPHA' THEN 1 ELSE 0 END) AS alpha_count,
                     SUM(CASE WHEN t.penalty_code = 'BONUS-PH-TAKEN' THEN 1 ELSE 0 END) AS ph_taken_count,
-                    COALESCE(SUM(CASE WHEN e.source_type = 'MANUAL' THEN e.points_deducted ELSE 0 END),0) AS total_penalty_point_month,
-                    COALESCE(SUM(CASE WHEN e.source_type = 'MANUAL' THEN e.amount_deducted ELSE 0 END),0) AS total_penalty_amount_month
+                    COALESCE(SUM(e.points_deducted),0) AS total_penalty_point_month,
+                    COALESCE(SUM(e.amount_deducted),0) AS total_penalty_amount_month
                 ", false)
                 ->from('pay_bonus_penalty_event e')
                 ->join('pay_bonus_penalty_type t', 't.id = e.penalty_type_id', 'inner')
@@ -4456,8 +4456,10 @@ class Payroll_model extends CI_Model
             $eventPenaltyAmount = (float)($penalty['total_penalty_amount_month'] ?? 0);
             $row['penalty_event_point_total'] = round($eventPenaltyPoint, 4);
             $row['penalty_event_amount_total'] = round($eventPenaltyAmount, 2);
-            $row['total_penalty_point'] = round($dailyPenaltyPoint + $eventPenaltyPoint, 4);
-            $row['total_penalty_amount'] = round($dailyPenaltyAmount + $eventPenaltyAmount, 2);
+            $row['daily_penalty_point_total'] = round($dailyPenaltyPoint, 4);
+            $row['daily_penalty_amount_total'] = round($dailyPenaltyAmount, 2);
+            $row['total_penalty_point'] = round($eventPenaltyPoint, 4);
+            $row['total_penalty_amount'] = round($eventPenaltyAmount, 2);
             $row['total_final_point'] = round(max(0, (float)($row['total_raw_point'] ?? 0) - (float)$row['total_penalty_point']), 4);
             $row['total_final_amount'] = round(max(0, (float)($row['total_raw_amount'] ?? 0) - (float)$row['total_penalty_amount']), 2);
             $row['peer_avg_star'] = round((float)($peerMap[$employeeId] ?? 0), 2);
@@ -4565,32 +4567,6 @@ class Payroll_model extends CI_Model
         $dailyRows = $dailyDb->get()->result_array();
 
         $penaltyRows = [];
-        foreach ($dailyRows as $dailyRow) {
-            $dailyPenaltyAmount = (float)($dailyRow['penalty_amount'] ?? 0);
-            $dailyPenaltyPoint = (float)($dailyRow['penalty_point'] ?? 0);
-            if (abs($dailyPenaltyAmount) < 0.00001 && abs($dailyPenaltyPoint) < 0.00001) {
-                continue;
-            }
-
-            $shiftLabel = trim((string)(($dailyRow['shift_code'] ?? '') . ' ' . ($dailyRow['shift_name'] ?? '')));
-            $penaltyRows[] = [
-                'id' => 'daily-' . (int)($dailyRow['id'] ?? 0),
-                'penalty_date' => (string)($dailyRow['attendance_date'] ?? $dailyRow['bonus_date'] ?? ''),
-                'penalty_name' => 'Penalti otomatis bonus harian',
-                'penalty_code' => 'DAILY_AUTO',
-                'rule_name' => (string)($dailyRow['rule_name'] ?? ''),
-                'division_name' => (string)($summary['division_name'] ?? ''),
-                'shift_code' => (string)($dailyRow['shift_code'] ?? ''),
-                'shift_name' => (string)($dailyRow['shift_name'] ?? ''),
-                'points_deducted' => $dailyPenaltyPoint,
-                'amount_deducted' => $dailyPenaltyAmount,
-                'status' => (string)($dailyRow['approval_status'] ?? 'DRAFT'),
-                'reason_text' => $shiftLabel !== ''
-                    ? 'Akumulasi penalti otomatis yang sudah menempel pada bonus harian shift ' . $shiftLabel . '.'
-                    : 'Akumulasi penalti otomatis yang sudah menempel pada bonus harian tanggal ini.',
-                'source_bucket' => 'DAILY',
-            ];
-        }
 
         if ($this->db->table_exists('pay_bonus_penalty_event')) {
             $eventPenaltyRows = $this->db->select("
@@ -4817,16 +4793,15 @@ class Payroll_model extends CI_Model
                 ->from('pay_bonus_penalty_event pe')
                 ->where("DATE_FORMAT(pe.penalty_date, '%Y-%m') =", $month)
                 ->where('pe.status <>', 'VOID')
-                ->where('pe.employee_id', $employeeId)
-                ->where('pe.source_type', 'MANUAL');
+                ->where('pe.employee_id', $employeeId);
 
             $penaltyRoll = $penaltyDb->get()->row_array();
-            $manualPenaltyPoint = (float)($penaltyRoll['estimated_penalty_point_event'] ?? 0);
-            $manualPenaltyAmount = (float)($penaltyRoll['estimated_penalty_amount_event'] ?? 0);
-            $summary['estimated_manual_penalty_point'] = round($manualPenaltyPoint, 4);
-            $summary['estimated_manual_penalty_amount'] = round($manualPenaltyAmount, 2);
-            $summary['estimated_penalty_point'] = round((float)($summary['estimated_penalty_point'] ?? 0) + $manualPenaltyPoint, 4);
-            $summary['estimated_penalty_amount'] = round((float)($summary['estimated_penalty_amount'] ?? 0) + $manualPenaltyAmount, 2);
+            $eventPenaltyPoint = (float)($penaltyRoll['estimated_penalty_point_event'] ?? 0);
+            $eventPenaltyAmount = (float)($penaltyRoll['estimated_penalty_amount_event'] ?? 0);
+            $summary['estimated_manual_penalty_point'] = round($eventPenaltyPoint, 4);
+            $summary['estimated_manual_penalty_amount'] = round($eventPenaltyAmount, 2);
+            $summary['estimated_penalty_point'] = round($eventPenaltyPoint, 4);
+            $summary['estimated_penalty_amount'] = round($eventPenaltyAmount, 2);
             $summary['estimated_final_amount'] = round(max(
                 0,
                 (float)($summary['estimated_raw_amount'] ?? 0) - (float)($summary['estimated_penalty_amount'] ?? 0)
@@ -6748,7 +6723,7 @@ class Payroll_model extends CI_Model
             ->from('att_daily ad')
             ->join('org_employee e', 'e.id = ad.employee_id', 'left')
             ->where('ad.attendance_date', $penaltyDate)
-            ->where_in('UPPER(COALESCE(ad.attendance_status, ""))', $bonusEligibleStatuses, false);
+            ->where_in('UPPER(COALESCE(ad.attendance_status, ""))', $bonusEligibleStatuses);
 
         if ($employeeId > 0) {
             $db->where('ad.employee_id', $employeeId);
@@ -7001,16 +6976,16 @@ class Payroll_model extends CI_Model
             if ($serviceStepMinute <= 0) {
                 $serviceStepMinute = 5.00;
             }
-            $serviceRows = $this->db->select('shift_id, served_orders, avg_service_minutes, score_percent', false)
+            $serviceRows = $this->db->select('shift_id, division_id, served_orders, avg_service_minutes, score_percent', false)
                 ->from('pay_bonus_service_metric_daily')
                 ->where('metric_date', $bonusDate)
                 ->where('shift_id IS NOT NULL', null, false)
-                ->where('division_id IS NULL', null, false)
                 ->where('outlet_id IS NULL', null, false)
                 ->get()->result_array();
 
             foreach ($serviceRows as $serviceRow) {
                 $shiftId = (int)($serviceRow['shift_id'] ?? 0);
+                $divisionId = (int)($serviceRow['division_id'] ?? 0);
                 if ($shiftId <= 0 || empty($shiftDivisionMap[$shiftId])) {
                     continue;
                 }
@@ -7031,7 +7006,16 @@ class Payroll_model extends CI_Model
                     : 0;
                 $points = round(max($basePoint, $basePoint + $severityStep), 4);
 
-                foreach ($shiftDivisionMap[$shiftId] as $divisionId => $teamMembers) {
+                $targetDivisionMap = [];
+                if ($divisionId > 0) {
+                    if (!empty($shiftDivisionMap[$shiftId][$divisionId])) {
+                        $targetDivisionMap[$divisionId] = $shiftDivisionMap[$shiftId][$divisionId];
+                    }
+                } else {
+                    $targetDivisionMap = $shiftDivisionMap[$shiftId];
+                }
+
+                foreach ($targetDivisionMap as $targetDivisionId => $teamMembers) {
                     foreach ($teamMembers as $teamMember) {
                         $teamEmployeeId = (int)($teamMember['employee_id'] ?? 0);
                         if ($teamEmployeeId <= 0) {
@@ -7042,7 +7026,7 @@ class Payroll_model extends CI_Model
                             'rule_id' => null,
                             'penalty_type_id' => (int)$serviceTypeRow['id'],
                             'employee_id' => $teamEmployeeId,
-                            'division_id' => (int)$divisionId > 0 ? (int)$divisionId : null,
+                            'division_id' => (int)$targetDivisionId > 0 ? (int)$targetDivisionId : null,
                             'shift_id' => $shiftId,
                             'penalty_scope' => 'TEAM',
                             'source_type' => 'AUTO_SERVICE',
@@ -7153,24 +7137,21 @@ class Payroll_model extends CI_Model
 
         $defaultTargetMinute = 15.00;
         $statusSql = $this->order_payment_status_sql('o');
-        $rows = $this->db->select("
-                o.outlet_id,
-                o.shift_id,
-                COUNT(*) AS total_orders,
-                SUM(CASE WHEN o.served_at IS NOT NULL AND o.kitchen_status = 'SERVED' THEN 1 ELSE 0 END) AS served_orders,
-                SUM(CASE WHEN o.served_at IS NOT NULL AND o.kitchen_status = 'SERVED' AND TIMESTAMPDIFF(MINUTE, o.ordered_at, o.served_at) <= " . $this->db->escape($defaultTargetMinute) . " THEN 1 ELSE 0 END) AS ontime_orders,
-                SUM(CASE WHEN o.served_at IS NOT NULL AND o.kitchen_status = 'SERVED' AND TIMESTAMPDIFF(MINUTE, o.ordered_at, o.served_at) > " . $this->db->escape($defaultTargetMinute) . " THEN 1 ELSE 0 END) AS late_orders,
-                COALESCE(AVG(CASE WHEN o.served_at IS NOT NULL AND o.kitchen_status = 'SERVED' THEN GREATEST(TIMESTAMPDIFF(MINUTE, o.ordered_at, o.served_at), 0) END), 0) AS avg_service_minutes
+        $orderRows = $this->db->select("
+                o.id,
+                o.ordered_at,
+                o.served_at
             ", false)
             ->from('pos_order o')
             ->where("DATE(COALESCE(o.paid_at, o.ordered_at)) = " . $this->db->escape($metricDate), null, false)
             ->where('o.status <>', 'VOID')
-            ->where('o.kitchen_status <>', 'VOID')
+            ->where('o.kitchen_status', 'SERVED')
+            ->where('o.served_at IS NOT NULL', null, false)
             ->where("{$statusSql} IN ('PAID','PAID_PARTIAL','SERVED')", null, false);
         if ($outletId > 0 && $this->table_has_field('pos_order', 'outlet_id')) {
-            $rows->where('o.outlet_id', $outletId);
+            $orderRows->where('o.outlet_id', $outletId);
         }
-        $rows = $rows->group_by(['o.outlet_id', 'o.shift_id'])->get()->result_array();
+        $orderRows = $orderRows->order_by('o.ordered_at', 'ASC')->get()->result_array();
 
         $inserted = 0;
         $upsert = static function (CI_DB_query_builder $db, array $payload, array $where) use (&$inserted) {
@@ -7191,83 +7172,144 @@ class Payroll_model extends CI_Model
             }
         };
 
-        $aggregates = [];
-        foreach ($rows as $row) {
-            $currentOutletId = (int)($row['outlet_id'] ?? 0);
-            $currentShiftId = (int)($row['shift_id'] ?? 0);
-            $servedOrders = (int)($row['served_orders'] ?? 0);
-            $avgMinutes = round((float)($row['avg_service_minutes'] ?? 0), 2);
-            $baseScore = $servedOrders > 0 ? round(((int)($row['ontime_orders'] ?? 0) / max($servedOrders, 1)) * 100, 2) : 100.00;
-            $scorePercent = $this->normalize_bonus_service_score($avgMinutes, $defaultTargetMinute, $baseScore);
-
-            $payload = [
-                'metric_date' => $metricDate,
-                'outlet_id' => $currentOutletId > 0 ? $currentOutletId : null,
-                'division_id' => null,
-                'shift_id' => $currentShiftId > 0 ? $currentShiftId : null,
-                'total_orders' => (int)($row['total_orders'] ?? 0),
-                'served_orders' => $servedOrders,
-                'ontime_orders' => (int)($row['ontime_orders'] ?? 0),
-                'late_orders' => (int)($row['late_orders'] ?? 0),
-                'avg_service_minutes' => $avgMinutes,
-                'score_percent' => $scorePercent,
-                'source_notes' => 'Generated from POS order served_at against ordered_at',
-                'updated_at' => date('Y-m-d H:i:s'),
-            ];
-            $upsert($this->db, $payload, [
-                'metric_date' => $metricDate,
-                'outlet_id' => $payload['outlet_id'],
-                'division_id' => null,
-                'shift_id' => $payload['shift_id'],
-            ]);
-
-            $aggregateKeys = [
-                'OUTLET:' . $currentOutletId => ['outlet_id' => $currentOutletId > 0 ? $currentOutletId : null, 'shift_id' => null],
-                'GLOBAL_SHIFT:' . $currentShiftId => ['outlet_id' => null, 'shift_id' => $currentShiftId > 0 ? $currentShiftId : null],
-                'GLOBAL_TOTAL' => ['outlet_id' => null, 'shift_id' => null],
-            ];
-            foreach ($aggregateKeys as $key => $scope) {
-                if (!isset($aggregates[$key])) {
-                    $aggregates[$key] = [
-                        'outlet_id' => $scope['outlet_id'],
-                        'shift_id' => $scope['shift_id'],
-                        'total_orders' => 0,
-                        'served_orders' => 0,
-                        'ontime_orders' => 0,
-                        'late_orders' => 0,
-                        'weighted_minutes' => 0.0,
-                    ];
+        $summarizeOrders = static function (array $rows, float $targetMinute): array {
+            $totalOrders = count($rows);
+            $servedOrders = $totalOrders;
+            $ontimeOrders = 0;
+            $lateOrders = 0;
+            $serviceMinuteTotal = 0.0;
+            foreach ($rows as $row) {
+                $orderedTs = strtotime((string)($row['ordered_at'] ?? ''));
+                $servedTs = strtotime((string)($row['served_at'] ?? ''));
+                if ($orderedTs === false || $servedTs === false) {
+                    continue;
                 }
-                $aggregates[$key]['total_orders'] += (int)($row['total_orders'] ?? 0);
-                $aggregates[$key]['served_orders'] += $servedOrders;
-                $aggregates[$key]['ontime_orders'] += (int)($row['ontime_orders'] ?? 0);
-                $aggregates[$key]['late_orders'] += (int)($row['late_orders'] ?? 0);
-                $aggregates[$key]['weighted_minutes'] += $avgMinutes * max($servedOrders, 1);
+                $serviceMinute = max(0, ($servedTs - $orderedTs) / 60);
+                $serviceMinuteTotal += $serviceMinute;
+                if ($serviceMinute <= $targetMinute) {
+                    $ontimeOrders++;
+                } else {
+                    $lateOrders++;
+                }
             }
+            $avgMinutes = $servedOrders > 0 ? round($serviceMinuteTotal / max($servedOrders, 1), 2) : 0.00;
+            $baseScore = $servedOrders > 0 ? round(($ontimeOrders / max($servedOrders, 1)) * 100, 2) : 100.00;
+            return [
+                'total_orders' => $totalOrders,
+                'served_orders' => $servedOrders,
+                'ontime_orders' => $ontimeOrders,
+                'late_orders' => $lateOrders,
+                'avg_service_minutes' => $avgMinutes,
+                'base_score' => $baseScore,
+            ];
+        };
+        $matchesShiftWindow = static function (string $dateTime, string $startTime, string $endTime, bool $isOvernight): bool {
+            $time = substr($dateTime, 11, 8);
+            if ($time === '' || $time === false) {
+                return false;
+            }
+            if ($isOvernight) {
+                return $time >= $startTime || $time <= $endTime;
+            }
+            return $time >= $startTime && $time <= $endTime;
+        };
+
+        $dayMetric = $summarizeOrders($orderRows, $defaultTargetMinute);
+        $dayScore = $this->normalize_bonus_service_score(
+            (float)($dayMetric['avg_service_minutes'] ?? 0),
+            $defaultTargetMinute,
+            (float)($dayMetric['base_score'] ?? 100)
+        );
+        $upsert($this->db, [
+            'metric_date' => $metricDate,
+            'outlet_id' => null,
+            'division_id' => null,
+            'shift_id' => null,
+            'total_orders' => (int)($dayMetric['total_orders'] ?? 0),
+            'served_orders' => (int)($dayMetric['served_orders'] ?? 0),
+            'ontime_orders' => (int)($dayMetric['ontime_orders'] ?? 0),
+            'late_orders' => (int)($dayMetric['late_orders'] ?? 0),
+            'avg_service_minutes' => (float)($dayMetric['avg_service_minutes'] ?? 0),
+            'score_percent' => $dayScore,
+            'source_notes' => 'Generated from POS served orders (global day aggregate)',
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], [
+            'metric_date' => $metricDate,
+            'outlet_id' => null,
+            'division_id' => null,
+            'shift_id' => null,
+        ]);
+
+        if (!$this->db->table_exists('att_daily') || !$this->db->table_exists('att_shift')) {
+            return [
+                'ok' => true,
+                'message' => 'Metric layanan harian berhasil diperbarui.',
+                'inserted' => $inserted,
+                'group_count' => empty($orderRows) ? 0 : 1,
+            ];
         }
 
-        foreach ($aggregates as $aggregate) {
-            $servedOrders = (int)($aggregate['served_orders'] ?? 0);
-            $avgMinutes = $servedOrders > 0 ? round(((float)($aggregate['weighted_minutes'] ?? 0) / max($servedOrders, 1)), 2) : 0.00;
-            $baseScore = $servedOrders > 0 ? round(((int)($aggregate['ontime_orders'] ?? 0) / max($servedOrders, 1)) * 100, 2) : 100.00;
+        $bonusEligibleStatuses = ['PRESENT', 'LATE', 'HOLIDAY', 'PH'];
+        $shiftContexts = $this->db->select("
+                ad.shift_id,
+                e.division_id,
+                s.start_time,
+                s.end_time,
+                COALESCE(s.is_overnight, 0) AS is_overnight
+            ", false)
+            ->from('att_daily ad')
+            ->join('org_employee e', 'e.id = ad.employee_id', 'left')
+            ->join('att_shift s', 's.id = ad.shift_id', 'inner')
+            ->where('ad.attendance_date', $metricDate)
+            ->where('ad.shift_id IS NOT NULL', null, false)
+            ->where_in('UPPER(COALESCE(ad.attendance_status, ""))', $bonusEligibleStatuses)
+            ->group_by(['ad.shift_id', 'e.division_id', 's.start_time', 's.end_time', 's.is_overnight'])
+            ->get()->result_array();
+
+        foreach ($shiftContexts as $context) {
+            $shiftId = (int)($context['shift_id'] ?? 0);
+            $divisionId = (int)($context['division_id'] ?? 0);
+            if ($shiftId <= 0) {
+                continue;
+            }
+            $startTime = (string)($context['start_time'] ?? '00:00:00');
+            $endTime = (string)($context['end_time'] ?? '23:59:59');
+            $isOvernight = (int)($context['is_overnight'] ?? 0) === 1 || $endTime < $startTime;
+
+            $matchedOrders = [];
+            foreach ($orderRows as $orderRow) {
+                if ($matchesShiftWindow((string)($orderRow['ordered_at'] ?? ''), $startTime, $endTime, $isOvernight)) {
+                    $matchedOrders[] = $orderRow;
+                }
+            }
+            if (empty($matchedOrders)) {
+                continue;
+            }
+
+            $metric = $summarizeOrders($matchedOrders, $defaultTargetMinute);
+            $scorePercent = $this->normalize_bonus_service_score(
+                (float)($metric['avg_service_minutes'] ?? 0),
+                $defaultTargetMinute,
+                (float)($metric['base_score'] ?? 100)
+            );
             $payload = [
                 'metric_date' => $metricDate,
-                'outlet_id' => $aggregate['outlet_id'],
-                'division_id' => null,
-                'shift_id' => $aggregate['shift_id'],
-                'total_orders' => (int)($aggregate['total_orders'] ?? 0),
-                'served_orders' => $servedOrders,
-                'ontime_orders' => (int)($aggregate['ontime_orders'] ?? 0),
-                'late_orders' => (int)($aggregate['late_orders'] ?? 0),
-                'avg_service_minutes' => $avgMinutes,
-                'score_percent' => $this->normalize_bonus_service_score($avgMinutes, $defaultTargetMinute, $baseScore),
-                'source_notes' => 'Generated aggregate from POS service metrics',
+                'outlet_id' => null,
+                'division_id' => $divisionId > 0 ? $divisionId : null,
+                'shift_id' => $shiftId,
+                'total_orders' => (int)($metric['total_orders'] ?? 0),
+                'served_orders' => (int)($metric['served_orders'] ?? 0),
+                'ontime_orders' => (int)($metric['ontime_orders'] ?? 0),
+                'late_orders' => (int)($metric['late_orders'] ?? 0),
+                'avg_service_minutes' => (float)($metric['avg_service_minutes'] ?? 0),
+                'score_percent' => $scorePercent,
+                'source_notes' => 'Generated from POS served orders mapped to attendance shift window',
                 'updated_at' => date('Y-m-d H:i:s'),
             ];
             $upsert($this->db, $payload, [
                 'metric_date' => $metricDate,
-                'outlet_id' => $payload['outlet_id'],
-                'division_id' => null,
+                'outlet_id' => null,
+                'division_id' => $payload['division_id'],
                 'shift_id' => $payload['shift_id'],
             ]);
         }
@@ -7276,7 +7318,41 @@ class Payroll_model extends CI_Model
             'ok' => true,
             'message' => 'Metric layanan harian berhasil diperbarui.',
             'inserted' => $inserted,
-            'group_count' => count($rows),
+            'group_count' => count($shiftContexts),
+        ];
+    }
+
+    public function generate_bonus_service_metric_range(string $dateStart, string $dateEnd, int $outletId = 0): array
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
+            return ['ok' => false, 'message' => 'Rentang tanggal metric layanan tidak valid.'];
+        }
+
+        if (strtotime($dateStart) === false || strtotime($dateEnd) === false || strtotime($dateStart) > strtotime($dateEnd)) {
+            return ['ok' => false, 'message' => 'Rentang tanggal metric layanan tidak valid.'];
+        }
+
+        $inserted = 0;
+        $groupCount = 0;
+        $processedDays = 0;
+        $current = $dateStart;
+        while (strtotime($current) <= strtotime($dateEnd)) {
+            $daily = $this->generate_bonus_service_metric_daily($current, $outletId);
+            if (empty($daily['ok'])) {
+                return $daily;
+            }
+            $inserted += (int)($daily['inserted'] ?? 0);
+            $groupCount += (int)($daily['group_count'] ?? 0);
+            $processedDays++;
+            $current = date('Y-m-d', strtotime($current . ' +1 day'));
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Metric layanan periode berhasil diperbarui.',
+            'inserted' => $inserted,
+            'group_count' => $groupCount,
+            'processed_days' => $processedDays,
         ];
     }
 
@@ -7326,8 +7402,8 @@ class Payroll_model extends CI_Model
                     SUM(CASE WHEN t.penalty_code IN ('LATE_MINOR','LATE_MAJOR','LATE_SEVERE') THEN 1 ELSE 0 END) AS late_count,
                     SUM(CASE WHEN t.penalty_code = 'ALPHA' THEN 1 ELSE 0 END) AS alpha_count,
                     SUM(CASE WHEN t.penalty_code = 'BONUS-PH-TAKEN' THEN 1 ELSE 0 END) AS ph_taken_count,
-                    COALESCE(SUM(CASE WHEN e.source_type = 'MANUAL' THEN e.points_deducted ELSE 0 END),0) AS total_penalty_point_month,
-                    COALESCE(SUM(CASE WHEN e.source_type = 'MANUAL' THEN e.amount_deducted ELSE 0 END),0) AS total_penalty_amount_month
+                    COALESCE(SUM(e.points_deducted),0) AS total_penalty_point_month,
+                    COALESCE(SUM(e.amount_deducted),0) AS total_penalty_amount_month
                 ", false)
                 ->from('pay_bonus_penalty_event e')
                 ->join('pay_bonus_penalty_type t', 't.id = e.penalty_type_id', 'inner')
@@ -7407,8 +7483,8 @@ class Payroll_model extends CI_Model
                 'total_penalty_point_month' => 0,
                 'total_penalty_amount_month' => 0,
             ];
-            $totalPenaltyPoint = round((float)($dailyRow['total_penalty_point'] ?? 0) + (float)($penalty['total_penalty_point_month'] ?? 0), 4);
-            $totalPenaltyAmount = round((float)($dailyRow['total_penalty_amount'] ?? 0) + (float)($penalty['total_penalty_amount_month'] ?? 0), 2);
+            $totalPenaltyPoint = round((float)($penalty['total_penalty_point_month'] ?? 0), 4);
+            $totalPenaltyAmount = round((float)($penalty['total_penalty_amount_month'] ?? 0), 2);
             $notes = [];
             if ((int)($manual['adjustment_count'] ?? 0) > 0) {
                 $notes[] = 'manual adj ' . (int)$manual['adjustment_count'];

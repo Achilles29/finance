@@ -3036,6 +3036,14 @@ class Attendance_model extends CI_Model
         $outTs = $checkoutAt !== '' ? strtotime($checkoutAt) : 0;
         $policy = $this->get_active_policy();
 
+        if ($inTs > 0 && $outTs > 0) {
+            $outTsNormalized = $this->normalize_checkout_timestamp($inTs, $outTs, $schedule);
+            if ($outTsNormalized !== $outTs) {
+                $outTs = $outTsNormalized;
+                $checkoutAt = date('Y-m-d H:i:s', $outTs);
+            }
+        }
+
         if ($outTs > 0) {
             $outTsCredited = $this->apply_checkout_credit_to_operation_end($outTs, $date, $policy);
             if ($outTsCredited !== $outTs) {

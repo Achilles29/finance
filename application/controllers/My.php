@@ -909,12 +909,13 @@ class My extends MY_Controller
             $date = date('Y-m-d');
         }
         $tab = strtolower(trim((string)$this->input->get('tab', true)));
-        if (!in_array($tab, ['summary', '360', 'history'], true)) {
+        if (!in_array($tab, ['summary', '360', 'history', 'penalties'], true)) {
             $tab = 'summary';
         }
 
         $dailyFilters = ['q' => trim((string)$this->input->get('daily_q', true))];
         $historyFilters = ['q' => trim((string)$this->input->get('history_q', true))];
+        $penaltyTypeFilters = ['q' => trim((string)$this->input->get('penalty_type_q', true))];
         $dailyPg = $this->build_pagination(
             $this->Payroll_model->count_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], false),
             $this->per_page('daily_per_page'),
@@ -924,6 +925,11 @@ class My extends MY_Controller
             $this->Payroll_model->count_my_peer_feedback_history((int)$employee['id'], $month, $historyFilters['q']),
             $this->per_page('history_per_page'),
             $this->page('history_page')
+        );
+        $penaltyTypePg = $this->build_pagination(
+            $this->Payroll_model->count_bonus_penalty_types($penaltyTypeFilters['q']),
+            $this->per_page('penalty_type_per_page'),
+            $this->page('penalty_type_page')
         );
 
         $this->render('my/bonus', [
@@ -937,12 +943,15 @@ class My extends MY_Controller
             'tab' => $tab,
             'daily_filters' => $dailyFilters,
             'history_filters' => $historyFilters,
+            'penalty_type_filters' => $penaltyTypeFilters,
             'daily_pg' => $dailyPg,
             'history_pg' => $historyPg,
+            'penalty_type_pg' => $penaltyTypePg,
               'summary' => $this->Payroll_model->get_employee_bonus_overview((int)$employee['id'], $month),
               'target_summary' => $this->Payroll_model->get_my_bonus_target_summary($month),
               'daily_rows' => $this->Payroll_model->list_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], $dailyPg['per_page'], $dailyPg['offset'], false),
               'penalty_rows' => $this->Payroll_model->list_my_bonus_penalty_rows((int)$employee['id'], $month, 20),
+              'penalty_type_rows' => $this->Payroll_model->list_bonus_penalty_types($penaltyTypeFilters['q'], $penaltyTypePg['per_page'], $penaltyTypePg['offset']),
               'pending_peer_feedback' => $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], $date),
               'peer_history_rows' => $this->Payroll_model->list_my_peer_feedback_history((int)$employee['id'], $month, $historyFilters['q'], $historyPg['per_page'], $historyPg['offset']),
           ]);
