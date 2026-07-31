@@ -5509,7 +5509,11 @@ class Payroll_model extends CI_Model
             ->join('org_division d', 'd.id = e.division_id', 'left')
             ->join('org_position pos', 'pos.id = e.position_id', 'left')
             ->join('att_shift s', 's.id = ed.shift_id', 'left')
-            ->where("DATE_FORMAT(ed.attendance_date, '%Y-%m') =", $month);
+            ->where("DATE_FORMAT(ed.attendance_date, '%Y-%m') =", $month)
+            ->group_start()
+                ->where_in('ed.approval_status', ['DRAFT', 'APPROVED'])
+                ->or_where('ed.approval_status IS NULL', null, false)
+            ->group_end();
         if ($sliceSummaryJoin !== '') {
             $db->join($sliceSummaryJoin, $sliceSummaryJoinOn, 'left', false);
         }

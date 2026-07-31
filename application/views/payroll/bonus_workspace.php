@@ -803,7 +803,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       </form>
       <div class="bonus-table-wrap bonus-table">
         <table class="table align-middle mb-0">
-          <thead><tr><th>Tanggal</th><th>Pegawai</th><th>Shift Kerja</th><th>Kebijakan</th><th class="text-center">Irisan</th><th class="text-end">Omzet Porsi Saya</th><th class="text-end">Bonus Kotor Saya</th><th class="text-end">Potongan</th><th class="text-end">Bonus Akhir</th><th>Status</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Tanggal</th><th>Pegawai</th><th>Shift Kerja</th><th>Kebijakan</th><th class="text-center">Irisan</th><th class="text-end">Omzet Porsi Saya</th><th class="text-end">Bonus Kotor Saya</th><th class="text-end">Potongan Penalti</th><th class="text-end">Bonus Bersih Saya</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>
           <?php if (empty($employeeDailyRows)): ?>
             <tr><td colspan="11" class="text-center text-muted py-4">Belum ada bonus harian pegawai untuk bulan ini.</td></tr>
@@ -812,7 +812,12 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               <td><?php echo html_escape((string)($row['attendance_date'] ?? $row['bonus_date'] ?? '-')); ?></td>
               <td><strong><?php echo html_escape((string)($row['employee_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape(trim((string)($row['division_name'] ?? '-') . ' · ' . (string)($row['position_name'] ?? '-'))); ?></div></td>
               <td><?php echo html_escape(trim((string)($row['shift_code'] ?? '') . ' ' . (string)($row['shift_name'] ?? ''))); ?></td>
-              <td><div><?php echo html_escape((string)($row['config_name'] ?? '-')); ?></div><div class="small text-muted">Pool bonus harian</div></td>
+              <td>
+                <div><?php echo html_escape((string)($row['config_name'] ?? '-')); ?></div>
+                <div class="small text-muted">
+                  <?php echo strtoupper((string)($row['approval_status'] ?? 'DRAFT')) === 'DRAFT' ? 'Estimasi draft bonus harian' : 'Pool bonus harian'; ?>
+                </div>
+              </td>
               <td class="text-center"><?php echo number_format((int)($row['slice_count'] ?? 0)); ?>x</td>
               <td class="text-end">Rp <?php echo number_format((float)($row['revenue_in_shift'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end">Rp <?php echo number_format((float)($row['raw_amount'] ?? 0), 2, ',', '.'); ?></td>
@@ -1457,8 +1462,9 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
             <th>Kebijakan Bonus</th>
             <th>Scope</th>
             <th class="text-end">Poin Final</th>
-            <th class="text-end">Bonus Final</th>
+            <th class="text-end">Bonus Kotor</th>
             <th class="text-end">Penalti</th>
+            <th class="text-end">Bonus Bersih</th>
             <th class="text-center">Telat / Alpha / PH</th>
             <th class="text-end">Peer</th>
             <th class="text-end">Layanan</th>
@@ -1469,7 +1475,7 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
           </thead>
           <tbody>
           <?php if (empty($monthlySummaryRows)): ?>
-            <tr><td colspan="12" class="text-center text-muted py-4">Belum ada rekap bonus bulanan untuk bulan ini.</td></tr>
+            <tr><td colspan="13" class="text-center text-muted py-4">Belum ada rekap bonus bulanan untuk bulan ini.</td></tr>
           <?php else: foreach ($monthlySummaryRows as $row): ?>
             <?php
               $scopeLabel = trim((string)(($row['outlet_name'] ?? '') . ' ' . (!empty($row['division_name']) ? '/ ' . $row['division_name'] : '')));
@@ -1489,8 +1495,9 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               </td>
               <td class="small text-muted"><?php echo html_escape($scopeLabel); ?></td>
               <td class="text-end fw-semibold"><?php echo number_format((float)($row['total_final_point'] ?? 0), 4, ',', '.'); ?></td>
-              <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['total_final_amount'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end">Rp <?php echo number_format((float)($row['total_raw_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end text-danger">Rp <?php echo number_format((float)($row['total_penalty_amount'] ?? 0), 2, ',', '.'); ?></td>
+              <td class="text-end fw-semibold">Rp <?php echo number_format((float)($row['total_final_amount'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-center small">
                 <?php echo number_format((int)($row['late_count'] ?? 0)); ?>
                 /
