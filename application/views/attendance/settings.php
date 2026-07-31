@@ -44,6 +44,14 @@ $phGrantHolidayType = strtoupper((string)$val('ph_grant_holiday_type', 'ANY'));
 if (!in_array($phGrantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], true)) {
     $phGrantHolidayType = 'ANY';
 }
+$revisionWindowMode = strtoupper((string)$val('attendance_revision_window_mode', 'ON'));
+if (!in_array($revisionWindowMode, ['OFF', 'ON', 'BY_DAYS'], true)) {
+    $revisionWindowMode = 'ON';
+}
+$revisionWindowDays = (int)$val('attendance_revision_window_days', 7);
+if ($revisionWindowDays <= 0) {
+    $revisionWindowDays = 7;
+}
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -254,6 +262,19 @@ if (!in_array($phGrantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], tr
             <?php endforeach; ?>
           </select>
         </div>
+        <div class="col-md-3">
+          <label class="form-label">Batas Pengajuan Revisi</label>
+          <select name="attendance_revision_window_mode" class="form-select" id="attendance_revision_window_mode">
+            <option value="OFF" <?php echo $revisionWindowMode === 'OFF' ? 'selected' : ''; ?>>Off</option>
+            <option value="ON" <?php echo $revisionWindowMode === 'ON' ? 'selected' : ''; ?>>On (tetap 7 hari)</option>
+            <option value="BY_DAYS" <?php echo $revisionWindowMode === 'BY_DAYS' ? 'selected' : ''; ?>>Pakai jumlah hari</option>
+          </select>
+        </div>
+        <div class="col-md-3" id="attendanceRevisionDaysWrap">
+          <label class="form-label">Jumlah Hari Revisi</label>
+          <input type="number" min="1" name="attendance_revision_window_days" class="form-control" value="<?php echo html_escape((string)$revisionWindowDays); ?>">
+          <div class="form-text">Dipakai hanya jika mode `Pakai jumlah hari` dipilih.</div>
+        </div>
         <div class="col-md-6">
           <label class="form-label">Jabatan Pengusul (multi)</label>
           <select name="pending_submitter_position_ids[]" class="form-select" multiple size="5">
@@ -304,3 +325,18 @@ if (!in_array($phGrantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], tr
     </form>
   </div>
 </div>
+
+<script>
+(function(){
+  var modeEl = document.getElementById('attendance_revision_window_mode');
+  var daysWrap = document.getElementById('attendanceRevisionDaysWrap');
+  if (!modeEl || !daysWrap) { return; }
+
+  function syncRevisionModeUi() {
+    daysWrap.style.display = (modeEl.value === 'BY_DAYS') ? '' : 'none';
+  }
+
+  modeEl.addEventListener('change', syncRevisionModeUi);
+  syncRevisionModeUi();
+})();
+</script>

@@ -103,6 +103,20 @@ class Attendance extends MY_Controller
             if (!in_array($pendingScope, ['SELF_ONLY', 'POSITION_ONLY', 'SELF_AND_POSITION'], true)) {
                 $pendingScope = 'SELF_ONLY';
             }
+            $revisionWindowMode = strtoupper(trim((string)$this->input->post('attendance_revision_window_mode', true)));
+            if (!in_array($revisionWindowMode, ['OFF', 'ON', 'BY_DAYS'], true)) {
+                $revisionWindowMode = strtoupper((string)($currentPolicy['attendance_revision_window_mode'] ?? 'ON'));
+                if (!in_array($revisionWindowMode, ['OFF', 'ON', 'BY_DAYS'], true)) {
+                    $revisionWindowMode = 'ON';
+                }
+            }
+            $revisionWindowDays = (int)$this->input->post('attendance_revision_window_days', true);
+            if ($revisionWindowDays <= 0) {
+                $revisionWindowDays = (int)($currentPolicy['attendance_revision_window_days'] ?? 7);
+            }
+            if ($revisionWindowDays <= 0) {
+                $revisionWindowDays = 7;
+            }
 
             $attendanceMode = strtoupper(trim((string)$this->input->post('attendance_calc_mode', true)));
             if (!in_array($attendanceMode, ['DAILY', 'MONTHLY'], true)) {
@@ -155,6 +169,8 @@ class Attendance extends MY_Controller
                 'prorate_deduction_scope' => $prorateScope,
                 'pending_request_scope' => $pendingScope,
                 'pending_approval_levels' => max(1, min(3, (int)$this->input->post('pending_approval_levels', true))),
+                'attendance_revision_window_mode' => $revisionWindowMode,
+                'attendance_revision_window_days' => max(1, $revisionWindowDays),
                 'ph_attendance_mode' => $phMode,
                 'ph_grant_mode' => $phGrantMode,
                 'ph_grant_holiday_type' => $phGrantHolidayType,

@@ -77,9 +77,13 @@ class My extends MY_Controller
         $employeeId = $this->selected_employee_id();
         $employee = $employeeId > 0 ? $this->My_portal_model->get_employee_by_id($employeeId) : null;
         $attendanceAlerts = [];
-        $revisionWindowDays = $this->My_portal_model->attendance_revision_window_days();
-        $revisionMinDate = date('Y-m-d', strtotime(date('Y-m-d') . ' -' . $revisionWindowDays . ' day'));
+        $revisionRule = $this->My_portal_model->attendance_revision_window_rule();
+        $revisionWindowDays = (int)($revisionRule['days'] ?? 7);
+        $revisionMinDate = !empty($revisionRule['enabled'])
+            ? date('Y-m-d', strtotime(date('Y-m-d') . ' -' . $revisionWindowDays . ' day'))
+            : '';
         $revisionMaxDate = date('Y-m-d');
+        $revisionNoticeText = $this->My_portal_model->attendance_revision_notice_text($revisionRule);
         if ($employee) {
             $policy = $this->My_portal_model->get_active_policy();
             $attendanceAlerts = $this->My_portal_model->get_attendance_gap_alerts((int)$employee['id'], date('Y-m-d'), $policy);
@@ -94,9 +98,11 @@ class My extends MY_Controller
             'employee_options' => $this->is_superadmin() ? $this->My_portal_model->get_employee_options() : [],
             'selected_employee_id' => $employeeId,
             'attendance_alerts' => $attendanceAlerts,
+            'revision_window_rule' => $revisionRule,
             'revision_window_days' => $revisionWindowDays,
             'revision_min_date' => $revisionMinDate,
             'revision_max_date' => $revisionMaxDate,
+            'revision_notice_text' => $revisionNoticeText,
             'leave_url' => $leaveUrl,
             'bonus_target_summary' => $employee ? $this->Payroll_model->get_my_bonus_target_summary(date('Y-m')) : [],
         ];
@@ -549,9 +555,13 @@ class My extends MY_Controller
         $total = $this->My_portal_model->count_my_leave_requests((int)$employee['id'], $filters);
         $pg = $this->build_pagination($total, $perPage, $page);
         $rows = $this->My_portal_model->list_my_leave_requests((int)$employee['id'], $filters, $pg['per_page'], $pg['offset']);
-        $revisionWindowDays = $this->My_portal_model->attendance_revision_window_days();
-        $revisionMinDate = date('Y-m-d', strtotime(date('Y-m-d') . ' -' . $revisionWindowDays . ' day'));
+        $revisionRule = $this->My_portal_model->attendance_revision_window_rule();
+        $revisionWindowDays = (int)($revisionRule['days'] ?? 7);
+        $revisionMinDate = !empty($revisionRule['enabled'])
+            ? date('Y-m-d', strtotime(date('Y-m-d') . ' -' . $revisionWindowDays . ' day'))
+            : '';
         $revisionMaxDate = date('Y-m-d');
+        $revisionNoticeText = $this->My_portal_model->attendance_revision_notice_text($revisionRule);
 
         $this->render('my/leave_requests', [
             'title' => 'Pengajuan Absensi Saya',
@@ -565,9 +575,11 @@ class My extends MY_Controller
             'status_options' => ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'],
             'request_type_options' => ['LEAVE', 'SICK', 'MISSING_CHECKIN', 'MISSING_CHECKOUT', 'STATUS_CORRECTION'],
             'status_correction_options' => ['PRESENT', 'LATE', 'ALPHA', 'SICK', 'LEAVE', 'OFF'],
+            'revision_window_rule' => $revisionRule,
             'revision_window_days' => $revisionWindowDays,
             'revision_min_date' => $revisionMinDate,
             'revision_max_date' => $revisionMaxDate,
+            'revision_notice_text' => $revisionNoticeText,
         ]);
     }
 

@@ -9,7 +9,10 @@ $payrollUrl = site_url('my/payroll' . (!empty($selectedEmployeeId) ? ('?employee
 $bonusUrl = site_url('my/bonus' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $leaveUrl = $leave_url ?? site_url('my/leave-requests' . (!empty($selectedEmployeeId) ? ('?employee_id=' . $selectedEmployeeId) : ''));
 $attendanceAlerts = is_array($attendance_alerts ?? null) ? $attendance_alerts : [];
+$revisionRule = is_array($revision_window_rule ?? null) ? $revision_window_rule : ['enabled' => true, 'days' => 7, 'mode' => 'ON'];
+$revisionWindowEnabled = !empty($revisionRule['enabled']);
 $revisionWindowDays = (int)($revision_window_days ?? 7);
+$revisionNoticeText = (string)($revision_notice_text ?? '');
 $bonusTargetSummary = is_array($bonus_target_summary ?? null) ? $bonus_target_summary : [];
 $bonusTodayShortfall = (float)($bonusTargetSummary['today_shortfall_amount'] ?? 0);
 $bonusMonthShortfall = (float)($bonusTargetSummary['monthly_shortfall_amount'] ?? 0);
@@ -86,10 +89,12 @@ $bonusMonthNotes = (array)($bonusTargetSummary['monthly_notes'] ?? []);
 <?php else: ?>
 <?php if (!empty($attendanceAlerts)): ?>
 <div class="mb-3">
+  <?php if ($revisionWindowEnabled && $revisionNoticeText !== ''): ?>
   <div class="alert alert-danger border-0 shadow-sm mb-2">
     <div class="fw-semibold mb-1">Perhatian</div>
-    <div class="small">Pengajuan revisi absensi hanya dapat dilakukan paling lambat <?php echo $revisionWindowDays; ?> (tujuh) hari kalender sejak tanggal shift. Setelah melewati batas waktu tersebut, pengajuan tidak dapat diproses.</div>
+    <div class="small"><?php echo html_escape($revisionNoticeText); ?></div>
   </div>
+  <?php endif; ?>
   <?php foreach ($attendanceAlerts as $alert): ?>
     <?php
       $severity = strtolower(trim((string)($alert['severity'] ?? 'warning')));

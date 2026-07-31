@@ -8,9 +8,12 @@ $pg = $pg ?? ['page'=>1,'total_pages'=>1,'per_page'=>25,'total'=>0];
 $statusOptions = $status_options ?? [];
 $requestTypeOptions = $request_type_options ?? [];
 $statusCorrectionOptions = $status_correction_options ?? [];
+$revisionRule = is_array($revision_window_rule ?? null) ? $revision_window_rule : ['enabled' => true, 'days' => 7, 'mode' => 'ON'];
+$revisionWindowEnabled = !empty($revisionRule['enabled']);
 $revisionWindowDays = (int)($revision_window_days ?? 7);
 $revisionMinDate = (string)($revision_min_date ?? date('Y-m-d', strtotime('-' . $revisionWindowDays . ' day')));
 $revisionMaxDate = (string)($revision_max_date ?? date('Y-m-d'));
+$revisionNoticeText = (string)($revision_notice_text ?? '');
 
 $buildQuery = static function ($overrides = []) use ($filters, $pg, $selectedEmployeeId) {
     $base = [
@@ -93,12 +96,14 @@ $requestTypeLabel = static function (string $type): string {
 <div class="card mb-3">
   <div class="card-header"><strong>Buat Pengajuan Baru</strong></div>
   <div class="card-body">
+    <?php if ($revisionWindowEnabled && $revisionNoticeText !== ''): ?>
     <div class="alert alert-danger py-2 mb-3">
       <div class="fw-semibold mb-1">Perhatian</div>
-      <div class="small mb-0">Pengajuan revisi absensi hanya dapat diajukan paling lambat <?php echo $revisionWindowDays; ?> (tujuh) hari kalender sejak tanggal shift. Setelah melewati batas waktu tersebut, pengajuan tidak dapat diproses.</div>
+      <div class="small mb-0"><?php echo html_escape($revisionNoticeText); ?></div>
     </div>
+    <?php endif; ?>
     <form method="post" action="<?php echo site_url('my/leave-requests' . ($selectedEmployeeId ? ('?employee_id=' . $selectedEmployeeId) : '')); ?>" class="row g-2" id="leaveRequestForm">
-      <div class="col-md-2"><label class="form-label mb-1">Tanggal</label><input type="date" name="request_date" class="form-control" value="<?php echo html_escape($revisionMaxDate); ?>" min="<?php echo html_escape($revisionMinDate); ?>" max="<?php echo html_escape($revisionMaxDate); ?>" required></div>
+      <div class="col-md-2"><label class="form-label mb-1">Tanggal</label><input type="date" name="request_date" class="form-control" value="<?php echo html_escape($revisionMaxDate); ?>" <?php echo $revisionWindowEnabled ? ('min="' . html_escape($revisionMinDate) . '" ') : ''; ?>max="<?php echo html_escape($revisionMaxDate); ?>" required></div>
       <div class="col-md-3">
         <label class="form-label mb-1">Jenis Pengajuan</label>
         <select name="request_type" class="form-select" id="requestTypeSelect" required>
@@ -219,6 +224,7 @@ $requestTypeLabel = static function (string $type): string {
   var requestDateEl = document.querySelector('input[name="request_date"]');
   var shiftInfoEl = document.getElementById('leaveShiftInfo');
   var typeHelpEl = document.getElementById('leaveRequestTypeHelp');
+  var revisionWindowEnabled = <?php echo $revisionWindowEnabled ? 'true' : 'false'; ?>;
   var revisionMinDate = <?php echo json_encode($revisionMinDate); ?>;
   var revisionMaxDate = <?php echo json_encode($revisionMaxDate); ?>;
   if (!requestTypeEl) { return; }
@@ -258,7 +264,7 @@ $requestTypeLabel = static function (string $type): string {
       renderShiftInfo('Pilih tanggal pengajuan untuk melihat jadwal shift.', 'alert-secondary');
       return;
     }
-    if ((revisionMinDate && requestDateEl.value < revisionMinDate) || (revisionMaxDate && requestDateEl.value > revisionMaxDate)) {
+    if (revisionWindowEnabled && ((revisionMinDate && requestDateEl.value < revisionMinDate) || (revisionMaxDate && requestDateEl.value > revisionMaxDate))) {
       requestDateEl.value = revisionMaxDate || '';
       renderShiftInfo('Tanggal pengajuan dibatasi maksimal ' + <?php echo json_encode($revisionWindowDays); ?> + ' hari kalender ke belakang dari hari ini.', 'alert-danger');
       return;

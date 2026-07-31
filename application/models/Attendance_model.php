@@ -136,6 +136,12 @@ class Attendance_model extends CI_Model
             if (!isset($row['overtime_calc_mode']) || $row['overtime_calc_mode'] === '') {
                 $row['overtime_calc_mode'] = 'AUTO';
             }
+            if (empty($row['attendance_revision_window_mode']) || !in_array(strtoupper((string)$row['attendance_revision_window_mode']), ['OFF', 'ON', 'BY_DAYS'], true)) {
+                $row['attendance_revision_window_mode'] = 'ON';
+            }
+            if (!isset($row['attendance_revision_window_days']) || (int)$row['attendance_revision_window_days'] <= 0) {
+                $row['attendance_revision_window_days'] = 7;
+            }
             return $row;
         }
 
@@ -164,6 +170,8 @@ class Attendance_model extends CI_Model
             'prorate_deduction_scope' => 'BASIC_ONLY',
             'pending_request_scope' => 'SELF_ONLY',
             'pending_approval_levels' => 3,
+            'attendance_revision_window_mode' => 'ON',
+            'attendance_revision_window_days' => 7,
             'ph_attendance_mode' => 'AUTO_PRESENT',
             'ph_grant_mode' => 'SHIFT_ONLY',
             'ph_grant_holiday_type' => 'ANY',

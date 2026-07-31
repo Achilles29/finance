@@ -119,13 +119,15 @@ class My_portal_model extends CI_Model
         }
 
         $allowPastRevisionOverride = !empty($payload['allow_past_revision_override']);
-        $revisionWindowDays = $this->attendance_revision_window_days();
-        $cutoffDate = date('Y-m-d', strtotime(date('Y-m-d') . ' -' . $revisionWindowDays . ' day'));
-        if (!$allowPastRevisionOverride && $requestDate < $cutoffDate) {
-            return [
-                'ok' => false,
-                'message' => 'Pengajuan revisi absensi hanya dapat diajukan paling lambat ' . $revisionWindowDays . ' (tujuh) hari kalender sejak tanggal shift.',
-            ];
+        $revisionRule = $this->attendance_revision_window_rule();
+        if (!$allowPastRevisionOverride && !empty($revisionRule['enabled'])) {
+            $cutoffDate = date('Y-m-d', strtotime(date('Y-m-d') . ' -' . (int)$revisionRule['days'] . ' day'));
+            if ($requestDate < $cutoffDate) {
+                return [
+                    'ok' => false,
+                    'message' => $this->attendance_revision_notice_text($revisionRule),
+                ];
+            }
         }
 
         $requestedCheckinAt = null;
@@ -175,9 +177,39 @@ class My_portal_model extends CI_Model
         return ['ok' => true, 'message' => 'Pengajuan berhasil dibuat.'];
     }
 
+    public function attendance_revision_window_rule(): array
+    {
+        $policy = $this->get_active_policy();
+        $mode = strtoupper(trim((string)($policy['attendance_revision_window_mode'] ?? 'ON')));
+        if (!in_array($mode, ['OFF', 'ON', 'BY_DAYS'], true)) {
+            $mode = 'ON';
+        }
+
+        $customDays = max(1, (int)($policy['attendance_revision_window_days'] ?? 7));
+        $effectiveDays = $mode === 'BY_DAYS' ? $customDays : 7;
+
+        return [
+            'mode' => $mode,
+            'enabled' => $mode !== 'OFF',
+            'days' => $effectiveDays,
+            'custom_days' => $customDays,
+        ];
+    }
+
     public function attendance_revision_window_days(): int
     {
-        return 7;
+        return (int)($this->attendance_revision_window_rule()['days'] ?? 7);
+    }
+
+    public function attendance_revision_notice_text(?array $rule = null): string
+    {
+        $rule = is_array($rule) ? $rule : $this->attendance_revision_window_rule();
+        if (empty($rule['enabled'])) {
+            return 'Batas waktu pengajuan revisi absensi saat ini dinonaktifkan.';
+        }
+
+        $days = max(1, (int)($rule['days'] ?? 7));
+        return 'Pengajuan revisi absensi hanya dapat diajukan paling lambat ' . $days . ' hari kalender sejak tanggal shift. Setelah melewati batas waktu tersebut, pengajuan tidak dapat diproses.';
     }
 
     private function can_submit_pending_request(int $employeeId, array $policy): bool
@@ -373,6 +405,12 @@ class My_portal_model extends CI_Model
         }
         if (empty($row['overtime_calc_mode'])) {
             $row['overtime_calc_mode'] = 'AUTO';
+        }
+        if (empty($row['attendance_revision_window_mode']) || !in_array(strtoupper((string)$row['attendance_revision_window_mode']), ['OFF', 'ON', 'BY_DAYS'], true)) {
+            $row['attendance_revision_window_mode'] = 'ON';
+        }
+        if (!isset($row['attendance_revision_window_days']) || (int)$row['attendance_revision_window_days'] <= 0) {
+            $row['attendance_revision_window_days'] = 7;
         }
 
         return $row;

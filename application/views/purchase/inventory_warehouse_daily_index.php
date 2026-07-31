@@ -1409,21 +1409,14 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
         inQty = Number(raw.in || 0);
         outQty = Number(raw.out || 0);
         adjQty = Number(raw.adjustment || 0);
-<<<<<<< HEAD
+        // Stok akhir mengikuti closing dari monthly stock/backend. Jangan dihitung ulang
+        // di UI karena adjustment/variance bisa sudah difold ke monthly closing.
         var rawClosing = Number(raw.closing || opening);
         var computedClosing = opening + inQty - outQty + adjQty;
-        // Matrix API already sends per-day closing rebuilt from monthly stock + movement log.
-        // If we recompute again here, rows that already carry corrected monthly closing
-        // can jump back to stale opening values in the browser.
         closing = rawClosing;
         if (!Object.prototype.hasOwnProperty.call(raw, 'closing')) {
           closing = computedClosing;
         }
-=======
-        // Stok akhir mengikuti closing dari monthly stock/backend. Jangan dihitung ulang
-        // di UI karena adjustment/variance bisa sudah difold ke monthly closing.
-        closing = Object.prototype.hasOwnProperty.call(raw, 'closing') ? Number(raw.closing || 0) : opening;
->>>>>>> df0fdb77 (“update”)
         mutations = Number(raw.mutations || 0);
         totalValue = Number(raw.total_value || totalValue);
       }
