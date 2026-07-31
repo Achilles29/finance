@@ -6677,7 +6677,7 @@ class Payroll_model extends CI_Model
         return $map;
     }
 
-    private function list_penalty_target_employee_rows(string $penaltyDate, int $divisionId = 0, int $shiftId = 0, int $employeeId = 0): array
+    private function list_penalty_target_employee_rows(string $penaltyDate, int $divisionId = 0, int $shiftId = 0, int $employeeId = 0, int $ruleId = 0): array
     {
         if (!$this->db->table_exists('att_daily')) {
             return [];
@@ -6698,9 +6698,18 @@ class Payroll_model extends CI_Model
             $db->where('ad.shift_id', $shiftId);
         }
 
-        return $db->group_by(['ad.employee_id', 'ad.shift_id', 'e.division_id'])
+        $rows = $db->group_by(['ad.employee_id', 'ad.shift_id', 'e.division_id'])
             ->get()
             ->result_array();
+
+        $weightContext = $this->get_bonus_active_weight_context($ruleId, ['ALL', 'DAILY']);
+        if (empty($weightContext['has_rows'])) {
+            return [];
+        }
+
+        return array_values(array_filter($rows, function ($row) use ($weightContext) {
+            return $this->bonus_employee_has_active_weight((array)$row, $weightContext);
+        }));
     }
 
     public function sync_bonus_auto_penalties(string $bonusDate, int $employeeId = 0, int $actorUserId = 0, int $ruleId = 0): array
@@ -6880,6 +6889,9 @@ class Payroll_model extends CI_Model
                 $phDb->where('ad.employee_id', $employeeId);
             }
             $phRows = $phDb->group_by(['ad.employee_id', 'e.division_id', 'ad.shift_id', 's.shift_code', 's.shift_name', 'ad.attendance_status'])->get()->result_array();
+            $phRows = array_values(array_filter($phRows, function ($row) use ($weightContext) {
+                return $this->bonus_employee_has_active_weight((array)$row, $weightContext);
+            }));
             foreach ($phRows as $phRow) {
                 $empId = (int)($phRow['employee_id'] ?? 0);
                 if ($empId <= 0) {
@@ -7006,6 +7018,9 @@ class Payroll_model extends CI_Model
                 $peerDb->where('pf.to_employee_id', $employeeId);
             }
             $peerRows = $peerDb->group_by(['pf.to_employee_id', 'oe.division_id'])->get()->result_array();
+            $peerRows = array_values(array_filter($peerRows, function ($row) use ($weightContext) {
+                return $this->bonus_employee_has_active_weight((array)$row, $weightContext);
+            }));
 
             foreach ($peerRows as $peerRow) {
                 $empId = (int)($peerRow['employee_id'] ?? 0);
@@ -8636,6 +8651,11 @@ class Payroll_model extends CI_Model
             return ['ok' => false, 'message' => 'Alasan penalti wajib diisi.'];
         }
 
+        $weightContext = $this->get_bonus_active_weight_context($ruleId, ['ALL', 'DAILY']);
+        if (empty($weightContext['has_rows'])) {
+            return ['ok' => false, 'message' => 'Belum ada bobot bonus aktif. Kejadian penalti bonus tidak bisa diberikan ke pegawai yang tidak ikut skema bonus.'];
+        }
+
         $type = $this->db->select('id, default_points_deducted, default_amount_deducted')
             ->select($this->table_has_field('pay_bonus_penalty_type', 'behavior_mode') ? 'behavior_mode' : "'MANUAL' AS behavior_mode", false)
             ->from('pay_bonus_penalty_type')
@@ -8699,9 +8719,9 @@ class Payroll_model extends CI_Model
         }
 
         if ($penaltyScope === 'TEAM') {
-            $targetEmployeeRows = $this->list_penalty_target_employee_rows($penaltyDate, $divisionId, $shiftId, $employeeId);
+            $targetEmployeeRows = $this->list_penalty_target_employee_rows($penaltyDate, $divisionId, $shiftId, $employeeId, $ruleId);
             if (empty($targetEmployeeRows)) {
-                return ['ok' => false, 'message' => 'Belum ada personil tim yang match dengan tanggal/divisi/shift tersebut.'];
+                return ['ok' => false, 'message' => 'Belum ada personil tim yang match dan punya bobot bonus aktif pada tanggal/divisi/shift tersebut.'];
             }
 
             $now = date('Y-m-d H:i:s');
@@ -8737,6 +8757,19 @@ class Payroll_model extends CI_Model
                 'message' => 'Kejadian penalti tim berhasil dibagikan ke ' . $insertCount . ' personil.',
                 'id' => 0,
             ];
+        }
+
+        if ($penaltyScope === 'PERSONAL') {
+            $employeeWeightRow = $this->db->select('ad.employee_id, ad.shift_id, e.division_id, e.position_id', false)
+                ->from('att_daily ad')
+                ->join('org_employee e', 'e.id = ad.employee_id', 'left')
+                ->where('ad.attendance_date', $penaltyDate)
+                ->where('ad.employee_id', $employeeId)
+                ->limit(1)
+                ->get()->row_array();
+            if (!$employeeWeightRow || !$this->bonus_employee_has_active_weight($employeeWeightRow, $weightContext)) {
+                return ['ok' => false, 'message' => 'Pegawai ini tidak punya bobot bonus aktif pada tanggal tersebut, jadi tidak perlu dikenai penalti bonus.'];
+            }
         }
 
         $dbPayload['source_type'] = 'MANUAL';
