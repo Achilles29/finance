@@ -114,7 +114,7 @@ $scopeLabel = !empty($scopeParts) ? implode(' - ', $scopeParts) : 'Global';
   <div class="card border-0 shadow-sm">
     <div class="card-header bg-white border-0 pb-0">
       <h6 class="mb-1">Detail Penalti Bulanan</h6>
-      <div class="small text-muted">Semua penalti personal pegawai ini pada bulan yang sama.</div>
+      <div class="small text-muted">Bagian ini sekarang menampilkan dua sumber sekaligus: penalti otomatis yang sudah menempel ke bonus harian, dan penalti event manual/custom pada bulan yang sama.</div>
     </div>
     <div class="card-body">
       <div class="table-responsive bonus-detail-table-wrap">
@@ -136,7 +136,17 @@ $scopeLabel = !empty($scopeParts) ? implode(' - ', $scopeParts) : 'Global';
           <?php else: foreach ($penaltyRows as $row): ?>
             <tr>
               <td><?php echo html_escape((string)($row['penalty_date'] ?? '-')); ?></td>
-              <td><strong><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?></div></td>
+              <td>
+                <strong><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?></strong>
+                <div class="small text-muted">
+                  <?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?>
+                  <?php if (strtoupper((string)($row['source_bucket'] ?? 'EVENT')) === 'DAILY'): ?>
+                    | OTOMATIS HARIAN
+                  <?php else: ?>
+                    | EVENT
+                  <?php endif; ?>
+                </div>
+              </td>
               <td><?php echo html_escape(trim((string)(($row['shift_code'] ?? '') . ' ' . ($row['shift_name'] ?? '')))); ?></td>
               <td class="text-end"><?php echo number_format((float)($row['points_deducted'] ?? 0), 2, ',', '.'); ?></td>
               <td class="text-end text-danger">Rp <?php echo number_format((float)($row['amount_deducted'] ?? 0), 2, ',', '.'); ?></td>

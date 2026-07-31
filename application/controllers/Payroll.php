@@ -672,7 +672,17 @@ class Payroll extends MY_Controller
             'q' => trim((string)$this->input->get('weight_q', true)),
             'status' => $weightStatus,
         ];
-        $employeeDailyFilters = ['q' => trim((string)$this->input->get('employee_daily_q', true))];
+        $employeeDailyFilters = [
+            'q' => trim((string)$this->input->get('employee_daily_q', true)),
+            'date_start' => trim((string)$this->input->get('employee_daily_date_start', true)),
+            'date_end' => trim((string)$this->input->get('employee_daily_date_end', true)),
+        ];
+        if ($employeeDailyFilters['date_start'] === '') {
+            $employeeDailyFilters['date_start'] = $month . '-01';
+        }
+        if ($employeeDailyFilters['date_end'] === '') {
+            $employeeDailyFilters['date_end'] = date('Y-m-t', strtotime($employeeDailyFilters['date_start']));
+        }
         $penaltyTypeFilters = ['q' => trim((string)$this->input->get('penalty_type_q', true))];
         $penaltyEventFilters = ['q' => trim((string)$this->input->get('penalty_event_q', true))];
         $penaltyView = strtolower(trim((string)$this->input->get('penalty_view', true)));
@@ -704,7 +714,12 @@ class Payroll extends MY_Controller
             $this->page('weight_page')
         );
         $employeeDailyPg = $this->build_pagination(
-            $this->Payroll_model->count_bonus_employee_daily_admin_rows($month, $employeeDailyFilters['q']),
+            $this->Payroll_model->count_bonus_employee_daily_admin_rows(
+                $month,
+                $employeeDailyFilters['q'],
+                $employeeDailyFilters['date_start'],
+                $employeeDailyFilters['date_end']
+            ),
             $this->per_page('employee_daily_per_page'),
             $this->page('employee_daily_page')
         );
@@ -788,7 +803,14 @@ class Payroll extends MY_Controller
             'monthly_target_plan_rows' => $this->Payroll_model->list_bonus_target_plan_options('MONTHLY'),
             'rule_rows' => $this->Payroll_model->list_bonus_rules($ruleFilters['q'], $rulePg['per_page'], $rulePg['offset']),
             'weight_rows' => $this->Payroll_model->list_bonus_weight_rules($weightFilters['q'], $weightPg['per_page'], $weightPg['offset'], $weightFilters['status']),
-            'employee_daily_rows' => $this->Payroll_model->list_bonus_employee_daily_admin_rows($month, $employeeDailyFilters['q'], $employeeDailyPg['per_page'], $employeeDailyPg['offset']),
+            'employee_daily_rows' => $this->Payroll_model->list_bonus_employee_daily_admin_rows(
+                $month,
+                $employeeDailyFilters['q'],
+                $employeeDailyPg['per_page'],
+                $employeeDailyPg['offset'],
+                $employeeDailyFilters['date_start'],
+                $employeeDailyFilters['date_end']
+            ),
             'penalty_type_rows' => $this->Payroll_model->list_bonus_penalty_types($penaltyTypeFilters['q'], $penaltyTypePg['per_page'], $penaltyTypePg['offset']),
             'penalty_event_rows' => $penaltyEventRows,
             'penalty_detail_rows' => $penaltyDetailRows,

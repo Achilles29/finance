@@ -4565,8 +4565,35 @@ class Payroll_model extends CI_Model
         $dailyRows = $dailyDb->get()->result_array();
 
         $penaltyRows = [];
+        foreach ($dailyRows as $dailyRow) {
+            $dailyPenaltyAmount = (float)($dailyRow['penalty_amount'] ?? 0);
+            $dailyPenaltyPoint = (float)($dailyRow['penalty_point'] ?? 0);
+            if (abs($dailyPenaltyAmount) < 0.00001 && abs($dailyPenaltyPoint) < 0.00001) {
+                continue;
+            }
+
+            $shiftLabel = trim((string)(($dailyRow['shift_code'] ?? '') . ' ' . ($dailyRow['shift_name'] ?? '')));
+            $penaltyRows[] = [
+                'id' => 'daily-' . (int)($dailyRow['id'] ?? 0),
+                'penalty_date' => (string)($dailyRow['attendance_date'] ?? $dailyRow['bonus_date'] ?? ''),
+                'penalty_name' => 'Penalti otomatis bonus harian',
+                'penalty_code' => 'DAILY_AUTO',
+                'rule_name' => (string)($dailyRow['rule_name'] ?? ''),
+                'division_name' => (string)($summary['division_name'] ?? ''),
+                'shift_code' => (string)($dailyRow['shift_code'] ?? ''),
+                'shift_name' => (string)($dailyRow['shift_name'] ?? ''),
+                'points_deducted' => $dailyPenaltyPoint,
+                'amount_deducted' => $dailyPenaltyAmount,
+                'status' => (string)($dailyRow['approval_status'] ?? 'DRAFT'),
+                'reason_text' => $shiftLabel !== ''
+                    ? 'Akumulasi penalti otomatis yang sudah menempel pada bonus harian shift ' . $shiftLabel . '.'
+                    : 'Akumulasi penalti otomatis yang sudah menempel pada bonus harian tanggal ini.',
+                'source_bucket' => 'DAILY',
+            ];
+        }
+
         if ($this->db->table_exists('pay_bonus_penalty_event')) {
-            $penaltyRows = $this->db->select("
+            $eventPenaltyRows = $this->db->select("
                     pe.*,
                     pt.penalty_name,
                     pt.penalty_code,
@@ -4586,7 +4613,19 @@ class Payroll_model extends CI_Model
                 ->order_by('pe.penalty_date', 'DESC')
                 ->order_by('pe.id', 'DESC')
                 ->get()->result_array();
+            foreach ($eventPenaltyRows as $eventPenaltyRow) {
+                $eventPenaltyRow['source_bucket'] = 'EVENT';
+                $penaltyRows[] = $eventPenaltyRow;
+            }
         }
+
+        usort($penaltyRows, static function ($a, $b) {
+            $dateCmp = strcmp((string)($b['penalty_date'] ?? ''), (string)($a['penalty_date'] ?? ''));
+            if ($dateCmp !== 0) {
+                return $dateCmp;
+            }
+            return strcmp((string)($a['source_bucket'] ?? ''), (string)($b['source_bucket'] ?? ''));
+        });
 
         return [
             'summary' => $summary,
@@ -5467,13 +5506,19 @@ class Payroll_model extends CI_Model
         return (int)($row['id'] ?? 0);
     }
 
-    private function build_bonus_employee_daily_admin_query(string $month = '', string $q = ''): CI_DB_query_builder
+    private function build_bonus_employee_daily_admin_query(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = ''): CI_DB_query_builder
     {
         if (!$this->db->table_exists('pay_bonus_employee_daily')) {
             return $this->db;
         }
 
         $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart)) {
+            $dateStart = $month . '-01';
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
+            $dateEnd = date('Y-m-t', strtotime($dateStart));
+        }
 
         $sliceSummaryJoin = '';
         $sliceSummaryJoinOn = '';
@@ -5510,6 +5555,8 @@ class Payroll_model extends CI_Model
             ->join('org_position pos', 'pos.id = e.position_id', 'left')
             ->join('att_shift s', 's.id = ed.shift_id', 'left')
             ->where("DATE_FORMAT(ed.attendance_date, '%Y-%m') =", $month)
+            ->where('ed.attendance_date >=', $dateStart)
+            ->where('ed.attendance_date <=', $dateEnd)
             ->group_start()
                 ->where_in('ed.approval_status', ['DRAFT', 'APPROVED'])
                 ->or_where('ed.approval_status IS NULL', null, false)
@@ -5533,30 +5580,30 @@ class Payroll_model extends CI_Model
         return $db;
     }
 
-    public function count_bonus_employee_daily_admin_rows(string $month = '', string $q = ''): int
+    public function count_bonus_employee_daily_admin_rows(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = ''): int
     {
         if (!$this->db->table_exists('pay_bonus_employee_daily')) {
             return 0;
         }
 
-        $this->build_bonus_employee_daily_admin_query($month, $q);
+        $this->build_bonus_employee_daily_admin_query($month, $q, $dateStart, $dateEnd);
         return (int)$this->db->count_all_results()
-            + $this->count_bonus_employee_daily_manual_only_rows($month, $q);
+            + $this->count_bonus_employee_daily_manual_only_rows($month, $q, $dateStart, $dateEnd);
     }
 
-    public function list_bonus_employee_daily_admin_rows(string $month = '', string $q = '', int $limit = 25, int $offset = 0): array
+    public function list_bonus_employee_daily_admin_rows(string $month = '', string $q = '', int $limit = 25, int $offset = 0, string $dateStart = '', string $dateEnd = ''): array
     {
         if (!$this->db->table_exists('pay_bonus_employee_daily')) {
             return [];
         }
 
-        $rows = $this->build_bonus_employee_daily_admin_query($month, $q)
+        $rows = $this->build_bonus_employee_daily_admin_query($month, $q, $dateStart, $dateEnd)
             ->order_by('ed.attendance_date', 'DESC')
             ->order_by('e.employee_name', 'ASC')
             ->order_by('ed.id', 'DESC')
             ->get()->result_array();
 
-        $rows = array_merge($rows, $this->list_bonus_employee_daily_manual_only_rows($month, $q));
+        $rows = array_merge($rows, $this->list_bonus_employee_daily_manual_only_rows($month, $q, $dateStart, $dateEnd));
         usort($rows, static function ($a, $b) {
             $dateCmp = strcmp((string)($b['attendance_date'] ?? ''), (string)($a['attendance_date'] ?? ''));
             if ($dateCmp !== 0) {
@@ -5572,24 +5619,24 @@ class Payroll_model extends CI_Model
         return array_slice($rows, max(0, $offset), max(1, $limit));
     }
 
-    private function count_bonus_employee_daily_manual_only_rows(string $month = '', string $q = ''): int
+    private function count_bonus_employee_daily_manual_only_rows(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = ''): int
     {
         if (!$this->db->table_exists('pay_bonus_penalty_event')) {
             return 0;
         }
 
-        $db = $this->build_bonus_employee_daily_manual_only_query($month, $q);
+        $db = $this->build_bonus_employee_daily_manual_only_query($month, $q, $dateStart, $dateEnd);
         $row = $db->select("COUNT(DISTINCT CONCAT(pe.employee_id, '|', pe.penalty_date)) AS total_rows", false)->get()->row_array();
         return (int)($row['total_rows'] ?? 0);
     }
 
-    private function list_bonus_employee_daily_manual_only_rows(string $month = '', string $q = ''): array
+    private function list_bonus_employee_daily_manual_only_rows(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = ''): array
     {
         if (!$this->db->table_exists('pay_bonus_penalty_event')) {
             return [];
         }
 
-        $rows = $this->build_bonus_employee_daily_manual_only_query($month, $q)
+        $rows = $this->build_bonus_employee_daily_manual_only_query($month, $q, $dateStart, $dateEnd)
             ->select("
                 0 AS id,
                 pe.employee_id,
@@ -5628,9 +5675,15 @@ class Payroll_model extends CI_Model
         return $rows;
     }
 
-    private function build_bonus_employee_daily_manual_only_query(string $month = '', string $q = ''): CI_DB_query_builder
+    private function build_bonus_employee_daily_manual_only_query(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = ''): CI_DB_query_builder
     {
         $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart)) {
+            $dateStart = $month . '-01';
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
+            $dateEnd = date('Y-m-t', strtotime($dateStart));
+        }
 
         $db = $this->db->from('pay_bonus_penalty_event pe')
             ->join('pay_bonus_penalty_type pt', 'pt.id = pe.penalty_type_id', 'left')
@@ -5639,6 +5692,8 @@ class Payroll_model extends CI_Model
             ->join('org_position pos', 'pos.id = e.position_id', 'left')
             ->join('att_shift s', 's.id = pe.shift_id', 'left')
             ->where("DATE_FORMAT(pe.penalty_date, '%Y-%m') =", $month)
+            ->where('pe.penalty_date >=', $dateStart)
+            ->where('pe.penalty_date <=', $dateEnd)
             ->where('pe.status <>', 'VOID')
             ->where('pe.source_type', 'MANUAL')
             ->where('pe.employee_id IS NOT NULL', null, false)

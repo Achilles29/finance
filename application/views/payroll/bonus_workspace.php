@@ -28,7 +28,7 @@ $poolFilters = $pool_filters ?? ['q' => ''];
 $configFilters = $config_filters ?? ['q' => ''];
 $ruleFilters = $rule_filters ?? ['q' => ''];
 $weightFilters = $weight_filters ?? ['q' => ''];
-$employeeDailyFilters = $employee_daily_filters ?? ['q' => ''];
+$employeeDailyFilters = $employee_daily_filters ?? ['q' => '', 'date_start' => '', 'date_end' => ''];
 $penaltyTypeFilters = $penalty_type_filters ?? ['q' => ''];
 $penaltyEventFilters = $penalty_event_filters ?? ['q' => ''];
 $peerFilters = $peer_filters ?? ['q' => ''];
@@ -215,6 +215,8 @@ $buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poo
         'weight_page' => $weightPg['page'] ?? 1,
         'weight_per_page' => $weightPg['per_page'] ?? 25,
         'employee_daily_q' => $employeeDailyFilters['q'] ?? '',
+        'employee_daily_date_start' => $employeeDailyFilters['date_start'] ?? '',
+        'employee_daily_date_end' => $employeeDailyFilters['date_end'] ?? '',
         'employee_daily_page' => $employeeDailyPg['page'] ?? 1,
         'employee_daily_per_page' => $employeeDailyPg['per_page'] ?? 25,
         'penalty_type_q' => $penaltyTypeFilters['q'] ?? '',
@@ -784,9 +786,17 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
         <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
         <input type="hidden" name="tab" value="employee_daily">
         <div class="row g-3 align-items-end">
-          <div class="col-md-8">
+          <div class="col-md-4">
             <label class="form-label">Cari bonus harian pegawai</label>
             <input type="text" name="employee_daily_q" class="form-control" value="<?php echo html_escape((string)($employeeDailyFilters['q'] ?? '')); ?>" placeholder="Cari pegawai, divisi, jabatan, kebijakan, atau shift">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Tanggal awal</label>
+            <input type="date" name="employee_daily_date_start" class="form-control" value="<?php echo html_escape((string)($employeeDailyFilters['date_start'] ?? '')); ?>">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Tanggal akhir</label>
+            <input type="date" name="employee_daily_date_end" class="form-control" value="<?php echo html_escape((string)($employeeDailyFilters['date_end'] ?? '')); ?>">
           </div>
           <div class="col-md-2">
             <label class="form-label">Baris</label>
