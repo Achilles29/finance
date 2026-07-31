@@ -6683,10 +6683,13 @@ class Payroll_model extends CI_Model
             return [];
         }
 
+        $bonusEligibleStatuses = ['PRESENT', 'LATE', 'HOLIDAY', 'PH'];
+
         $db = $this->db->select('ad.employee_id, ad.shift_id, e.division_id', false)
             ->from('att_daily ad')
             ->join('org_employee e', 'e.id = ad.employee_id', 'left')
-            ->where('ad.attendance_date', $penaltyDate);
+            ->where('ad.attendance_date', $penaltyDate)
+            ->where_in('UPPER(COALESCE(ad.attendance_status, ""))', $bonusEligibleStatuses, false);
 
         if ($employeeId > 0) {
             $db->where('ad.employee_id', $employeeId);
@@ -6761,6 +6764,7 @@ class Payroll_model extends CI_Model
         $inserted = 0;
         $now = date('Y-m-d H:i:s');
         $shiftDivisionMap = [];
+        $bonusEligibleStatuses = ['PRESENT', 'LATE', 'HOLIDAY', 'PH'];
         foreach ($dailyRows as $dailyRow) {
             $empId = (int)($dailyRow['employee_id'] ?? 0);
             if ($empId <= 0) {
@@ -6772,7 +6776,7 @@ class Payroll_model extends CI_Model
             $earlyLeaveMinutes = (int)($dailyRow['early_leave_minutes'] ?? 0);
             $divisionId = (int)($dailyRow['division_id'] ?? 0);
             $shiftId = (int)($dailyRow['shift_id'] ?? 0);
-            if ($shiftId > 0 && $divisionId > 0) {
+            if ($shiftId > 0 && $divisionId > 0 && in_array($status, $bonusEligibleStatuses, true)) {
                 if (!isset($shiftDivisionMap[$shiftId])) {
                     $shiftDivisionMap[$shiftId] = [];
                 }
