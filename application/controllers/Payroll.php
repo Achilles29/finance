@@ -684,7 +684,17 @@ class Payroll extends MY_Controller
             $employeeDailyFilters['date_end'] = date('Y-m-t', strtotime($employeeDailyFilters['date_start']));
         }
         $penaltyTypeFilters = ['q' => trim((string)$this->input->get('penalty_type_q', true))];
-        $penaltyEventFilters = ['q' => trim((string)$this->input->get('penalty_event_q', true))];
+        $penaltyEventFilters = [
+            'q' => trim((string)$this->input->get('penalty_event_q', true)),
+            'date_start' => trim((string)$this->input->get('penalty_event_date_start', true)),
+            'date_end' => trim((string)$this->input->get('penalty_event_date_end', true)),
+        ];
+        if ($penaltyEventFilters['date_start'] === '') {
+            $penaltyEventFilters['date_start'] = $month . '-01';
+        }
+        if ($penaltyEventFilters['date_end'] === '') {
+            $penaltyEventFilters['date_end'] = date('Y-m-t', strtotime($penaltyEventFilters['date_start']));
+        }
         $penaltyView = strtolower(trim((string)$this->input->get('penalty_view', true)));
         if (!in_array($penaltyView, ['master', 'events', 'detail'], true)) {
             $penaltyView = 'master';
@@ -729,8 +739,18 @@ class Payroll extends MY_Controller
             $this->page('penalty_type_page')
         );
         $penaltyEventTotal = $penaltyView === 'detail'
-            ? $this->Payroll_model->count_bonus_penalty_detail_rows($month, $penaltyEventFilters['q'])
-            : $this->Payroll_model->count_bonus_penalty_events($month, $penaltyEventFilters['q']);
+            ? $this->Payroll_model->count_bonus_penalty_detail_rows(
+                $month,
+                $penaltyEventFilters['q'],
+                $penaltyEventFilters['date_start'],
+                $penaltyEventFilters['date_end']
+            )
+            : $this->Payroll_model->count_bonus_penalty_events(
+                $month,
+                $penaltyEventFilters['q'],
+                $penaltyEventFilters['date_start'],
+                $penaltyEventFilters['date_end']
+            );
         $penaltyEventPg = $this->build_pagination(
             $penaltyEventTotal,
             $this->per_page('penalty_event_per_page'),
@@ -751,8 +771,22 @@ class Payroll extends MY_Controller
             $this->per_page('monthly_per_page'),
             $this->page('monthly_page')
         );
-        $penaltyEventRows = $this->Payroll_model->list_bonus_penalty_events($month, $penaltyEventFilters['q'], $penaltyEventPg['per_page'], $penaltyEventPg['offset']);
-        $penaltyDetailRows = $this->Payroll_model->list_bonus_penalty_detail_rows($month, $penaltyEventFilters['q'], $penaltyEventPg['per_page'], $penaltyEventPg['offset']);
+        $penaltyEventRows = $this->Payroll_model->list_bonus_penalty_events(
+            $month,
+            $penaltyEventFilters['q'],
+            $penaltyEventFilters['date_start'],
+            $penaltyEventFilters['date_end'],
+            $penaltyEventPg['per_page'],
+            $penaltyEventPg['offset']
+        );
+        $penaltyDetailRows = $this->Payroll_model->list_bonus_penalty_detail_rows(
+            $month,
+            $penaltyEventFilters['q'],
+            $penaltyEventFilters['date_start'],
+            $penaltyEventFilters['date_end'],
+            $penaltyEventPg['per_page'],
+            $penaltyEventPg['offset']
+        );
         $penaltyEventDetailMap = [];
         foreach ($penaltyEventRows as $row) {
             $scope = strtoupper((string)($row['penalty_scope'] ?? 'PERSONAL'));
@@ -760,7 +794,14 @@ class Payroll extends MY_Controller
             $divisionId = (int)($row['division_id'] ?? 0);
             $mapKey = $scope . ':' . $employeeId . ':' . $divisionId;
             if (!isset($penaltyEventDetailMap[$mapKey])) {
-                $penaltyEventDetailMap[$mapKey] = $this->Payroll_model->list_bonus_penalty_event_detail_rows($month, $scope, $employeeId, $divisionId);
+                $penaltyEventDetailMap[$mapKey] = $this->Payroll_model->list_bonus_penalty_event_detail_rows(
+                    $month,
+                    $scope,
+                    $employeeId,
+                    $divisionId,
+                    $penaltyEventFilters['date_start'],
+                    $penaltyEventFilters['date_end']
+                );
             }
         }
 

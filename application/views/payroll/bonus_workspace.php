@@ -30,7 +30,7 @@ $ruleFilters = $rule_filters ?? ['q' => ''];
 $weightFilters = $weight_filters ?? ['q' => ''];
 $employeeDailyFilters = $employee_daily_filters ?? ['q' => '', 'date_start' => '', 'date_end' => ''];
 $penaltyTypeFilters = $penalty_type_filters ?? ['q' => ''];
-$penaltyEventFilters = $penalty_event_filters ?? ['q' => ''];
+$penaltyEventFilters = $penalty_event_filters ?? ['q' => '', 'date_start' => '', 'date_end' => ''];
 $peerFilters = $peer_filters ?? ['q' => ''];
 $serviceFilters = $service_filters ?? ['q' => ''];
 $monthlyFilters = $monthly_filters ?? ['q' => ''];
@@ -223,6 +223,8 @@ $buildTableUrl = static function (array $overrides = []) use ($month, $tab, $poo
         'penalty_type_page' => $penaltyTypePg['page'] ?? 1,
         'penalty_type_per_page' => $penaltyTypePg['per_page'] ?? 25,
         'penalty_event_q' => $penaltyEventFilters['q'] ?? '',
+        'penalty_event_date_start' => $penaltyEventFilters['date_start'] ?? '',
+        'penalty_event_date_end' => $penaltyEventFilters['date_end'] ?? '',
         'penalty_event_page' => $penaltyEventPg['page'] ?? 1,
         'penalty_event_per_page' => $penaltyEventPg['per_page'] ?? 25,
         'penalty_view' => $penaltyView,
@@ -1048,7 +1050,37 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
       <div class="card bonus-card"><div class="card-body"><div class="bonus-toolbar"><div class="copy"><h5 class="mb-1">Rekap kejadian penalti per nama</h5><div class="bonus-subcopy">Di sini kita baca ringkasan penalti per pegawai atau per tim. Kalau ingin audit satu per satu, buka tab <strong>Rincian Penalti</strong>.</div></div><div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-primary" id="openPenaltyEventCreateModalBtn">Tambah kejadian penalti</button></div></div>
       <form method="get" action="<?php echo site_url('payroll/bonus'); ?>" class="bonus-filter-bar mb-3">
         <input type="hidden" name="month" value="<?php echo html_escape($month); ?>"><input type="hidden" name="tab" value="penalties"><input type="hidden" name="penalty_view" value="events"><input type="hidden" name="pool_q" value="<?php echo html_escape((string)($poolFilters['q'] ?? '')); ?>"><input type="hidden" name="pool_page" value="<?php echo (int)($poolPg['page'] ?? 1); ?>"><input type="hidden" name="pool_per_page" value="<?php echo (int)($poolPg['per_page'] ?? 25); ?>"><input type="hidden" name="rule_q" value="<?php echo html_escape((string)($ruleFilters['q'] ?? '')); ?>"><input type="hidden" name="rule_page" value="<?php echo (int)($rulePg['page'] ?? 1); ?>"><input type="hidden" name="rule_per_page" value="<?php echo (int)($rulePg['per_page'] ?? 25); ?>"><input type="hidden" name="penalty_type_q" value="<?php echo html_escape((string)($penaltyTypeFilters['q'] ?? '')); ?>"><input type="hidden" name="penalty_type_page" value="<?php echo (int)($penaltyTypePg['page'] ?? 1); ?>"><input type="hidden" name="penalty_type_per_page" value="<?php echo (int)($penaltyTypePg['per_page'] ?? 25); ?>"><input type="hidden" name="peer_q" value="<?php echo html_escape((string)($peerFilters['q'] ?? '')); ?>"><input type="hidden" name="peer_page" value="<?php echo (int)($peerPg['page'] ?? 1); ?>"><input type="hidden" name="peer_per_page" value="<?php echo (int)($peerPg['per_page'] ?? 25); ?>">
-        <div class="row g-3 align-items-end"><div class="col-md-7"><label class="form-label">Cari kejadian penalti</label><input type="text" name="penalty_event_q" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['q'] ?? '')); ?>" placeholder="Cari nama penalti, pegawai, divisi, alasan, atau status"></div><div class="col-md-3"><label class="form-label">Baris</label><select name="penalty_event_per_page" class="form-select"><?php foreach ([10, 25, 50, 100] as $size): ?><option value="<?php echo $size; ?>" <?php echo (int)($penaltyEventPg['per_page'] ?? 25) === $size ? 'selected' : ''; ?>><?php echo $size; ?></option><?php endforeach; ?></select></div><div class="col-md-2 d-grid"><button type="submit" class="btn btn-outline-primary">Filter</button></div></div>
+        <div class="row g-3 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label">Cari nama / penalti</label>
+            <input type="text" name="penalty_event_q" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['q'] ?? '')); ?>" placeholder="Cari pegawai, divisi, jenis penalti, kode, alasan, atau status">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Tanggal awal</label>
+            <input type="date" name="penalty_event_date_start" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['date_start'] ?? '')); ?>">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Tanggal akhir</label>
+            <input type="date" name="penalty_event_date_end" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['date_end'] ?? '')); ?>">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Baris</label>
+            <select name="penalty_event_per_page" class="form-select"><?php foreach ([10, 25, 50, 100] as $size): ?><option value="<?php echo $size; ?>" <?php echo (int)($penaltyEventPg['per_page'] ?? 25) === $size ? 'selected' : ''; ?>><?php echo $size; ?></option><?php endforeach; ?></select>
+          </div>
+          <div class="col-md-2 d-grid">
+            <button type="submit" class="btn btn-outline-primary">Filter</button>
+          </div>
+          <div class="col-md-2 d-grid">
+            <a href="<?php echo $buildTableUrl([
+              'tab' => 'penalties',
+              'penalty_view' => 'events',
+              'penalty_event_q' => '',
+              'penalty_event_date_start' => $month . '-01',
+              'penalty_event_date_end' => date('Y-m-t', strtotime($month . '-01')),
+              'penalty_event_page' => 1,
+            ]); ?>" class="btn btn-outline-secondary">Reset</a>
+          </div>
+        </div>
       </form>
       <div class="bonus-table-wrap bonus-table">
         <table class="table align-middle mb-0">
@@ -1150,11 +1182,19 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
             <input type="hidden" name="tab" value="penalties">
             <input type="hidden" name="penalty_view" value="detail">
             <div class="row g-3 align-items-end">
-              <div class="col-md-7">
-                <label class="form-label">Cari rincian penalti</label>
-                <input type="text" name="penalty_event_q" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['q'] ?? '')); ?>" placeholder="Cari nama penalti, pegawai, divisi, alasan, atau status">
+              <div class="col-md-4">
+                <label class="form-label">Cari nama / penalti</label>
+                <input type="text" name="penalty_event_q" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['q'] ?? '')); ?>" placeholder="Cari pegawai, divisi, jenis penalti, kode, alasan, atau status">
               </div>
-              <div class="col-md-3">
+              <div class="col-md-2">
+                <label class="form-label">Tanggal awal</label>
+                <input type="date" name="penalty_event_date_start" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['date_start'] ?? '')); ?>">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label">Tanggal akhir</label>
+                <input type="date" name="penalty_event_date_end" class="form-control" value="<?php echo html_escape((string)($penaltyEventFilters['date_end'] ?? '')); ?>">
+              </div>
+              <div class="col-md-2">
                 <label class="form-label">Baris</label>
                 <select name="penalty_event_per_page" class="form-select">
                   <?php foreach ([10, 25, 50, 100] as $size): ?>
@@ -1164,6 +1204,16 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
               </div>
               <div class="col-md-2 d-grid">
                 <button type="submit" class="btn btn-outline-primary">Filter</button>
+              </div>
+              <div class="col-md-2 d-grid">
+                <a href="<?php echo $buildTableUrl([
+                  'tab' => 'penalties',
+                  'penalty_view' => 'detail',
+                  'penalty_event_q' => '',
+                  'penalty_event_date_start' => $month . '-01',
+                  'penalty_event_date_end' => date('Y-m-t', strtotime($month . '-01')),
+                  'penalty_event_page' => 1,
+                ]); ?>" class="btn btn-outline-secondary">Reset</a>
               </div>
             </div>
           </form>

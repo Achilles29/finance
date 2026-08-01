@@ -3958,13 +3958,25 @@ class Payroll_model extends CI_Model
             ->get()->result_array();
     }
 
-    private function build_bonus_penalty_event_row_query(string $month = '', string $q = ''): CI_DB_query_builder
+    private function build_bonus_penalty_event_row_query(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = ''): CI_DB_query_builder
     {
         if (!$this->db->table_exists('pay_bonus_penalty_event')) {
             return $this->db;
         }
 
         $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart)) {
+            $dateStart = $month . '-01';
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
+            $dateEnd = date('Y-m-t', strtotime($dateStart));
+        }
+        if ($dateEnd < $dateStart) {
+            $tmp = $dateStart;
+            $dateStart = $dateEnd;
+            $dateEnd = $tmp;
+        }
+
         $db = $this->db->select("
                 pe.*,
                 pt.penalty_name,
@@ -3981,7 +3993,8 @@ class Payroll_model extends CI_Model
             ->join('org_employee e', 'e.id = pe.employee_id', 'left')
             ->join('org_division d', 'd.id = pe.division_id', 'left')
             ->join('att_shift s', 's.id = pe.shift_id', 'left')
-            ->where("DATE_FORMAT(pe.penalty_date, '%Y-%m') =", $month)
+            ->where('pe.penalty_date >=', $dateStart)
+            ->where('pe.penalty_date <=', $dateEnd)
             ->where('pe.status <>', 'VOID');
 
         if ($q !== '') {
@@ -3997,25 +4010,25 @@ class Payroll_model extends CI_Model
         return $db;
     }
 
-    public function count_bonus_penalty_events(string $month = '', string $q = ''): int
+    public function count_bonus_penalty_events(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = ''): int
     {
         if (!$this->db->table_exists('pay_bonus_penalty_event')) {
             return 0;
         }
 
-        return (int)$this->build_bonus_penalty_event_row_query($month, $q)
+        return (int)$this->build_bonus_penalty_event_row_query($month, $q, $dateStart, $dateEnd)
             ->select('pe.penalty_scope, pe.employee_id, pe.division_id', false)
             ->group_by(['pe.penalty_scope', 'pe.employee_id', 'pe.division_id'])
             ->get()->num_rows();
     }
 
-    public function list_bonus_penalty_events(string $month = '', string $q = '', int $limit = 25, int $offset = 0): array
+    public function list_bonus_penalty_events(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = '', int $limit = 25, int $offset = 0): array
     {
         if (!$this->db->table_exists('pay_bonus_penalty_event')) {
             return [];
         }
 
-        return $this->build_bonus_penalty_event_row_query($month, $q)
+        return $this->build_bonus_penalty_event_row_query($month, $q, $dateStart, $dateEnd)
             ->select("
                 pe.penalty_scope,
                 pe.employee_id,
@@ -4041,7 +4054,7 @@ class Payroll_model extends CI_Model
             ->get()->result_array();
     }
 
-    public function list_bonus_penalty_event_detail_rows(string $month = '', string $penaltyScope = 'PERSONAL', int $employeeId = 0, int $divisionId = 0): array
+    public function list_bonus_penalty_event_detail_rows(string $month = '', string $penaltyScope = 'PERSONAL', int $employeeId = 0, int $divisionId = 0, string $dateStart = '', string $dateEnd = ''): array
     {
         if (!$this->db->table_exists('pay_bonus_penalty_event')) {
             return [];
@@ -4052,7 +4065,7 @@ class Payroll_model extends CI_Model
             $penaltyScope = 'PERSONAL';
         }
 
-        $db = $this->build_bonus_penalty_event_row_query($month, '');
+        $db = $this->build_bonus_penalty_event_row_query($month, '', $dateStart, $dateEnd);
         $db->where('pe.penalty_scope', $penaltyScope);
         if ($penaltyScope === 'PERSONAL') {
             $db->where('pe.employee_id', $employeeId);
@@ -4071,23 +4084,23 @@ class Payroll_model extends CI_Model
             ->get()->result_array();
     }
 
-    public function count_bonus_penalty_detail_rows(string $month = '', string $q = ''): int
+    public function count_bonus_penalty_detail_rows(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = ''): int
     {
         if (!$this->db->table_exists('pay_bonus_penalty_event')) {
             return 0;
         }
 
-        $this->build_bonus_penalty_event_row_query($month, $q);
+        $this->build_bonus_penalty_event_row_query($month, $q, $dateStart, $dateEnd);
         return (int)$this->db->count_all_results();
     }
 
-    public function list_bonus_penalty_detail_rows(string $month = '', string $q = '', int $limit = 25, int $offset = 0): array
+    public function list_bonus_penalty_detail_rows(string $month = '', string $q = '', string $dateStart = '', string $dateEnd = '', int $limit = 25, int $offset = 0): array
     {
         if (!$this->db->table_exists('pay_bonus_penalty_event')) {
             return [];
         }
 
-        return $this->build_bonus_penalty_event_row_query($month, $q)
+        return $this->build_bonus_penalty_event_row_query($month, $q, $dateStart, $dateEnd)
             ->order_by('pe.penalty_date', 'DESC')
             ->order_by('pe.id', 'DESC')
             ->limit($limit, $offset)
@@ -4892,13 +4905,28 @@ class Payroll_model extends CI_Model
             ->get()->result_array();
     }
 
-    public function list_my_bonus_penalty_rows(int $employeeId, string $month = '', int $limit = 20): array
+    private function build_my_bonus_penalty_query(int $employeeId, string $month = '', string $q = '', string $dateStart = '', string $dateEnd = '', string $status = 'ALL'): CI_DB_query_builder
     {
         if ($employeeId <= 0 || !$this->db->table_exists('pay_bonus_penalty_event')) {
-            return [];
+            return $this->db;
         }
 
         $month = preg_match('/^\d{4}-\d{2}$/', $month) ? $month : date('Y-m');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart)) {
+            $dateStart = $month . '-01';
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
+            $dateEnd = date('Y-m-t', strtotime($dateStart));
+        }
+        if ($dateEnd < $dateStart) {
+            $tmp = $dateStart;
+            $dateStart = $dateEnd;
+            $dateEnd = $tmp;
+        }
+        $status = strtoupper(trim($status));
+        if (!in_array($status, ['ALL', 'DRAFT', 'APPROVED', 'REJECTED', 'VOID'], true)) {
+            $status = 'ALL';
+        }
 
         $db = $this->db->select("
                 pe.*,
@@ -4912,14 +4940,50 @@ class Payroll_model extends CI_Model
             ->join('pay_bonus_penalty_type pt', 'pt.id = pe.penalty_type_id', 'left')
             ->join('org_division d', 'd.id = pe.division_id', 'left')
             ->join('att_shift s', 's.id = pe.shift_id', 'left')
-            ->where("DATE_FORMAT(pe.penalty_date, '%Y-%m') =", $month)
+            ->where('pe.penalty_date >=', $dateStart)
+            ->where('pe.penalty_date <=', $dateEnd)
             ->where('pe.status <>', 'VOID')
-            ->where('pe.employee_id', $employeeId)
+            ->where('pe.employee_id', $employeeId);
+
+        if ($status !== 'ALL') {
+            $db->where('pe.status', $status);
+        }
+
+        if ($q !== '') {
+            $db->group_start()
+                ->like('pt.penalty_name', $q)
+                ->or_like('pt.penalty_code', $q)
+                ->or_like('d.division_name', $q)
+                ->or_like('pe.reason_text', $q)
+                ->or_like('pe.status', strtoupper($q))
+                ->group_end();
+        }
+
+        return $db;
+    }
+
+    public function count_my_bonus_penalty_rows(int $employeeId, string $month = '', string $q = '', string $dateStart = '', string $dateEnd = '', string $status = 'ALL'): int
+    {
+        if ($employeeId <= 0 || !$this->db->table_exists('pay_bonus_penalty_event')) {
+            return 0;
+        }
+
+        return (int)$this->build_my_bonus_penalty_query($employeeId, $month, $q, $dateStart, $dateEnd, $status)
+            ->count_all_results();
+    }
+
+    public function list_my_bonus_penalty_rows(int $employeeId, string $month = '', string $q = '', string $dateStart = '', string $dateEnd = '', string $status = 'ALL', int $limit = 20, int $offset = 0): array
+    {
+        if ($employeeId <= 0 || !$this->db->table_exists('pay_bonus_penalty_event')) {
+            return [];
+        }
+
+        $db = $this->build_my_bonus_penalty_query($employeeId, $month, $q, $dateStart, $dateEnd, $status)
             ->order_by('pe.penalty_date', 'DESC')
             ->order_by('pe.id', 'DESC');
 
         if ($limit > 0) {
-            $db->limit($limit);
+            $db->limit($limit, $offset);
         }
 
         return $db->get()->result_array();

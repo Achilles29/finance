@@ -10,12 +10,15 @@ $dailyRows = $daily_rows ?? [];
 $pendingPeerFeedback = $pending_peer_feedback ?? [];
 $peerHistoryRows = $peer_history_rows ?? [];
 $penaltyTypeRows = $penalty_type_rows ?? [];
+$penaltyRows = $penalty_rows ?? [];
 $dailyFilters = $daily_filters ?? ['q' => ''];
 $historyFilters = $history_filters ?? ['q' => ''];
 $penaltyTypeFilters = $penalty_type_filters ?? ['q' => ''];
+$penaltyFilters = $penalty_filters ?? ['q' => '', 'date_start' => '', 'date_end' => ''];
 $dailyPg = $daily_pg ?? ['total' => count($dailyRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1];
 $historyPg = $history_pg ?? ['total' => count($peerHistoryRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1];
 $penaltyTypePg = $penalty_type_pg ?? ['total' => count($penaltyTypeRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1];
+$penaltyPg = $penalty_pg ?? ['total' => count($penaltyRows), 'per_page' => 25, 'page' => 1, 'total_pages' => 1];
 $isPublished = !empty($summary['is_published']);
 $estimatedPenaltyAmount = (float)($summary['estimated_penalty_amount'] ?? 0);
 $estimatedRawAmount = (float)($summary['estimated_raw_amount'] ?? 0);
@@ -140,13 +143,59 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
         <div class="small text-muted">Baris ini membantu membaca potongan bonus yang sudah tercatat.</div>
       </div>
       <div class="card-body">
+        <form method="get" action="<?php echo site_url('my/bonus'); ?>" class="row g-2 align-items-end mb-3">
+          <?php if ($selectedEmployeeId > 0): ?><input type="hidden" name="employee_id" value="<?php echo $selectedEmployeeId; ?>"><?php endif; ?>
+          <input type="hidden" name="tab" value="summary">
+          <input type="hidden" name="month" value="<?php echo html_escape($month); ?>">
+          <input type="hidden" name="date" value="<?php echo html_escape($date); ?>">
+          <div class="col-md-3">
+            <label class="form-label small text-muted mb-1">Cari penalti</label>
+            <input type="text" name="penalty_q" class="form-control" value="<?php echo html_escape((string)($penaltyFilters['q'] ?? '')); ?>" placeholder="Cari pegawai, divisi, jenis penalti, kode, alasan, atau status">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-1">Tanggal awal</label>
+            <input type="date" name="penalty_date_start" class="form-control" value="<?php echo html_escape((string)($penaltyFilters['date_start'] ?? '')); ?>">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-1">Tanggal akhir</label>
+            <input type="date" name="penalty_date_end" class="form-control" value="<?php echo html_escape((string)($penaltyFilters['date_end'] ?? '')); ?>">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small text-muted mb-1">Status</label>
+            <select name="penalty_status" class="form-select">
+              <?php foreach (['ALL' => 'Semua status', 'APPROVED' => 'Approved', 'DRAFT' => 'Draft', 'REJECTED' => 'Rejected'] as $statusValue => $statusLabel): ?>
+                <option value="<?php echo html_escape($statusValue); ?>" <?php echo strtoupper((string)($penaltyFilters['status'] ?? 'ALL')) === $statusValue ? 'selected' : ''; ?>><?php echo html_escape($statusLabel); ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-1">
+            <label class="form-label small text-muted mb-1">Baris</label>
+            <select name="penalty_per_page" class="form-select">
+              <?php foreach ([10, 25, 50, 100] as $pp): ?>
+                <option value="<?php echo $pp; ?>" <?php echo ((int)($penaltyPg['per_page'] ?? 25) === $pp) ? 'selected' : ''; ?>><?php echo $pp; ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-primary">Filter</button>
+            <a href="<?php echo $buildUrl([
+              'tab' => 'summary',
+              'penalty_q' => '',
+              'penalty_date_start' => $month . '-01',
+              'penalty_date_end' => date('Y-m-t', strtotime($month . '-01')),
+              'penalty_status' => 'ALL',
+              'penalty_page' => 1,
+              'penalty_per_page' => 25,
+            ]); ?>" class="btn btn-outline-secondary">Reset</a>
+          </div>
+        </form>
         <div class="table-responsive my-bonus-table-wrap">
           <table class="table align-middle mb-0">
             <thead><tr><th>Tanggal</th><th>Jenis</th><th>Shift</th><th class="text-end">Poin</th><th class="text-end">Nominal</th><th>Status</th></tr></thead>
             <tbody>
-            <?php if (empty($penalty_rows)): ?>
+            <?php if (empty($penaltyRows)): ?>
               <tr><td colspan="6" class="text-center text-muted py-4">Belum ada penalti yang tercatat pada bulan ini.</td></tr>
-            <?php else: foreach ($penalty_rows as $row): ?>
+            <?php else: foreach ($penaltyRows as $row): ?>
               <tr>
                 <td><?php echo html_escape((string)($row['penalty_date'] ?? '-')); ?></td>
                 <td><strong><?php echo html_escape((string)($row['penalty_name'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($row['penalty_code'] ?? '-')); ?></div></td>
@@ -158,6 +207,15 @@ $buildUrl = static function (array $overrides = []) use ($selectedEmployeeId, $m
             <?php endforeach; endif; ?>
             </tbody>
           </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+          <div class="small text-muted">Total <?php echo number_format((int)($penaltyPg['total'] ?? 0)); ?> baris</div>
+          <div class="btn-group">
+            <?php $penaltyPrev = max(1, (int)($penaltyPg['page'] ?? 1) - 1); $penaltyNext = min((int)($penaltyPg['total_pages'] ?? 1), (int)($penaltyPg['page'] ?? 1) + 1); ?>
+            <a class="btn btn-sm btn-outline-secondary <?php echo ((int)($penaltyPg['page'] ?? 1) <= 1) ? 'disabled' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'summary', 'penalty_q' => (string)($penaltyFilters['q'] ?? ''), 'penalty_date_start' => (string)($penaltyFilters['date_start'] ?? ''), 'penalty_date_end' => (string)($penaltyFilters['date_end'] ?? ''), 'penalty_status' => (string)($penaltyFilters['status'] ?? 'ALL'), 'penalty_per_page' => (int)($penaltyPg['per_page'] ?? 25), 'penalty_page' => $penaltyPrev]); ?>">Sebelumnya</a>
+            <span class="btn btn-sm btn-light disabled">Hal. <?php echo (int)($penaltyPg['page'] ?? 1); ?> / <?php echo (int)($penaltyPg['total_pages'] ?? 1); ?></span>
+            <a class="btn btn-sm btn-outline-secondary <?php echo ((int)($penaltyPg['page'] ?? 1) >= (int)($penaltyPg['total_pages'] ?? 1)) ? 'disabled' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'summary', 'penalty_q' => (string)($penaltyFilters['q'] ?? ''), 'penalty_date_start' => (string)($penaltyFilters['date_start'] ?? ''), 'penalty_date_end' => (string)($penaltyFilters['date_end'] ?? ''), 'penalty_status' => (string)($penaltyFilters['status'] ?? 'ALL'), 'penalty_per_page' => (int)($penaltyPg['per_page'] ?? 25), 'penalty_page' => $penaltyNext]); ?>">Berikutnya</a>
+          </div>
         </div>
       </div>
     </div>

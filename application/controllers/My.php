@@ -916,6 +916,21 @@ class My extends MY_Controller
         $dailyFilters = ['q' => trim((string)$this->input->get('daily_q', true))];
         $historyFilters = ['q' => trim((string)$this->input->get('history_q', true))];
         $penaltyTypeFilters = ['q' => trim((string)$this->input->get('penalty_type_q', true))];
+        $penaltyFilters = [
+            'q' => trim((string)$this->input->get('penalty_q', true)),
+            'date_start' => trim((string)$this->input->get('penalty_date_start', true)),
+            'date_end' => trim((string)$this->input->get('penalty_date_end', true)),
+            'status' => strtoupper(trim((string)$this->input->get('penalty_status', true))),
+        ];
+        if (!in_array($penaltyFilters['status'], ['ALL', 'DRAFT', 'APPROVED', 'REJECTED'], true)) {
+            $penaltyFilters['status'] = 'ALL';
+        }
+        if ($penaltyFilters['date_start'] === '') {
+            $penaltyFilters['date_start'] = $month . '-01';
+        }
+        if ($penaltyFilters['date_end'] === '') {
+            $penaltyFilters['date_end'] = date('Y-m-t', strtotime($penaltyFilters['date_start']));
+        }
         $dailyPg = $this->build_pagination(
             $this->Payroll_model->count_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], false),
             $this->per_page('daily_per_page'),
@@ -931,6 +946,18 @@ class My extends MY_Controller
             $this->per_page('penalty_type_per_page'),
             $this->page('penalty_type_page')
         );
+        $penaltyPg = $this->build_pagination(
+            $this->Payroll_model->count_my_bonus_penalty_rows(
+                (int)$employee['id'],
+                $month,
+                $penaltyFilters['q'],
+                $penaltyFilters['date_start'],
+                $penaltyFilters['date_end'],
+                $penaltyFilters['status']
+            ),
+            $this->per_page('penalty_per_page'),
+            $this->page('penalty_page')
+        );
 
         $this->render('my/bonus', [
             'title' => 'Bonus Saya',
@@ -944,13 +971,24 @@ class My extends MY_Controller
             'daily_filters' => $dailyFilters,
             'history_filters' => $historyFilters,
             'penalty_type_filters' => $penaltyTypeFilters,
+            'penalty_filters' => $penaltyFilters,
             'daily_pg' => $dailyPg,
             'history_pg' => $historyPg,
             'penalty_type_pg' => $penaltyTypePg,
+            'penalty_pg' => $penaltyPg,
               'summary' => $this->Payroll_model->get_employee_bonus_overview((int)$employee['id'], $month),
               'target_summary' => $this->Payroll_model->get_my_bonus_target_summary($month),
               'daily_rows' => $this->Payroll_model->list_my_bonus_daily_rows((int)$employee['id'], $month, $dailyFilters['q'], $dailyPg['per_page'], $dailyPg['offset'], false),
-              'penalty_rows' => $this->Payroll_model->list_my_bonus_penalty_rows((int)$employee['id'], $month, 20),
+              'penalty_rows' => $this->Payroll_model->list_my_bonus_penalty_rows(
+                  (int)$employee['id'],
+                  $month,
+                  $penaltyFilters['q'],
+                  $penaltyFilters['date_start'],
+                  $penaltyFilters['date_end'],
+                  $penaltyFilters['status'],
+                  $penaltyPg['per_page'],
+                  $penaltyPg['offset']
+              ),
               'penalty_type_rows' => $this->Payroll_model->list_bonus_penalty_types($penaltyTypeFilters['q'], $penaltyTypePg['per_page'], $penaltyTypePg['offset']),
               'pending_peer_feedback' => $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], $date),
               'peer_history_rows' => $this->Payroll_model->list_my_peer_feedback_history((int)$employee['id'], $month, $historyFilters['q'], $historyPg['per_page'], $historyPg['offset']),
