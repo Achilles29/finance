@@ -1662,7 +1662,9 @@ class Purchase extends MY_Controller
                 'adjustment_date' => (string)($payload['adjustment_date'] ?? date('Y-m-d')),
                 'stock_scope' => $scope,
                 'division_id' => !empty($payload['division_id']) ? (int)$payload['division_id'] : null,
-                'destination_type' => (string)($payload['destination_type'] ?? ''),
+                'destination_type' => $scope === 'DIVISION'
+                    ? (string)($payload['destination_type'] ?? '')
+                    : 'GUDANG',
                 'notes' => (string)($payload['notes'] ?? ''),
             ], (array)($payload['lines'] ?? []), (int)($this->current_user['id'] ?? 0));
         } finally {

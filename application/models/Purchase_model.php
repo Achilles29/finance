@@ -10712,7 +10712,7 @@ class Purchase_model extends CI_Model
             'adjustment_date' => $adjustmentDate,
             'stock_scope' => $scope,
             'division_id' => $scope === 'DIVISION' ? $divisionId : null,
-            'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
+            'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
             'notes' => $this->nullableString($header['notes'] ?? null),
         ];
 
@@ -11625,6 +11625,40 @@ class Purchase_model extends CI_Model
         ]);
         if ($unitCostValidation !== null) {
             return ['_validation_error' => $unitCostValidation];
+        }
+
+        if ($scope === 'WAREHOUSE' && $qtyPlus > 0 && $itemId !== null && $buyUomId !== null) {
+            $profileUnitPrice = round(max(0, $unitCost * $profileContentPerBuy), 2);
+            $resolvedProfileKey = $this->resolveCatalogProfileKeyByIdentity(
+                (int)$itemId,
+                $materialId,
+                (int)$buyUomId,
+                (int)$contentUomId,
+                $this->nullableString($line['profile_name'] ?? null),
+                $this->nullableString($line['profile_brand'] ?? null),
+                $this->nullableString($line['profile_description'] ?? null),
+                $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+                $profileContentPerBuy,
+                $profileUnitPrice
+            );
+            if ($resolvedProfileKey === null) {
+                $resolvedProfileKey = $this->ensureCatalogProfileFromOpeningIdentity(
+                    'ITEM',
+                    (int)$itemId,
+                    $materialId,
+                    (int)$buyUomId,
+                    (int)$contentUomId,
+                    $this->nullableString($line['profile_name'] ?? null),
+                    $this->nullableString($line['profile_brand'] ?? null),
+                    $this->nullableString($line['profile_description'] ?? null),
+                    $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+                    $profileContentPerBuy,
+                    $profileUnitPrice
+                );
+            }
+            if ($resolvedProfileKey !== null) {
+                $profileKey = $resolvedProfileKey;
+            }
         }
 
         return [

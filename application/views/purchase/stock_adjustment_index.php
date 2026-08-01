@@ -1019,6 +1019,23 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
   const qtyUnitByScope = (row) => isWarehouseScope ? (row?.profile_buy_uom_code || row?.default_buy_uom_code || '') : (row?.profile_content_uom_code || row?.default_content_uom_code || '');
   const costByScope   = (row, costPerContent) => isWarehouseScope ? (Number(costPerContent||0) * contentPerBuyValue(row)) : Number(costPerContent||0);
   const costLabelByScope = () => isWarehouseScope ? 'Harga Satuan / Beli' : 'Avg Cost/Isi';
+  const catalogUnitPrice = (row) => {
+    const suggestedUnitPrice = Number(row?.suggested_unit_price || 0);
+    const lastUnitPrice = Number(row?.last_unit_price || 0);
+    const standardPrice = Number(row?.standard_price || 0);
+    if (suggestedUnitPrice > 0) return suggestedUnitPrice;
+    if (lastUnitPrice > 0) return lastUnitPrice;
+    if (standardPrice > 0) return standardPrice;
+    return 0;
+  };
+  const selectedDefaultUnitCost = (row) => {
+    if (!row) return 0;
+    if (isWarehouseScope) {
+      const catalogPrice = catalogUnitPrice(row);
+      if (catalogPrice > 0) return catalogPrice;
+    }
+    return costByScope(row, Number(row?.avg_cost_per_content || 0));
+  };
   const formatUpdatedAt = (value) => {
     const raw = String(value||'').trim();
     if (!raw) return 'Belum ada update saldo';
@@ -1220,7 +1237,10 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     const contentPerBuy = contentPerBuyValue(selectedItem);
     const avgCostPerContent = Number(selectedItem?.avg_cost_per_content || 0);
     if (!isDivisionScope) {
-      unitCostHintEl.textContent = 'Isi harga per ' + buyUom + '.';
+      const defaultUnitCost = selectedDefaultUnitCost(selectedItem);
+      unitCostHintEl.textContent = defaultUnitCost > 0
+        ? 'Harga default mengikuti katalog terpilih: ' + fmtMoney(defaultUnitCost) + ' / ' + buyUom + '. Jika diubah, sistem akan membuat profil katalog harga baru.'
+        : 'Isi harga per ' + buyUom + '. Jika diubah ke harga baru, sistem akan membuat profil katalog harga baru.';
       return;
     }
     if (avgCostPerContent > 0 && contentPerBuy > 1) {
@@ -1269,7 +1289,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     adjustmentPlusCostWrapEl?.classList.toggle('d-none',!needsInbound);
     adjustmentPlusLotWrapEl?.classList.toggle('d-none',!needsInbound);
     adjustmentPlusExpWrapEl?.classList.toggle('d-none',!needsInbound);
-    if (unitCostInputEl) unitCostInputEl.value = selectedItem ? String(costByScope(selectedItem,Number(selectedItem.avg_cost_per_content||0))) : '0';
+    if (unitCostInputEl) unitCostInputEl.value = selectedItem ? String(selectedDefaultUnitCost(selectedItem)) : '0';
     if (!needsInbound) { if (inboundLotInputEl) inboundLotInputEl.value=''; if (inboundExpiryInputEl) inboundExpiryInputEl.value=''; }
     renderUnitCostHint();
   };
@@ -1292,7 +1312,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
       +'<div class="row g-2 small">'
       +'<div class="col-md-4"><div class="text-muted">Avail '+(isWarehouseScope?'Pack':'Isi')+'</div><div class="fw-semibold">'+fmt(isWarehouseScope?selectedItem.available_qty_buy:selectedItem.available_qty_content)+' '+qtyUnitByScope(selectedItem)+'</div></div>'
       +'<div class="col-md-4"><div class="text-muted">'+(isWarehouseScope?'Setara Isi':'Setara Pack')+'</div><div class="fw-semibold">'+fmt(isWarehouseScope?selectedItem.available_qty_content:selectedItem.available_qty_buy)+' '+(isWarehouseScope?(selectedItem.default_content_uom_code||''):(selectedItem.default_buy_uom_code||''))+'</div></div>'
-      +'<div class="col-md-4"><div class="text-muted">'+costLabelByScope()+'</div><div class="fw-semibold">'+fmt6(costByScope(selectedItem,Number(selectedItem.avg_cost_per_content||0)))+'</div></div>'
+      +'<div class="col-md-4"><div class="text-muted">'+(isWarehouseScope?'Harga Katalog':'Avg Cost/Isi')+'</div><div class="fw-semibold">'+(isWarehouseScope?fmtMoney(selectedDefaultUnitCost(selectedItem)):fmt6(costByScope(selectedItem,Number(selectedItem.avg_cost_per_content||0))))+'</div></div>'
       +'</div>';
     renderAdjustmentKindForm();
   };
@@ -1363,10 +1383,17 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     if (!items.length) { if (searchResults) searchResults.innerHTML='<div class="list-group-item text-muted">Tidak ada hasil.</div>'; return; }
     if (searchResults) searchResults.innerHTML = items.map((item,index) => {
       const profileText = [item.profile_name,item.profile_brand,item.profile_description].filter(Boolean).join(' | ');
+      const resultCatalogPrice = catalogUnitPrice(item);
+      const priceLine = isWarehouseScope
+        ? (resultCatalogPrice > 0
+          ? 'Harga katalog: ' + fmtMoney(resultCatalogPrice) + ' / ' + escHtml(item.profile_buy_uom_code || item.default_buy_uom_code || '')
+          : 'Harga katalog belum ada')
+        : ('Avg cost: ' + fmt6(costByScope(item,Number(item.avg_cost_per_content||0))));
       return '<button type="button" class="list-group-item list-group-item-action adjustment-search-result" data-index="'+index+'">'
         +'<div class="d-flex justify-content-between gap-2"><div class="fw-semibold small">'+escHtml(objectLabel(item))+'</div><span class="badge bg-light text-dark border">'+escHtml(sourceBadgeLabel(item))+'</span></div>'
         +'<div class="small text-muted">'+(profileText||'Tanpa profile')+'</div>'
         +'<div class="small">Avail: '+fmt(isWarehouseScope?item.available_qty_buy:item.available_qty_content)+' '+qtyUnitByScope(item)+'</div>'
+        +'<div class="small text-muted">'+priceLine+'</div>'
         +'</button>';
     }).join('');
     searchResults?.querySelectorAll('.adjustment-search-result').forEach(btn => {
@@ -1453,6 +1480,8 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     if (isDivisionScope) {
       payload.division_id    = Number(document.getElementById('division_id')?.value||0)||null;
       payload.destination_type = String(document.getElementById('destination_type')?.value||'').trim();
+    } else {
+      payload.destination_type = 'GUDANG';
     }
     if (window.FinanceUI?.setButtonLoading) window.FinanceUI.setButtonLoading(saveDraftBtn,'Menyimpan draft...');
     try {
