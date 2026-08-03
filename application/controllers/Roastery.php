@@ -15,6 +15,10 @@ class Roastery extends MY_Controller
     public function packaging_labels()
     {
         $this->require_permission(self::PAGE_PACKAGING_LABEL, 'view');
+        $this->ensure_label_storage_ready([
+            'uploads/coffee-labels',
+            'uploads/coffee-labels/logos',
+        ], false);
 
         $filters = [
             'q' => trim((string)$this->input->get('q', true)),
@@ -58,6 +62,13 @@ class Roastery extends MY_Controller
     {
         $id = (int)$this->input->post('id', true);
         $this->require_permission(self::PAGE_PACKAGING_LABEL, $id > 0 ? 'edit' : 'create');
+        if (!$this->ensure_label_storage_ready([
+            'uploads/coffee-labels',
+            'uploads/coffee-labels/logos',
+        ])) {
+            redirect('roastery/packaging-labels' . ($id > 0 ? '?edit=' . $id : '?new=1'));
+            return;
+        }
 
         if (!$this->Coffee_packaging_label_model->table_ready()) {
             $this->session->set_flashdata('error', 'Tabel label packaging kopi belum ada. Jalankan SQL 2026-07-26a terlebih dahulu.');
@@ -268,18 +279,10 @@ class Roastery extends MY_Controller
         }
 
         $relativeDir = trim(str_replace('\\', '/', $relativeDir), '/');
+        if (!$this->ensure_label_storage_ready([$relativeDir])) {
+            return false;
+        }
         $uploadDir = FCPATH . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-        if (!is_dir($uploadDir) && !@mkdir($uploadDir, 0775, true) && !is_dir($uploadDir)) {
-            $this->session->set_flashdata('error', 'Folder upload label kopi tidak bisa dibuat.');
-            return false;
-        }
-        if (!is_writable($uploadDir)) {
-            @chmod($uploadDir, 0777);
-        }
-        if (!is_writable($uploadDir)) {
-            $this->session->set_flashdata('error', 'Folder upload label kopi tidak writable: ' . $uploadDir);
-            return false;
-        }
 
         $config = [
             'upload_path' => $uploadDir,
@@ -399,6 +402,9 @@ class Roastery extends MY_Controller
         if ($targetRel === $imagePath) {
             return $imagePath;
         }
+        if (!$this->ensure_label_storage_ready([$dirRel])) {
+            return $imagePath;
+        }
 
         $targetAbs = FCPATH . ltrim($targetRel, '/');
         if ($usedByOtherLabels) {
@@ -439,6 +445,34 @@ class Roastery extends MY_Controller
         }
 
         return $dirRel . '/' . $slug . '-' . date('His') . '.png';
+    }
+
+    private function ensure_label_storage_ready(array $relativeDirs, bool $setFlash = true): bool
+    {
+        foreach ($relativeDirs as $relativeDir) {
+            $relativeDir = trim(str_replace('\\', '/', (string)$relativeDir), '/');
+            if ($relativeDir === '') {
+                continue;
+            }
+
+            $absDir = FCPATH . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
+            if (!is_dir($absDir) && !@mkdir($absDir, 0777, true) && !is_dir($absDir)) {
+                if ($setFlash) {
+                    $this->session->set_flashdata('error', 'Folder upload label kopi tidak bisa dibuat: ' . $absDir);
+                }
+                return false;
+            }
+
+            @chmod($absDir, 0777);
+            if (!is_writable($absDir)) {
+                if ($setFlash) {
+                    $this->session->set_flashdata('error', 'Folder upload label kopi tidak writable: ' . $absDir);
+                }
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function valid_gallery_image_path(string $path, string $expectedPrefix = 'uploads/coffee-labels/'): string

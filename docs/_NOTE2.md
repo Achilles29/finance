@@ -361,3 +361,12 @@ buat tabel baru jika perlu dengan prefix wa_
 kejutkan saya
 - halaman rekon keuangan
 - halaman generate qris,  dari pos, muncul ke halaman khusus qris 
+
+Ask for approval
+
+perbaiki roastery/packaging-labels, 
+roastery/packaging-labels
+simpan gagal, folder tidak bisa ditulis
+
+
+pastikan semua component yang ada di template bisa diatur , termasuk form form dan font nya.
