@@ -193,3 +193,10 @@ lakukan perbaikan:
 member : 
 - tadi sudah saya tes pembayaran qris, tagihan yang muncul hanya untuk produk, ongkirnya belum tertagih. seharusnya nilai tagihan termasuk ongkir, kecuali gratis ongkir
 - pesanan maasuk belum ada notifikasi , buat sound dan flare notifikasi di semua halaman seperti pada self_order
+
+
+
+
+saya update lagi
+
+cek lagi masih banyak missmatch. perbaiki , sumber kebenaran adalah stok. sesuaikan lot dan log dengan stok.

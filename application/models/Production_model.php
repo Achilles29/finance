@@ -1472,6 +1472,88 @@ class Production_model extends CI_Model
         ]];
     }
 
+    public function fix_component_movement_log_to_stock(string $locationType, ?int $divisionId, int $componentId, int $uomId): array
+    {
+        if (!$this->db->table_exists('inv_component_movement_log') || !$this->db->table_exists('inv_component_monthly_stock')) {
+            return ['ok' => false, 'message' => 'Tabel movement log atau monthly stock tidak ditemukan.'];
+        }
+        if ($locationType === '' || $componentId <= 0 || $uomId <= 0) {
+            return ['ok' => false, 'message' => 'location_type, component_id, dan uom_id diperlukan.'];
+        }
+
+        $divStockSql = $divisionId !== null ? ('s.division_id = ' . (int)$divisionId) : 's.division_id IS NULL';
+        $divLogSql   = $divisionId !== null ? ('division_id = ' . (int)$divisionId) : 'division_id IS NULL';
+
+        $stockRow = $this->db->query(
+            "SELECT s.closing_qty, s.avg_cost, s.id
+             FROM inv_component_monthly_stock s
+             WHERE s.location_type = ? AND {$divStockSql} AND s.component_id = ? AND s.uom_id = ?
+             ORDER BY s.month_key DESC LIMIT 1",
+            [$locationType, $componentId, $uomId]
+        )->row_array();
+
+        if (!$stockRow) {
+            return ['ok' => false, 'message' => 'Data monthly stock tidak ditemukan.'];
+        }
+
+        $stockQty = round((float)($stockRow['closing_qty'] ?? 0), 4);
+        $unitCost = round((float)($stockRow['avg_cost'] ?? 0), 6);
+
+        $logRow = $this->db->query(
+            "SELECT ROUND(COALESCE(SUM(qty_in),0) - COALESCE(SUM(qty_out),0), 4) AS log_net
+             FROM inv_component_movement_log
+             WHERE location_type = ? AND {$divLogSql} AND component_id = ? AND uom_id = ?",
+            [$locationType, $componentId, $uomId]
+        )->row_array();
+
+        $logNet = round((float)($logRow['log_net'] ?? 0), 4);
+        $delta  = round($stockQty - $logNet, 4);
+
+        if (abs($delta) < 0.0001) {
+            return ['ok' => true, 'message' => 'Movement log sudah sesuai dengan stok bulanan.', 'data' => [
+                'stock_qty' => $stockQty, 'log_net' => $logNet, 'delta' => $delta,
+            ]];
+        }
+
+        $now          = date('Y-m-d H:i:s');
+        $movementDate = date('Y-m-d');
+        $movementNo   = 'RECONFIX-LOG-' . date('YmdHis') . '-C' . $componentId . '-D' . ($divisionId ?? 0);
+
+        $this->db->insert('inv_component_movement_log', [
+            'movement_no'       => $movementNo,
+            'movement_date'     => $movementDate,
+            'movement_datetime' => $now,
+            'location_type'     => $locationType,
+            'division_id'       => $divisionId,
+            'component_id'      => $componentId,
+            'uom_id'            => $uomId,
+            'movement_type'     => $delta > 0 ? 'ADJUSTMENT_PLUS' : 'ADJUSTMENT_MINUS',
+            'qty_in'            => $delta > 0 ? round(abs($delta), 4) : 0,
+            'qty_out'           => $delta < 0 ? round(abs($delta), 4) : 0,
+            'unit_cost'         => $unitCost,
+            'total_cost'        => round(abs($delta) * $unitCost, 2),
+            'source_module'     => 'RECONCILE_FIX',
+            'source_table'      => 'inv_component_monthly_stock',
+            'source_id'         => (int)($stockRow['id'] ?? 0),
+            'source_line_id'    => null,
+            'notes'             => 'Koreksi rekonsiliasi: log net ' . $logNet . ' → stok ' . $stockQty,
+            'created_by'        => null,
+            'created_at'        => $now,
+        ]);
+
+        if ($this->db->affected_rows() < 1) {
+            return ['ok' => false, 'message' => 'Gagal menyisipkan entri koreksi ke movement log.'];
+        }
+
+        return ['ok' => true, 'message' => 'Entri koreksi movement log berhasil dibuat (' . ($delta > 0 ? '+' : '') . $delta . ').', 'data' => [
+            'stock_qty'     => $stockQty,
+            'log_net'       => $logNet,
+            'delta'         => $delta,
+            'movement_no'   => $movementNo,
+            'movement_type' => $delta > 0 ? 'ADJUSTMENT_PLUS' : 'ADJUSTMENT_MINUS',
+        ]];
+    }
+
     private function attach_component_lot_totals(array &$rows, ?string $asOfDate = null): void
     {
         foreach ($rows as &$row) { $row['lot_qty'] = 0.0; $row['lot_count'] = 0; $row['lot_rows'] = []; }

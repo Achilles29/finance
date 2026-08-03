@@ -1834,12 +1834,23 @@ class Dashboard extends MY_Controller
         $topRows = [];
 
         foreach ($rows as $row) {
-            $balanceQty = (float)($row['balance_qty'] ?? 0);
-            $lotQty = (float)($row['lot_qty'] ?? $balanceQty);
-            $gap = $this->dashboard_component_reconcile_gap($row);
-            $lotMismatch = abs($balanceQty - $lotQty) > 0.01;
-            if (abs($gap) <= 0.01 && !$lotMismatch) {
+            // Gunakan monthly_qty (closing_qty dari inv_component_monthly_stock) sebagai acuan,
+            // konsisten dengan logika reconcile page yang juga pakai monthly_qty sebagai otoritas.
+            // balance_qty (proyeksi harian) bisa menunjukkan 0 untuk item carry-forward tanpa
+            // movement log Agustus, menyebabkan false positive jika dipakai sebagai acuan.
+            $monthlyQty  = (float)($row['monthly_qty']  ?? 0);
+            $movementQty = (float)($row['movement_qty'] ?? 0);
+            $lotQty      = (float)($row['lot_qty']      ?? $monthlyQty);
+
+            $lotMismatch      = abs($monthlyQty - $lotQty)      > 0.01;
+            $movementMismatch = abs($monthlyQty - $movementQty) > 0.01;
+            if (!$lotMismatch && !$movementMismatch) {
                 continue;
+            }
+
+            $gap = round($monthlyQty - $movementQty, 4);
+            if (abs($monthlyQty - $lotQty) > abs($gap)) {
+                $gap = round($monthlyQty - $lotQty, 4);
             }
 
             $divisionId = (int)($row['division_id'] ?? 0);

@@ -358,6 +358,7 @@ $route['production/component-reconcile/lot-repair']    = 'production/component_l
 $route['production/component-reconcile/lot-adjust']    = 'production/component_lot_only_adjust';
 $route['production/component-reconcile/lot-sync']      = 'production/component_lot_sync_to_stock';
 $route['production/component-reconcile/lot-sync-all']  = 'production/component_lot_sync_all';
+$route['production/component-reconcile/fix-log']       = 'production/component_movement_log_fix_to_stock';
 $route['production/component-lots'] = 'production/component_lots';
 $route['production/component-openings'] = 'production/component_openings';
 $route['production/component-openings/export-template'] = 'production/component_opening_export_template';

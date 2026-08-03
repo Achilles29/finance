@@ -389,6 +389,17 @@ $uniqueCompCount = count($uniqueComps);
                     data-lot-qty="<?php echo html_escape((string)$lotQ); ?>"
                     title="Sesuaikan Lot ke Stok — kurangi lot FIFO agar tidak melebihi stok bulanan"><i class="ri ri-arrow-down-circle-line"></i></button>
                   <?php endif; ?>
+                  <?php if (abs($mQty - $mvtQ) > 0.001): ?>
+                  <button type="button" class="rec-icon-btn btn-outline-success comp-log-fix-btn"
+                    data-location-type="<?php echo html_escape($locType); ?>"
+                    data-division-id="<?php echo $divId; ?>"
+                    data-component-id="<?php echo $compId; ?>"
+                    data-uom-id="<?php echo $uomId; ?>"
+                    data-component-name="<?php echo html_escape((string)($row['component_name'] ?? '')); ?>"
+                    data-monthly-qty="<?php echo html_escape((string)$mQty); ?>"
+                    data-movement-qty="<?php echo html_escape((string)$mvtQ); ?>"
+                    title="Perbaiki Movement Log ke Stok — tambah entri koreksi agar net log = stok bulanan"><i class="ri ri-file-list-line"></i></button>
+                  <?php endif; ?>
                   <a href="<?php echo html_escape($mvtUrl); ?>" class="rec-icon-btn btn-outline-info" target="_blank" title="Lihat movement log"><i class="ri ri-history-line"></i></a>
                   <?php if (empty($lotRows)): ?>
                   <button type="button" class="rec-icon-btn btn-outline-warning comp-quick-adj-btn"
@@ -921,6 +932,12 @@ $uniqueCompCount = count($uniqueComps);
       return;
     }
 
+    const logFixBtn = event.target.closest('.comp-log-fix-btn');
+    if (logFixBtn) {
+      runLogFix(logFixBtn).catch(e => { clearButtonLoading(logFixBtn); showAlert(e.message, 'Perbaiki Movement Log'); });
+      return;
+    }
+
     const adjBtn = event.target.closest('.comp-quick-adj-btn');
     if (adjBtn) { openCompAdj(adjBtn); return; }
 
@@ -996,6 +1013,41 @@ $uniqueCompCount = count($uniqueComps);
         uom_id:        Number(button?.dataset.uomId       || 0),
       });
       await showAlert(json.message || 'Lot berhasil disesuaikan ke stok.', 'Sesuaikan Lot ke Stok');
+      window.location.reload();
+    } catch (e) {
+      clearButtonLoading(button);
+      throw e;
+    }
+  }
+
+  const logFixUrl = <?php echo json_encode(site_url('production/component-reconcile/fix-log')); ?>;
+
+  async function runLogFix(button) {
+    const compName    = String(button?.dataset.componentName || ('Component #' + (button?.dataset.componentId || '?')));
+    const monthlyQty  = Number(button?.dataset.monthlyQty  || 0);
+    const movementQty = Number(button?.dataset.movementQty || 0);
+    const delta       = Math.round((monthlyQty - movementQty) * 10000) / 10000;
+    const adjType     = delta > 0 ? 'ADJUSTMENT_PLUS (+' + compAdjFmt(delta) + ')' : 'ADJUSTMENT_MINUS (' + compAdjFmt(delta) + ')';
+    const confirmed   = await askConfirm(
+      'Perbaiki Movement Log untuk:\n' + compName
+      + '\n\nStok Bulanan (acuan): ' + compAdjFmt(monthlyQty)
+      + '\nMovement Log Net: ' + compAdjFmt(movementQty)
+      + '\nSelisih: ' + compAdjFmt(delta)
+      + '\n\nTindakan ini akan menyisipkan entri ' + adjType + ' ke movement log'
+      + '\nsehingga net log = stok bulanan.'
+      + '\n\nLanjutkan?',
+      { title: 'Perbaiki Movement Log', confirmText: 'Perbaiki Log', cancelText: 'Batal' }
+    );
+    if (!confirmed) return;
+    setButtonLoading(button, 'Proses...');
+    try {
+      const json = await postJson(logFixUrl, {
+        location_type: String(button?.dataset.locationType || ''),
+        division_id:   Number(button?.dataset.divisionId  || 0) || null,
+        component_id:  Number(button?.dataset.componentId || 0),
+        uom_id:        Number(button?.dataset.uomId       || 0),
+      });
+      await showAlert(json.message || 'Movement log berhasil diperbaiki.', 'Perbaiki Movement Log');
       window.location.reload();
     } catch (e) {
       clearButtonLoading(button);

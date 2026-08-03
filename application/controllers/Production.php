@@ -319,6 +319,33 @@ class Production extends MY_Controller
         }
     }
 
+    /** Insert a corrective ADJUSTMENT_PLUS/MINUS movement log entry so log net equals monthly stock. */
+    public function component_movement_log_fix_to_stock()
+    {
+        $pageCode = $this->can('production.component.reconcile.index', 'edit')
+            ? 'production.component.reconcile.index'
+            : 'production.component.daily.index';
+        $this->require_permission($pageCode, 'edit');
+
+        $payload      = $this->request_payload();
+        $locationType = strtoupper(trim((string)($payload['location_type'] ?? '')));
+        $divisionId   = isset($payload['division_id']) && $payload['division_id'] !== null ? (int)$payload['division_id'] : null;
+        $componentId  = (int)($payload['component_id'] ?? 0);
+        $uomId        = (int)($payload['uom_id'] ?? 0);
+
+        if ($componentId <= 0 || $uomId <= 0) {
+            $this->json_error('component_id dan uom_id wajib diisi.', 422);
+            return;
+        }
+
+        $result = $this->Production_model->fix_component_movement_log_to_stock($locationType, $divisionId, $componentId, $uomId);
+        if (!empty($result['ok'])) {
+            $this->json_ok($result['data'] ?? [], (string)($result['message'] ?? 'Selesai.'));
+        } else {
+            $this->json_error((string)($result['message'] ?? 'Gagal.'), 422);
+        }
+    }
+
     /** Sync ALL component FIFO lots that over-state stock (lot > monthly_stock) to match stock. */
     public function component_lot_sync_all()
     {
