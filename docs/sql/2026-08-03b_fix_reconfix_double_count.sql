@@ -217,3 +217,35 @@ LEFT JOIN (
 WHERE s.month_key = '2026-08-01' AND s.closing_qty > 0
   AND (ABS(s.closing_qty - COALESCE(lot_aug.balance,0)) > 0.001
     OR ABS(s.closing_qty - COALESCE(log_t.log_net,0)) > 0.001);
+
+-- -----------------------------------------------------------------------
+-- LANGKAH 5: TONGSENG PASTE — lot OPEN hilang, buat ulang carry-forward
+-- -----------------------------------------------------------------------
+-- Konteks: Semua lot Agustus TONGSENG PASTE (KITCHEN, div=3) sudah CLOSED
+-- (MONTHLY_OPNAME + PRODUCTION_ADJUSTMENT) dengan saldo 0, padahal
+-- monthly stock = 590 dan movement log net = 590.
+-- Lot RECONFIX-20260803b-TONGSENG yang dibuat sebelumnya tidak muncul
+-- (kemungkinan dikonsumsi ulang oleh sistem).
+-- Solusi: buat lot OPEN baru dengan saldo 590.
+-- component_id=31, uom_id=11, division_id=3, location_type='KITCHEN'
+-- monthly_stock_id=4797 (Aug 2026), avg_cost=56.396966
+INSERT INTO inv_component_lot (
+    location_type, division_id, component_id, uom_id,
+    lot_no, receipt_date, expiry_date, unit_cost,
+    qty_in_total, qty_out_total, qty_balance,
+    source_module, source_table, source_id, source_line_id,
+    parent_lot_id, last_issue_at, status, created_at, updated_at
+)
+SELECT
+    'KITCHEN', 3, 31, 11,
+    'RECONFIX-20260803c-TONGSENG', '2026-08-01', NULL, 56.396966,
+    590.0000, 0.0000, 590.0000,
+    'RECONCILE_REPAIR', 'inv_component_monthly_stock', 4797, NULL,
+    NULL, NULL, 'OPEN', NOW(), NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM inv_component_lot
+    WHERE component_id=31 AND location_type='KITCHEN' AND division_id=3
+      AND status='OPEN' AND qty_balance > 0.0001 AND receipt_date >= '2026-08-01'
+);
+
+SELECT ROW_COUNT() AS tongseng_lot_inserted;  -- Ekspektasi: 1
