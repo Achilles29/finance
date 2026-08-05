@@ -6564,6 +6564,17 @@ class Production_model extends CI_Model
         if (!$this->db->field_exists('shelf_life_days', 'mst_component')) {
             unset($payload['shelf_life_days']);
         }
+        $varMode = strtoupper(trim((string)($data['variable_cost_mode'] ?? 'DEFAULT')));
+        if (!in_array($varMode, ['DEFAULT', 'NONE', 'CUSTOM'], true)) {
+            $varMode = 'DEFAULT';
+        }
+        $varPercent = $varMode === 'NONE' ? 0.0 : round((float)($data['variable_cost_percent'] ?? 0), 4);
+        if ($this->db->field_exists('variable_cost_mode', 'mst_component')) {
+            $payload['variable_cost_mode'] = $varMode;
+        }
+        if ($this->db->field_exists('variable_cost_percent', 'mst_component')) {
+            $payload['variable_cost_percent'] = $varPercent;
+        }
         if ($payload['component_name'] === '' || $payload['component_category_id'] <= 0 || $payload['uom_id'] <= 0) {
             return ['ok' => false, 'message' => 'Nama, kategori, dan UOM wajib diisi.'];
         }

@@ -157,6 +157,21 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
           </div>
           <div class="col-md-3"><label class="form-label mb-1 small text-muted">Process Loss %</label><input class="form-control" name="process_loss_percent" value="0" placeholder="0"></div>
           <div class="col-md-3"><label class="form-label mb-1 small text-muted">Shelf Life (hari)</label><input class="form-control" name="shelf_life_days" value="0" placeholder="0"></div>
+          <div class="col-12"><hr class="my-1"></div>
+          <div class="col-md-6">
+            <label class="form-label mb-1 small text-muted">Mode Biaya Variabel</label>
+            <select class="form-select" name="variable_cost_mode" id="variable_cost_mode">
+              <option value="DEFAULT">DEFAULT — Ikuti pengaturan sistem</option>
+              <option value="NONE">NONE — Tanpa biaya variabel (0%)</option>
+              <option value="CUSTOM">CUSTOM — Persentase khusus</option>
+            </select>
+            <div class="form-text">Biaya overhead/variabel yang ditambahkan di atas direct cost pada formula.</div>
+          </div>
+          <div class="col-md-6" id="variable_cost_percent_wrap">
+            <label class="form-label mb-1 small text-muted">Persentase Variabel (%)</label>
+            <input class="form-control" name="variable_cost_percent" value="0" placeholder="mis. 20" id="variable_cost_percent_input">
+            <div class="form-text">Hanya berlaku jika mode CUSTOM dipilih.</div>
+          </div>
         </form>
       </div>
       <div class="modal-footer">
@@ -343,6 +358,13 @@ function clearButtonBusy(button) {
   button.disabled = false;
 }
 
+const varModeSelect = form.querySelector('[name="variable_cost_mode"]');
+const varPctWrap    = document.getElementById('variable_cost_percent_wrap');
+function toggleVarPct() {
+  if (varPctWrap) varPctWrap.style.display = (varModeSelect?.value === 'CUSTOM') ? '' : 'none';
+}
+if (varModeSelect) { varModeSelect.addEventListener('change', toggleVarPct); toggleVarPct(); }
+
 function openForCreate() {
   form.reset();
   form.querySelector('[name="id"]').value = '';
@@ -351,6 +373,10 @@ function openForCreate() {
   form.querySelector('[name="process_loss_percent"]').value = '0';
   form.querySelector('[name="hpp_standard"]').value = '0';
   form.querySelector('[name="shelf_life_days"]').value = '0';
+  if (varModeSelect) varModeSelect.value = 'DEFAULT';
+  const varPctInput = document.getElementById('variable_cost_percent_input');
+  if (varPctInput) varPctInput.value = '0';
+  toggleVarPct();
   modalTitle.textContent = 'Tambah Component';
   applyCategoryTypeFilter(false);
   if (modal) modal.show();
@@ -373,6 +399,10 @@ async function openForEdit(id) {
   form.querySelector('[name="process_loss_percent"]').value = row.process_loss_percent || '0';
   form.querySelector('[name="hpp_standard"]').value = row.hpp_standard || '0';
   form.querySelector('[name="shelf_life_days"]').value = row.shelf_life_days || '0';
+  if (varModeSelect) varModeSelect.value = row.variable_cost_mode || 'DEFAULT';
+  const varPctInput = document.getElementById('variable_cost_percent_input');
+  if (varPctInput) varPctInput.value = row.variable_cost_percent || '0';
+  toggleVarPct();
   modalTitle.textContent = `Edit Component: ${row.component_name || row.id}`;
   if (modal) modal.show();
 }
