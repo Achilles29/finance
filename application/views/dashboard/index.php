@@ -417,10 +417,15 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
         $detailUrl = site_url('inventory/stock/deficits/detail/' . (int)($row['id'] ?? 0));
         $name = html_escape((string)($row['inventory_name'] ?? '-'));
         $profile = trim((string)($row['profile_label'] ?? ''));
+        $profileKey = trim((string)($row['profile_key'] ?? ''));
         $location = trim((string)($row['location_name'] ?? ''));
         $metaParts = [];
         if ($profile !== '') {
             $metaParts[] = html_escape($profile);
+        }
+        if ($profileKey !== '') {
+            // A deficit is tied to the exact purchase profile, not only the item name.
+            $metaParts[] = 'Profil #' . html_escape(substr($profileKey, 0, 8));
         }
         if ($location !== '') {
             $metaParts[] = html_escape($location);
@@ -473,7 +478,7 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
     <div class="fd-sec-head" style="margin-bottom:.75rem;">
       <div>
         <h2 class="fd-sec-title" style="color:#c62828;display:flex;align-items:center;gap:.5rem;"><i class="ri-error-warning-fill" style="color:#c62828;"></i>Defisit Stok Aktif</h2>
-        <p class="fd-sec-sub" style="color:#8b2020;">Pilih tab divisi atau lokasi, lalu lihat bahan baku dan component pada kelompok tersebut. Saldo lot tidak dibuat minus; kekurangan tetap ditampilkan sampai sumber barangnya ditelusuri dan ditutup dengan penerimaan atau adjustment tambah yang benar.</p>
+        <p class="fd-sec-sub" style="color:#8b2020;">Pilih tab divisi atau lokasi, lalu lihat bahan baku dan component pada kelompok tersebut. Defisit dibaca per area, UOM, dan profil pembelian. Jadi stok dengan nama barang sama tetapi profil berbeda tidak otomatis menutup defisit. Saldo lot tidak dibuat minus; kekurangan tetap ditampilkan sampai sumber barangnya ditelusuri dan ditutup dengan cara yang benar.</p>
       </div>
       <a class="btn btn-sm btn-outline-danger" href="<?= site_url('inventory/stock/deficits') ?>" style="border-radius:12px;white-space:nowrap;">Buka Defisit Stok</a>
     </div>

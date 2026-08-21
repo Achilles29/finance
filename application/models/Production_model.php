@@ -6028,6 +6028,25 @@ class Production_model extends CI_Model
             return $rebuild;
         }
 
+        $voidedDeficitCount = 0;
+        if (file_exists(APPPATH . 'libraries/InventoryDeficitService.php')) {
+            $this->load->library('InventoryDeficitService');
+            if ($this->inventorydeficitservice->isReady()) {
+                $deficitVoid = $this->inventorydeficitservice->voidBySource(
+                    'inv_component_adjustment',
+                    $id,
+                    null,
+                    null,
+                    'VOID adjustment component'
+                );
+                if (!($deficitVoid['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => 'Gagal membatalkan defisit yang berasal dari adjustment component ini.'];
+                }
+                $voidedDeficitCount = (int)($deficitVoid['voided_count'] ?? 0);
+            }
+        }
+
         $update = ['status' => 'VOID'];
         if ($this->db->field_exists('voided_at', 'inv_component_adjustment')) {
             $update['voided_at'] = date('Y-m-d H:i:s');
@@ -6048,7 +6067,7 @@ class Production_model extends CI_Model
         }
 
         $this->db->trans_commit();
-        return ['ok' => true, 'id' => $id];
+        return ['ok' => true, 'id' => $id, 'voided_deficit_count' => $voidedDeficitCount];
     }
 
     public function void_component_batch(int $id, int $actorEmployeeId): array
@@ -6215,6 +6234,25 @@ class Production_model extends CI_Model
             return $rebuild;
         }
 
+        $voidedDeficitCount = 0;
+        if (file_exists(APPPATH . 'libraries/InventoryDeficitService.php')) {
+            $this->load->library('InventoryDeficitService');
+            if ($this->inventorydeficitservice->isReady()) {
+                $deficitVoid = $this->inventorydeficitservice->voidBySource(
+                    'inv_component_batch',
+                    $id,
+                    null,
+                    null,
+                    'VOID batch component'
+                );
+                if (!($deficitVoid['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => 'Gagal membatalkan defisit yang berasal dari batch component ini.'];
+                }
+                $voidedDeficitCount = (int)($deficitVoid['voided_count'] ?? 0);
+            }
+        }
+
         $update = ['status' => 'VOID'];
         if ($this->db->field_exists('voided_at', 'inv_component_batch')) {
             $update['voided_at'] = date('Y-m-d H:i:s');
@@ -6235,7 +6273,7 @@ class Production_model extends CI_Model
         }
 
         $this->db->trans_commit();
-        return ['ok' => true, 'id' => $id];
+        return ['ok' => true, 'id' => $id, 'voided_deficit_count' => $voidedDeficitCount];
     }
 
     private function guard_component_batch_void_usage(array $header, array $batchMovements): array

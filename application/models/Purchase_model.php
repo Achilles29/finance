@@ -11171,6 +11171,25 @@ class Purchase_model extends CI_Model
             ]);
         }
 
+        $voidedDeficitCount = 0;
+        if (file_exists(APPPATH . 'libraries/InventoryDeficitService.php')) {
+            $this->load->library('InventoryDeficitService');
+            if ($this->inventorydeficitservice->isReady()) {
+                $deficitVoid = $this->inventorydeficitservice->voidBySource(
+                    'inv_stock_adjustment',
+                    $id,
+                    null,
+                    $userId > 0 ? $userId : null,
+                    $voidNote
+                );
+                if (!($deficitVoid['ok'] ?? false)) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => 'Gagal membatalkan defisit yang berasal dari adjustment ini.'];
+                }
+                $voidedDeficitCount = (int)($deficitVoid['voided_count'] ?? 0);
+            }
+        }
+
         if ($this->db->table_exists('inv_stock_movement_log')) {
             $this->db
                 ->where('ref_table', 'inv_stock_adjustment')
@@ -11240,6 +11259,7 @@ class Purchase_model extends CI_Model
                         return (int)($line['id'] ?? 0);
                     }, $lines)),
                     'rebuild_targets' => count($rebuildTargets),
+                    'voided_deficit_count' => $voidedDeficitCount,
                 ]),
                 'notes' => 'Adjustment stok di-VOID dan histori stok direbuild ulang',
             ]);
@@ -11251,7 +11271,12 @@ class Purchase_model extends CI_Model
         }
 
         $this->db->trans_commit();
-        return ['ok' => true, 'id' => $id, 'rebuild_targets' => count($rebuildTargets)];
+        return [
+            'ok' => true,
+            'id' => $id,
+            'rebuild_targets' => count($rebuildTargets),
+            'voided_deficit_count' => $voidedDeficitCount,
+        ];
     }
 
     public function void_stock_opening_snapshot(string $scope, int $id, int $userId, string $sourceIp = ''): array

@@ -117,8 +117,38 @@ $eventStatusLabel = static function (string $value): string {
 
   <?php if (!empty($relatedProfileStock)): ?>
     <div class="alert alert-info mb-3 d-flex align-items-start justify-content-between gap-3 flex-wrap">
-      <div><strong>Perhatian: stok barang ini ada di profil Kitchen lain.</strong> Terdapat <?php echo $fmtQty($relatedProfileQty); ?> <?php echo html_escape($uomCode); ?> untuk barang yang sama, tetapi defisit ini memakai profil pembelian yang berbeda. Karena profil adalah penanda biaya dan lot, sistem tidak boleh memakai saldo itu untuk menutup defisit secara otomatis. Periksa apakah kedua profil memang sama secara fisik, lalu gunakan Join Profile / Recon sebelum menutup defisit.</div>
-      <?php if ($relatedProfileReconUrl !== ''): ?><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo html_escape($relatedProfileReconUrl); ?>">Periksa / Join Profile</a><?php endif; ?>
+      <div><strong>Stok barang yang sama ditemukan di profil lain.</strong> Ada total <?php echo $fmtQty($relatedProfileQty); ?> <?php echo html_escape($uomCode); ?> pada profil berbeda. Angka ini tidak otomatis menutup defisit di atas, karena profil menyimpan jejak kemasan, harga, dan lot. Gunakan informasi di bawah untuk memeriksa apakah stok tersebut memang barang fisik yang sama, bukan untuk menutup defisit secara asal.</div>
+      <?php if ($relatedProfileReconUrl !== ''): ?><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo html_escape($relatedProfileReconUrl); ?>">Lihat stok profil lain</a><?php endif; ?>
+    </div>
+
+    <div class="detail-card card mb-3">
+      <div class="card-header">
+        <strong>Stok Barang Sama di Profil Lain</strong>
+        <span class="text-muted small ms-2">Informasi pembanding saja; belum berarti defisit boleh ditutup.</span>
+      </div>
+      <div class="detail-table-wrap">
+        <table class="table table-sm detail-table align-middle">
+          <thead>
+            <tr>
+              <th>Profil pembelian</th>
+              <th class="text-end">Stok sistem aktif</th>
+              <th class="text-end">Biaya / isi</th>
+              <th class="text-end">Nilai stok</th>
+            </tr>
+          </thead>
+          <tbody>
+      <?php foreach ($relatedProfileStock as $related): ?>
+        <?php $relatedKey = trim((string)($related['profile_key'] ?? '')); ?>
+        <tr>
+          <td><strong><?php echo html_escape((string)($related['profile_label'] ?? '-')); ?></strong><small class="d-block text-muted">Profil #<?php echo html_escape($relatedKey !== '' ? substr($relatedKey, 0, 12) : '-'); ?></small></td>
+          <td class="text-end fw-semibold text-primary"><?php echo $fmtQty($related['system_qty'] ?? 0); ?> <?php echo html_escape($uomCode); ?></td>
+          <td class="text-end"><?php echo $fmtMoney($related['system_avg_cost'] ?? 0); ?></td>
+          <td class="text-end"><?php echo $fmtMoney($related['system_total_value'] ?? 0); ?></td>
+        </tr>
+      <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
     </div>
   <?php endif; ?>
 
