@@ -1,0 +1,765 @@
+<?php
+defined('BASEPATH') OR exit('No direct script access allowed');
+
+/**
+ * Sidebar — AJAX endpoint untuk pin/unpin favorit
+ */
+class Sidebar extends MY_Controller
+{
+    public function __construct()
+    {
+        parent::__construct();
+        $this->load->model('Menu_model');
+    }
+
+    public function pin()
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+        $menu_id = (int) $this->input->post('menu_id');
+        if ($menu_id > 0) {
+            $this->Menu_model->pin_favorite($this->current_user['id'], $menu_id);
+        }
+        $this->output->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true]));
+    }
+
+    public function unpin()
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+        $menu_id = (int) $this->input->post('menu_id');
+        if ($menu_id > 0) {
+            $this->Menu_model->unpin_favorite($this->current_user['id'], $menu_id);
+        }
+        $this->output->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true]));
+    }
+
+    public function reorder()
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+        $ids = $this->input->post('ids') ?: [];
+        if (!empty($ids)) {
+            $this->Menu_model->reorder_favorites($this->current_user['id'], $ids);
+        }
+        $this->output->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true]));
+    }
+
+    public function manage()
+    {
+        if (!$this->is_superadmin()) {
+            show_error('Hanya superadmin yang dapat mengatur struktur sidebar.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $type = strtoupper((string)$this->input->get('type', true));
+        if (!in_array($type, ['MAIN', 'MY'], true)) {
+            $type = 'MAIN';
+        }
+
+        $editId = (int)$this->input->get('edit_id', true);
+        $editMenu = null;
+        if ($editId > 0) {
+            $candidate = $this->Menu_model->get_menu_by_id($editId);
+            if ($candidate && ($candidate['sidebar_type'] ?? '') === $type) {
+                $editMenu = $candidate;
+            }
+        }
+
+        $data = [
+            'title' => 'Manajemen Sidebar (Drag & Drop)',
+            'active_menu' => 'grp.system',
+            'sidebar_type_selected' => $type,
+            'sidebar_tree_raw' => $this->Menu_model->get_sidebar_tree_raw($type),
+            'sidebar_tree_preview' => $this->build_sidebar_preview_tree($type),
+            'sidebar_flat_raw' => $this->Menu_model->get_sidebar_flat_raw($type),
+            'parent_candidates' => $this->Menu_model->get_parent_candidates($type, $editId),
+            'edit_menu' => $editMenu,
+            'favorite_summary' => $this->Menu_model->get_favorite_summary(),
+            'page_registry' => $this->Menu_model->get_all_pages(),
+        ];
+
+        $this->render('sidebar/manage', $data);
+    }
+
+    public function save_structure()
+    {
+        if (!$this->is_superadmin()) {
+            $this->output->set_status_header(403)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Forbidden']));
+            return;
+        }
+
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+            return;
+        }
+
+        $type = strtoupper((string)$this->input->post('sidebar_type', true));
+        if (!in_array($type, ['MAIN', 'MY'], true)) {
+            $type = 'MAIN';
+        }
+
+        $treeJson = (string)$this->input->post('tree_json', false);
+        $tree = json_decode($treeJson, true);
+        if (!is_array($tree)) {
+            $this->output->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Payload tidak valid']));
+            return;
+        }
+
+        $this->db->trans_start();
+        $this->Menu_model->save_sidebar_structure($type, $tree);
+        $this->db->trans_complete();
+
+        if ($this->db->trans_status() === false) {
+            $this->output->set_status_header(500)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Gagal menyimpan struktur sidebar']));
+            return;
+        }
+
+        $this->clear_sidebar_cache_files();
+
+        $this->output->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true]));
+    }
+
+    private function clear_sidebar_cache_files(): void
+    {
+        $cacheDir = APPPATH . 'cache/sidebar';
+        if (!is_dir($cacheDir)) {
+            return;
+        }
+
+        $pattern = $cacheDir . DIRECTORY_SEPARATOR . 'sidebar_*.json';
+        $cacheFiles = glob($pattern);
+        if (!is_array($cacheFiles)) {
+            return;
+        }
+
+        foreach ($cacheFiles as $cacheFile) {
+            if (is_file($cacheFile)) {
+                @unlink($cacheFile);
+            }
+        }
+    }
+
+    private function build_sidebar_preview_tree(string $type): array
+    {
+        $tree = $this->Menu_model->get_sidebar_tree_raw($type);
+        if ($type !== 'MAIN') {
+            return $tree;
+        }
+        $tree = $this->regroup_pos_preview_tree($tree);
+        $tree = $this->regroup_master_preview_tree($tree);
+        $tree = $this->regroup_inventory_preview_tree($tree);
+        $tree = $this->regroup_product_preview_tree($tree);
+        foreach ($tree as &$item) {
+            if (($item['menu_code'] ?? '') === 'grp.purchase') {
+                $item['menu_label'] = 'PO & SR';
+            }
+        }
+        unset($item);
+        return $tree;
+    }
+
+    private function regroup_pos_preview_tree(array $tree): array
+    {
+        $hasCashierAnywhere = $this->preview_tree_contains_menu_code($tree, 'pos.cashier');
+        $hasReportGroupAnywhere = $this->preview_tree_contains_menu_code($tree, 'pos.report.group');
+
+        foreach ($tree as &$item) {
+            if (($item['menu_code'] ?? '') !== 'grp.pos') {
+                continue;
+            }
+
+            $children = (array)($item['children'] ?? []);
+            if (!$hasCashierAnywhere) {
+                $children[] = [
+                    'id' => -2600,
+                    'parent_id' => (int)($item['id'] ?? 0),
+                    'menu_code' => 'pos.cashier',
+                    'menu_label' => 'Kasir POS',
+                    'icon' => 'ri-shopping-bag-3-line',
+                    'url' => 'pos/cashier',
+                    'is_virtual' => 1,
+                    'sort_order' => 2,
+                    'children' => [],
+                ];
+            }
+
+            if (!$hasReportGroupAnywhere) {
+                $children[] = [
+                    'id' => -2601,
+                    'parent_id' => (int)($item['id'] ?? 0),
+                    'menu_code' => 'pos.report.group',
+                    'menu_label' => 'Laporan POS',
+                    'icon' => 'ri-bar-chart-box-line',
+                    'url' => null,
+                    'is_virtual' => 1,
+                    'sort_order' => 995,
+                    'children' => [
+                        [
+                            'id' => -2602,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.sales',
+                            'menu_label' => 'Laporan Penjualan POS',
+                            'icon' => 'ri-receipt-line',
+                            'url' => 'pos/reports/sales',
+                            'is_virtual' => 1,
+                            'sort_order' => 1,
+                            'children' => [],
+                        ],
+                        [
+                            'id' => -2603,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.sales.detail',
+                            'menu_label' => 'Laporan Penjualan Produk',
+                            'icon' => 'ri-file-list-3-line',
+                            'url' => 'pos/reports/sales-detail',
+                            'is_virtual' => 1,
+                            'sort_order' => 2,
+                            'children' => [],
+                        ],
+                        [
+                            'id' => -2604,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.sales.extra',
+                            'menu_label' => 'Laporan Penjualan Extra',
+                            'icon' => 'ri-add-box-line',
+                            'url' => 'pos/reports/sales-extra',
+                            'is_virtual' => 1,
+                            'sort_order' => 3,
+                            'children' => [],
+                        ],
+                        [
+                            'id' => -2607,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.payment',
+                            'menu_label' => 'Laporan Pembayaran POS',
+                            'icon' => 'ri-bank-card-line',
+                            'url' => 'pos/reports/payments',
+                            'is_virtual' => 1,
+                            'sort_order' => 4,
+                            'children' => [],
+                        ],
+                        [
+                            'id' => -2608,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.refund',
+                            'menu_label' => 'Laporan Refund POS',
+                            'icon' => 'ri-arrow-go-back-line',
+                            'url' => 'pos/reports/refunds',
+                            'is_virtual' => 1,
+                            'sort_order' => 5,
+                            'children' => [],
+                        ],
+                        [
+                            'id' => -2609,
+                            'parent_id' => -2601,
+                            'menu_code' => 'pos.report.void',
+                            'menu_label' => 'Laporan Void POS',
+                            'icon' => 'ri-close-circle-line',
+                            'url' => 'pos/reports/voids',
+                            'is_virtual' => 1,
+                            'sort_order' => 6,
+                            'children' => [],
+                        ],
+                    ],
+                ];
+            }
+
+            usort($children, static function (array $left, array $right): int {
+                $leftOrder = (int)($left['sort_order'] ?? 9999);
+                $rightOrder = (int)($right['sort_order'] ?? 9999);
+                if ($leftOrder === $rightOrder) {
+                    return strcmp((string)($left['menu_label'] ?? ''), (string)($right['menu_label'] ?? ''));
+                }
+                return $leftOrder <=> $rightOrder;
+            });
+
+            $item['children'] = $children;
+        }
+        unset($item);
+
+        return $tree;
+    }
+
+    private function regroup_master_preview_tree(array $tree): array
+    {
+        foreach ($tree as &$item) {
+            if (($item['menu_code'] ?? '') === 'grp.master' && !empty($item['children'])) {
+                $item['children'] = $this->regroup_master_children_preview((array)$item['children']);
+            }
+        }
+        unset($item);
+        return $tree;
+    }
+
+    private function regroup_master_children_preview(array $children): array
+    {
+        $buckets = [
+            'product' => [
+                'label' => 'Produk & Extra',
+                'icon' => 'ri-store-2-line',
+                'match' => [
+                    'master.product.division', 'master.product.classification', 'master.product.category',
+                    'master.product_division', 'master.product_classification', 'master.product_category',
+                    'master.product', 'master.extra', 'master.extra_group', 'master.product.extra',
+                    'master.product_extra_map', 'master.extra.group', 'master.extra-group',
+                ],
+            ],
+            'inventory' => [
+                'label' => 'Item & Bahan',
+                'icon' => 'ri-flask-line',
+                'match' => [
+                    'master.uom', 'master.operational_division', 'master.item_category',
+                    'master.material', 'master.item', 'master.component_category', 'master.component', 'master.vendor',
+                ],
+            ],
+            'relation' => [
+                'label' => 'Relasi & Formula',
+                'icon' => 'ri-links-line',
+                'match' => [
+                    'master.product.recipe', 'master.component.formula', 'master.product_recipe',
+                    'master.component_formula', 'master.relation',
+                ],
+            ],
+            'config' => [
+                'label' => 'Konfigurasi',
+                'icon' => 'ri-settings-3-line',
+                'match' => [
+                    'master.variable.cost.default', 'master.variable_cost_default',
+                ],
+            ],
+        ];
+
+        $grouped = [
+            'product' => [],
+            'inventory' => [],
+            'relation' => [],
+            'config' => [],
+            'other' => [],
+        ];
+
+        foreach ($children as $child) {
+            $code = (string)($child['menu_code'] ?? '');
+            $placed = false;
+            foreach ($buckets as $bucketKey => $bucket) {
+                foreach ($bucket['match'] as $needle) {
+                    if (strpos($code, $needle) === 0) {
+                        $grouped[$bucketKey][] = $child;
+                        $placed = true;
+                        break 2;
+                    }
+                }
+            }
+            if (!$placed) {
+                $grouped['other'][] = $child;
+            }
+        }
+
+        $result = [];
+        $order = 1;
+        foreach (['product', 'inventory', 'relation', 'config'] as $bucketKey) {
+            if (empty($grouped[$bucketKey])) {
+                continue;
+            }
+            $result[] = [
+                'id' => -1000 - $order,
+                'parent_id' => null,
+                'menu_code' => 'master.group.' . $bucketKey,
+                'menu_label' => $buckets[$bucketKey]['label'],
+                'icon' => $buckets[$bucketKey]['icon'],
+                'url' => null,
+                'is_virtual' => 1,
+                'children' => $grouped[$bucketKey],
+            ];
+            $order++;
+        }
+
+        foreach ($grouped['other'] as $other) {
+            $result[] = $other;
+        }
+
+        return $result;
+    }
+
+    private function regroup_product_preview_tree(array $tree): array
+    {
+        foreach ($tree as &$item) {
+            if (($item['menu_code'] ?? '') === 'produk') {
+                $item['children'] = $this->append_product_monitoring_preview_children((array)($item['children'] ?? []));
+            }
+        }
+        unset($item);
+
+        return $tree;
+    }
+
+    private function append_product_monitoring_preview_children(array $children): array
+    {
+        if ($this->preview_tree_contains_menu_code($children, 'product.monitoring.availability')) {
+            return $children;
+        }
+
+        foreach ($children as &$child) {
+            if ((string)($child['menu_code'] ?? '') === 'product.monitoring.stock') {
+                $child['children'][] = [
+                    'id' => -2402,
+                    'parent_id' => (int)($child['id'] ?? 0),
+                    'menu_code' => 'product.monitoring.availability',
+                    'menu_label' => 'Ketersediaan Produk',
+                    'icon' => 'ri-bar-chart-grouped-line',
+                    'url' => 'product/availability',
+                    'is_virtual' => 1,
+                    'children' => [],
+                ];
+                unset($child);
+                return $children;
+            }
+        }
+        unset($child);
+
+        $children[] = [
+            'id' => -2401,
+            'parent_id' => null,
+            'menu_code' => 'product.monitoring.stock',
+            'menu_label' => 'Monitoring Stok',
+            'icon' => 'ri-line-chart-line',
+            'url' => null,
+            'is_virtual' => 1,
+            'children' => [
+                [
+                    'id' => -2402,
+                    'parent_id' => -2401,
+                    'menu_code' => 'product.monitoring.availability',
+                    'menu_label' => 'Ketersediaan Produk',
+                    'icon' => 'ri-bar-chart-grouped-line',
+                    'url' => 'product/availability',
+                    'is_virtual' => 1,
+                    'children' => [],
+                ],
+            ],
+        ];
+
+        return $children;
+    }
+
+    private function preview_tree_contains_menu_code(array $items, string $menuCode): bool
+    {
+        foreach ($items as $item) {
+            if ((string)($item['menu_code'] ?? '') === $menuCode) {
+                return true;
+            }
+            if (!empty($item['children']) && $this->preview_tree_contains_menu_code((array)($item['children'] ?? []), $menuCode)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function regroup_inventory_preview_tree(array $tree): array
+    {
+        foreach ($tree as &$item) {
+            if (($item['menu_code'] ?? '') === 'grp.inventory' && !empty($item['children'])) {
+                $item['menu_label'] = 'Inventory';
+                $item['icon'] = 'ri-archive-stack-line';
+                $item['children'] = $this->regroup_inventory_children_preview((array)$item['children']);
+            }
+        }
+        unset($item);
+        return $tree;
+    }
+
+    private function regroup_inventory_children_preview(array $children): array
+    {
+        $hasStructuredGroups = false;
+        foreach ($children as &$child) {
+            $code = (string)($child['menu_code'] ?? '');
+            if ($code === 'purchase.stock.warehouse' || $code === 'inventory.group.warehouse' || $code === 'inventory.stock.group.warehouse') {
+                $hasStructuredGroups = true;
+            } elseif ($code === 'purchase.stock.division' || $code === 'inventory.group.division' || $code === 'inventory.stock.group.division') {
+                $hasStructuredGroups = true;
+            }
+        }
+        unset($child);
+
+        if ($hasStructuredGroups) {
+            return $children;
+        }
+
+        $buckets = [
+            'warehouse' => [
+                'label' => 'Stok Gudang',
+                'icon' => 'ri-building-2-line',
+                'match' => [
+                    'purchase.stock.warehouse',
+                    'purchase.stock.opening.warehouse',
+                ],
+            ],
+            'division' => [
+                'label' => 'Stok Divisi',
+                'icon' => 'ri-store-2-line',
+                'match' => [
+                    'purchase.stock.division',
+                    'purchase.stock.opening.division',
+                    'purchase.stock.material.matrix',
+                ],
+            ],
+        ];
+
+        $grouped = [
+            'warehouse' => [],
+            'division' => [],
+            'other' => [],
+        ];
+
+        foreach ($children as $child) {
+            $code = (string)($child['menu_code'] ?? '');
+            $placed = false;
+            foreach ($buckets as $bucketKey => $bucket) {
+                foreach ($bucket['match'] as $needle) {
+                    if (strpos($code, $needle) === 0) {
+                        $grouped[$bucketKey][] = $child;
+                        $placed = true;
+                        break 2;
+                    }
+                }
+            }
+            if (!$placed) {
+                $grouped['other'][] = $child;
+            }
+        }
+
+        $result = [];
+        $order = 1;
+        foreach (['warehouse', 'division'] as $bucketKey) {
+            if (empty($grouped[$bucketKey])) {
+                continue;
+            }
+            $result[] = [
+                'id' => -2000 - $order,
+                'parent_id' => null,
+                'menu_code' => 'inventory.group.' . $bucketKey,
+                'menu_label' => $buckets[$bucketKey]['label'],
+                'icon' => $buckets[$bucketKey]['icon'],
+                'url' => null,
+                'is_virtual' => 1,
+                'children' => $grouped[$bucketKey],
+            ];
+            $order++;
+        }
+
+        foreach ($grouped['other'] as $other) {
+            $result[] = $other;
+        }
+
+        return $result;
+    }
+    public function menu_store()
+    {
+        if (!$this->is_superadmin()) {
+            show_error('Hanya superadmin yang dapat mengelola sidebar.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $type = strtoupper((string)$this->input->post('sidebar_type', true));
+        if (!in_array($type, ['MAIN', 'MY'], true)) {
+            $type = 'MAIN';
+        }
+
+        $menuCode = trim((string)$this->input->post('menu_code', true));
+        $menuLabel = trim((string)$this->input->post('menu_label', true));
+        $icon = trim((string)$this->input->post('icon', true));
+        $url = trim((string)$this->input->post('url', true));
+        $parentId = (int)$this->input->post('parent_id', true);
+        $sortOrder = (int)$this->input->post('sort_order', true);
+
+        if ($menuCode === '' || $menuLabel === '') {
+            $this->session->set_flashdata('error', 'Kode menu dan nama menu wajib diisi.');
+            redirect('sidebar/manage?type=' . $type . '&tab=menu-data');
+            return;
+        }
+
+        if ($this->Menu_model->menu_code_exists($menuCode)) {
+            $this->session->set_flashdata('error', 'Kode menu sudah digunakan.');
+            redirect('sidebar/manage?type=' . $type . '&tab=menu-data');
+            return;
+        }
+
+        $pageId = (int)$this->input->post('page_id', true) ?: null;
+
+        $this->Menu_model->create_sidebar_menu([
+            'parent_id' => $parentId > 0 ? $parentId : null,
+            'menu_code' => $menuCode,
+            'menu_label' => $menuLabel,
+            'icon' => $icon !== '' ? $icon : 'ri-circle-line',
+            'url' => $url !== '' ? $url : null,
+            'page_id' => $pageId,
+            'sort_order' => $sortOrder > 0 ? $sortOrder : 999,
+            'is_active' => 1,
+            'sidebar_type' => $type,
+        ]);
+        $this->clear_sidebar_cache_files();
+
+        $this->session->set_flashdata('success', 'Menu sidebar berhasil ditambahkan.');
+        redirect('sidebar/manage?type=' . $type . '&tab=menu-data');
+    }
+
+    public function menu_update(int $id)
+    {
+        if (!$this->is_superadmin()) {
+            show_error('Hanya superadmin yang dapat mengelola sidebar.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $row = $this->Menu_model->get_menu_by_id($id);
+        if (!$row) {
+            show_404();
+            return;
+        }
+
+        $type = strtoupper((string)$this->input->post('sidebar_type', true));
+        if (!in_array($type, ['MAIN', 'MY'], true)) {
+            $type = (string)$row['sidebar_type'];
+        }
+
+        $menuCode = trim((string)$this->input->post('menu_code', true));
+        $menuLabel = trim((string)$this->input->post('menu_label', true));
+        $icon = trim((string)$this->input->post('icon', true));
+        $url = trim((string)$this->input->post('url', true));
+        $parentId = (int)$this->input->post('parent_id', true);
+        $sortOrder = (int)$this->input->post('sort_order', true);
+        $isActive = $this->input->post('is_active') ? 1 : 0;
+
+        if ($menuCode === '' || $menuLabel === '') {
+            $this->session->set_flashdata('error', 'Kode menu dan nama menu wajib diisi.');
+            redirect('sidebar/manage?type=' . $type . '&tab=menu-data&edit_id=' . $id);
+            return;
+        }
+
+        if ($parentId === $id) {
+            $parentId = 0;
+        }
+
+        if ($this->Menu_model->menu_code_exists($menuCode, $id)) {
+            $this->session->set_flashdata('error', 'Kode menu sudah digunakan menu lain.');
+            redirect('sidebar/manage?type=' . $type . '&tab=menu-data&edit_id=' . $id);
+            return;
+        }
+
+        $pageId = (int)$this->input->post('page_id', true) ?: null;
+
+        $this->Menu_model->update_sidebar_menu($id, [
+            'parent_id' => $parentId > 0 ? $parentId : null,
+            'menu_code' => $menuCode,
+            'menu_label' => $menuLabel,
+            'icon' => $icon !== '' ? $icon : 'ri-circle-line',
+            'url' => $url !== '' ? $url : null,
+            'page_id' => $pageId,
+            'sort_order' => $sortOrder > 0 ? $sortOrder : 999,
+            'is_active' => $isActive,
+            'sidebar_type' => $type,
+        ]);
+        $this->clear_sidebar_cache_files();
+
+        $this->session->set_flashdata('success', 'Menu sidebar berhasil diperbarui.');
+        redirect('sidebar/manage?type=' . $type . '&tab=menu-data');
+    }
+
+    public function menu_delete(int $id)
+    {
+        if (!$this->is_superadmin()) {
+            show_error('Hanya superadmin yang dapat mengelola sidebar.', 403, 'Akses Ditolak');
+            return;
+        }
+
+        $row = $this->Menu_model->get_menu_by_id($id);
+        if (!$row) {
+            show_404();
+            return;
+        }
+
+        $type = (string)$row['sidebar_type'];
+
+        $hasChild = $this->db->from('sys_menu')->where('parent_id', $id)->count_all_results() > 0;
+        if ($hasChild) {
+            $this->session->set_flashdata('error', 'Menu tidak bisa dihapus karena masih memiliki submenu.');
+            redirect('sidebar/manage?type=' . $type . '&tab=menu-data');
+            return;
+        }
+
+        // Soft delete agar histori favorit dan relasi tetap aman.
+        $this->Menu_model->update_sidebar_menu($id, ['is_active' => 0]);
+        $this->clear_sidebar_cache_files();
+
+        $this->session->set_flashdata('success', 'Menu sidebar dinonaktifkan (soft delete).');
+        redirect('sidebar/manage?type=' . $type . '&tab=menu-data');
+    }
+
+    /**
+     * AJAX — Toggle is_active untuk menu sidebar.
+     * POST: (none required, aksi ditentukan oleh state saat ini)
+     * Response: { ok: true, is_active: 0|1 }
+     */
+    public function menu_toggle_active(int $id)
+    {
+        if (!$this->input->is_ajax_request()) show_404();
+
+        if (!$this->is_superadmin()) {
+            $this->json_error('Hanya superadmin yang dapat mengelola sidebar.', 403);
+            return;
+        }
+
+        $row = $this->Menu_model->get_menu_by_id($id);
+        if (!$row) {
+            $this->json_error('Menu tidak ditemukan.', 404);
+            return;
+        }
+
+        // Cegah toggle jika menu masih punya anak aktif
+        if ((int)$row['is_active'] === 1) {
+            $hasActiveChild = $this->db->from('sys_menu')
+                ->where('parent_id', $id)
+                ->where('is_active', 1)
+                ->count_all_results() > 0;
+            if ($hasActiveChild) {
+                $this->json_error('Menu masih memiliki submenu aktif. Nonaktifkan submenu terlebih dahulu.', 422);
+                return;
+            }
+        }
+
+        $newActive = (int)$row['is_active'] === 1 ? 0 : 1;
+        $this->Menu_model->update_sidebar_menu($id, ['is_active' => $newActive]);
+        $this->clear_sidebar_cache_files();
+
+        $this->json_ok(['id' => $id, 'is_active' => $newActive]);
+    }
+
+    // ---------------------------------------------------------------
+    // JSON helpers
+    // ---------------------------------------------------------------
+
+    private function json_ok(array $data = []): void
+    {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        $this->output
+            ->set_status_header(200)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true] + $data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function json_error(string $message, int $statusCode = 422): void
+    {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => false, 'message' => $message], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+}

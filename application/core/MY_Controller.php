@@ -1,0 +1,416 @@
+<?php
+defined('BASEPATH') OR exit('No direct script access allowed');
+
+/**
+ * MY_Controller — Base controller untuk semua halaman yang butuh login
+ *
+ * Semua controller kecuali Auth extend class ini.
+ * Menangani: cek login, load izin ke session, helper cek izin per aksi.
+ */
+class MY_Controller extends CI_Controller
+{
+    private const SIDEBAR_CACHE_TTL_SECONDS = 300;
+    private const SIDEBAR_CACHE_DIR = 'sidebar';
+
+    /** Data user yang sedang login (dari session) */
+    protected $current_user = [];
+
+    /** Cache izin user: ['page_code' => ['view'=>1, 'create'=>0, ...]] */
+    protected $user_perms = [];
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->_check_auth();
+    }
+
+    // ---------------------------------------------------------------
+    // AUTH CHECK
+    // ---------------------------------------------------------------
+
+    private function _check_auth() 
+    { 
+        $user = $this->session->userdata('auth_user'); 
+ 
+        if (empty($user)) { 
+            $class  = strtolower((string)$this->router->fetch_class());
+            $method = strtolower((string)$this->router->fetch_method());
+            if ($this->input->is_cli_request() || ($class === 'whatsapp' && in_array($method, ['api_schedule_run', 'api_group_command'], true))) {
+                $this->current_user = [];
+                $this->user_perms = [];
+                return;
+            }
+
+            if ($this->input->is_ajax_request()) {
+                while (ob_get_level() > 0) {
+                    @ob_end_clean();
+                }
+                $this->output
+                    ->set_status_header(401)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode([
+                        'ok' => false,
+                        'message' => 'Sesi login sudah habis. Silakan login ulang.',
+                    ], JSON_INVALID_UTF8_SUBSTITUTE));
+                $this->output->_display();
+                exit;
+            }
+            $this->session->set_flashdata('redirect_after_login', uri_string()); 
+            redirect('login'); 
+        } 
+
+        $this->current_user = $user;
+
+        // Muat izin dari session (sudah di-cache saat login)
+        $this->user_perms = $this->session->userdata('user_perms') ?? [];
+
+        // Auto-refresh jika permission role telah diubah sejak cache terakhir
+        $this->_maybe_refresh_stale_perms();
+    }
+
+    private function _maybe_refresh_stale_perms(): void
+    {
+        if ($this->is_superadmin()) {
+            return;
+        }
+
+        $userId = (int)($this->current_user['id'] ?? 0);
+        if ($userId <= 0) {
+            return;
+        }
+
+        // Throttle: cek staleness maksimal sekali per 120 detik per sesi
+        $lastCheck = (int)($this->session->userdata('perms_staleness_checked_at') ?? 0);
+        if (time() - $lastCheck < 120) {
+            return;
+        }
+        $this->session->set_userdata('perms_staleness_checked_at', time());
+
+        $cachedAt = (int)($this->session->userdata('user_perms_cached_at') ?? 0);
+
+        // Jika belum ada timestamp (session lama / baru deploy), refresh sekali
+        if ($cachedAt <= 0) {
+            $this->load->model('Auth_model');
+            $this->Auth_model->refresh_permissions($userId);
+            $this->user_perms = $this->session->userdata('user_perms') ?? [];
+            return;
+        }
+
+        $cachedAtStr = date('Y-m-d H:i:s', $cachedAt);
+
+        // Cek 1: role assignment atau override user ini berubah
+        $isStale = (bool)$this->db
+            ->select('1')
+            ->from('auth_user')
+            ->where('id', $userId)
+            ->where('permissions_updated_at >', $cachedAtStr)
+            ->limit(1)
+            ->get()
+            ->num_rows();
+
+        // Cek 2: permission matrix salah satu role user berubah
+        if (!$isStale) {
+            $isStale = (bool)$this->db
+                ->select('1')
+                ->from('auth_user_role ur')
+                ->join('auth_role r', 'r.id = ur.role_id')
+                ->where('ur.user_id', $userId)
+                ->where('r.is_active', 1)
+                ->where('r.permissions_updated_at >', $cachedAtStr)
+                ->limit(1)
+                ->get()
+                ->num_rows();
+        }
+
+        if ($isStale) {
+            $this->load->model('Auth_model');
+            $this->Auth_model->refresh_permissions($userId);
+            $this->user_perms = $this->session->userdata('user_perms') ?? [];
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // PERMISSION HELPERS
+    // ---------------------------------------------------------------
+
+    /**
+     * Apakah user superadmin? (bypass semua cek)
+     */
+    protected function is_superadmin(): bool
+    {
+        return !empty($this->current_user['is_superadmin']);
+    }
+
+    /**
+     * Cek izin user untuk halaman + aksi tertentu.
+     *
+     * @param string $page_code  Contoh: 'auth.users.index'
+     * @param string $action     Salah satu: view|create|edit|delete|export
+     * @return bool
+     */
+    protected function can(string $page_code, string $action = 'view'): bool
+    {
+        if ($this->is_superadmin()) {
+            return true;
+        }
+
+        return !empty($this->user_perms[$page_code]['can_' . $action]);
+    }
+
+    /**
+     * Paksa cek izin — redirect ke 403 jika tidak punya akses.
+     */
+    protected function require_permission(string $page_code, string $action = 'view'): void 
+    { 
+        if (!$this->can($page_code, $action)) { 
+            if ($this->input->is_ajax_request()) {
+                while (ob_get_level() > 0) {
+                    @ob_end_clean();
+                }
+                $this->output
+                    ->set_status_header(403)
+                    ->set_content_type('application/json')
+                    ->set_output(json_encode([
+                        'ok' => false,
+                        'message' => 'Anda tidak memiliki izin untuk aksi ini.',
+                        'page_code' => $page_code,
+                        'action' => $action,
+                    ], JSON_INVALID_UTF8_SUBSTITUTE));
+                $this->output->_display();
+                exit;
+            }
+            show_error('Anda tidak memiliki izin untuk mengakses halaman ini.', 403, 'Akses Ditolak'); 
+        } 
+    } 
+
+    // ---------------------------------------------------------------
+    // DIVISION SCOPE HELPER
+    // ---------------------------------------------------------------
+
+    /**
+     * Kembalikan division_id yang berlaku untuk user yang sedang login.
+     * - Superadmin → null (lihat semua divisi)
+     * - User dengan role ber-scope → ID divisi tersebut
+     * - User tanpa scope → null (lihat semua divisi)
+     *
+     * Cara pakai di controller:
+     *   $divId = $this->active_division_id();
+     *   if ($divId) $this->db->where('division_id', $divId);
+     */
+    protected function active_division_id(): ?int
+    {
+        if ($this->is_superadmin()) {
+            return null;
+        }
+
+        $scope = $this->session->userdata('user_division_scope');
+        return ($scope !== null && $scope !== false && (int)$scope > 0)
+            ? (int)$scope
+            : null;
+    }
+
+    // ---------------------------------------------------------------
+    // VIEW LOADER HELPER
+    // ---------------------------------------------------------------
+
+    /**
+     * Load view dengan layout (header + sidebar + content + footer).
+     * Sidebar data (main tree, my tree, favorites) di-load otomatis di sini.
+     *
+     * @param string $view       Path view relatif dari application/views/
+     * @param array  $data       Data yang dikirim ke view
+     * @param bool   $return     Jika TRUE, kembalikan string bukan output langsung
+     */
+    protected function render(string $view, array $data = [], bool $return = false)
+    {
+        // Normalisasi judul tab browser:
+        // beberapa halaman kirim `page_title`, sedangkan layout header memakai `title`.
+        if (
+            (!isset($data['title']) || trim((string)$data['title']) === '')
+            && isset($data['page_title'])
+            && trim((string)$data['page_title']) !== ''
+        ) {
+            $data['title'] = (string)$data['page_title'];
+        }
+
+        $data['current_user'] = $this->current_user;
+        $data['user_perms']   = $this->user_perms;
+
+        // Load sidebar data otomatis (kecuali sudah diset manual oleh controller)
+        if (!isset($data['sidebar_main'])) {
+            $sidebar = $this->load_sidebar_cached();
+            $data['sidebar_main'] = $sidebar['sidebar_main'];
+            $data['sidebar_my'] = $sidebar['sidebar_my'];
+            $data['sidebar_favorites'] = $sidebar['sidebar_favorites'];
+        }
+
+        $data['content_view'] = $view;
+        $data['content_data'] = $data;
+
+        return $this->load->view('layout/main', $data, $return);
+    }
+
+    protected function render_cashier(string $view, array $data = [], bool $return = false)
+    {
+        if (
+            (!isset($data['title']) || trim((string)$data['title']) === '')
+            && isset($data['page_title'])
+            && trim((string)$data['page_title']) !== ''
+        ) {
+            $data['title'] = (string)$data['page_title'];
+        }
+
+        $data['current_user'] = $this->current_user;
+        $data['user_perms'] = $this->user_perms;
+        $data['content_view'] = $view;
+        $data['content_data'] = $data;
+
+        return $this->load->view('layout/cashier', $data, $return);
+    }
+
+    private function load_sidebar_cached(): array
+    {
+        $userId = (int)($this->current_user['id'] ?? 0);
+        $isSuperadmin = $this->is_superadmin();
+        $cacheSignature = $this->get_sidebar_cache_signature($userId, $isSuperadmin);
+        $cacheFile = $this->get_sidebar_cache_file($userId, $isSuperadmin, $cacheSignature);
+        $cachedSidebar = $this->read_sidebar_cache($cacheFile);
+        if ($cachedSidebar !== null) {
+            return $cachedSidebar;
+        }
+
+        $this->load->model('Menu_model');
+        $sidebarData = [
+            'sidebar_main' => $this->Menu_model->get_sidebar_tree($this->user_perms, $isSuperadmin, 'MAIN'),
+            'sidebar_my' => $this->Menu_model->get_sidebar_tree($this->user_perms, $isSuperadmin, 'MY'),
+            'sidebar_favorites' => $this->Menu_model->get_favorites($userId),
+        ];
+
+        $this->write_sidebar_cache($cacheFile, $sidebarData);
+
+        return $sidebarData;
+    }
+
+    private function get_sidebar_cache_signature(int $userId, bool $isSuperadmin): string
+    {
+        $permSignature = md5(json_encode($this->user_perms, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        $menuVersion = 'menu:none';
+        if ($this->db->table_exists('sys_menu')) {
+            $menuRow = $this->db
+                ->select('COUNT(*) AS total_rows, MAX(COALESCE(updated_at, created_at)) AS latest_change', false)
+                ->from('sys_menu')
+                ->get()
+                ->row_array() ?: [];
+            $menuVersion = 'menu:'
+                . (int)($menuRow['total_rows'] ?? 0)
+                . ':'
+                . (string)($menuRow['latest_change'] ?? '');
+        }
+
+        $favoriteVersion = 'fav:none';
+        if ($userId > 0 && $this->db->table_exists('sys_sidebar_favorite')) {
+            $favoriteRow = $this->db
+                ->select('COUNT(*) AS total_rows, MAX(created_at) AS latest_change', false)
+                ->from('sys_sidebar_favorite')
+                ->where('user_id', $userId)
+                ->get()
+                ->row_array() ?: [];
+            $favoriteVersion = 'fav:'
+                . (int)($favoriteRow['total_rows'] ?? 0)
+                . ':'
+                . (string)($favoriteRow['latest_change'] ?? '');
+        }
+
+        return md5(implode('|', [
+            $permSignature,
+            $isSuperadmin ? 'super:1' : 'super:0',
+            $menuVersion,
+            $favoriteVersion,
+        ]));
+    }
+
+    private function get_sidebar_cache_file(int $userId, bool $isSuperadmin, string $permSignature): ?string
+    {
+        if ($userId <= 0 || $permSignature === '') {
+            return null;
+        }
+
+        $cacheDir = APPPATH . 'cache/' . self::SIDEBAR_CACHE_DIR;
+        if (!is_dir($cacheDir) && !@mkdir($cacheDir, 0777, true) && !is_dir($cacheDir)) {
+            return null;
+        }
+
+        $this->cleanup_sidebar_cache_dir($cacheDir);
+
+        return $cacheDir
+            . DIRECTORY_SEPARATOR
+            . 'sidebar_'
+            . $userId
+            . '_'
+            . ($isSuperadmin ? '1' : '0')
+            . '_'
+            . $permSignature
+            . '.json';
+    }
+
+    private function read_sidebar_cache(?string $cacheFile): ?array
+    {
+        if ($cacheFile === null || !is_file($cacheFile)) {
+            return null;
+        }
+
+        $modifiedAt = @filemtime($cacheFile);
+        if (!$modifiedAt || $modifiedAt <= (time() - self::SIDEBAR_CACHE_TTL_SECONDS)) {
+            @unlink($cacheFile);
+            return null;
+        }
+
+        $payload = @file_get_contents($cacheFile);
+        if ($payload === false || $payload === '') {
+            return null;
+        }
+
+        $decoded = json_decode($payload, true);
+        if (
+            !is_array($decoded)
+            || !isset($decoded['sidebar_main'], $decoded['sidebar_my'], $decoded['sidebar_favorites'])
+        ) {
+            return null;
+        }
+
+        return [
+            'sidebar_main' => (array)$decoded['sidebar_main'],
+            'sidebar_my' => (array)$decoded['sidebar_my'],
+            'sidebar_favorites' => (array)$decoded['sidebar_favorites'],
+        ];
+    }
+
+    private function write_sidebar_cache(?string $cacheFile, array $sidebarData): void
+    {
+        if ($cacheFile === null) {
+            return;
+        }
+
+        $payload = json_encode($sidebarData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($payload === false) {
+            return;
+        }
+
+        @file_put_contents($cacheFile, $payload, LOCK_EX);
+    }
+
+    private function cleanup_sidebar_cache_dir(string $cacheDir): void
+    {
+        if (mt_rand(1, 100) !== 1) {
+            return;
+        }
+
+        foreach (glob($cacheDir . DIRECTORY_SEPARATOR . 'sidebar_*.json') ?: [] as $cacheFile) {
+            $modifiedAt = @filemtime($cacheFile);
+            if ($modifiedAt && $modifiedAt <= (time() - self::SIDEBAR_CACHE_TTL_SECONDS)) {
+                @unlink($cacheFile);
+            }
+        }
+    }
+}
