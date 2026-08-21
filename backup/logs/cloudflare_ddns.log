@@ -16686,3 +16686,7 @@
 [2026-08-21 19:50:05] [INFO] IPv4 publik belum berubah (113.11.179.160).
 [2026-08-21 19:55:06] [INFO] IPv4 publik belum berubah (113.11.179.160).
 [2026-08-21 20:00:04] [INFO] IPv4 publik belum berubah (113.11.179.160).
+[2026-08-22 05:55:01] [INFO] IPv4 publik: 113.11.179.210 -> 113.11.179.160
+[2026-08-22 05:55:04] [OK] demo.namuacoffee.com duplikat identik dihapus (record_id=5802f530c4074d791ba2018271e1f7db)
+[2026-08-22 05:55:05] [DONE] updated=1 skipped=22 failed=0
+[2026-08-22 06:00:01] [INFO] IPv4 publik belum berubah (113.11.179.160).
