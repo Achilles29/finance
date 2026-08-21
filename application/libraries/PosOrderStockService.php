@@ -425,6 +425,7 @@ class PosOrderStockService
                 'content_uom_id' => !empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : null,
                 'qty_content_out' => $requiredQty,
                 'source_module' => 'POS',
+                'force_cross_profile_fifo' => true,
                 'source_table' => 'pos_stock_commit',
                 'source_id' => (int)($header['id'] ?? 0),
                 'source_line_id' => (int)($line['id'] ?? 0),

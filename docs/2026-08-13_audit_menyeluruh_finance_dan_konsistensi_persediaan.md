@@ -1141,6 +1141,19 @@ Perintah ini tidak membuat periode, tidak membuat opening, dan tidak mengubah da
 3. Lakukan beberapa perubahan cepat pada barang yang sama, baru jalankan worker. Produk harus mengikuti nilai terakhir tanpa rebuild berulang per perubahan.
 4. Bila worker gagal, periksa `pos_product_availability_queue.last_error`; jangan melakukan repair data stok hanya untuk menghapus antrean gagal.
 
+### Fase 7B - Monitor Operasional Antrean Availability POS - 21 Agustus 2026
+
+1. Ditambahkan halaman `POS > Ketersediaan POS` untuk melihat job yang menunggu, sedang diproses, gagal, dan cache yang berhasil diperbarui hari ini tanpa menjalankan kalkulasi resep ketika halaman dibuka.
+2. Operator berizin dapat menjalankan `Proses Sekali` dengan batas maksimal 100 job. Tombol ini memakai service antrean yang sama dengan cron; tidak menjalankan shell, tidak memasang cron, dan tidak mengubah stok, lot, movement, HPP transaksi, maupun kas.
+3. Job berstatus `FAILED` dapat dimasukkan ulang satu per satu setelah penyebabnya diperbaiki. Aksi ini hanya mengembalikan job ke status menunggu dan memberi retry baru; worker berikutnya yang tetap melakukan hitung cache.
+4. Halaman menyediakan baris cron yang dapat disalin dan tautan ke `Stock Live POS` untuk mengecek hasil cache per produk/outlet.
+
+#### Yang perlu dilakukan
+
+1. Jalankan `2026-08-21f_pos_availability_queue_monitor_menu_seed.sql` di lokal dan server setelah `2026-08-21e_pos_product_availability_queue.sql`.
+2. Gunakan cron server yang sudah disiapkan: `* * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100`.
+3. Setelah menu muncul, simpan satu perubahan stok kecil, buka `POS > Ketersediaan POS`, lalu tekan `Proses Sekali`. Job harus berpindah ke selesai atau menunjukkan pesan error yang bisa ditindaklanjuti.
+
 ### SQL dan deploy yang perlu dilakukan
 
 1. Jalankan `2026-08-13a_inventory_active_month_deficit_period_lock_foundation.sql` bila belum pernah dijalankan pada database target.
@@ -1164,6 +1177,7 @@ Perintah ini tidak membuat periode, tidak membuat opening, dan tidak mengubah da
 19. Jalankan `2026-08-21b_pos_sales_hpp_integrity_audit_menu_seed.sql` pada lokal dan server untuk menampilkan menu Audit Penjualan & HPP dan hak aksesnya.
 20. Jalankan `2026-08-21c_pos_refund_cash_and_gross_amount_schema.sql` pada lokal dan server sebelum deploy pengaman refund Fase 6C.
 21. Jalankan `2026-08-21e_pos_product_availability_queue.sql` pada lokal dan server sebelum deploy Fase 7A. Setelah itu pasang cron `php index.php pos availability_queue_run 100` setiap satu menit di Ubuntu.
+22. Jalankan `2026-08-21f_pos_availability_queue_monitor_menu_seed.sql` pada lokal dan server setelah SQL antrean Fase 7A. File ini hanya membuat menu, halaman, dan hak akses monitor; tidak mengubah data persediaan atau transaksi.
 
 ### Uji manual yang disarankan
 

@@ -188,6 +188,61 @@ class PosAvailabilityQueueService
         ];
     }
 
+    /**
+     * Give one exhausted job a fresh retry budget without changing stock,
+     * recipes, or the cache itself. The next worker/manual run owns rebuild.
+     */
+    public function retryJob(int $jobId): array
+    {
+        if ($jobId <= 0 || !$this->isReady()) {
+            return ['ok' => false, 'message' => 'Job availability POS tidak valid atau antrean belum tersedia.'];
+        }
+
+        $db = $this->CI->db;
+        $db->trans_begin();
+        try {
+            $job = $db->query(
+                'SELECT * FROM pos_product_availability_queue WHERE id = ? FOR UPDATE',
+                [$jobId]
+            )->row_array();
+            if (!$job) {
+                $db->trans_rollback();
+                return ['ok' => false, 'message' => 'Job availability POS tidak ditemukan.'];
+            }
+            if (strtoupper((string)($job['status'] ?? '')) !== 'FAILED') {
+                $db->trans_commit();
+                return [
+                    'ok' => false,
+                    'message' => 'Hanya job berstatus gagal yang perlu diulang.',
+                    'job' => $this->formatJob($job),
+                ];
+            }
+
+            $payload = [
+                'status' => 'QUEUED',
+                'attempts' => 0,
+                'run_after' => date('Y-m-d H:i:s'),
+                'started_at' => null,
+                'finished_at' => null,
+                'last_error' => null,
+            ];
+            $db->where('id', $jobId)->update('pos_product_availability_queue', $payload);
+            if ($db->trans_status() === false) {
+                throw new RuntimeException('Job availability POS gagal dimasukkan ulang ke antrean.');
+            }
+            $db->trans_commit();
+
+            return [
+                'ok' => true,
+                'message' => 'Job dimasukkan ulang ke antrean dan akan diproses oleh cron atau tombol proses sekali.',
+                'job' => $this->formatJob(array_merge($job, $payload)),
+            ];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
     public function processJob(int $jobId): array
     {
         if ($jobId <= 0 || !$this->isReady()) {

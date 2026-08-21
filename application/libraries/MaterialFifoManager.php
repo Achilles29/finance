@@ -1130,8 +1130,15 @@ class MaterialFifoManager
         $identity['reference_date'] = $issueDate;
 
         $sourceModule = strtoupper(trim((string)($payload['source_module'] ?? '')));
-        $strictProfileConsumption = !empty($payload['strict_profile_fifo'])
-            || $sourceModule === 'INVENTORY_ADJUSTMENT';
+        // POS and production consume the physical material, not a catalog profile.
+        // Keep this explicit so a future caller cannot accidentally make either
+        // transaction profile-strict and create a deficit while another valid lot exists.
+        $forceCrossProfile = !empty($payload['force_cross_profile_fifo'])
+            || in_array($sourceModule, ['POS', 'PRODUCTION_BATCH'], true);
+        $strictProfileConsumption = !$forceCrossProfile && (
+            !empty($payload['strict_profile_fifo'])
+            || $sourceModule === 'INVENTORY_ADJUSTMENT'
+        );
         $allowCrossProfile = !$strictProfileConsumption;
 
         $broadSearchOptions = [
@@ -1148,10 +1155,13 @@ class MaterialFifoManager
         // from another profile, otherwise FIFO changes while monthly_stock for that other profile
         // is not reduced.
         $hasMaterialId = ($identity['material_id'] ?? null) !== null;
+        $hasItemId = ($identity['item_id'] ?? null) !== null;
+        $hasCrossProfileIdentity = $hasMaterialId || $hasItemId;
         $divisionLots = $this->findIssueSourceLots($identity, [
             'allow_any_item_id'  => $allowCrossProfile && $hasMaterialId,
-            'allow_any_buy_uom'  => ($identity['buy_uom_id'] ?? null) === null,
-            'allow_any_profile_key' => $allowCrossProfile && $hasMaterialId,
+            'allow_any_buy_uom'  => ($identity['buy_uom_id'] ?? null) === null
+                || ($allowCrossProfile && $hasCrossProfileIdentity),
+            'allow_any_profile_key' => $allowCrossProfile && $hasCrossProfileIdentity,
         ]);
         if ($this->lastBuilderQueryError !== null) {
             return ['ok' => false, 'message' => $this->lastBuilderQueryError];
@@ -1413,6 +1423,14 @@ class MaterialFifoManager
             'total_cost' => $totalCost,
         ]);
 
+        $usedProfileKeys = [];
+        foreach ($allocations as $allocation) {
+            $profileKey = trim((string)($allocation['source_lot']['profile_key'] ?? ''));
+            if ($profileKey !== '') {
+                $usedProfileKeys[$profileKey] = true;
+            }
+        }
+
         return [
             'ok' => true,
             'message' => 'Pemakaian FIFO divisi berhasil diposting.',
@@ -1426,6 +1444,10 @@ class MaterialFifoManager
                 'issued_qty' => $qtyNeed,
                 'deficit_qty' => round(max(0, $requestedQty - $qtyNeed), 4),
                 'is_partial' => $allowPartialIssue && $requestedQty > $qtyNeed + 0.0001,
+                'cross_profile_fifo' => $allowCrossProfile,
+                'used_lot_count' => count($allocations),
+                'used_profile_count' => count($usedProfileKeys),
+                'used_profile_keys' => array_keys($usedProfileKeys),
             ],
         ];
     }

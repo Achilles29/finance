@@ -9,6 +9,7 @@ class Pos extends MY_Controller
         $this->load->model('Pos_model');
         $this->load->model('Pos_report_model');
         $this->load->model('Pos_order_monitor_model');
+        $this->load->model('Pos_availability_queue_model');
         $this->load->model('Purchase_model');
         $this->load->model('Production_model');
         $this->load->library('PosPrinterPreviewService', null, 'posprinterpreviewservice');
@@ -2314,6 +2315,92 @@ public function self_order_tables_print()
         $this->json_ok($result);
     }
 
+    /**
+     * Operator monitor for the lightweight availability cache worker.
+     * Opening this page never recalculates recipes or writes inventory data.
+     */
+    public function availability_queue()
+    {
+        $this->require_permission('pos.availability.queue.index', 'view');
+        $filters = $this->availability_queue_filters();
+        $dataset = $this->Pos_availability_queue_model->rows($filters);
+
+        $this->render('pos/availability_queue_index', [
+            'page_title' => 'Ketersediaan POS',
+            'active_menu' => 'pos.availability.queue',
+            'filters' => $filters,
+            'summary' => $this->Pos_availability_queue_model->summary(),
+            'rows' => (array)($dataset['rows'] ?? []),
+            'pagination' => (array)($dataset['meta'] ?? []),
+            'outlets' => $this->Pos_availability_queue_model->outlet_options(),
+            'queue_ready' => $this->Pos_availability_queue_model->is_ready(),
+            'can_process_queue' => $this->can('pos.availability.queue.index', 'edit'),
+            // Path ini mengikuti cron Ubuntu yang sudah disiapkan untuk server.
+            'cron_command' => '* * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100',
+        ]);
+    }
+
+    /**
+     * A bounded, manual worker pass for an operator. It uses the same queue
+     * service as cron and never invokes a shell command from the web request.
+     */
+    public function availability_queue_process()
+    {
+        $this->require_permission('pos.availability.queue.index', 'edit');
+        if (strtoupper((string)$this->input->method(true)) !== 'POST') {
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return;
+        }
+
+        $payload = $this->request_payload();
+        $limit = max(1, min(100, (int)($payload['limit'] ?? 25)));
+        $this->load->library('PosAvailabilityQueueService');
+        $result = $this->posavailabilityqueueservice->processPendingJobs([
+            'limit' => $limit,
+        ]);
+
+        $processed = (int)($result['processed_count'] ?? 0);
+        $success = (int)($result['success_count'] ?? 0);
+        $failed = (int)($result['failed_count'] ?? 0);
+        if (!($result['ok'] ?? false)) {
+            $this->session->set_flashdata(
+                'error',
+                'Proses sekali selesai untuk ' . $processed . ' job: ' . $success . ' berhasil, ' . $failed . ' gagal. Periksa baris gagal sebelum mengulanginya.'
+            );
+        } else {
+            $this->session->set_flashdata(
+                'success',
+                $processed > 0
+                    ? 'Proses sekali selesai: ' . $success . ' cache produk POS berhasil diperbarui.'
+                    : 'Tidak ada job availability POS yang siap diproses saat ini.'
+            );
+        }
+
+        redirect($this->availability_queue_redirect_url($payload));
+    }
+
+    /**
+     * Reset one exhausted availability job. It does not change product stock
+     * or recipe; the following worker pass performs the actual cache refresh.
+     */
+    public function availability_queue_retry($jobId)
+    {
+        $this->require_permission('pos.availability.queue.index', 'edit');
+        if (strtoupper((string)$this->input->method(true)) !== 'POST') {
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return;
+        }
+
+        $payload = $this->request_payload();
+        $this->load->library('PosAvailabilityQueueService');
+        $result = $this->posavailabilityqueueservice->retryJob((int)$jobId);
+        $this->session->set_flashdata(
+            !empty($result['ok']) ? 'success' : 'error',
+            (string)($result['message'] ?? 'Job availability POS tidak dapat diproses.')
+        );
+        redirect($this->availability_queue_redirect_url($payload));
+    }
+
     public function order_draft_data()
     {
         $pageCode = $this->order_workspace_page_code('view');
@@ -4347,6 +4434,42 @@ public function self_order_tables_print()
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 25)),
         ];
+    }
+
+    private function availability_queue_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'QUEUED', 'PROCESSING', 'FAILED', 'SUCCESS', 'CANCELLED'], true)) {
+            $status = 'ALL';
+        }
+
+        return [
+            'status' => $status,
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'q' => trim((string)$this->input->get('q', true)),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'per_page' => max(10, min(100, (int)$this->input->get('per_page', true) ?: 25)),
+        ];
+    }
+
+    private function availability_queue_redirect_url(array $payload): string
+    {
+        $status = strtoupper(trim((string)($payload['return_status'] ?? 'ALL')));
+        if (!in_array($status, ['ALL', 'QUEUED', 'PROCESSING', 'FAILED', 'SUCCESS', 'CANCELLED'], true)) {
+            $status = 'ALL';
+        }
+        $query = [
+            'status' => $status,
+            'outlet_id' => max(0, (int)($payload['return_outlet_id'] ?? 0)),
+            'q' => trim((string)($payload['return_q'] ?? '')),
+            'per_page' => max(10, min(100, (int)($payload['return_per_page'] ?? 25))),
+            'page' => max(1, (int)($payload['return_page'] ?? 1)),
+        ];
+        $query = array_filter($query, static function ($value, string $key): bool {
+            return $key === 'status' || $key === 'per_page' || $key === 'page' || $value !== '' && $value !== 0;
+        }, ARRAY_FILTER_USE_BOTH);
+
+        return 'pos/availability-queue?' . http_build_query($query);
     }
 
     private function self_order_order_filters(): array

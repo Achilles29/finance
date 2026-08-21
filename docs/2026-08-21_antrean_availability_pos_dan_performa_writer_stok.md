@@ -59,12 +59,16 @@ ada.
 1. Jalankan `sql/2026-08-21e_pos_product_availability_queue.sql` di **lokal**.
 2. Jalankan SQL yang sama di **server Ubuntu** sebelum kode PHP baru dipakai.
 3. Deploy file PHP baru bersama-sama, jangan hanya salah satu file.
-4. Jadwalkan worker pada server setiap satu menit. Contoh, sesuaikan lokasi PHP
-   dan folder aplikasi server Anda:
+4. Jadwalkan worker pada server setiap satu menit. Untuk struktur server yang
+   sedang dipakai, gunakan:
 
 ```bash
-* * * * * /usr/bin/php /var/www/finance/index.php pos availability_queue_run 100 >> /var/log/finance-pos-availability.log 2>&1
+* * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100
 ```
+
+Jika nanti lokasi PHP atau folder aplikasi berubah, sesuaikan kedua path
+tersebut. Redirect output ke file log bersifat opsional dan hanya dipasang bila
+folder log server memang sudah tersedia serta dapat ditulis oleh user cron.
 
 Perintah worker di Windows lokal:
 
@@ -76,6 +80,32 @@ C:\xampp\php\php.exe C:\xampp\htdocs\finance\index.php pos availability_queue_ru
 memproses antrean availability. Namun cron `availability_queue_run` tetap
 disarankan karena perubahan stok bisa terjadi pada hari yang belum ada order
 POS sama sekali.
+
+## Memantau Tanpa Terminal
+
+Setelah SQL fondasi antrean sudah dijalankan, jalankan juga
+`sql/2026-08-21f_pos_availability_queue_monitor_menu_seed.sql` di lokal dan
+server. File tersebut hanya menambahkan menu, halaman, dan hak akses; tidak
+mengubah stok, lot, movement, HPP, order, atau kas.
+
+Halaman baru ada di **POS > Ketersediaan POS** (`/pos/availability-queue`).
+Halaman ini dipakai untuk membaca keadaan cache menu POS dengan bahasa
+operasional:
+
+1. **Menunggu** berarti perubahan stok sudah tercatat dan cache menu tinggal
+   diambil oleh worker.
+2. **Sedang diproses** berarti worker sedang menghitung ulang cache produk.
+   Job yang benar-benar berhenti lebih dari lima menit dapat diambil worker
+   berikutnya.
+3. **Perlu dicek** berarti perhitungan cache gagal. Ini bukan berarti stok atau
+   lot salah. Baca pesannya, perbaiki penyebabnya, lalu tekan **Ulangi Job**.
+4. **Selesai hari ini** hanya menunjukkan jumlah cache produk yang telah
+   berhasil diperbarui.
+
+Tombol **Proses Sekali** hanya menjalankan sejumlah job kecil dari antrean yang
+sama dengan cron. Tombol ini tidak menjalankan command Linux dari browser dan
+tidak memasang atau mengubah cron. Pemisahan ini disengaja agar akun aplikasi
+tidak memiliki akses berbahaya ke server.
 
 ## Cara Menguji
 
@@ -123,8 +153,8 @@ ORDER BY updated_at DESC;
   dapat diambil ulang oleh worker berikutnya.
 - `SUCCESS`: cache terakhir sudah dibangun.
 - `FAILED`: worker sudah mencoba tetapi perhitungan tidak berhasil. Baca
-  `last_error`, perbaiki sumbernya, lalu lakukan perubahan stock berikutnya
-  atau requeue secara terkontrol pada tahap operator berikutnya. Perubahan
+  `last_error`, perbaiki sumbernya, lalu tekan **Ulangi Job** di halaman
+  `POS > Ketersediaan POS` atau lakukan perubahan stok berikutnya. Perubahan
   stok baru pada target yang sama otomatis memberi antrean itu kesempatan
   retry baru; kegagalan lama tidak mengunci data terbaru.
 

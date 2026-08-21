@@ -1210,6 +1210,7 @@ class ComponentStockWriter
             'content_uom_id' => $uomId,
             'qty_content_out' => $qty,
             'source_module' => 'PRODUCTION_BATCH',
+            'force_cross_profile_fifo' => true,
             'source_table' => 'inv_component_batch',
             'source_id' => $sourceId > 0 ? $sourceId : null,
             'source_line_id' => $sourceLineId,

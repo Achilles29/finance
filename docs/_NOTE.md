@@ -341,3 +341,8 @@ modifikasi /inventory/stock/health berikan tab semua, gudang, component, bahan b
   cek dashboard ada defisit minyak goreng dan breadcrumb. padahal di stok ada. apakah defisit itu per profil? 
   bagaimana kalau kasusnya penggunaan stok lintas lot lintas profil? apakah dihitung defisit?
   lalu bagaimana penyelesaian minyak goreng dan breadcrumb ini? 
+
+
+  * * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100
+
+  cron untuk semua halaman yang butuh cron. kamu cek semua
