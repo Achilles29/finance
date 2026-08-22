@@ -367,7 +367,7 @@ Buat pengujian integrasi otomatis, lalu lakukan UAT manual akhir.
 sepertinya perlu kamu cek RBAC setelah perubahan kita kemarin. karena seperti PO SR dari superadmin bisa, tapi dari user lain yang sudah diberi hak akses masih gagal. termasuk adjustmen , baik bahan baku maupun component di semua halaman adjustment
 
 
-COKLAT PASTA memang tidak ada di master bahan baku, yang benar adalah CHOCOLATE PASTE. jadi tidak salah. mungkin pengajuannya yang salah.
-tadi kamu eksekusi sql atau ada script yang kamu rubah khusus COKLAT PASTA?
+COKLAT PASTA sebelumnya memang tidak ada di master bahan baku, yang benar adalah CHOCOLATE PASTE. jadi tidak salah. mungkin pengajuannya yang salah.
+tadi kamu eksekusi sql atau ada script yang kamu rubah khusus COKLAT PASTA? kalau lewat sql berarti saya abaikan saja di server
 
 /loyalty/voucher-usages mestinya tampil semua data transaksi yang menggunakan diskon voucher, seperti voucher SMADA40 dan sejenisnya
