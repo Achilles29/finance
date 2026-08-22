@@ -346,18 +346,20 @@ modifikasi /inventory/stock/health berikan tab semua, gudang, component, bahan b
   * * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100
 
   cron untuk semua halaman yang butuh cron. kamu cek semua
+  
   cek semua halaman yang dobel
+
 buatkan halaman analisa dan saran dan tampilkan di dashboard, di atas Stok Produk Live POS.
 datanya menganalisa bahan baku yang menumpuk yang merupakan component base/prepare tapi stok base / prepare tersebut kritis atau kosong.
 misal stok Prepare DIMSUM FILL kosong. di formulanya ada ayam, sementara stok ayam di kitchen menumpuk banyak. maka berikan warning / analisa / dan saran untuk memproses DIMSUM FILL
 
 
-
+<!-- 
   Refactor void/reversal movement.
 Pindahkan sisa runtime schema ke migration.
 Tambahkan heartbeat cron dan audit otomatis bulan aktif.
-Buat pengujian integrasi otomatis, lalu lakukan UAT manual akhir.
-
+Buat pengujian integrasi otomatis, lalu lakukan UAT manual akhir. -->
+<!-- 
 
 - ubah status PO masih gagal "Receipt ke stok divisi wajib punya material_id canonical. Pilih profile bahan baku yang terhubung ke material sebelum terima barang." cek **PO202608220012**
 - SR gagal "**PO202608220012"**
@@ -370,4 +372,4 @@ sepertinya perlu kamu cek RBAC setelah perubahan kita kemarin. karena seperti PO
 COKLAT PASTA sebelumnya memang tidak ada di master bahan baku, yang benar adalah CHOCOLATE PASTE. jadi tidak salah. mungkin pengajuannya yang salah.
 tadi kamu eksekusi sql atau ada script yang kamu rubah khusus COKLAT PASTA? kalau lewat sql berarti saya abaikan saja di server
 
-/loyalty/voucher-usages mestinya tampil semua data transaksi yang menggunakan diskon voucher, seperti voucher SMADA40 dan sejenisnya
+/loyalty/voucher-usages mestinya tampil semua data transaksi yang menggunakan diskon voucher, seperti voucher SMADA40 dan sejenisnya -->

@@ -11,6 +11,7 @@ $route['logout'] = 'auth/logout';
 
 // Dashboard
 $route['dashboard'] = 'dashboard/index';
+$route['dashboard/production-suggestions'] = 'dashboard/production_suggestions';
 
 // Settings
 $route['settings']                  = 'settings/index';

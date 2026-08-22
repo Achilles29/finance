@@ -353,7 +353,10 @@ document.addEventListener('DOMContentLoaded', function () {
     controls.button.textContent = 'Memuat...';
     try {
       const json = await getJson(config.dataUrl + '?' + queryString());
-      const result = json.data || {};
+      // Loyalty controller returns its payload at the top level. Keep the
+      // wrapped fallback so this page also remains compatible with helpers
+      // that use { ok: true, data: {...} }.
+      const result = json.data && typeof json.data === 'object' ? json.data : json;
       schemaMessage.classList.toggle('d-none', result.schema_ready !== false);
       schemaMessage.textContent = result.schema_ready === false ? String(result.message || 'Log voucher belum tersedia.') : '';
       renderRows(Array.isArray(result.rows) ? result.rows : []);
@@ -378,7 +381,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (detailModal) detailModal.show();
     try {
       const json = await getJson(config.detailBaseUrl + '/' + id);
-      const data = json.data || {};
+      const data = json.data && typeof json.data === 'object' ? json.data : json;
       const usage = data.usage || {};
       const lines = Array.isArray(data.order_lines) ? data.order_lines : [];
       const payments = Array.isArray(data.payment_lines) ? data.payment_lines : [];

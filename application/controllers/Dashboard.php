@@ -35,6 +35,7 @@ class Dashboard extends MY_Controller
             'pos_status_rows' => $this->dashboard_pos_status_rows($filters),
             'pos_scope_rows' => $this->dashboard_pos_scope_rows($filters),
             'stock_breakdown' => $this->dashboard_stock_breakdown(),
+            'component_production_suggestions' => $this->dashboard_component_production_suggestions(8),
             'stock_product_live' => $this->dashboard_stock_product_live(),
             'stagnant_lot_analysis' => $this->dashboard_stagnant_lot_analysis(),
             'reconcile_mismatch' => $this->dashboard_reconcile_mismatch_summary(),
@@ -47,6 +48,31 @@ class Dashboard extends MY_Controller
         ];
 
         $this->render('dashboard/index', $data);
+    }
+
+    /**
+     * Halaman baca-saja untuk melihat component BASE/PREPARE yang perlu
+     * diproses karena stoknya kosong/kritis sementara bahan resepnya tersedia.
+     */
+    public function production_suggestions(): void
+    {
+        // Halaman ini satu rumpun dengan Dashboard, sehingga mengikuti akses Dashboard.
+        $this->require_registered_page_permission(self::PAGE_INDEX);
+
+        $divisionId = (int)$this->input->get('division_id', true);
+        $scopeDivisionId = $this->active_division_id();
+        if ($scopeDivisionId !== null) {
+            $divisionId = $scopeDivisionId;
+        }
+
+        $analysis = $this->dashboard_component_production_suggestions(250, $divisionId > 0 ? $divisionId : null);
+
+        $this->render('dashboard/component_production_suggestions', [
+            'title' => 'Analisa & Saran Produksi',
+            'active_menu' => 'dashboard',
+            'analysis' => $analysis,
+            'filter_division_id' => $divisionId,
+        ]);
     }
 
     public function product_recipe_stock()
@@ -383,6 +409,466 @@ class Dashboard extends MY_Controller
             'date_to' => date('Y-m-d'),
             'period_label' => 'Bulan Ini',
         ];
+    }
+
+    /**
+     * Membaca peluang produksi dari stok bulan aktif saja. Analisa tidak
+     * membuat batch, tidak memindahkan stok, dan tidak mengubah lot.
+     *
+     * Sebuah component masuk daftar bila:
+     * - BASE/PREPARE masih kosong atau di bawah stok minimumnya; dan
+     * - setidaknya ada satu bahan resep yang cukup untuk minimal dua batch.
+     *
+     * Dengan begitu daftar ini menyorot bahan yang berpotensi menumpuk, tanpa
+     * menyimpulkan component siap diproses sebelum seluruh bahan dicek.
+     */
+    private function dashboard_component_production_suggestions(int $limit = 8, ?int $requestedDivisionId = null): array
+    {
+        $targetMonth = date('Y-m-01');
+        $limit = max(1, min($limit, 250));
+        $scopeDivisionId = $this->active_division_id();
+        $divisionId = $scopeDivisionId !== null ? $scopeDivisionId : (int)$requestedDivisionId;
+
+        $emptyResult = [
+            'month_key' => $targetMonth,
+            'summary' => [
+                'empty_component_count' => 0,
+                'critical_component_count' => 0,
+                'suggestion_count' => 0,
+                'ready_count' => 0,
+                'waiting_count' => 0,
+            ],
+            'division_options' => [],
+            'total_rows' => 0,
+            'rows' => [],
+        ];
+
+        if (
+            !$this->dashboard_table_ready('mst_component')
+            || !$this->dashboard_table_ready('mst_component_formula')
+            || !$this->dashboard_table_ready('inv_component_monthly_stock')
+            || !$this->dashboard_table_ready('inv_division_monthly_stock')
+        ) {
+            return $emptyResult;
+        }
+
+        $divisionWhere = $divisionId > 0 ? ' AND c.operational_division_id = ' . (int)$divisionId : '';
+        $componentResult = $this->dashboard_safe_query("
+            SELECT
+                c.id AS component_id,
+                c.component_code,
+                c.component_name,
+                c.component_type,
+                c.operational_division_id,
+                c.min_stock,
+                c.yield_qty,
+                COALESCE(d.name, '-') AS division_name,
+                COALESCE(d.code, '') AS division_code,
+                COALESCE(u.code, '') AS uom_code
+            FROM mst_component c
+            LEFT JOIN mst_operational_division d ON d.id = c.operational_division_id
+            LEFT JOIN mst_uom u ON u.id = c.uom_id
+            WHERE COALESCE(c.is_active, 1) = 1
+              AND c.component_type IN ('BASE', 'PREPARE')
+              {$divisionWhere}
+            ORDER BY d.name, c.component_type, c.component_name
+        ");
+        if (!$componentResult) {
+            return $emptyResult;
+        }
+
+        $components = $componentResult->result_array();
+        if (empty($components)) {
+            return $emptyResult;
+        }
+
+        $componentIds = array_values(array_unique(array_map(static function (array $row): int {
+            return (int)($row['component_id'] ?? 0);
+        }, $components)));
+        $componentIds = array_values(array_filter($componentIds));
+        if (empty($componentIds)) {
+            return $emptyResult;
+        }
+
+        $componentIdList = implode(',', $componentIds);
+        $targetMonthSql = $this->db->escape($targetMonth);
+        $componentStockResult = $this->dashboard_safe_query("
+            SELECT
+                s.component_id,
+                COALESCE(s.division_id, 0) AS division_id,
+                UPPER(COALESCE(s.location_type, '')) AS location_type,
+                ROUND(SUM(COALESCE(s.closing_qty, 0)), 4) AS closing_qty
+            FROM inv_component_monthly_stock s
+            WHERE s.month_key = {$targetMonthSql}
+              AND s.component_id IN ({$componentIdList})
+            GROUP BY s.component_id, s.division_id, s.location_type
+        ");
+
+        $componentStockMap = [];
+        if ($componentStockResult) {
+            foreach ($componentStockResult->result_array() as $stockRow) {
+                $componentId = (int)($stockRow['component_id'] ?? 0);
+                $stockDivisionId = (int)($stockRow['division_id'] ?? 0);
+                $locationType = strtoupper(trim((string)($stockRow['location_type'] ?? '')));
+                if ($componentId <= 0 || $stockDivisionId <= 0 || $locationType === '') {
+                    continue;
+                }
+                $componentStockMap[$componentId][$stockDivisionId][$locationType] = (float)($stockRow['closing_qty'] ?? 0);
+            }
+        }
+
+        $divisionCodeMap = [];
+        $candidateRows = [];
+        $emptyComponentCount = 0;
+        $criticalComponentCount = 0;
+        foreach ($components as $component) {
+            $componentId = (int)($component['component_id'] ?? 0);
+            $componentDivisionId = (int)($component['operational_division_id'] ?? 0);
+            if ($componentId <= 0 || $componentDivisionId <= 0) {
+                continue;
+            }
+
+            $divisionCode = strtoupper(trim((string)($component['division_code'] ?? '')));
+            $divisionCodeMap[$componentDivisionId] = $divisionCode;
+            $defaultLocationType = $this->dashboard_component_suggestion_default_location($divisionCode);
+            $stockByLocation = $componentStockMap[$componentId][$componentDivisionId] ?? [];
+            $locationTypes = array_keys($stockByLocation);
+            if ($defaultLocationType !== '' && !array_key_exists($defaultLocationType, $stockByLocation)) {
+                $locationTypes[] = $defaultLocationType;
+            }
+            if (empty($locationTypes)) {
+                continue;
+            }
+
+            $minimumStock = max(0.0, (float)($component['min_stock'] ?? 0));
+            foreach (array_values(array_unique($locationTypes)) as $locationType) {
+                $currentQty = (float)($stockByLocation[$locationType] ?? 0);
+                if ($currentQty > $minimumStock + 0.0001) {
+                    continue;
+                }
+
+                $stockState = $currentQty <= 0.0001 ? 'EMPTY' : 'CRITICAL';
+                if ($stockState === 'EMPTY') {
+                    $emptyComponentCount++;
+                } else {
+                    $criticalComponentCount++;
+                }
+
+                $candidateRows[] = [
+                    'component_id' => $componentId,
+                    'component_code' => (string)($component['component_code'] ?? ''),
+                    'component_name' => (string)($component['component_name'] ?? '-'),
+                    'component_type' => strtoupper((string)($component['component_type'] ?? 'PREPARE')),
+                    'division_id' => $componentDivisionId,
+                    'division_name' => (string)($component['division_name'] ?? '-'),
+                    'division_code' => $divisionCode,
+                    'location_type' => $locationType,
+                    'location_label' => $this->dashboard_destination_label($locationType),
+                    'current_qty' => $currentQty,
+                    'min_stock' => $minimumStock,
+                    'yield_qty' => max(0.0, (float)($component['yield_qty'] ?? 0)),
+                    'uom_code' => (string)($component['uom_code'] ?? ''),
+                    'stock_state' => $stockState,
+                ];
+            }
+        }
+
+        if (empty($candidateRows)) {
+            $emptyResult['summary']['empty_component_count'] = $emptyComponentCount;
+            $emptyResult['summary']['critical_component_count'] = $criticalComponentCount;
+            return $emptyResult;
+        }
+
+        $candidateComponentIds = array_values(array_unique(array_map(static function (array $row): int {
+            return (int)($row['component_id'] ?? 0);
+        }, $candidateRows)));
+        $candidateComponentIdList = implode(',', $candidateComponentIds);
+        $formulaMaterialExpr = $this->db->field_exists('material_id', 'mst_component_formula')
+            ? 'COALESCE(f.material_id, mi.material_id)'
+            : 'mi.material_id';
+        $formulaSourceDivisionExpr = $this->db->field_exists('source_division_id', 'mst_component_formula')
+            ? 'NULLIF(f.source_division_id, 0)'
+            : 'NULL';
+        $formulaResult = $this->dashboard_safe_query("
+            SELECT
+                f.component_id,
+                f.line_no,
+                UPPER(COALESCE(f.line_type, '')) AS line_type,
+                ROUND(COALESCE(f.qty, 0), 4) AS qty,
+                COALESCE({$formulaSourceDivisionExpr}, c.operational_division_id) AS source_division_id,
+                {$formulaMaterialExpr} AS material_id,
+                COALESCE(m.material_name, '') AS material_name,
+                COALESCE(m.content_uom_id, 0) AS material_uom_id,
+                COALESCE(mu.code, '') AS material_uom_code,
+                f.sub_component_id,
+                COALESCE(sc.component_name, '') AS sub_component_name,
+                COALESCE(sc.uom_id, 0) AS sub_component_uom_id,
+                COALESCE(cu.code, '') AS sub_component_uom_code
+            FROM mst_component_formula f
+            INNER JOIN mst_component c ON c.id = f.component_id
+            LEFT JOIN mst_item mi ON mi.id = f.material_item_id
+            LEFT JOIN mst_material m ON m.id = {$formulaMaterialExpr}
+            LEFT JOIN mst_uom mu ON mu.id = m.content_uom_id
+            LEFT JOIN mst_component sc ON sc.id = f.sub_component_id
+            LEFT JOIN mst_uom cu ON cu.id = sc.uom_id
+            WHERE f.component_id IN ({$candidateComponentIdList})
+            ORDER BY f.component_id, f.line_no, f.id
+        ");
+
+        $formulaByComponent = [];
+        $materialIds = [];
+        if ($formulaResult) {
+            foreach ($formulaResult->result_array() as $formulaRow) {
+                $formulaComponentId = (int)($formulaRow['component_id'] ?? 0);
+                if ($formulaComponentId <= 0) {
+                    continue;
+                }
+                $formulaByComponent[$formulaComponentId][] = $formulaRow;
+                if (strtoupper((string)($formulaRow['line_type'] ?? '')) === 'MATERIAL') {
+                    $materialId = (int)($formulaRow['material_id'] ?? 0);
+                    if ($materialId > 0) {
+                        $materialIds[$materialId] = true;
+                    }
+                }
+            }
+        }
+
+        if (empty($formulaByComponent) || empty($materialIds)) {
+            $emptyResult['summary']['empty_component_count'] = $emptyComponentCount;
+            $emptyResult['summary']['critical_component_count'] = $criticalComponentCount;
+            return $emptyResult;
+        }
+
+        $materialIdList = implode(',', array_keys($materialIds));
+        $materialStockResult = $this->dashboard_safe_query("
+            SELECT
+                COALESCE(s.material_id, mi.material_id) AS material_id,
+                s.division_id,
+                UPPER(COALESCE(s.destination_type, '')) AS destination_type,
+                COALESCE(s.content_uom_id, 0) AS content_uom_id,
+                ROUND(SUM(COALESCE(s.closing_qty_content, 0)), 4) AS closing_qty,
+                ROUND(SUM(COALESCE(s.total_value, 0)), 2) AS total_value
+            FROM inv_division_monthly_stock s
+            LEFT JOIN mst_item mi ON mi.id = s.item_id
+            WHERE s.month_key = {$targetMonthSql}
+              AND COALESCE(s.material_id, mi.material_id) IN ({$materialIdList})
+            GROUP BY COALESCE(s.material_id, mi.material_id), s.division_id, s.destination_type, s.content_uom_id
+        ");
+
+        $materialStockMap = [];
+        if ($materialStockResult) {
+            foreach ($materialStockResult->result_array() as $stockRow) {
+                $materialId = (int)($stockRow['material_id'] ?? 0);
+                $stockDivisionId = (int)($stockRow['division_id'] ?? 0);
+                $destinationType = strtoupper(trim((string)($stockRow['destination_type'] ?? '')));
+                $uomId = (int)($stockRow['content_uom_id'] ?? 0);
+                if ($materialId <= 0 || $stockDivisionId <= 0 || $destinationType === '') {
+                    continue;
+                }
+                $materialStockMap[$materialId][$stockDivisionId][$destinationType][$uomId] = [
+                    'qty' => (float)($stockRow['closing_qty'] ?? 0),
+                    'total_value' => (float)($stockRow['total_value'] ?? 0),
+                ];
+            }
+        }
+
+        $suggestionRows = [];
+        $readyCount = 0;
+        $waitingCount = 0;
+        foreach ($candidateRows as $candidate) {
+            $formulaRows = $formulaByComponent[(int)$candidate['component_id']] ?? [];
+            if (empty($formulaRows)) {
+                continue;
+            }
+
+            $ingredients = [];
+            $piledIngredients = [];
+            $blockingIngredients = [];
+            $maxPossibleBatches = null;
+            $validIngredientCount = 0;
+            foreach ($formulaRows as $formulaRow) {
+                $lineType = strtoupper(trim((string)($formulaRow['line_type'] ?? '')));
+                $qtyPerBatch = max(0.0, (float)($formulaRow['qty'] ?? 0));
+                $sourceDivisionId = (int)($formulaRow['source_division_id'] ?? 0);
+                if ($sourceDivisionId <= 0) {
+                    $sourceDivisionId = (int)$candidate['division_id'];
+                }
+                $sourceLocationType = $this->dashboard_component_suggestion_source_location(
+                    $sourceDivisionId,
+                    (int)$candidate['division_id'],
+                    (string)$candidate['location_type'],
+                    $divisionCodeMap
+                );
+
+                $ingredientName = '-';
+                $uomCode = '';
+                $stockQty = 0.0;
+                $stockValue = 0.0;
+                $isMaterial = $lineType === 'MATERIAL';
+                $configValid = $qtyPerBatch > 0;
+                if ($isMaterial) {
+                    $materialId = (int)($formulaRow['material_id'] ?? 0);
+                    $ingredientName = (string)($formulaRow['material_name'] ?? 'Bahan baku belum dipetakan');
+                    $uomCode = (string)($formulaRow['material_uom_code'] ?? '');
+                    $uomId = (int)($formulaRow['material_uom_id'] ?? 0);
+                    if ($materialId <= 0 || $sourceLocationType === '') {
+                        $configValid = false;
+                    } else {
+                        $stockByUom = $materialStockMap[$materialId][$sourceDivisionId][$sourceLocationType] ?? [];
+                        if ($uomId > 0) {
+                            $stockBucket = (array)($stockByUom[$uomId] ?? []);
+                            $stockQty = (float)($stockBucket['qty'] ?? 0);
+                            $stockValue = (float)($stockBucket['total_value'] ?? 0);
+                        } else {
+                            foreach ($stockByUom as $stockBucket) {
+                                $stockQty += (float)($stockBucket['qty'] ?? 0);
+                                $stockValue += (float)($stockBucket['total_value'] ?? 0);
+                            }
+                        }
+                    }
+                } elseif ($lineType === 'COMPONENT') {
+                    $subComponentId = (int)($formulaRow['sub_component_id'] ?? 0);
+                    $ingredientName = (string)($formulaRow['sub_component_name'] ?? 'Component belum dipetakan');
+                    $uomCode = (string)($formulaRow['sub_component_uom_code'] ?? '');
+                    if ($subComponentId <= 0 || $sourceLocationType === '') {
+                        $configValid = false;
+                    } else {
+                        $stockQty = (float)($componentStockMap[$subComponentId][$sourceDivisionId][$sourceLocationType] ?? 0);
+                    }
+                } else {
+                    $configValid = false;
+                    $ingredientName = 'Baris formula belum lengkap';
+                }
+
+                $availableBatches = $configValid
+                    ? max(0, (int)floor($stockQty / max($qtyPerBatch, 0.0001)))
+                    : 0;
+                if ($configValid) {
+                    $validIngredientCount++;
+                    $maxPossibleBatches = $maxPossibleBatches === null
+                        ? $availableBatches
+                        : min($maxPossibleBatches, $availableBatches);
+                }
+
+                $isPiled = $isMaterial && $availableBatches >= 2;
+                $isBlocking = !$configValid || $availableBatches < 1;
+                $ingredient = [
+                    'name' => $ingredientName,
+                    'line_type' => $lineType,
+                    'source_division_id' => $sourceDivisionId,
+                    'source_location_type' => $sourceLocationType,
+                    'qty_per_batch' => $qtyPerBatch,
+                    'stock_qty' => $stockQty,
+                    'stock_value' => $stockValue,
+                    'uom_code' => $uomCode,
+                    'available_batches' => $availableBatches,
+                    'is_piled' => $isPiled,
+                    'is_blocking' => $isBlocking,
+                    'config_valid' => $configValid,
+                ];
+                $ingredients[] = $ingredient;
+                if ($isPiled) {
+                    $piledIngredients[] = $ingredient;
+                }
+                if ($isBlocking) {
+                    $blockingIngredients[] = $ingredient;
+                }
+            }
+
+            // Fokus halaman ini adalah bahan yang dapat ditindaklanjuti, bukan seluruh daftar stok kritis.
+            if (empty($piledIngredients) || $validIngredientCount <= 0) {
+                continue;
+            }
+
+            usort($piledIngredients, static function (array $left, array $right): int {
+                $valueComparison = (float)($right['stock_value'] ?? 0) <=> (float)($left['stock_value'] ?? 0);
+                if ($valueComparison !== 0) {
+                    return $valueComparison;
+                }
+                return (int)$right['available_batches'] <=> (int)$left['available_batches'];
+            });
+
+            $maxPossibleBatches = (int)($maxPossibleBatches ?? 0);
+            $isReady = empty($blockingIngredients) && $maxPossibleBatches >= 1;
+            $yieldQty = max(0.0001, (float)$candidate['yield_qty']);
+            $neededOutput = max($yieldQty, (float)$candidate['min_stock'] - (float)$candidate['current_qty']);
+            $neededBatches = max(1, (int)ceil($neededOutput / $yieldQty));
+            $recommendedBatches = $isReady ? min($neededBatches, $maxPossibleBatches) : 0;
+
+            if ($isReady) {
+                $readyCount++;
+            } else {
+                $waitingCount++;
+            }
+
+            $candidate['ingredients'] = $ingredients;
+            $candidate['piled_ingredients'] = $piledIngredients;
+            $candidate['blocking_ingredients'] = $blockingIngredients;
+            $candidate['formula_line_count'] = count($ingredients);
+            $candidate['ready_line_count'] = count($ingredients) - count($blockingIngredients);
+            $candidate['max_possible_batches'] = $maxPossibleBatches;
+            $candidate['recommended_batches'] = $recommendedBatches;
+            $candidate['production_state'] = $isReady ? 'READY' : 'WAITING_INPUT';
+            $candidate['production_state_label'] = $isReady ? 'Siap diproses' : 'Perlu bahan pendukung';
+            $suggestionRows[] = $candidate;
+        }
+
+        usort($suggestionRows, static function (array $left, array $right): int {
+            $leftReady = ($left['production_state'] ?? '') === 'READY' ? 1 : 0;
+            $rightReady = ($right['production_state'] ?? '') === 'READY' ? 1 : 0;
+            if ($leftReady !== $rightReady) {
+                return $rightReady <=> $leftReady;
+            }
+            $leftEmpty = ($left['stock_state'] ?? '') === 'EMPTY' ? 1 : 0;
+            $rightEmpty = ($right['stock_state'] ?? '') === 'EMPTY' ? 1 : 0;
+            if ($leftEmpty !== $rightEmpty) {
+                return $rightEmpty <=> $leftEmpty;
+            }
+            return strcasecmp((string)($left['component_name'] ?? ''), (string)($right['component_name'] ?? ''));
+        });
+
+        $divisionOptions = [];
+        foreach ($suggestionRows as $row) {
+            $rowDivisionId = (int)($row['division_id'] ?? 0);
+            if ($rowDivisionId > 0) {
+                $divisionOptions[$rowDivisionId] = (string)($row['division_name'] ?? '-');
+            }
+        }
+        asort($divisionOptions);
+
+        $totalRows = count($suggestionRows);
+        return [
+            'month_key' => $targetMonth,
+            'summary' => [
+                'empty_component_count' => $emptyComponentCount,
+                'critical_component_count' => $criticalComponentCount,
+                'suggestion_count' => $totalRows,
+                'ready_count' => $readyCount,
+                'waiting_count' => $waitingCount,
+            ],
+            'division_options' => $divisionOptions,
+            'total_rows' => $totalRows,
+            'rows' => array_slice($suggestionRows, 0, $limit),
+        ];
+    }
+
+    private function dashboard_component_suggestion_default_location(string $divisionCode): string
+    {
+        $divisionCode = strtoupper(trim($divisionCode));
+        return in_array($divisionCode, ['BAR', 'KITCHEN', 'ROASTERY'], true) ? $divisionCode : '';
+    }
+
+    private function dashboard_component_suggestion_source_location(
+        int $sourceDivisionId,
+        int $parentDivisionId,
+        string $parentLocationType,
+        array $divisionCodeMap
+    ): string {
+        if ($sourceDivisionId === $parentDivisionId && $parentLocationType !== '') {
+            return strtoupper($parentLocationType);
+        }
+
+        return $this->dashboard_component_suggestion_default_location((string)($divisionCodeMap[$sourceDivisionId] ?? ''));
     }
 
     private function dashboard_stock_product_live(): array

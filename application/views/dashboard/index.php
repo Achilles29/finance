@@ -6,6 +6,7 @@ $trend        = $trend        ?? ['labels' => [], 'sales' => [], 'orders' => [],
 $posStatusRows    = is_array($pos_status_rows  ?? null) ? $pos_status_rows  : [];
 $posScopeRows     = is_array($pos_scope_rows   ?? null) ? $pos_scope_rows   : [];
 $stockBreakdown   = is_array($stock_breakdown  ?? null) ? $stock_breakdown  : ['warehouse' => [], 'division' => [], 'component' => []];
+$componentProductionSuggestions = is_array($component_production_suggestions ?? null) ? $component_production_suggestions : ['summary' => [], 'rows' => []];
 $stockProductLive = is_array($stock_product_live ?? null) ? $stock_product_live : ['summary' => [], 'rows' => []];
 $stagnantLotAnalysis = is_array($stagnant_lot_analysis ?? null) ? $stagnant_lot_analysis : [
     'threshold_days' => 15,
@@ -153,6 +154,28 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
   .fd-scroll { max-height:380px; overflow-y:auto; display:grid; gap:.7rem; padding-right:.25rem; scrollbar-width:thin; }
   .fd-scroll::-webkit-scrollbar { width:4px; }
   .fd-scroll::-webkit-scrollbar-thumb { background:rgba(170,95,78,.25); border-radius:4px; }
+  /* Production suggestions */
+  .fd-production-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.6rem; margin-bottom:.85rem; }
+  .fd-production-stat { border:1px solid rgba(170,95,78,.14); border-radius:14px; background:#fffaf7; padding:.65rem .72rem; text-align:center; }
+  .fd-production-stat .num { display:block; color:#6f2119; font-size:1.18rem; font-weight:900; line-height:1.1; }
+  .fd-production-stat .lbl { display:block; margin-top:.2rem; color:#8b7772; font-size:.68rem; font-weight:800; letter-spacing:.035em; text-transform:uppercase; }
+  .fd-production-list { display:grid; gap:.58rem; }
+  .fd-production-row { display:grid; grid-template-columns:minmax(180px,.95fr) minmax(220px,1.4fr) minmax(165px,.8fr) auto; gap:.75rem; align-items:center; border:1px solid rgba(170,95,78,.15); border-radius:16px; background:linear-gradient(135deg,#fffdfb,#fff7f2); padding:.78rem .85rem; }
+  .fd-production-row.ready { border-color:rgba(46,125,50,.24); background:linear-gradient(135deg,#fbfffb,#f1fbf2); }
+  .fd-production-row.waiting { border-color:rgba(230,129,0,.24); background:linear-gradient(135deg,#fffdf8,#fff6e7); }
+  .fd-production-name { color:#5a231d; font-size:.9rem; font-weight:900; }
+  .fd-production-meta { margin-top:.16rem; color:#8b7772; font-size:.73rem; line-height:1.35; }
+  .fd-production-kicker { display:inline-flex; align-items:center; gap:.28rem; padding:.16rem .45rem; border-radius:999px; background:#fff0ea; color:#8f2d23; font-size:.65rem; font-weight:900; letter-spacing:.035em; text-transform:uppercase; }
+  .fd-production-kicker.empty { background:#fff0f0; color:#c62828; }
+  .fd-production-ingredient { color:#4a2c2a; font-size:.8rem; font-weight:800; }
+  .fd-production-ingredient small { display:block; margin-top:.12rem; color:#8b7772; font-size:.71rem; font-weight:600; }
+  .fd-production-state { min-width:0; }
+  .fd-production-state strong { display:block; font-size:.79rem; color:#2e7d32; }
+  .fd-production-state.waiting strong { color:#b65c00; }
+  .fd-production-state span { display:block; margin-top:.13rem; color:#8b7772; font-size:.71rem; line-height:1.3; }
+  .fd-production-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.35rem; }
+  .fd-production-btn { display:inline-flex; align-items:center; gap:.25rem; border:1px solid rgba(143,45,35,.28); border-radius:9px; background:#fff; color:#8f2d23; padding:.28rem .48rem; font-size:.7rem; font-weight:900; text-decoration:none; white-space:nowrap; }
+  .fd-production-btn:hover { background:#8f2d23; border-color:#8f2d23; color:#fff; }
   /* Product stock */
   .fd-prod-row { border-radius:16px; border:1px solid rgba(170,95,78,.14); overflow:hidden; }
   .fd-prod-head { display:flex; align-items:center; justify-content:space-between; gap:.8rem; padding:.85rem 1rem; background:#fffaf7; cursor:pointer; }
@@ -270,10 +293,12 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
   }
   @media (max-width:991.98px) {
     .fd-chart-grid, .fd-2col, .fd-adjust-grid, .fd-recon-grid, .fd-lot-grid { grid-template-columns:1fr; }
+    .fd-production-row { grid-template-columns:1fr; }
+    .fd-production-actions { justify-content:flex-start; }
     .fd-2scope { grid-template-columns:1fr; }
     .fd-adjust-panel-summary, .fd-adjust-panel-list { height:auto; }
   }
-  @media (max-width:767.98px) { .fd-kpi, .fd-recon-locs { grid-template-columns:1fr; } }
+  @media (max-width:767.98px) { .fd-kpi, .fd-recon-locs, .fd-production-summary { grid-template-columns:1fr; } }
   /* Category filter */
   .fd-cat-cb { width:.85rem; height:.85rem; cursor:pointer; accent-color:#8f2d23; }
   #prodCatFilterBtn.active { background:#8f2d23; color:#fff; border-color:#8f2d23; }
@@ -649,6 +674,131 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
         </a>
       </article>
     <?php endforeach; ?>
+  </section>
+
+  <!-- Analisa & Saran Produksi Component -->
+  <section class="fd-card p-3">
+    <?php
+    $productionSummary = (array)($componentProductionSuggestions['summary'] ?? []);
+    $productionRows = (array)($componentProductionSuggestions['rows'] ?? []);
+    $productionTotalRows = (int)($componentProductionSuggestions['total_rows'] ?? count($productionRows));
+    $productionSuggestionDivisions = [];
+    foreach ($productionRows as $productionRow) {
+        $divisionId = (int)($productionRow['division_id'] ?? 0);
+        $divisionKey = $divisionId > 0 ? 'division-' . $divisionId : 'division-other';
+        if (!isset($productionSuggestionDivisions[$divisionKey])) {
+            $productionSuggestionDivisions[$divisionKey] = [
+                'label' => trim((string)($productionRow['division_name'] ?? '')) ?: 'Lainnya',
+                'count' => 0,
+            ];
+        }
+        $productionSuggestionDivisions[$divisionKey]['count']++;
+    }
+    uasort($productionSuggestionDivisions, static function (array $left, array $right): int {
+        return strnatcasecmp((string)$left['label'], (string)$right['label']);
+    });
+    $formatProductionQty = static function ($qty): string {
+        $qty = (float)$qty;
+        return abs($qty - round($qty)) < 0.0001
+            ? number_format($qty, 0, ',', '.')
+            : number_format($qty, 2, ',', '.');
+    };
+    ?>
+    <div class="fd-sec-head">
+      <div>
+        <h2 class="fd-sec-title"><i class="ri-restaurant-2-line" style="color:#8f2d23"></i> Analisa &amp; Saran Produksi</h2>
+        <p class="fd-sec-sub">Mendeteksi base atau prepare yang kosong/kritis saat bahan resepnya masih tersedia banyak di lokasi formula yang sama.</p>
+      </div>
+      <a class="fd-production-btn" href="<?= site_url('dashboard/production-suggestions') ?>">
+        Analisa lengkap <i class="ri-arrow-right-line"></i>
+      </a>
+    </div>
+
+    <div class="fd-production-summary">
+      <div class="fd-production-stat"><span class="num" style="color:#c62828"><?= number_format((int)($productionSummary['empty_component_count'] ?? 0), 0, ',', '.') ?></span><span class="lbl">Component kosong</span></div>
+      <div class="fd-production-stat"><span class="num" style="color:#e65100"><?= number_format((int)($productionSummary['critical_component_count'] ?? 0), 0, ',', '.') ?></span><span class="lbl">Di bawah minimum</span></div>
+      <div class="fd-production-stat"><span class="num" style="color:#2e7d32"><?= number_format((int)($productionSummary['ready_count'] ?? 0), 0, ',', '.') ?></span><span class="lbl">Siap diproses</span></div>
+      <div class="fd-production-stat"><span class="num"><?= number_format((int)($productionSummary['waiting_count'] ?? 0), 0, ',', '.') ?></span><span class="lbl">Butuh bahan lain</span></div>
+    </div>
+
+    <?php if (empty($productionRows)): ?>
+      <div class="fd-empty" style="padding:.65rem 0 .2rem">
+        Belum ada saran produksi. Component kosong/kritis akan muncul di sini bila ada bahan resep yang cukup untuk minimal dua batch pada lokasi formula yang sama.
+      </div>
+    <?php else: ?>
+      <div class="fd-tabs" id="productionSuggestionTabs" style="margin:.78rem 0 .65rem">
+        <button type="button" class="fd-tab on" data-production-suggestion-tab="ALL" aria-pressed="true">
+          Semua <span>(<?= count($productionRows) ?>)</span>
+        </button>
+        <?php foreach ($productionSuggestionDivisions as $divisionKey => $divisionSummary): ?>
+          <button type="button" class="fd-tab" data-production-suggestion-tab="<?= htmlspecialchars((string)$divisionKey, ENT_QUOTES) ?>" aria-pressed="false">
+            <?= htmlspecialchars((string)$divisionSummary['label']) ?> <span>(<?= (int)$divisionSummary['count'] ?>)</span>
+          </button>
+        <?php endforeach; ?>
+      </div>
+      <div class="fd-production-list">
+        <?php foreach ($productionRows as $row): ?>
+          <?php
+          $isReady = (string)($row['production_state'] ?? '') === 'READY';
+          $piledIngredients = (array)($row['piled_ingredients'] ?? []);
+          $leadIngredient = $piledIngredients[0] ?? [];
+          $blockingIngredients = (array)($row['blocking_ingredients'] ?? []);
+          $blockingNames = array_values(array_filter(array_map(static function (array $ingredient): string {
+              return trim((string)($ingredient['name'] ?? ''));
+          }, $blockingIngredients)));
+          $batchUrl = site_url('production/component-batches')
+              . '?q=' . rawurlencode((string)($row['component_name'] ?? ''))
+              . '&division_id=' . (int)($row['division_id'] ?? 0);
+           $formulaUrl = site_url('production/component-formulas/detail/' . (int)($row['component_id'] ?? 0));
+           $divisionId = (int)($row['division_id'] ?? 0);
+           $divisionTabKey = $divisionId > 0 ? 'division-' . $divisionId : 'division-other';
+           ?>
+          <article class="fd-production-row <?= $isReady ? 'ready' : 'waiting' ?>" data-production-suggestion-division="<?= htmlspecialchars($divisionTabKey, ENT_QUOTES) ?>">
+            <div>
+              <span class="fd-production-kicker <?= (string)($row['stock_state'] ?? '') === 'EMPTY' ? 'empty' : '' ?>">
+                <?= htmlspecialchars((string)($row['component_type'] ?? 'COMPONENT')) ?>
+                &middot; <?= (string)($row['stock_state'] ?? '') === 'EMPTY' ? 'Kosong' : 'Kritis' ?>
+              </span>
+              <div class="fd-production-name" style="margin-top:.32rem"><?= htmlspecialchars((string)($row['component_name'] ?? '-')) ?></div>
+              <div class="fd-production-meta">
+                <?= htmlspecialchars((string)($row['division_name'] ?? '-')) ?> &middot; <?= htmlspecialchars((string)($row['location_label'] ?? '-')) ?><br>
+                Stok component <?= $formatProductionQty($row['current_qty'] ?? 0) ?> <?= htmlspecialchars((string)($row['uom_code'] ?? '')) ?>
+                <?php if ((float)($row['min_stock'] ?? 0) > 0): ?> / minimum <?= $formatProductionQty($row['min_stock'] ?? 0) ?><?php endif; ?>
+              </div>
+            </div>
+
+            <div>
+              <div class="fd-production-ingredient">
+                Bahan tersedia: <?= htmlspecialchars((string)($leadIngredient['name'] ?? '-')) ?>
+                <small>
+                  <?= $formatProductionQty($leadIngredient['stock_qty'] ?? 0) ?> <?= htmlspecialchars((string)($leadIngredient['uom_code'] ?? '')) ?> tersedia
+                  &middot; cukup sampai <?= number_format((int)($leadIngredient['available_batches'] ?? 0), 0, ',', '.') ?> batch
+                  <?php if (count($piledIngredients) > 1): ?> &middot; +<?= count($piledIngredients) - 1 ?> bahan lain<?php endif; ?>
+                </small>
+              </div>
+            </div>
+
+            <div class="fd-production-state <?= $isReady ? '' : 'waiting' ?>">
+              <?php if ($isReady): ?>
+                <strong>Saran: proses <?= number_format((int)($row['recommended_batches'] ?? 1), 0, ',', '.') ?> batch dulu</strong>
+                <span>Semua bahan resep tersedia. Kapasitas bahan saat ini sampai <?= number_format((int)($row['max_possible_batches'] ?? 0), 0, ',', '.') ?> batch.</span>
+              <?php else: ?>
+                <strong>Belum siap diproses</strong>
+                <span>Bahan menumpuk, tetapi masih menunggu <?= htmlspecialchars(implode(', ', array_slice($blockingNames, 0, 2)) ?: 'bahan pendukung') ?>.</span>
+              <?php endif; ?>
+            </div>
+
+            <div class="fd-production-actions">
+              <a class="fd-production-btn" href="<?= htmlspecialchars($formulaUrl) ?>">Formula</a>
+              <a class="fd-production-btn" href="<?= htmlspecialchars($batchUrl) ?>">Batch</a>
+            </div>
+          </article>
+        <?php endforeach; ?>
+      </div>
+      <?php if ($productionTotalRows > count($productionRows)): ?>
+        <div class="fd-production-meta" style="margin-top:.65rem">Menampilkan <?= count($productionRows) ?> dari <?= $productionTotalRows ?> saran. Buka Analisa lengkap untuk melihat semuanya.</div>
+      <?php endif; ?>
+    <?php endif; ?>
   </section>
 
   <!-- Stok Produk (Live POS) -->
@@ -2054,6 +2204,26 @@ window.addEventListener('load', function () {
         const loc = btn.dataset.critloc;
         critList.querySelectorAll('.fd-item').forEach(function (row) {
           row.style.display = (loc === 'ALL' || row.dataset.critloc === loc) ? '' : 'none';
+        });
+      });
+    });
+  }
+
+  // Analisa produksi: filter cepat tanpa menghitung ulang atau memuat ulang halaman.
+  const productionSuggestionTabs = document.getElementById('productionSuggestionTabs');
+  if (productionSuggestionTabs) {
+    const productionSuggestionRows = document.querySelectorAll('[data-production-suggestion-division]');
+    productionSuggestionTabs.querySelectorAll('[data-production-suggestion-tab]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const selectedDivision = button.dataset.productionSuggestionTab || 'ALL';
+        productionSuggestionTabs.querySelectorAll('[data-production-suggestion-tab]').forEach(function (tab) {
+          const isActive = tab === button;
+          tab.classList.toggle('on', isActive);
+          tab.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+        productionSuggestionRows.forEach(function (row) {
+          row.hidden = selectedDivision !== 'ALL'
+            && row.dataset.productionSuggestionDivision !== selectedDivision;
         });
       });
     });
