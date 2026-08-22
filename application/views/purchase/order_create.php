@@ -1523,7 +1523,7 @@ foreach ($detailLines as $ln) {
     btnSave.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Menyimpan...';
     fetch(storeUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
       body: JSON.stringify({ header: header, lines: submitLines })
     })
     .then(parseJsonResponse)
@@ -1570,7 +1570,9 @@ foreach ($detailLines as $ln) {
       }
 
       if (parsed === null) {
-        var snippet = (txt || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+        var plainText = (txt || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        var messageMatch = plainText.match(/Message:\s*([^\r\n]+)/i);
+        var snippet = (messageMatch && messageMatch[1] ? messageMatch[1] : plainText).trim().slice(0, 160);
         throw new Error('Respons server bukan JSON valid (HTTP ' + response.status + '). ' + snippet);
       }
 

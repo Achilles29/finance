@@ -13,6 +13,12 @@ class PosAvailabilityQueueService
     /** @var CI_Controller */
     protected $CI;
 
+    /** @var bool|null */
+    protected $readyCache = null;
+
+    /** @var array<int,bool> */
+    protected $employeeExistsCache = [];
+
     public function __construct()
     {
         $this->CI =& get_instance();
@@ -21,10 +27,44 @@ class PosAvailabilityQueueService
 
     public function isReady(): bool
     {
-        return $this->CI->db->table_exists('pos_product_availability_queue')
-            && $this->CI->db->table_exists('pos_product_availability_cache')
-            && $this->CI->db->table_exists('pos_outlet')
-            && $this->CI->db->table_exists('mst_product');
+        if ($this->readyCache !== null) {
+            return $this->readyCache;
+        }
+
+        $db = $this->CI->db;
+        if (
+            !$db->table_exists('pos_product_availability_queue')
+            || !$db->table_exists('pos_product_availability_cache')
+            || !$db->table_exists('pos_outlet')
+            || !$db->table_exists('mst_product')
+        ) {
+            $this->readyCache = false;
+            return false;
+        }
+
+        // A partial migration must fall back to synchronous rebuilding instead
+        // of failing an inventory transaction while writing a queue row.
+        $queueColumns = [
+            'outlet_id', 'product_id', 'status', 'revision', 'event_count',
+            'attempts', 'max_attempts', 'run_after', 'started_at', 'finished_at',
+            'event_source', 'event_table', 'event_id', 'actor_employee_id',
+            'result_json', 'last_error', 'created_at',
+        ];
+        foreach ($queueColumns as $column) {
+            if (!$db->field_exists($column, 'pos_product_availability_queue')) {
+                $this->readyCache = false;
+                return false;
+            }
+        }
+        foreach (['outlet_id', 'product_id', 'is_dirty'] as $column) {
+            if (!$db->field_exists($column, 'pos_product_availability_cache')) {
+                $this->readyCache = false;
+                return false;
+            }
+        }
+
+        $this->readyCache = true;
+        return true;
     }
 
     /**
@@ -53,7 +93,7 @@ class PosAvailabilityQueueService
         $eventSource = strtoupper(trim((string)($context['event_source'] ?? 'INVENTORY_CHANGE')));
         $eventTable = trim((string)($context['event_table'] ?? ''));
         $eventId = max(0, (int)($context['event_id'] ?? 0));
-        $actorEmployeeId = max(0, (int)($context['actor_employee_id'] ?? 0));
+        $actorEmployeeId = $this->resolveActorEmployeeId($context);
         $maxAttempts = max(1, min(10, (int)($context['max_attempts'] ?? 3)));
         $now = date('Y-m-d H:i:s');
         $dirtyCount = 0;
@@ -102,7 +142,7 @@ class PosAvailabilityQueueService
                     $eventSource !== '' ? $eventSource : null,
                     $eventTable !== '' ? $eventTable : null,
                     $eventId > 0 ? $eventId : null,
-                    $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                    $actorEmployeeId,
                     $now,
                 ]);
                 if ($ok === false) {
@@ -466,6 +506,69 @@ class PosAvailabilityQueueService
             }
         }
         return array_values($values);
+    }
+
+    /**
+     * Queue rows use an employee FK, while material writers normally receive
+     * an authenticated user ID. Resolve it before inserting to ensure an
+     * optional availability refresh cannot invalidate a stock transaction.
+     */
+    protected function resolveActorEmployeeId(array $context): ?int
+    {
+        $explicitEmployeeId = max(0, (int)($context['actor_employee_id'] ?? 0));
+        if ($explicitEmployeeId > 0) {
+            if ($this->employeeExists($explicitEmployeeId)) {
+                return $explicitEmployeeId;
+            }
+            log_message('warning', 'POS availability queue ignored unknown actor_employee_id=' . $explicitEmployeeId);
+        }
+
+        $actorUserId = max(0, (int)($context['actor_user_id'] ?? 0));
+        if (
+            $actorUserId <= 0
+            || !$this->CI->db->table_exists('auth_user')
+            || !$this->CI->db->field_exists('employee_id', 'auth_user')
+        ) {
+            return null;
+        }
+
+        $user = $this->CI->db
+            ->select('employee_id')
+            ->from('auth_user')
+            ->where('id', $actorUserId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        $employeeId = max(0, (int)($user['employee_id'] ?? 0));
+        if ($employeeId > 0 && $this->employeeExists($employeeId)) {
+            return $employeeId;
+        }
+
+        if ($employeeId > 0) {
+            log_message('warning', 'POS availability queue ignored unresolved auth user employee_id=' . $employeeId . ' for auth_user=' . $actorUserId);
+        }
+        return null;
+    }
+
+    protected function employeeExists(int $employeeId): bool
+    {
+        if ($employeeId <= 0) {
+            return false;
+        }
+        if (array_key_exists($employeeId, $this->employeeExistsCache)) {
+            return $this->employeeExistsCache[$employeeId];
+        }
+        if (!$this->CI->db->table_exists('org_employee')) {
+            $this->employeeExistsCache[$employeeId] = false;
+            return false;
+        }
+
+        $exists = (int)$this->CI->db
+            ->from('org_employee')
+            ->where('id', $employeeId)
+            ->count_all_results() > 0;
+        $this->employeeExistsCache[$employeeId] = $exists;
+        return $exists;
     }
 
     protected function encodeJson(array $payload): ?string

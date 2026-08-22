@@ -371,6 +371,35 @@ class Loyalty extends MY_Controller
         $this->json_ok(['id' => (int)$id]);
     }
 
+    public function voucher_usages()
+    {
+        $this->require_permission('loyalty.voucher_usage.index', 'view');
+        $this->render('loyalty/voucher_usage_index', [
+            'page_title' => 'Laporan Pemakaian Voucher',
+            'active_menu' => 'loyalty.voucher_usage.index',
+            'promo_tab_active' => 'voucher-usage',
+            'filters' => $this->voucher_usage_filters(),
+            'outlet_options' => $this->Loyalty_model->voucher_usage_filter_options(),
+        ]);
+    }
+
+    public function voucher_usages_data()
+    {
+        $this->require_permission('loyalty.voucher_usage.index', 'view');
+        $this->json_ok($this->Loyalty_model->voucher_usage_rows($this->voucher_usage_filters()));
+    }
+
+    public function voucher_usage_detail($id)
+    {
+        $this->require_permission('loyalty.voucher_usage.index', 'view');
+        $detail = $this->Loyalty_model->voucher_usage_detail((int)$id);
+        if (!$detail) {
+            $this->json_error('Rincian pemakaian voucher tidak ditemukan. Jalankan migration voucher terbaru bila halaman baru belum memiliki data.', 404);
+            return;
+        }
+        $this->json_ok($detail);
+    }
+
     // ── Redeem ────────────────────────────────────────────────
 
     public function redeem_index()
@@ -576,6 +605,21 @@ class Loyalty extends MY_Controller
         }
 
         return $filters;
+    }
+
+    private function voucher_usage_filters(): array
+    {
+        $today = date('Y-m-d');
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'date_from' => trim((string)($this->input->get('date_from', true) ?: date('Y-m-01'))),
+            'date_to' => trim((string)($this->input->get('date_to', true) ?: $today)),
+            'voucher_kind' => strtoupper(trim((string)($this->input->get('voucher_kind', true) ?: 'ALL'))),
+            'usage_status' => strtoupper(trim((string)($this->input->get('usage_status', true) ?: 'ALL'))),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(1, min(200, (int)($this->input->get('limit', true) ?: 25))),
+        ];
     }
 
     private function promo_page_data(string $entity): array

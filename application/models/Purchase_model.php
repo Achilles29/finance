@@ -11063,8 +11063,17 @@ class Purchase_model extends CI_Model
         }
 
         if ($this->db->trans_status() === false) {
+            $dbError = $this->db->error();
+            log_message(
+                'error',
+                'Material stock adjustment post failed. adjustment_id=' . $id
+                . ' adjustment_no=' . (string)($header['adjustment_no'] ?? '')
+                . ' user_id=' . $userId
+                . ' db_code=' . (string)($dbError['code'] ?? '')
+                . ' db_message=' . (string)($dbError['message'] ?? '')
+            );
             $this->db->trans_rollback();
-            return ['ok' => false, 'message' => 'Gagal memposting adjustment stok.'];
+            return ['ok' => false, 'message' => 'Gagal memposting adjustment stok. Detail teknis sudah dicatat di log server.'];
         }
 
         $this->db->trans_commit();
@@ -17573,7 +17582,7 @@ class Purchase_model extends CI_Model
                     'event_source' => 'PURCHASE_ORDER_VOID',
                     'event_table' => 'pur_purchase_order',
                     'event_id' => $purchaseOrderId,
-                    'actor_employee_id' => $userId > 0 ? $userId : null,
+                    'actor_user_id' => $userId > 0 ? $userId : null,
                 ]
             );
         }
@@ -22633,10 +22642,31 @@ class Purchase_model extends CI_Model
             }
         }
 
+        // A Bahan Baku PO needs a canonical material before it can later
+        // create FIFO lots in the warehouse or division destination.
+        if ($lineKind === 'ITEM') {
+            $canonicalIdentity = $this->resolveCanonicalTransactionIdentity([
+                'item_id' => $itemId,
+                'material_id' => $materialId,
+                'profile_key' => $line['profile_key'] ?? null,
+                'usage_purpose' => $usagePurpose,
+            ], $usagePurpose);
+            $itemId = $this->nullableInt($canonicalIdentity['item_id'] ?? $itemId);
+            $materialId = $this->nullableInt($canonicalIdentity['material_id'] ?? $materialId);
+        }
+
         if ($requireEntityLink && $itemId === null && $materialId === null) {
             return [
                 'ok' => false,
                 'message' => 'Line inventory wajib memiliki item/material. Isi nama barang + UOM beli agar sistem auto-create item, atau pilih ulang dari katalog yang sudah terhubung.',
+            ];
+        }
+
+        if ($requireEntityLink && $lineKind === 'ITEM' && $usagePurpose === self::USAGE_PURPOSE_PRODUCTION && $materialId === null) {
+            $displayName = $lineName ?: ('item #' . (int)($itemId ?? 0));
+            return [
+                'ok' => false,
+                'message' => 'Item ' . $displayName . ' dipakai sebagai Bahan Baku tetapi belum terhubung ke Material. Hubungkan material pada master item atau pilih profile bahan baku yang benar sebelum menyimpan PO.',
             ];
         }
 

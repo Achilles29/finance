@@ -2215,7 +2215,7 @@ class Procurement_model extends CI_Model
                     'event_source' => 'STORE_REQUEST_VOID',
                     'event_table' => 'pur_store_request',
                     'event_id' => $requestId,
-                    'actor_employee_id' => $userId,
+                    'actor_user_id' => $userId,
                 ]
             );
         }
@@ -2669,7 +2669,7 @@ class Procurement_model extends CI_Model
                     'event_source' => 'STORE_REQUEST_VOID_REPAIR',
                     'event_table' => 'pur_store_request',
                     'event_id' => $requestId,
-                    'actor_employee_id' => $userId,
+                    'actor_user_id' => $userId,
                 ]
             );
         }

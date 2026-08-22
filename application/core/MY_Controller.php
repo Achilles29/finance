@@ -18,6 +18,12 @@ class MY_Controller extends CI_Controller
     /** Cache izin user: ['page_code' => ['view'=>1, 'create'=>0, ...]] */
     protected $user_perms = [];
 
+    /**
+     * Satu kali pemulihan izin per request bila session tampak tertinggal.
+     * Ini penting setelah role/override diubah saat user masih login.
+     */
+    private $permission_recovery_attempted = false;
+
     public function __construct()
     {
         parent::__construct();
@@ -154,7 +160,29 @@ class MY_Controller extends CI_Controller
             return true;
         }
 
-        return !empty($this->user_perms[$page_code]['can_' . $action]);
+        $permissionKey = 'can_' . $action;
+        if (!empty($this->user_perms[$page_code][$permissionKey])) {
+            return true;
+        }
+
+        // Session lama kadang masih membawa izin sebelum role/override diperbarui.
+        // Refresh sekali saat izin yang seharusnya ada tidak terbaca, lalu cek ulang.
+        $userId = (int)($this->current_user['id'] ?? 0);
+        if ($this->permission_recovery_attempted || $userId <= 0) {
+            return false;
+        }
+
+        $this->permission_recovery_attempted = true;
+        try {
+            $this->load->model('Auth_model');
+            $this->Auth_model->refresh_permissions($userId);
+            $this->user_perms = $this->session->userdata('user_perms') ?? [];
+        } catch (Throwable $e) {
+            log_message('error', 'Permission refresh recovery failed for user ' . $userId . ': ' . $e->getMessage());
+            return false;
+        }
+
+        return !empty($this->user_perms[$page_code][$permissionKey]);
     }
 
     /**

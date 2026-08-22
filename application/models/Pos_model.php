@@ -3079,7 +3079,11 @@ class Pos_model extends CI_Model
 
             $grandTotal = round(max(0, $baseTotal - $discountAmount - $promoAmount - $voucherAmount - $pointRedeemAmount - $complimentAmount), 2);
             $dueTotal = round(max(0, $grandTotal - $existingPaidTotal), 2);
-            if ($dueTotal <= 0) {
+            // Voucher/promo may legitimately close a fresh order without a cash payment line.
+            $closedByAdjustment = $canEditAdjustment
+                && $dueTotal <= 0.009
+                && ($voucherAmount + $promoAmount + $pointRedeemAmount + $complimentAmount) > 0.009;
+            if ($dueTotal <= 0.009 && !$closedByAdjustment) {
                 throw new RuntimeException('Order ini sudah tidak memiliki sisa tagihan.');
             }
 
@@ -3602,10 +3606,15 @@ class Pos_model extends CI_Model
                 'redemption'     => [
                     'voucher_issue_id' => $issueId,
                     'member_id'        => $issueMemberId > 0 ? $issueMemberId : null,
-                    'redeem_amount'    => $discountAmt,
-                    'voucher_code'     => (string)($issue['voucher_code'] ?? ''),
-                ],
-            ];
+                'redeem_amount'    => $discountAmt,
+                'voucher_code'     => (string)($issue['voucher_code'] ?? ''),
+                'voucher_kind'     => 'ISSUE',
+                'campaign_id'      => !empty($issue['campaign_id']) ? (int)$issue['campaign_id'] : null,
+                'voucher_label'    => (string)($issue['campaign_name'] ?? $issue['voucher_code'] ?? 'Voucher member'),
+                'face_value_amount'=> round((float)($issue['amount_snapshot'] ?? 0), 2),
+                'face_value_percent' => round((float)($issue['percent_snapshot'] ?? 0), 4),
+            ],
+        ];
         }
 
         if (strpos($selection, 'CAMPAIGN:') === 0) {
@@ -3625,11 +3634,26 @@ class Pos_model extends CI_Model
                 return $preview;
             }
 
+            $discountAmt = round((float)($preview['discount_amount'] ?? 0), 2);
             return [
                 'ok' => true,
                 'voucher_amount' => 0,
-                'promo_amount' => round((float)($preview['discount_amount'] ?? 0), 2),
-                'redemption' => null,
+                'promo_amount' => $discountAmt,
+                'redemption' => [
+                    'voucher_issue_id' => 0,
+                    'member_id' => !empty($order['header']['member_id']) ? (int)$order['header']['member_id'] : null,
+                    'redeem_amount' => $discountAmt,
+                    'voucher_code' => (string)($campaign['campaign_code'] ?? ''),
+                    'voucher_kind' => 'CAMPAIGN',
+                    'campaign_id' => $campaignId,
+                    'voucher_label' => (string)($campaign['campaign_name'] ?? $campaign['campaign_code'] ?? 'Promo voucher'),
+                    'face_value_amount' => strtoupper((string)($campaign['voucher_type'] ?? 'AMOUNT')) === 'AMOUNT'
+                        ? round((float)($campaign['discount_value'] ?? 0), 2)
+                        : 0.0,
+                    'face_value_percent' => strtoupper((string)($campaign['voucher_type'] ?? 'AMOUNT')) === 'PERCENT'
+                        ? round((float)($campaign['discount_value'] ?? 0), 4)
+                        : 0.0,
+                ],
             ];
         }
 
@@ -3770,13 +3794,76 @@ class Pos_model extends CI_Model
     private function apply_cashier_voucher_redemption(array $redemption, int $orderId, int $paymentId, int $actorEmployeeId, string $now): void
     {
         $voucherIssueId = (int)($redemption['voucher_issue_id'] ?? 0);
-        if ($voucherIssueId <= 0) {
+        $campaignId = (int)($redemption['campaign_id'] ?? 0);
+        $voucherKind = strtoupper(trim((string)($redemption['voucher_kind'] ?? ($voucherIssueId > 0 ? 'ISSUE' : 'CAMPAIGN'))));
+        if ($paymentId <= 0 || ($voucherIssueId <= 0 && $campaignId <= 0)) {
             return;
         }
 
-        $existing = $this->db->from('pos_voucher_redemption')
-            ->where('voucher_issue_id', $voucherIssueId)
+        if ($voucherIssueId > 0) {
+            $existing = $this->db->from('pos_voucher_redemption')
+                ->where('voucher_issue_id', $voucherIssueId)
+                ->where('payment_id', $paymentId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if (!$existing) {
+                $this->db->where('id', $voucherIssueId)->update('pos_voucher_issue', [
+                    'voucher_status' => 'REDEEMED',
+                    'source_order_id' => $orderId,
+                    'source_payment_id' => $paymentId,
+                    'redeemed_at' => $now,
+                    'updated_at' => $now,
+                ]);
+                $this->db->insert('pos_voucher_redemption', [
+                    'voucher_issue_id' => $voucherIssueId,
+                    'member_id' => !empty($redemption['member_id']) ? (int)$redemption['member_id'] : null,
+                    'order_id' => $orderId,
+                    'payment_id' => $paymentId,
+                    'redeem_amount' => round((float)($redemption['redeem_amount'] ?? 0), 2),
+                    'redeemed_at' => $now,
+                    'notes' => 'Redeem voucher saat pembayaran POS',
+                ]);
+            }
+        }
+
+        $this->record_cashier_voucher_usage([
+            'voucher_issue_id' => $voucherIssueId > 0 ? $voucherIssueId : null,
+            'campaign_id' => $campaignId > 0 ? $campaignId : null,
+            'voucher_kind' => $voucherKind === 'ISSUE' ? 'ISSUE' : 'CAMPAIGN',
+            'voucher_code' => (string)($redemption['voucher_code'] ?? ''),
+            'voucher_label' => (string)($redemption['voucher_label'] ?? $redemption['voucher_code'] ?? 'Voucher'),
+            'member_id' => !empty($redemption['member_id']) ? (int)$redemption['member_id'] : null,
+            'order_id' => $orderId,
+            'payment_id' => $paymentId,
+            'applied_amount' => round((float)($redemption['redeem_amount'] ?? 0), 2),
+            'face_value_amount' => round((float)($redemption['face_value_amount'] ?? 0), 2),
+            'face_value_percent' => round((float)($redemption['face_value_percent'] ?? 0), 4),
+            'cashier_employee_id' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+            'used_at' => $now,
+        ]);
+    }
+
+    private function record_cashier_voucher_usage(array $usage): void
+    {
+        if (!$this->db->table_exists('pos_voucher_usage')) {
+            return;
+        }
+
+        $voucherKind = strtoupper(trim((string)($usage['voucher_kind'] ?? 'ISSUE')));
+        $voucherIssueId = (int)($usage['voucher_issue_id'] ?? 0);
+        $campaignId = (int)($usage['campaign_id'] ?? 0);
+        $sourceKey = $voucherKind === 'ISSUE'
+            ? 'ISSUE:' . $voucherIssueId
+            : 'CAMPAIGN:' . $campaignId;
+        $paymentId = (int)($usage['payment_id'] ?? 0);
+        if ($paymentId <= 0 || ($voucherKind === 'ISSUE' && $voucherIssueId <= 0) || ($voucherKind === 'CAMPAIGN' && $campaignId <= 0)) {
+            return;
+        }
+
+        $existing = $this->db->from('pos_voucher_usage')
             ->where('payment_id', $paymentId)
+            ->where('source_key', $sourceKey)
             ->limit(1)
             ->get()
             ->row_array();
@@ -3784,22 +3871,26 @@ class Pos_model extends CI_Model
             return;
         }
 
-        $this->db->where('id', $voucherIssueId)->update('pos_voucher_issue', [
-            'voucher_status' => 'REDEEMED',
-            'source_order_id' => $orderId,
-            'source_payment_id' => $paymentId,
-            'redeemed_at' => $now,
-            'updated_at' => $now,
-        ]);
-        $this->db->insert('pos_voucher_redemption', [
-            'voucher_issue_id' => $voucherIssueId,
-            'member_id' => !empty($redemption['member_id']) ? (int)$redemption['member_id'] : null,
-            'order_id' => $orderId,
+        $payload = [
+            'source_key' => $sourceKey,
+            'voucher_kind' => $voucherKind,
+            'voucher_issue_id' => $voucherIssueId > 0 ? $voucherIssueId : null,
+            'campaign_id' => $campaignId > 0 ? $campaignId : null,
+            'voucher_code' => $this->nullable_text($usage['voucher_code'] ?? ''),
+            'voucher_label' => $this->nullable_text($usage['voucher_label'] ?? ''),
+            'member_id' => !empty($usage['member_id']) ? (int)$usage['member_id'] : null,
+            'order_id' => !empty($usage['order_id']) ? (int)$usage['order_id'] : null,
             'payment_id' => $paymentId,
-            'redeem_amount' => round((float)($redemption['redeem_amount'] ?? 0), 2),
-            'redeemed_at' => $now,
-            'notes' => 'Redeem voucher saat pembayaran POS',
-        ]);
+            'cashier_employee_id' => !empty($usage['cashier_employee_id']) ? (int)$usage['cashier_employee_id'] : null,
+            'face_value_amount' => round((float)($usage['face_value_amount'] ?? 0), 2),
+            'face_value_percent' => round((float)($usage['face_value_percent'] ?? 0), 4),
+            'applied_amount' => round((float)($usage['applied_amount'] ?? 0), 2),
+            'usage_status' => 'APPLIED',
+            'used_at' => (string)($usage['used_at'] ?? date('Y-m-d H:i:s')),
+            'notes' => 'Voucher diterapkan saat pembayaran POS',
+            'created_at' => (string)($usage['used_at'] ?? date('Y-m-d H:i:s')),
+        ];
+        $this->db->insert('pos_voucher_usage', $this->filter_table_payload('pos_voucher_usage', $payload));
     }
 
     private function apply_cashier_payment_loyalty(array $orderRow, int $paymentId, string $paidAt): array

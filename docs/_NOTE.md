@@ -357,3 +357,17 @@ misal stok Prepare DIMSUM FILL kosong. di formulanya ada ayam, sementara stok ay
 Pindahkan sisa runtime schema ke migration.
 Tambahkan heartbeat cron dan audit otomatis bulan aktif.
 Buat pengujian integrasi otomatis, lalu lakukan UAT manual akhir.
+
+
+- ubah status PO masih gagal "Receipt ke stok divisi wajib punya material_id canonical. Pilih profile bahan baku yang terhubung ke material sebelum terima barang." cek **PO202608220012**
+- SR gagal "**PO202608220012"**
+- pemakaian voucher belum bisa dipakai jika nominal transaksi kurang dari kurang dari nilai voucher "Masukkan nominal pembayaran yang valid."
+- adjustment gagal "**Gagal memposting adjustment stok."**
+
+sepertinya perlu kamu cek RBAC setelah perubahan kita kemarin. karena seperti PO SR dari superadmin bisa, tapi dari user lain yang sudah diberi hak akses masih gagal. termasuk adjustmen , baik bahan baku maupun component di semua halaman adjustment
+
+
+COKLAT PASTA memang tidak ada di master bahan baku, yang benar adalah CHOCOLATE PASTE. jadi tidak salah. mungkin pengajuannya yang salah.
+tadi kamu eksekusi sql atau ada script yang kamu rubah khusus COKLAT PASTA?
+
+/loyalty/voucher-usages mestinya tampil semua data transaksi yang menggunakan diskon voucher, seperti voucher SMADA40 dan sejenisnya

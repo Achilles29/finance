@@ -3048,6 +3048,24 @@ document.addEventListener('DOMContentLoaded', function () {
     return paymentSelectedVoucher;
   }
 
+  function paymentSelectedVoucherKind(option = selectedPaymentVoucherOption()) {
+    const explicitKind = String(option && (option.kind || option.source_type) ? (option.kind || option.source_type) : '').toUpperCase();
+    if (explicitKind === 'ISSUE' || explicitKind === 'CAMPAIGN') {
+      return explicitKind;
+    }
+    const selection = String(option && option.selection_value ? option.selection_value : '').trim().toUpperCase();
+    if (selection.startsWith('ISSUE:')) return 'ISSUE';
+    if (selection.startsWith('CAMPAIGN:')) return 'CAMPAIGN';
+    return '';
+  }
+
+  function hasSelectedPaymentVoucher(option = selectedPaymentVoucherOption()) {
+    if (!option) return false;
+    const selection = String(option.selection_value || option.voucher_code || '').trim();
+    const explicitlyInvalid = option.ok === false || Number(option.ok) === 0 || option.valid === false || Number(option.valid) === 0;
+    return selection !== '' && !explicitlyInvalid && paymentSelectedVoucherKind(option) !== '';
+  }
+
   function paymentMethodMetaById(methodId) {
     const safeId = Number(methodId || 0);
     if (safeId <= 0) {
@@ -3077,10 +3095,16 @@ document.addEventListener('DOMContentLoaded', function () {
     const paidTotal = Number(paymentContext && paymentContext.paid_total ? paymentContext.paid_total : 0);
     const canEditAdjustment = !!(paymentContext && paymentContext.can_edit_adjustment);
     const option = selectedPaymentVoucherOption();
-    const optionKind = String(option && (option.kind || option.source_type) ? (option.kind || option.source_type) : '').toUpperCase();
-    const optionDiscount = Number(option && (option.discount_amount ?? option.estimated_discount) ? (option.discount_amount ?? option.estimated_discount) : 0);
-    let voucherAmount = canEditAdjustment && optionKind === 'ISSUE' ? optionDiscount : 0;
-    let promoAmount = canEditAdjustment && optionKind === 'CAMPAIGN' ? optionDiscount : 0;
+    const optionKind = paymentSelectedVoucherKind(option);
+    const optionDiscount = Math.max(
+      0,
+      Number(option && option.discount_amount ? option.discount_amount : 0),
+      Number(option && option.estimated_discount ? option.estimated_discount : 0)
+    );
+    const hasVoucherSelection = hasSelectedPaymentVoucher(option);
+    // A voucher may be worth more than the bill, but the applied value may never exceed it.
+    let voucherAmount = canEditAdjustment && hasVoucherSelection && optionKind === 'ISSUE' ? Math.min(baseTotal, optionDiscount) : 0;
+    let promoAmount = canEditAdjustment && hasVoucherSelection && optionKind === 'CAMPAIGN' ? Math.min(baseTotal, optionDiscount) : 0;
     const grandTotal = canEditAdjustment
       ? Math.max(0, baseTotal - voucherAmount - promoAmount)
       : Number(paymentContext && paymentContext.grand_total ? paymentContext.grand_total : baseTotal);
@@ -3145,6 +3169,7 @@ document.addEventListener('DOMContentLoaded', function () {
       changeTotal,
       activeRowCount: activeRows.length,
       canCashChange: changeEligible,
+      hasVoucherSelection,
       guardMessage,
     };
   }
@@ -3206,6 +3231,9 @@ document.addEventListener('DOMContentLoaded', function () {
       if (totals.guardMessage) {
         paymentTotalHint.textContent = totals.guardMessage;
         paymentTotalHint.classList.add('text-danger');
+      } else if ((totals.voucherAmount + totals.promoAmount) > 0.009 && totals.dueTotal <= 0.009) {
+        paymentTotalHint.textContent = `Seluruh tagihan tertutup voucher sebesar ${money(totals.voucherAmount + totals.promoAmount)}. Tidak perlu memilih metode pembayaran tambahan.`;
+        paymentTotalHint.classList.remove('text-danger');
       } else if (totals.depositAppliedTotal > 0.009 && totals.dueTotal <= 0.009) {
         paymentTotalHint.textContent = `Seluruh tagihan tertutup DP sebesar ${money(totals.depositAppliedTotal)}. Metode pembayaran tambahan tidak wajib.`;
         paymentTotalHint.classList.remove('text-danger');
@@ -3237,7 +3265,7 @@ document.addEventListener('DOMContentLoaded', function () {
       } else {
         paymentSubmitButton.disabled = false;
         paymentSubmitButton.textContent = totals.dueTotal <= 0.009
-          ? 'Selesaikan dengan DP'
+          ? (totals.hasVoucherSelection ? 'Selesaikan Dengan Voucher' : 'Selesaikan Dengan DP')
           : (totals.remainingTotal > 0.009 ? 'Simpan Pembayaran Sebagian' : 'Selesaikan Pembayaran');
       }
     }
@@ -3251,7 +3279,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!paymentRowsContainer) return;
     const totals = paymentDraftTotals();
     if (totals.dueTotal <= 0.009) {
-      paymentRowsContainer.innerHTML = '<div class="small text-muted border rounded p-3">Tagihan sudah tertutup penuh oleh DP member. Tidak perlu input metode pembayaran tambahan.</div>';
+      const closedByVoucher = totals.hasVoucherSelection;
+      paymentRowsContainer.innerHTML = `<div class="small text-muted border rounded p-3">${closedByVoucher
+        ? 'Tagihan sudah tertutup penuh oleh voucher. Tidak perlu input metode pembayaran tambahan.'
+        : 'Tagihan sudah tertutup penuh oleh DP member. Tidak perlu input metode pembayaran tambahan.'}</div>`;
       return;
     }
     const methodOptions = ['<option value="">Pilih metode...</option>'].concat((paymentContext && paymentContext.payment_methods ? paymentContext.payment_methods : []).map((method) => `<option value="${Number(method.id || 0)}">${escapeHtml(method.method_name || '-')}</option>`));
@@ -3654,7 +3685,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (totals.guardMessage) {
       throw new Error(totals.guardMessage);
     }
-    if (totals.appliedTotal <= 0 && totals.depositAppliedTotal <= 0) {
+    // The backend recalculates the voucher itself. This only prevents the
+    // browser from demanding a cash line after a selected voucher closes bill.
+    const isVoucherOnlyPayment = totals.dueTotal <= 0.009 && totals.hasVoucherSelection;
+    if (totals.appliedTotal <= 0 && totals.depositAppliedTotal <= 0 && !isVoucherOnlyPayment) {
       throw new Error('Masukkan nominal pembayaran yang valid.');
     }
     paymentSubmitInFlight = true;

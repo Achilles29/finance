@@ -496,7 +496,9 @@ if (!function_exists('finance_po_usage_purpose_from_notes')) {
             try {
                 parsed = JSON.parse(txt);
             } catch (e) {
-                throw new Error('Server gagal memproses perubahan status. Muat ulang halaman lalu coba lagi. Jika tetap berulang, periksa log server.');
+                var plainText = String(txt || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                var messageMatch = plainText.match(/Message:\s*([^\r\n]+)/i);
+                throw new Error((messageMatch && messageMatch[1]) ? messageMatch[1].trim() : 'Server gagal memproses perubahan status. Muat ulang halaman lalu coba lagi.');
             }
             return { status: response.status, json: parsed };
         });
@@ -552,7 +554,7 @@ if (!function_exists('finance_po_usage_purpose_from_notes')) {
 
         fetch(endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
             body: JSON.stringify({ purchase_order_id: poId, status: nextStatus })
         })
         .then(parseJsonResponse)
@@ -582,7 +584,7 @@ if (!function_exists('finance_po_usage_purpose_from_notes')) {
 
             fetch(endpoint, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 body: JSON.stringify({ purchase_order_id: poId, status: String(reconcileBtn.getAttribute('data-status') || '').toUpperCase() })
             })
             .then(parseJsonResponse)

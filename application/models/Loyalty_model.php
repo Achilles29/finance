@@ -592,6 +592,180 @@ class Loyalty_model extends CI_Model
         ], ['v.issued_at' => 'DESC', 'v.id' => 'DESC'], max(1, (int)($filters['page'] ?? 1)), max(1, min(200, (int)($filters['limit'] ?? 25))));
     }
 
+    public function voucher_usage_filter_options(): array
+    {
+        if (!$this->db->table_exists('pos_outlet')) {
+            return [];
+        }
+
+        return $this->db->select('id, outlet_name')
+            ->from('pos_outlet')
+            ->where('is_active', 1)
+            ->order_by('outlet_name', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    public function voucher_usage_rows(array $filters): array
+    {
+        if (!$this->db->table_exists('pos_voucher_usage')) {
+            return [
+                'rows' => [],
+                'meta' => [
+                    'total' => 0,
+                    'page' => max(1, (int)($filters['page'] ?? 1)),
+                    'limit' => max(1, min(200, (int)($filters['limit'] ?? 25))),
+                    'total_pages' => 1,
+                ],
+                'schema_ready' => false,
+                'message' => 'Log pemakaian voucher belum tersedia. Jalankan migration voucher terbaru terlebih dahulu.',
+            ];
+        }
+
+        $db = $this->db->from('pos_voucher_usage u')
+            ->join('pos_voucher_issue vi', 'vi.id = u.voucher_issue_id', 'left')
+            ->join('pos_voucher_campaign vc', 'vc.id = u.campaign_id', 'left')
+            ->join('pos_order po', 'po.id = u.order_id', 'left')
+            ->join('pos_payment pp', 'pp.id = u.payment_id', 'left')
+            ->join('crm_member m', 'm.id = u.member_id', 'left')
+            ->join('pos_outlet o', 'o.id = po.outlet_id', 'left')
+            ->join('org_employee e', 'e.id = u.cashier_employee_id', 'left');
+
+        $this->apply_search_filter($db, trim((string)($filters['q'] ?? '')), [
+            'u.voucher_code',
+            'u.voucher_label',
+            'vi.voucher_issue_no',
+            'po.order_no',
+            'po.customer_name',
+            'm.member_name',
+            'o.outlet_name',
+        ]);
+
+        $dateFrom = trim((string)($filters['date_from'] ?? ''));
+        $dateTo = trim((string)($filters['date_to'] ?? ''));
+        if ($dateFrom !== '') {
+            $db->where('u.used_at >=', $dateFrom . ' 00:00:00');
+        }
+        if ($dateTo !== '') {
+            $db->where('u.used_at <=', $dateTo . ' 23:59:59');
+        }
+
+        $voucherKind = strtoupper(trim((string)($filters['voucher_kind'] ?? 'ALL')));
+        if (in_array($voucherKind, ['ISSUE', 'CAMPAIGN'], true)) {
+            $db->where('u.voucher_kind', $voucherKind);
+        }
+        $usageStatus = strtoupper(trim((string)($filters['usage_status'] ?? 'ALL')));
+        if (in_array($usageStatus, ['APPLIED', 'REVERSED', 'VOID'], true)) {
+            $db->where('u.usage_status', $usageStatus);
+        }
+        $outletId = (int)($filters['outlet_id'] ?? 0);
+        if ($outletId > 0) {
+            $db->where('po.outlet_id', $outletId);
+        }
+
+        $result = $this->paginate_rows($db, [
+            'u.id',
+            'u.voucher_kind',
+            "COALESCE(NULLIF(u.voucher_code, ''), vi.voucher_code, vc.campaign_code, '-') AS voucher_code",
+            "COALESCE(NULLIF(u.voucher_label, ''), vc.campaign_name, vi.voucher_code, 'Voucher') AS voucher_label",
+            'vi.voucher_issue_no',
+            'u.face_value_amount',
+            'u.face_value_percent',
+            'u.applied_amount',
+            'u.usage_status',
+            'u.used_at',
+            'u.notes',
+            'po.order_no',
+            'po.status AS order_status',
+            'po.ordered_at',
+            'po.paid_at',
+            'po.customer_name',
+            "COALESCE(NULLIF(m.member_name, ''), NULLIF(po.customer_name, ''), 'Walk in') AS customer_display",
+            'm.mobile_phone AS member_phone',
+            'o.outlet_name',
+            'e.employee_name AS cashier_name',
+            'pp.payment_no',
+        ], ['u.used_at' => 'DESC', 'u.id' => 'DESC'], max(1, (int)($filters['page'] ?? 1)), max(1, min(200, (int)($filters['limit'] ?? 25))));
+        $result['schema_ready'] = true;
+        return $result;
+    }
+
+    public function voucher_usage_detail(int $id): ?array
+    {
+        if ($id <= 0 || !$this->db->table_exists('pos_voucher_usage')) {
+            return null;
+        }
+
+        $usage = $this->db->select(implode(', ', [
+            'u.*',
+            'vi.voucher_issue_no',
+            'vi.voucher_status',
+            'vc.campaign_name',
+            'vc.campaign_code',
+            'po.order_no',
+            'po.status AS order_status',
+            'po.ordered_at',
+            'po.paid_at',
+            'po.customer_name',
+            'po.subtotal_amount',
+            'po.voucher_amount',
+            'po.promo_amount',
+            'po.grand_total',
+            "COALESCE(NULLIF(m.member_name, ''), NULLIF(po.customer_name, ''), 'Walk in') AS customer_display",
+            'm.member_no',
+            'm.mobile_phone AS member_phone',
+            'o.outlet_name',
+            'e.employee_name AS cashier_name',
+            'pp.payment_no',
+            'pp.payment_status',
+        ]), false)
+            ->from('pos_voucher_usage u')
+            ->join('pos_voucher_issue vi', 'vi.id = u.voucher_issue_id', 'left')
+            ->join('pos_voucher_campaign vc', 'vc.id = u.campaign_id', 'left')
+            ->join('pos_order po', 'po.id = u.order_id', 'left')
+            ->join('pos_payment pp', 'pp.id = u.payment_id', 'left')
+            ->join('crm_member m', 'm.id = u.member_id', 'left')
+            ->join('pos_outlet o', 'o.id = po.outlet_id', 'left')
+            ->join('org_employee e', 'e.id = u.cashier_employee_id', 'left')
+            ->where('u.id', $id)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$usage) {
+            return null;
+        }
+
+        $orderId = (int)($usage['order_id'] ?? 0);
+        $paymentId = (int)($usage['payment_id'] ?? 0);
+        $orderLines = [];
+        if ($orderId > 0 && $this->db->table_exists('pos_order_line')) {
+            $orderLines = $this->db->select('ol.line_no, ol.qty, ol.unit_price, ol.discount_amount, ol.net_amount, ol.line_status, p.product_name')
+                ->from('pos_order_line ol')
+                ->join('mst_product p', 'p.id = ol.product_id', 'left')
+                ->where('ol.order_id', $orderId)
+                ->order_by('ol.line_no', 'ASC')
+                ->get()
+                ->result_array();
+        }
+
+        $paymentLines = [];
+        if ($paymentId > 0 && $this->db->table_exists('pos_payment_line')) {
+            $paymentLines = $this->db->select('pl.line_no, pl.amount, pl.reference_no, pl.status, pm.method_name')
+                ->from('pos_payment_line pl')
+                ->join('pos_payment_method pm', 'pm.id = pl.payment_method_id', 'left')
+                ->where('pl.payment_id', $paymentId)
+                ->order_by('pl.line_no', 'ASC')
+                ->get()
+                ->result_array();
+        }
+
+        return [
+            'usage' => $usage,
+            'order_lines' => $orderLines,
+            'payment_lines' => $paymentLines,
+        ];
+    }
+
     private function expire_elapsed_vouchers(): void
     {
         if (!$this->db->table_exists('pos_voucher_issue')) {

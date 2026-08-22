@@ -243,7 +243,9 @@ class InventoryLedger
                 'event_source' => 'INVENTORY_LEDGER_' . $movementType,
                 'event_table' => 'inv_stock_movement_log',
                 'event_id' => $movementId,
-                'actor_employee_id' => $this->nullableInt($payload['created_by'] ?? null),
+                // inv_stock_movement_log.created_by stores an auth user ID.
+                // The queue resolves it to the employee FK when available.
+                'actor_user_id' => $this->nullableInt($payload['created_by'] ?? null),
             ]);
         }
 

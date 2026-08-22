@@ -3803,6 +3803,10 @@ class Purchase extends MY_Controller
                 (int)($this->current_user['id'] ?? 0),
                 (string)$this->input->ip_address()
             );
+        } catch (Throwable $e) {
+            log_message('error', 'PO store failed for user ' . (int)($this->current_user['id'] ?? 0) . ': ' . $e->getMessage());
+            $this->jsonError('Gagal menyimpan purchase order. Periksa kelengkapan data atau hubungi admin bila pesan ini berulang.', 500);
+            return;
         } finally {
             $this->db->db_debug = $dbDebugBefore;
         }
@@ -3841,6 +3845,10 @@ class Purchase extends MY_Controller
                 (int)($this->current_user['id'] ?? 0),
                 (string)$this->input->ip_address()
             );
+        } catch (Throwable $e) {
+            log_message('error', 'PO status update failed for PO ' . $purchaseOrderId . ', user ' . (int)($this->current_user['id'] ?? 0) . ': ' . $e->getMessage());
+            $this->jsonError('Gagal mengubah status purchase order. Muat ulang halaman lalu coba kembali.', 500);
+            return;
         } finally {
             $this->db->db_debug = $dbDebugBefore;
         }
@@ -3899,6 +3907,10 @@ class Purchase extends MY_Controller
                 (int)($this->current_user['id'] ?? 0),
                 (string)$this->input->ip_address()
             );
+        } catch (Throwable $e) {
+            log_message('error', 'PO update failed for PO ' . $purchaseOrderId . ', user ' . (int)($this->current_user['id'] ?? 0) . ': ' . $e->getMessage());
+            $this->jsonError('Gagal memperbarui purchase order. Muat ulang halaman lalu coba kembali.', 500);
+            return;
         } finally {
             $this->db->db_debug = $dbDebugBefore;
         }

@@ -850,7 +850,17 @@ foreach ($lineRows as $lineRow) {
     });
     return html;
   }
-  function fetchJson(url, opts){ return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}, invalidJson=false; try{d=t?JSON.parse(t):{};}catch(e){d={};invalidJson=true;} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||(invalidJson ? 'Server gagal memproses permintaan. Muat ulang halaman lalu coba kembali.' : ('Request gagal ('+res.status+')')); } return d;}); }); }
+  function serverMessage(raw, fallback){
+    var text=String(raw||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+    var match=text.match(/Message:\s*([^\r\n]+)/i);
+    if(match && match[1]) return match[1].trim();
+    return text && text.length<240 ? text : fallback;
+  }
+  function fetchJson(url, opts){
+    opts=opts||{};
+    opts.headers=Object.assign({'Accept':'application/json','X-Requested-With':'XMLHttpRequest'},opts.headers||{});
+    return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}, invalidJson=false; try{d=t?JSON.parse(t):{};}catch(e){d={};invalidJson=true;} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||(invalidJson ? serverMessage(t,'Server gagal memproses permintaan. Muat ulang halaman lalu coba kembali.') : ('Request gagal ('+res.status+')')); } return d;}); });
+  }
   function uiConfirm(message, options){
     if(window.FinanceUI && typeof window.FinanceUI.confirm === 'function'){
       return window.FinanceUI.confirm(message, options || {});

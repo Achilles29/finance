@@ -83,7 +83,7 @@ class Inventory_tools extends CI_Controller
         foreach ($targets as $target) {
             $targetCommitId = (int)($target['commit_id'] ?? 0);
             $targetOrderId = (int)($target['order_id'] ?? 0);
-            $actorEmployeeId = $userId > 0 ? $userId : $this->resolvePosRepairActorEmployeeId($targetOrderId, $targetCommitId);
+            $actorEmployeeId = $this->resolvePosRepairActorEmployeeId($targetOrderId, $targetCommitId, $userId);
 
             if ($targetCommitId <= 0 || $targetOrderId <= 0) {
                 $results[] = [
@@ -357,7 +357,7 @@ class Inventory_tools extends CI_Controller
         foreach ($targets as $target) {
             $targetCommitId = (int)$target['commit_id'];
             $targetOrderId = (int)$target['order_id'];
-            $actorEmployeeId = $userId > 0 ? $userId : $this->resolvePosRepairActorEmployeeId($targetOrderId, $targetCommitId);
+            $actorEmployeeId = $this->resolvePosRepairActorEmployeeId($targetOrderId, $targetCommitId, $userId);
 
             $repair = $this->posorderstockservice->repair_cross_division_commit_snapshot($targetCommitId, [
                 'line_id' => $lineId,
@@ -1874,8 +1874,29 @@ class Inventory_tools extends CI_Controller
             ->result_array();
     }
 
-    private function resolvePosRepairActorEmployeeId(int $orderId, int $commitId): int
+    private function resolvePosRepairActorEmployeeId(int $orderId, int $commitId, int $actorUserId = 0): int
     {
+        // CLI arguments use auth_user.id. Convert it to the employee FK used
+        // by POS stock/queue records instead of assuming both IDs are equal.
+        if ($actorUserId > 0 && $this->db->table_exists('auth_user') && $this->db->field_exists('employee_id', 'auth_user')) {
+            $actorUser = $this->db
+                ->select('employee_id')
+                ->from('auth_user')
+                ->where('id', $actorUserId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if ($actorUser) {
+                $employeeId = (int)($actorUser['employee_id'] ?? 0);
+                if ($employeeId > 0 && $this->db->table_exists('org_employee')) {
+                    $exists = $this->db->from('org_employee')->where('id', $employeeId)->count_all_results() > 0;
+                    if ($exists) {
+                        return $employeeId;
+                    }
+                }
+            }
+        }
+
         if ($commitId > 0 && $this->db->table_exists('pos_runtime_job')) {
             $jobs = $this->db
                 ->select('payload_json, created_by_employee_id')

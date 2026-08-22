@@ -1289,7 +1289,9 @@ $ptTotal = array_sum(array_column($typeBreakdown, 'total_value'));
             try {
                 parsed = JSON.parse(txt);
             } catch (e) {
-                throw new Error('Server gagal memproses perubahan status. Muat ulang halaman lalu coba lagi. Jika tetap berulang, periksa log server.');
+                var plainText = String(txt || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                var messageMatch = plainText.match(/Message:\s*([^\r\n]+)/i);
+                throw new Error((messageMatch && messageMatch[1]) ? messageMatch[1].trim() : 'Server gagal memproses perubahan status. Muat ulang halaman lalu coba lagi.');
             }
             return { status: response.status, json: parsed };
         });
@@ -1364,7 +1366,7 @@ $ptTotal = array_sum(array_column($typeBreakdown, 'total_value'));
 
             fetch(endpoint, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 body: JSON.stringify({ purchase_order_id: id, status: status })
             })
             .then(parseJsonResponse)
