@@ -2779,6 +2779,25 @@ class Pos_model extends CI_Model
             return ['ok' => false, 'message' => 'Rekening perusahaan untuk reversal DP tidak ditemukan.'];
         }
 
+        if (!$this->db->field_exists('reversal_of_mutation_id', 'fin_account_mutation_log')) {
+            return ['ok' => false, 'message' => 'VOID DP aman belum siap. Jalankan migration 2026-08-22a_inventory_void_reversal_movement_link_foundation.sql terlebih dahulu.'];
+        }
+        $originMutation = $this->db->select('m.id')
+            ->from('fin_account_mutation_log m')
+            ->where('m.ref_module', 'POS')
+            ->where('m.ref_table', 'pos_payment')
+            ->where('m.ref_id', $id)
+            ->where('m.account_id', $companyAccountId)
+            ->where('m.mutation_type', 'IN')
+            ->where('m.reversal_of_mutation_id IS NULL', null, false)
+            ->where('NOT EXISTS (SELECT 1 FROM fin_account_mutation_log r WHERE r.reversal_of_mutation_id = m.id)', null, false)
+            ->order_by('m.id', 'DESC')
+            ->limit(1)
+            ->get()->row_array();
+        if (!$originMutation) {
+            return ['ok' => false, 'message' => 'Mutasi DP asal tidak ditemukan atau sudah pernah dibatalkan.'];
+        }
+
         $this->db->trans_begin();
         try {
             $this->db->where('id', $id)->update('pos_payment', [
@@ -2796,8 +2815,9 @@ class Pos_model extends CI_Model
                 'ref_table' => 'pos_payment',
                 'ref_id' => $id,
                 'ref_no' => (string)($row['payment_no'] ?? null),
-                'notes' => 'VOID DP POS',
+                'notes' => 'Pembatalan DP POS',
                 'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                'reversal_of_mutation_id' => (int)($originMutation['id'] ?? 0),
             ]);
             if (!($financeResult['ok'] ?? false)) {
                 throw new RuntimeException((string)($financeResult['message'] ?? 'Gagal reversal DP dari rekening perusahaan.'));
@@ -4461,11 +4481,15 @@ class Pos_model extends CI_Model
         $mutationType = strtoupper(trim((string)($payload['mutation_type'] ?? 'IN')));
         $amount = round((float)($payload['amount'] ?? 0), 2);
         $mutationDate = (string)($payload['mutation_date'] ?? date('Y-m-d H:i:s'));
+        $reversalOfMutationId = (int)($payload['reversal_of_mutation_id'] ?? 0);
         if ($accountId <= 0 || $amount <= 0) {
             return ['ok' => false, 'message' => 'Payload mutasi rekening POS tidak valid.'];
         }
         if (!in_array($mutationType, ['IN', 'OUT'], true)) {
             return ['ok' => false, 'message' => 'Jenis mutasi rekening POS tidak valid.'];
+        }
+        if ($reversalOfMutationId > 0 && !$this->db->field_exists('reversal_of_mutation_id', 'fin_account_mutation_log')) {
+            return ['ok' => false, 'message' => 'Schema tautan pembatalan mutasi rekening belum tersedia.'];
         }
 
         $account = $this->db->query(
@@ -4488,7 +4512,7 @@ class Pos_model extends CI_Model
             return ['ok' => false, 'message' => $this->db_error_message('Gagal update saldo rekening POS.')];
         }
 
-        $this->db->insert('fin_account_mutation_log', [
+        $mutationPayload = [
             'mutation_no' => $this->generate_account_mutation_no($mutationDate),
             'mutation_date' => date('Y-m-d', strtotime($mutationDate)),
             'account_id' => $accountId,
@@ -4502,7 +4526,11 @@ class Pos_model extends CI_Model
             'ref_no' => $this->nullable_text($payload['ref_no'] ?? null),
             'notes' => $this->nullable_text($payload['notes'] ?? null),
             'created_by' => !empty($payload['created_by']) ? (int)$payload['created_by'] : null,
-        ]);
+        ];
+        if ($reversalOfMutationId > 0) {
+            $mutationPayload['reversal_of_mutation_id'] = $reversalOfMutationId;
+        }
+        $this->db->insert('fin_account_mutation_log', $mutationPayload);
         if ((int)$this->db->insert_id() <= 0) {
             return ['ok' => false, 'message' => $this->db_error_message('Gagal menyimpan mutasi rekening POS.')];
         }

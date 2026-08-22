@@ -3,6 +3,24 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Pos_report_model extends CI_Model
 {
+    /**
+     * Normal POS cash reports must not count an original mutation and its
+     * linked VOID reversal as two real cash events. Audit pages can still
+     * read the raw mutation log when needed.
+     */
+    private function effective_account_mutation_sql_filter(string $alias = 'ml'): string
+    {
+        if (!$this->db->field_exists('reversal_of_mutation_id', 'fin_account_mutation_log')) {
+            return '';
+        }
+
+        $alias = trim($alias);
+        $prefix = $alias !== '' ? ($alias . '.') : '';
+        return ' AND ' . $prefix . 'reversal_of_mutation_id IS NULL'
+            . ' AND NOT EXISTS (SELECT 1 FROM fin_account_mutation_log reversal'
+            . ' WHERE reversal.reversal_of_mutation_id = ' . $prefix . 'id)';
+    }
+
     private function order_customer_display_expr(string $orderAlias = 'o', string $memberAlias = 'm'): string
     {
         $memberExpr = $memberAlias !== '' ? ($memberAlias . '.member_name') : "''";
@@ -2356,6 +2374,7 @@ class Pos_report_model extends CI_Model
 
         $placeholders = implode(',', array_fill(0, count($shiftIds), '?'));
         $params = array_merge($shiftIds, $shiftIds, $shiftIds);
+        $effectiveMutationFilter = $this->effective_account_mutation_sql_filter('ml');
         $sql = "
             SELECT
                 src.shift_id,
@@ -2380,6 +2399,7 @@ class Pos_report_model extends CI_Model
                 LEFT JOIN fin_company_account acc ON acc.id = ml.account_id
                 WHERE ml.ref_module = 'POS'
                   AND p.shift_id IN ($placeholders)
+                  $effectiveMutationFilter
 
                 UNION ALL
 
@@ -2396,6 +2416,7 @@ class Pos_report_model extends CI_Model
                 LEFT JOIN fin_company_account acc ON acc.id = ml.account_id
                 WHERE ml.ref_module = 'POS'
                   AND p.shift_id IN ($placeholders)
+                  $effectiveMutationFilter
 
                 UNION ALL
 
@@ -2413,6 +2434,7 @@ class Pos_report_model extends CI_Model
                 LEFT JOIN fin_company_account acc ON acc.id = ml.account_id
                 WHERE ml.ref_module = 'POS'
                   AND o.shift_id IN ($placeholders)
+                  $effectiveMutationFilter
             ) src
             GROUP BY src.shift_id, src.account_id
         ";

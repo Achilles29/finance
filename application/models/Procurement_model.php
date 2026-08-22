@@ -4047,6 +4047,7 @@ class Procurement_model extends CI_Model
 
         $this->load->model('Purchase_model');
         $this->load->library('MaterialFifoManager');
+        $this->load->library('InventoryMovementReversalService');
         $fifoReady = $this->materialfifomanager->ensureReady();
         if (!($fifoReady['ok'] ?? false)) {
             return $fifoReady;
@@ -4153,10 +4154,25 @@ class Procurement_model extends CI_Model
                 }
             }
 
-            $this->db
-                ->where('ref_table', 'pur_store_request_fulfillment')
-                ->where('ref_id', $fulfillmentId)
-                ->delete('inv_stock_movement_log');
+            if ($this->db->table_exists('inv_stock_movement_log')) {
+                $reversal = $this->inventorymovementreversalservice->reverseMaterialMovementsForSource(
+                    'pur_store_request_fulfillment',
+                    $fulfillmentId,
+                    [
+                        'movement_date' => $fulfillmentDate,
+                        'created_by' => $userId > 0 ? $userId : null,
+                        'notes' => $voidNote,
+                        'manage_transaction' => false,
+                        'allow_negative_balance' => true,
+                    ]
+                );
+                if (!($reversal['ok'] ?? false)) {
+                    return [
+                        'ok' => false,
+                        'message' => (string)($reversal['message'] ?? 'Gagal membuat movement pembalik fulfillment Store Request.'),
+                    ];
+                }
+            }
 
             $this->db
                 ->where('id', $fulfillmentId)

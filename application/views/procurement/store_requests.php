@@ -850,7 +850,7 @@ foreach ($lineRows as $lineRow) {
     });
     return html;
   }
-  function fetchJson(url, opts){ return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}; try{d=t?JSON.parse(t):{};}catch(e){d={};} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||('Request gagal ('+res.status+')'); } return d;}); }); }
+  function fetchJson(url, opts){ return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}, invalidJson=false; try{d=t?JSON.parse(t):{};}catch(e){d={};invalidJson=true;} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||(invalidJson ? 'Server gagal memproses permintaan. Muat ulang halaman lalu coba kembali.' : ('Request gagal ('+res.status+')')); } return d;}); }); }
   function uiConfirm(message, options){
     if(window.FinanceUI && typeof window.FinanceUI.confirm === 'function'){
       return window.FinanceUI.confirm(message, options || {});

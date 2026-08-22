@@ -496,8 +496,7 @@ if (!function_exists('finance_po_usage_purpose_from_notes')) {
             try {
                 parsed = JSON.parse(txt);
             } catch (e) {
-                var snippet = (txt || '').replace(/\s+/g, ' ').trim().slice(0, 180);
-                throw new Error('Respons server bukan JSON valid. ' + snippet);
+                throw new Error('Server gagal memproses perubahan status. Muat ulang halaman lalu coba lagi. Jika tetap berulang, periksa log server.');
             }
             return { status: response.status, json: parsed };
         });

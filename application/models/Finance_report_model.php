@@ -14,6 +14,26 @@ class Finance_report_model extends CI_Model
         return (bool)$this->tableFieldCache[$key];
     }
 
+    /**
+     * Hides both sides of a linked VOID/reversal from operational reports.
+     * Audit screens intentionally keep reading the raw mutation log.
+     */
+    private function apply_effective_account_mutation_filter($builder, string $alias = ''): void
+    {
+        if (!$this->table_has_field('fin_account_mutation_log', 'reversal_of_mutation_id')) {
+            return;
+        }
+
+        $base = $alias !== '' ? rtrim($alias, '.') . '.' : 'fin_account_mutation_log.';
+        $builder->where($base . 'reversal_of_mutation_id IS NULL', null, false)
+            ->where(
+                'NOT EXISTS (SELECT 1 FROM fin_account_mutation_log reversal '
+                . 'WHERE reversal.reversal_of_mutation_id = ' . $base . 'id)',
+                null,
+                false
+            );
+    }
+
     private function auth_user_display_expr(string $alias = 'u'): string
     {
         $parts = [];
@@ -98,11 +118,13 @@ class Finance_report_model extends CI_Model
         $dateStart = $month . '-01';
         $dateEnd = date('Y-m-t', strtotime($dateStart));
 
-        $dailyRows = $this->db->select("\n                mutation_date,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'IN'\n                     AND ref_module = 'POS'\n                     AND ref_table IN ('pos_payment', 'pos_payment_line')\n                    THEN amount ELSE 0 END), 0) AS pendapatan,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'IN'\n                     AND ref_module = 'FINANCE_TRANSFER'\n                    THEN amount ELSE 0 END), 0) AS rekening_masuk,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'OUT'\n                     AND ref_module = 'FINANCE_TRANSFER'\n                    THEN amount ELSE 0 END), 0) AS rekening_keluar,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'OUT'\n                     AND ref_module = 'POS'\n                     AND ref_table = 'pos_refund'\n                    THEN amount ELSE 0 END), 0) AS refund,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'OUT'\n                     AND ref_module = 'PURCHASE'\n                    THEN amount ELSE 0 END), 0) AS belanja,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'IN'\n                     AND NOT (\n                        ref_module = 'POS'\n                        AND ref_table IN ('pos_payment', 'pos_payment_line')\n                     )\n                     AND ref_module <> 'FINANCE_TRANSFER'\n                    THEN amount ELSE 0 END), 0) AS kas_masuk,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'OUT'\n                     AND ref_module <> 'FINANCE_TRANSFER'\n                     AND NOT (ref_module = 'POS' AND ref_table = 'pos_refund')\n                     AND ref_module <> 'PURCHASE'\n                    THEN amount ELSE 0 END), 0) AS kas_keluar\n            ", false)
+        $dailyQuery = $this->db->select("\n                mutation_date,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'IN'\n                     AND ref_module = 'POS'\n                     AND ref_table IN ('pos_payment', 'pos_payment_line')\n                    THEN amount ELSE 0 END), 0) AS pendapatan,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'IN'\n                     AND ref_module = 'FINANCE_TRANSFER'\n                    THEN amount ELSE 0 END), 0) AS rekening_masuk,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'OUT'\n                     AND ref_module = 'FINANCE_TRANSFER'\n                    THEN amount ELSE 0 END), 0) AS rekening_keluar,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'OUT'\n                     AND ref_module = 'POS'\n                     AND ref_table = 'pos_refund'\n                    THEN amount ELSE 0 END), 0) AS refund,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'OUT'\n                     AND ref_module = 'PURCHASE'\n                    THEN amount ELSE 0 END), 0) AS belanja,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'IN'\n                     AND NOT (\n                        ref_module = 'POS'\n                        AND ref_table IN ('pos_payment', 'pos_payment_line')\n                     )\n                     AND ref_module <> 'FINANCE_TRANSFER'\n                    THEN amount ELSE 0 END), 0) AS kas_masuk,\n                COALESCE(SUM(CASE\n                    WHEN mutation_type = 'OUT'\n                     AND ref_module <> 'FINANCE_TRANSFER'\n                     AND NOT (ref_module = 'POS' AND ref_table = 'pos_refund')\n                     AND ref_module <> 'PURCHASE'\n                    THEN amount ELSE 0 END), 0) AS kas_keluar\n            ", false)
             ->from('fin_account_mutation_log')
             ->where('account_id', $accountId)
             ->where('mutation_date >=', $dateStart)
-            ->where('mutation_date <=', $dateEnd)
+            ->where('mutation_date <=', $dateEnd);
+        $this->apply_effective_account_mutation_filter($dailyQuery);
+        $dailyRows = $dailyQuery
             ->group_by('mutation_date')
             ->order_by('mutation_date', 'ASC')
             ->get()
@@ -401,7 +423,7 @@ class Finance_report_model extends CI_Model
         $dailyMutationMap = [];
 
         if ($this->db->table_exists('fin_account_mutation_log')) {
-            $mutationRows = $this->db->select("
+            $mutationQuery = $this->db->select("
                     mutation_date,
                     COALESCE(SUM(CASE
                         WHEN ref_module = 'POS'
@@ -420,7 +442,9 @@ class Finance_report_model extends CI_Model
                 ", false)
                 ->from('fin_account_mutation_log')
                 ->where('mutation_date >=', $dateStart)
-                ->where('mutation_date <=', $dateEnd)
+                ->where('mutation_date <=', $dateEnd);
+            $this->apply_effective_account_mutation_filter($mutationQuery);
+            $mutationRows = $mutationQuery
                 ->group_by('mutation_date')
                 ->order_by('mutation_date', 'ASC')
                 ->get()->result_array();
@@ -972,6 +996,7 @@ class Finance_report_model extends CI_Model
             ->from('fin_account_mutation_log')
             ->where('mutation_date >=', $dateStart)
             ->where('mutation_date <=', $dateEnd);
+        $this->apply_effective_account_mutation_filter($db);
 
         if (!empty($accountIds)) {
             $db->where_in('account_id', $accountIds);
@@ -1020,6 +1045,7 @@ class Finance_report_model extends CI_Model
             ->from('fin_account_mutation_log')
             ->where('mutation_date >=', $dateStart)
             ->where('mutation_date <=', $dateEnd);
+        $this->apply_effective_account_mutation_filter($db);
 
         if ($accountId > 0) {
             $db->where('account_id', $accountId);
@@ -1330,6 +1356,7 @@ class Finance_report_model extends CI_Model
             ->from('fin_account_mutation_log')
             ->where('mutation_date >=', $dateStart)
             ->where('mutation_date <=', $dateEnd);
+        $this->apply_effective_account_mutation_filter($db);
 
         if (!empty($accountIds)) {
             $db->where_in('account_id', $accountIds);
@@ -1388,10 +1415,12 @@ class Finance_report_model extends CI_Model
 
     private function opening_balance_for_month(int $accountId, string $dateStart, float $baseOpening): float
     {
-        $movement = $this->db->select("COALESCE(SUM(CASE WHEN mutation_type = 'IN' THEN amount ELSE -amount END), 0) AS net_movement", false)
+        $movementQuery = $this->db->select("COALESCE(SUM(CASE WHEN mutation_type = 'IN' THEN amount ELSE -amount END), 0) AS net_movement", false)
             ->from('fin_account_mutation_log')
             ->where('account_id', $accountId)
-            ->where('mutation_date <', $dateStart)
+            ->where('mutation_date <', $dateStart);
+        $this->apply_effective_account_mutation_filter($movementQuery);
+        $movement = $movementQuery
             ->get()
             ->row_array();
 
@@ -2069,14 +2098,16 @@ class Finance_report_model extends CI_Model
             !empty(array_intersect($metricCodes, ['POS_REVENUE', 'POS_REFUND', 'PAYROLL_DISBURSED']))
             && $this->db->table_exists('fin_account_mutation_log')
         ) {
-            $row = $this->db->select("
+            $mutationQuery = $this->db->select("
                     COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS pos_revenue,
                     COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS pos_refund,
                     COALESCE(SUM(CASE WHEN ref_module = 'PAYROLL' AND ref_table = 'pay_salary_disbursement' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS payroll_disbursed
                 ", false)
                 ->from('fin_account_mutation_log')
                 ->where('mutation_date >=', $dateStart)
-                ->where('mutation_date <=', $dateEnd)
+                ->where('mutation_date <=', $dateEnd);
+            $this->apply_effective_account_mutation_filter($mutationQuery);
+            $row = $mutationQuery
                 ->get()->row_array();
 
             $this->metric_add($bucket, 'GLOBAL', 0, 'REVENUE', 'POS_REVENUE', 'Omzet POS', (float)($row['pos_revenue'] ?? 0), 0, 'fin_account_mutation_log', 'Akumulasi mutasi masuk POS');
@@ -2207,7 +2238,7 @@ class Finance_report_model extends CI_Model
             return [];
         }
 
-        $rows = $this->db->select("
+        $mutationQuery = $this->db->select("
                 mutation_date,
                 COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS pos_revenue,
                 COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS pos_refund,
@@ -2215,7 +2246,9 @@ class Finance_report_model extends CI_Model
             ", false)
             ->from('fin_account_mutation_log')
             ->where('mutation_date >=', $dateStart)
-            ->where('mutation_date <=', $dateEnd)
+            ->where('mutation_date <=', $dateEnd);
+        $this->apply_effective_account_mutation_filter($mutationQuery);
+        $rows = $mutationQuery
             ->group_by('mutation_date')
             ->order_by('mutation_date', 'ASC')
             ->get()->result_array();
@@ -3658,14 +3691,16 @@ class Finance_report_model extends CI_Model
         $this->metric_add($bucket, 'GLOBAL', 0, 'EXPOSURE', 'CASH_ADVANCE_OUTSTANDING', 'Kasbon Outstanding', $cashAdvanceTotal, 0, 'snapshot_global', 'Akumulasi kasbon outstanding');
 
         if ($this->db->table_exists('fin_account_mutation_log')) {
-            $row = $this->db->select("
+            $mutationQuery = $this->db->select("
                     COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'IN' THEN amount ELSE 0 END), 0) AS pos_revenue,
                     COALESCE(SUM(CASE WHEN ref_module = 'POS' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS pos_refund,
                     COALESCE(SUM(CASE WHEN ref_module = 'PAYROLL' AND ref_table = 'pay_salary_disbursement' AND mutation_type = 'OUT' THEN amount ELSE 0 END), 0) AS payroll_disbursed
                 ", false)
                 ->from('fin_account_mutation_log')
                 ->where('mutation_date >=', $dateStart)
-                ->where('mutation_date <=', $dateEnd)
+                ->where('mutation_date <=', $dateEnd);
+            $this->apply_effective_account_mutation_filter($mutationQuery);
+            $row = $mutationQuery
                 ->get()->row_array();
 
             $this->metric_add($bucket, 'GLOBAL', 0, 'REVENUE', 'POS_REVENUE', 'Omzet POS', (float)($row['pos_revenue'] ?? 0), 0, 'fin_account_mutation_log', 'Akumulasi mutasi masuk POS');
@@ -4166,7 +4201,7 @@ class Finance_report_model extends CI_Model
         $netRevenue = 0.0;
         $expenseTotal = 0.0;
         if ($this->db->table_exists('fin_account_mutation_log')) {
-            $row = $this->db->select("
+            $mutationQuery = $this->db->select("
                     COALESCE(SUM(CASE
                         WHEN ref_module = 'POS'
                          AND mutation_type = 'IN'
@@ -4184,7 +4219,9 @@ class Finance_report_model extends CI_Model
                 ", false)
                 ->from('fin_account_mutation_log')
                 ->where('mutation_date >=', $dateStart)
-                ->where('mutation_date <=', $dateEnd)
+                ->where('mutation_date <=', $dateEnd);
+            $this->apply_effective_account_mutation_filter($mutationQuery);
+            $row = $mutationQuery
                 ->get()->row_array();
 
             $netRevenue = round((float)($row['sales_total'] ?? 0) - (float)($row['refund_total'] ?? 0), 2);
@@ -4318,6 +4355,7 @@ class Finance_report_model extends CI_Model
             ->from('fin_account_mutation_log')
             ->where('mutation_date >=', $dateStart)
             ->where('mutation_date <=', $dateEnd);
+        $this->apply_effective_account_mutation_filter($db);
 
         if (!empty($accountIds)) {
             $db->where_in('account_id', $accountIds);

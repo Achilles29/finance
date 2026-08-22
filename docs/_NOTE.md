@@ -346,3 +346,14 @@ modifikasi /inventory/stock/health berikan tab semua, gudang, component, bahan b
   * * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100
 
   cron untuk semua halaman yang butuh cron. kamu cek semua
+  cek semua halaman yang dobel
+buatkan halaman analisa dan saran dan tampilkan di dashboard, di atas Stok Produk Live POS.
+datanya menganalisa bahan baku yang menumpuk yang merupakan component base/prepare tapi stok base / prepare tersebut kritis atau kosong.
+misal stok Prepare DIMSUM FILL kosong. di formulanya ada ayam, sementara stok ayam di kitchen menumpuk banyak. maka berikan warning / analisa / dan saran untuk memproses DIMSUM FILL
+
+
+
+  Refactor void/reversal movement.
+Pindahkan sisa runtime schema ke migration.
+Tambahkan heartbeat cron dan audit otomatis bulan aktif.
+Buat pengujian integrasi otomatis, lalu lakukan UAT manual akhir.

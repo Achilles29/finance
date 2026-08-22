@@ -998,6 +998,19 @@ class ComponentStockWriter
         $qtyOut = $isIn ? 0.0 : $qty;
         $unitCost = round((float)($p['unit_cost'] ?? 0), 6);
         $totalCost = round($qty * $unitCost, 2);
+        $reversalOriginType = strtoupper(trim((string)($p['reversal_of_movement_type'] ?? '')));
+        if ($reversalOriginType === ''
+            && !empty($p['reversal_of_movement_id'])
+            && $this->ci->db->field_exists('reversal_of_movement_id', 'inv_component_movement_log')) {
+            $origin = $this->ci->db
+                ->select('movement_type')
+                ->from('inv_component_movement_log')
+                ->where('id', (int)$p['reversal_of_movement_id'])
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $reversalOriginType = strtoupper(trim((string)($origin['movement_type'] ?? '')));
+        }
 
         $authoritativeBalance = $this->load_balance_state(
             (string)$p['location_type'],
@@ -1034,7 +1047,7 @@ class ComponentStockWriter
 
         $now = date('Y-m-d H:i:s');
 
-        $this->ci->db->insert('inv_component_movement_log', [
+        $movementData = [
             'movement_no' => $this->generate_movement_no((string)$p['movement_date']),
             'movement_date' => $p['movement_date'],
             'movement_datetime' => $p['movement_date'] . ' ' . date('H:i:s'),
@@ -1056,7 +1069,13 @@ class ComponentStockWriter
             'notes' => $p['notes'] !== '' ? $p['notes'] : null,
             'created_by' => $p['actor_employee_id'] > 0 ? (int)$p['actor_employee_id'] : null,
             'created_at' => $now,
-        ]);
+        ];
+        if ($this->ci->db->field_exists('reversal_of_movement_id', 'inv_component_movement_log')) {
+            $movementData['reversal_of_movement_id'] = !empty($p['reversal_of_movement_id'])
+                ? (int)$p['reversal_of_movement_id']
+                : null;
+        }
+        $this->ci->db->insert('inv_component_movement_log', $movementData);
 
         $this->sync_monthly_stock([
             'movement_date' => (string)$p['movement_date'],
@@ -1071,6 +1090,7 @@ class ComponentStockWriter
             'source_table' => (string)($p['source_table'] ?? ''),
             'source_id' => isset($p['source_id']) ? (int)$p['source_id'] : null,
             'notes' => $p['notes'] ?? '',
+            'reversal_of_movement_type' => $reversalOriginType,
         ], $qtyBefore, $qtyAfter, $avgAfter, $valueAfter);
 
     }
@@ -1089,6 +1109,7 @@ class ComponentStockWriter
         $movementType = strtoupper(trim((string)($movement['movement_type'] ?? '')));
         $qtyIn = round((float)($movement['qty_in'] ?? 0), 4);
         $qtyOut = round((float)($movement['qty_out'] ?? 0), 4);
+        $reversalOriginType = strtoupper(trim((string)($movement['reversal_of_movement_type'] ?? '')));
         if ($movementDate === '' || $componentId <= 0 || $uomId <= 0 || $locationType === '') {
             return;
         }
@@ -1164,14 +1185,45 @@ class ComponentStockWriter
                 $data['spoil_total_value'] = round((float)$data['spoil_total_value'] + $movementValue, 2);
                 break;
             case 'ADJUSTMENT_PLUS':
-            case 'VOID_REVERSE':
                 $data['adjustment_plus_qty'] = round((float)$data['adjustment_plus_qty'] + $qtyIn, 4);
                 $data['adjustment_plus_total_value'] = round((float)$data['adjustment_plus_total_value'] + $movementValue, 2);
                 break;
             case 'ADJUSTMENT_MINUS':
-            case 'VOID_OUT':
                 $data['adjustment_minus_qty'] = round((float)$data['adjustment_minus_qty'] + $qtyOut, 4);
                 $data['adjustment_minus_total_value'] = round((float)$data['adjustment_minus_total_value'] + $movementValue, 2);
+                break;
+            case 'VOID_REVERSE':
+                if (in_array($reversalOriginType, ['PRODUCTION_OUT', 'TRANSFER_OUT', 'USAGE'], true)) {
+                    $data['out_qty'] = round((float)$data['out_qty'] - $qtyIn, 4);
+                    $data['out_total_value'] = round((float)$data['out_total_value'] - $movementValue, 2);
+                } elseif ($reversalOriginType === 'WASTE') {
+                    $data['waste_qty'] = round((float)$data['waste_qty'] - $qtyIn, 4);
+                    $data['waste_total_value'] = round((float)$data['waste_total_value'] - $movementValue, 2);
+                } elseif ($reversalOriginType === 'SPOIL') {
+                    $data['spoil_qty'] = round((float)$data['spoil_qty'] - $qtyIn, 4);
+                    $data['spoil_total_value'] = round((float)$data['spoil_total_value'] - $movementValue, 2);
+                } elseif ($reversalOriginType === 'ADJUSTMENT_MINUS') {
+                    $data['adjustment_minus_qty'] = round((float)$data['adjustment_minus_qty'] - $qtyIn, 4);
+                    $data['adjustment_minus_total_value'] = round((float)$data['adjustment_minus_total_value'] - $movementValue, 2);
+                } elseif (in_array($reversalOriginType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
+                    $data['in_qty'] = round((float)$data['in_qty'] - $qtyIn, 4);
+                    $data['in_total_value'] = round((float)$data['in_total_value'] - $movementValue, 2);
+                } else {
+                    $data['adjustment_plus_qty'] = round((float)$data['adjustment_plus_qty'] + $qtyIn, 4);
+                    $data['adjustment_plus_total_value'] = round((float)$data['adjustment_plus_total_value'] + $movementValue, 2);
+                }
+                break;
+            case 'VOID_OUT':
+                if (in_array($reversalOriginType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
+                    $data['in_qty'] = round((float)$data['in_qty'] - $qtyOut, 4);
+                    $data['in_total_value'] = round((float)$data['in_total_value'] - $movementValue, 2);
+                } elseif ($reversalOriginType === 'ADJUSTMENT_PLUS') {
+                    $data['adjustment_plus_qty'] = round((float)$data['adjustment_plus_qty'] - $qtyOut, 4);
+                    $data['adjustment_plus_total_value'] = round((float)$data['adjustment_plus_total_value'] - $movementValue, 2);
+                } else {
+                    $data['adjustment_minus_qty'] = round((float)$data['adjustment_minus_qty'] + $qtyOut, 4);
+                    $data['adjustment_minus_total_value'] = round((float)$data['adjustment_minus_total_value'] + $movementValue, 2);
+                }
                 break;
         }
 

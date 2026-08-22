@@ -179,10 +179,13 @@ foreach ($lines as $ln) {
     return fetch(url, opts).then(function(res){
       return res.text().then(function(t){
         var d = {};
-        try { d = t ? JSON.parse(t) : {}; } catch (e) { d = {}; }
+        var invalidJson = false;
+        try { d = t ? JSON.parse(t) : {}; } catch (e) { d = {}; invalidJson = true; }
         if (!res.ok && !d.ok) {
           d.ok = false;
-          d.message = d.message || ('Request gagal (' + res.status + ')');
+          d.message = d.message || (invalidJson
+            ? 'Server gagal memproses permintaan. Muat ulang halaman lalu coba kembali.'
+            : ('Request gagal (' + res.status + ')'));
         }
         return d;
       });

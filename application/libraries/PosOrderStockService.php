@@ -687,7 +687,9 @@ class PosOrderStockService
                 $issueData,
                 $divisionId,
                 $destinationType,
-                (array)($rollback['data']['allocations'] ?? [])
+                (array)($rollback['data']['allocations'] ?? []),
+                $meta,
+                $movementDate
             );
             if (!($movementRollback['ok'] ?? false)) {
                 if ($this->is_missing_rollback_movement_message((string)($movementRollback['message'] ?? ''))) {
@@ -706,7 +708,18 @@ class PosOrderStockService
 
         if ($movementRefType === 'LEDGER_MOVEMENT' && !empty($line['movement_ref_id'])) {
             $identity = $this->infer_material_identity($line, $divisionId, $destinationType);
-            $rollback = $this->rollback_material_aggregate_movement((int)($line['movement_ref_id'] ?? 0), $reverseQty);
+            $rollback = $this->rollback_material_aggregate_movement(
+                (int)($line['movement_ref_id'] ?? 0),
+                $reverseQty,
+                [
+                    'movement_date' => $movementDate,
+                    'reversal_ref_table' => 'pos_stock_commit_reversal',
+                    'reversal_ref_id' => (int)($header['id'] ?? 0),
+                    'notes' => (string)($meta['notes'] ?? 'Void/refund POS'),
+                    'created_by' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : null,
+                    'skip_availability_refresh' => true,
+                ]
+            );
             if (!($rollback['ok'] ?? false)) {
                 if ($this->is_missing_rollback_movement_message((string)($rollback['message'] ?? ''))) {
                     return $this->post_material_rollback_fallback($header, $line, $reverseQty, $meta, 'Aggregate rollback fallback: movement usage lama tidak ditemukan.');
@@ -732,11 +745,11 @@ class PosOrderStockService
         $qtyBuyAbs = $this->resolve_buy_qty_from_profile($reverseQty, (float)($identity['profile_content_per_buy'] ?? 0));
         return $this->ci->inventoryledger->post([
             'movement_scope' => 'DIVISION',
-            'movement_date' => date('Y-m-d'),
+            'movement_date' => $movementDate,
             'movement_type' => 'VOID_REVERSE',
             'division_id' => $divisionId,
             'destination_type' => $destinationType,
-            'ref_table' => 'pos_stock_commit',
+            'ref_table' => 'pos_stock_commit_reversal',
             'ref_id' => (int)($header['id'] ?? 0),
             'item_id' => $identity['item_id'],
             'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
@@ -758,6 +771,7 @@ class PosOrderStockService
             'notes' => 'POS return to stock aggregate reversal.',
             'created_by' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : null,
             'manage_transaction' => false,
+            'skip_availability_refresh' => true,
         ]);
     }
 
@@ -989,6 +1003,11 @@ class PosOrderStockService
                     'uom_id' => (int)($line['required_uom_id'] ?? 0),
                     'location_type' => $locationType,
                     'division_id' => $divisionId,
+                    'movement_date' => $movementDate,
+                    'reversal_source_table' => 'pos_stock_commit_reversal',
+                    'reversal_source_id' => (int)($header['id'] ?? 0),
+                    'notes' => (string)($meta['notes'] ?? 'Void/refund POS'),
+                    'actor_employee_id' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0,
                 ]
             );
             if (!($movementRollback['ok'] ?? false)) {
@@ -1016,7 +1035,7 @@ class PosOrderStockService
             'qty' => $reverseQty,
             'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
             'source_module' => 'POS',
-            'source_table' => 'pos_stock_commit',
+            'source_table' => 'pos_stock_commit_reversal',
             'source_id' => (int)($header['id'] ?? 0),
             'source_line_id' => (int)($line['id'] ?? 0),
             'notes' => 'POS return to stock component reversal.',
@@ -1030,7 +1049,7 @@ class PosOrderStockService
         return $this->rebuild_component_history_after_pos_rollback($line, $locationType, $divisionId);
     }
 
-    private function apply_material_fifo_usage_rollback_to_movements(array $header, array $line, array $issueData, int $divisionId, string $destinationType, array $allocations): array
+    private function apply_material_fifo_usage_rollback_to_movements(array $header, array $line, array $issueData, int $divisionId, string $destinationType, array $allocations, array $meta, string $movementDate): array
     {
         if (!$this->ci->db->table_exists('inv_stock_movement_log') || empty($allocations)) {
             return ['ok' => true];
@@ -1061,6 +1080,11 @@ class PosOrderStockService
                 'qty_content_delta' => -1 * (float)($snapshot['qty_content_delta_abs'] ?? 0),
                 'qty_rollback' => (float)($allocation['qty_rolled'] ?? 0),
                 'notes_like' => 'POS usage FIFO lot %',
+                'movement_date' => $movementDate,
+                'reversal_ref_table' => 'pos_stock_commit_reversal',
+                'reversal_ref_id' => (int)($header['id'] ?? 0),
+                'notes' => (string)($meta['notes'] ?? 'Void/refund POS'),
+                'created_by' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : null,
             ]);
             if (!($usageAdjusted['ok'] ?? false)) {
                 return ['ok' => false, 'message' => 'Movement log usage material POS tidak ditemukan saat rollback.'];
@@ -1135,35 +1159,33 @@ class PosOrderStockService
         }
 
         $movementId = (int)($movementRow['id'] ?? 0);
-        $currentQtyContent = round((float)($movementRow['qty_content_delta'] ?? 0), 4);
-        $currentQtyBuy = round((float)($movementRow['qty_buy_delta'] ?? 0), 4);
-        $availableQty = abs($currentQtyContent);
-        if ($movementId <= 0 || $availableQty <= 0) {
+        if ($movementId <= 0) {
             return ['ok' => false, 'message' => 'Movement usage bahan baku tidak valid untuk rollback.'];
         }
 
-        $effectiveRollback = round(min($availableQty, $qtyRollback), 4);
-        $newQtyContent = round($currentQtyContent + $effectiveRollback, 4);
-        $ratio = $availableQty > 0 ? max(0, abs($newQtyContent) / $availableQty) : 0.0;
-        $newQtyBuy = round($currentQtyBuy * $ratio, 4);
-
-        if (abs($newQtyContent) <= 0.0001 && abs($newQtyBuy) <= 0.0001) {
-            $this->ci->db->where('id', $movementId)->delete('inv_stock_movement_log');
-        } else {
-            $this->ci->db->where('id', $movementId)->update('inv_stock_movement_log', [
-                'qty_buy_delta' => $newQtyBuy,
-                'qty_content_delta' => $newQtyContent,
-            ]);
+        $this->ci->load->library('InventoryMovementReversalService');
+        $reverse = $this->ci->inventorymovementreversalservice->reverseMaterialMovementRow(
+            $movementRow,
+            [
+                'qty_content' => $qtyRollback,
+                'movement_date' => (string)($ctx['movement_date'] ?? date('Y-m-d')),
+                'reversal_ref_table' => (string)($ctx['reversal_ref_table'] ?? 'pos_stock_commit_reversal'),
+                'reversal_ref_id' => (int)($ctx['reversal_ref_id'] ?? $headerId),
+                'notes' => (string)($ctx['notes'] ?? 'Void/refund POS'),
+                'created_by' => !empty($ctx['created_by']) ? (int)$ctx['created_by'] : null,
+                'manage_transaction' => false,
+                'skip_availability_refresh' => true,
+                'allow_negative_balance' => true,
+            ]
+        );
+        if (!($reverse['ok'] ?? false)) {
+            return $reverse;
         }
 
-        if ($this->ci->db->trans_status() === false) {
-            return ['ok' => false, 'message' => 'Gagal menyesuaikan movement usage bahan baku.'];
-        }
-
-        return ['ok' => true, 'data' => ['movement_id' => $movementId]];
+        return ['ok' => true, 'data' => (array)($reverse['data'] ?? ['movement_id' => $movementId])];
     }
 
-    private function rollback_material_aggregate_movement(int $movementId, float $reverseQty): array
+    private function rollback_material_aggregate_movement(int $movementId, float $reverseQty, array $options = []): array
     {
         if ($movementId <= 0 || !$this->ci->db->table_exists('inv_stock_movement_log')) {
             return ['ok' => true];
@@ -1174,32 +1196,12 @@ class PosOrderStockService
             return ['ok' => false, 'message' => 'Movement bahan baku tidak ditemukan untuk rollback.'];
         }
 
-        $currentQtyContent = round((float)($row['qty_content_delta'] ?? 0), 4);
-        $currentQtyBuy = round((float)($row['qty_buy_delta'] ?? 0), 4);
-        $availableQty = abs($currentQtyContent);
-        $effectiveRollback = round(min($availableQty, max(0, $reverseQty)), 4);
-        if ($effectiveRollback <= 0) {
-            return ['ok' => true];
-        }
-
-        $newQtyContent = round($currentQtyContent + $effectiveRollback, 4);
-        $ratio = $availableQty > 0 ? max(0, abs($newQtyContent) / $availableQty) : 0.0;
-        $newQtyBuy = round($currentQtyBuy * $ratio, 4);
-
-        if (abs($newQtyContent) <= 0.0001 && abs($newQtyBuy) <= 0.0001) {
-            $this->ci->db->where('id', $movementId)->delete('inv_stock_movement_log');
-        } else {
-            $this->ci->db->where('id', $movementId)->update('inv_stock_movement_log', [
-                'qty_buy_delta' => $newQtyBuy,
-                'qty_content_delta' => $newQtyContent,
-            ]);
-        }
-
-        if ($this->ci->db->trans_status() === false) {
-            return ['ok' => false, 'message' => 'Gagal rollback movement bahan baku.'];
-        }
-
-        return ['ok' => true];
+        $this->ci->load->library('InventoryMovementReversalService');
+        return $this->ci->inventorymovementreversalservice->reverseMaterialMovementRow($row, $options + [
+            'qty_content' => $reverseQty,
+            'manage_transaction' => false,
+            'allow_negative_balance' => true,
+        ]);
     }
 
     private function rollback_component_usage_movement(int $commitId, int $commitLineId, float $reverseQty, int $movementId = 0, array $fallbackContext = []): array
@@ -1258,29 +1260,61 @@ class PosOrderStockService
             return ['ok' => false, 'message' => 'Movement komponen tidak ditemukan untuk rollback.'];
         }
 
+        $movementRowId = (int)($row['id'] ?? 0);
         $currentQtyOut = round((float)($row['qty_out'] ?? 0), 4);
-        $effectiveRollback = round(min($currentQtyOut, max(0, $reverseQty)), 4);
+        if ($movementRowId <= 0 || $currentQtyOut <= 0.0001) {
+            return ['ok' => false, 'message' => 'Movement komponen tidak valid untuk rollback.'];
+        }
+
+        $alreadyReversed = 0.0;
+        if ($this->ci->db->field_exists('reversal_of_movement_id', 'inv_component_movement_log')) {
+            $reversalRow = $this->ci->db
+                ->select('COALESCE(SUM(qty_in), 0) AS total_qty', false)
+                ->from('inv_component_movement_log')
+                ->where('reversal_of_movement_id', $movementRowId)
+                ->where('movement_type', 'VOID_REVERSE')
+                ->get()
+                ->row_array();
+            $alreadyReversed = round((float)($reversalRow['total_qty'] ?? 0), 4);
+        } else {
+            return [
+                'ok' => false,
+                'message' => 'Schema reversal component belum siap. Jalankan migration 2026-08-22a_inventory_void_reversal_movement_link_foundation.sql terlebih dahulu.',
+            ];
+        }
+
+        $availableRollback = round(max(0, $currentQtyOut - $alreadyReversed), 4);
+        $effectiveRollback = round(min($availableRollback, max(0, $reverseQty)), 4);
         if ($effectiveRollback <= 0) {
             return ['ok' => true];
         }
 
-        $newQtyOut = round($currentQtyOut - $effectiveRollback, 4);
-        $movementRowId = (int)($row['id'] ?? 0);
-        if ($newQtyOut <= 0.0001) {
-            $this->ci->db->where('id', $movementRowId)->delete('inv_component_movement_log');
-        } else {
-            $unitCost = round((float)($row['unit_cost'] ?? 0), 6);
-            $this->ci->db->where('id', $movementRowId)->update('inv_component_movement_log', [
-                'qty_out' => $newQtyOut,
-                'total_cost' => round($newQtyOut * $unitCost, 2),
-            ]);
+        $unitCost = round((float)($row['unit_cost'] ?? 0), 6);
+        $reverse = $this->post_component_aggregate_movement([
+            'movement_date' => (string)($fallbackContext['movement_date'] ?? date('Y-m-d')),
+            'location_type' => (string)($row['location_type'] ?? ($fallbackContext['location_type'] ?? '')),
+            'division_id' => array_key_exists('division_id', $row) ? $row['division_id'] : ($fallbackContext['division_id'] ?? null),
+            'component_id' => (int)($row['component_id'] ?? ($fallbackContext['component_id'] ?? 0)),
+            'uom_id' => (int)($row['uom_id'] ?? ($fallbackContext['uom_id'] ?? 0)),
+            'movement_type' => 'VOID_REVERSE',
+            'qty' => $effectiveRollback,
+            'unit_cost' => $unitCost,
+            'source_module' => 'POS',
+            'source_table' => (string)($fallbackContext['reversal_source_table'] ?? 'pos_stock_commit_reversal'),
+            'source_id' => (int)($fallbackContext['reversal_source_id'] ?? $commitId),
+            'source_line_id' => $commitLineId > 0 ? $commitLineId : null,
+            'reversal_of_movement_id' => $movementRowId,
+            'reversal_of_movement_type' => (string)($row['movement_type'] ?? 'USAGE'),
+            'movement_value_override' => round($effectiveRollback * $unitCost, 2),
+            'notes' => trim((string)($fallbackContext['notes'] ?? 'Void/refund POS')) . ' | reverse component movement #' . $movementRowId,
+            'actor_employee_id' => !empty($fallbackContext['actor_employee_id']) ? (int)$fallbackContext['actor_employee_id'] : 0,
+            'allow_negative' => true,
+        ]);
+        if (!($reverse['ok'] ?? false)) {
+            return $reverse;
         }
 
-        if ($this->ci->db->trans_status() === false) {
-            return ['ok' => false, 'message' => 'Gagal rollback movement komponen.'];
-        }
-
-        return ['ok' => true];
+        return ['ok' => true, 'data' => ['movement_id' => (int)($reverse['movement_id'] ?? 0)]];
     }
 
     private function rebuild_material_histories_after_pos_rollback(array $issueData, array $line, int $divisionId, string $destinationType, string $movementDate): array
@@ -1795,7 +1829,7 @@ class PosOrderStockService
         $now = date('Y-m-d H:i:s');
 
         $movementNo = $this->generate_component_movement_no((string)$p['movement_date']);
-        $this->ci->db->insert('inv_component_movement_log', [
+        $movementData = [
             'movement_no' => $movementNo,
             'movement_date' => (string)$p['movement_date'],
             'movement_datetime' => $now,
@@ -1815,7 +1849,13 @@ class PosOrderStockService
             'notes' => !empty($p['notes']) ? (string)$p['notes'] : null,
             'created_by' => !empty($p['actor_employee_id']) ? (int)$p['actor_employee_id'] : null,
             'created_at' => $now,
-        ]);
+        ];
+        if ($this->ci->db->field_exists('reversal_of_movement_id', 'inv_component_movement_log')) {
+            $movementData['reversal_of_movement_id'] = !empty($p['reversal_of_movement_id'])
+                ? (int)$p['reversal_of_movement_id']
+                : null;
+        }
+        $this->ci->db->insert('inv_component_movement_log', $movementData);
         $movementId = (int)$this->ci->db->insert_id();
 
         $this->sync_component_monthly_stock([
@@ -1835,6 +1875,10 @@ class PosOrderStockService
             'source_table' => (string)($p['source_table'] ?? 'pos_stock_commit'),
             'source_id' => !empty($p['source_id']) ? (int)$p['source_id'] : null,
             'notes' => !empty($p['notes']) ? (string)$p['notes'] : null,
+            'reversal_of_movement_type' => (string)($p['reversal_of_movement_type'] ?? ''),
+            'movement_value_override' => array_key_exists('movement_value_override', $p)
+                ? (float)$p['movement_value_override']
+                : null,
         ]);
 
         return ['ok' => true, 'movement_id' => $movementId, 'movement_no' => $movementNo];
@@ -1859,7 +1903,10 @@ class PosOrderStockService
         )->row_array();
 
         $movementType = strtoupper((string)$ctx['movement_type']);
-        $movementValue = round(((float)($ctx['qty_in'] ?? 0) > 0 ? (float)($ctx['qty_in'] ?? 0) : (float)($ctx['qty_out'] ?? 0)) * max((float)($ctx['avg_after'] ?? 0), 0), 2);
+        $movementValue = array_key_exists('movement_value_override', $ctx) && $ctx['movement_value_override'] !== null
+            ? round((float)$ctx['movement_value_override'], 2)
+            : round(((float)($ctx['qty_in'] ?? 0) > 0 ? (float)($ctx['qty_in'] ?? 0) : (float)($ctx['qty_out'] ?? 0)) * max((float)($ctx['avg_after'] ?? 0), 0), 2);
+        $reversalOriginType = strtoupper(trim((string)($ctx['reversal_of_movement_type'] ?? '')));
         $movementDate = (string)$ctx['movement_date'];
         $movementDayCount = (int)($row['movement_day_count'] ?? 0);
         if ($row === null || (string)($row['last_movement_date'] ?? '') !== $movementDate) {
@@ -1903,7 +1950,28 @@ class PosOrderStockService
 
         if ($movementType === 'OPENING') {
             $data['opening_total_value'] = round((float)$data['opening_total_value'] + $movementValue, 2);
-        } elseif (in_array($movementType, ['PRODUCTION_IN', 'TRANSFER_IN', 'VOID_REVERSE'], true)) {
+        } elseif (in_array($movementType, ['VOID_REVERSE', 'VOID_OUT'], true)) {
+            // A reversal cancels the original activity bucket instead of becoming an adjustment.
+            if (in_array($reversalOriginType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
+                $data['in_qty'] = round((float)$data['in_qty'] - (float)($ctx['qty_out'] ?? 0), 4);
+                $data['in_total_value'] = round((float)$data['in_total_value'] - $movementValue, 2);
+            } elseif (in_array($reversalOriginType, ['USAGE', 'PRODUCTION_OUT', 'TRANSFER_OUT'], true)) {
+                $data['out_qty'] = round((float)$data['out_qty'] - (float)($ctx['qty_in'] ?? 0), 4);
+                $data['out_total_value'] = round((float)$data['out_total_value'] - $movementValue, 2);
+            } elseif ($reversalOriginType === 'WASTE') {
+                $data['waste_qty'] = round((float)$data['waste_qty'] - (float)($ctx['qty_in'] ?? 0), 4);
+                $data['waste_total_value'] = round((float)$data['waste_total_value'] - $movementValue, 2);
+            } elseif ($reversalOriginType === 'SPOIL') {
+                $data['spoil_qty'] = round((float)$data['spoil_qty'] - (float)($ctx['qty_in'] ?? 0), 4);
+                $data['spoil_total_value'] = round((float)$data['spoil_total_value'] - $movementValue, 2);
+            } elseif ($reversalOriginType === 'ADJUSTMENT_PLUS') {
+                $data['adjustment_plus_qty'] = round((float)$data['adjustment_plus_qty'] - (float)($ctx['qty_out'] ?? 0), 4);
+                $data['adjustment_plus_total_value'] = round((float)$data['adjustment_plus_total_value'] - $movementValue, 2);
+            } elseif ($reversalOriginType === 'ADJUSTMENT_MINUS') {
+                $data['adjustment_minus_qty'] = round((float)$data['adjustment_minus_qty'] - (float)($ctx['qty_in'] ?? 0), 4);
+                $data['adjustment_minus_total_value'] = round((float)$data['adjustment_minus_total_value'] - $movementValue, 2);
+            }
+        } elseif (in_array($movementType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
             $data['in_qty'] = round((float)$data['in_qty'] + (float)($ctx['qty_in'] ?? 0), 4);
             $data['in_total_value'] = round((float)$data['in_total_value'] + $movementValue, 2);
         } elseif (in_array($movementType, ['USAGE', 'PRODUCTION_OUT', 'TRANSFER_OUT'], true)) {
@@ -2851,7 +2919,7 @@ class PosOrderStockService
             'movement_type' => 'VOID_REVERSE',
             'division_id' => $divisionId,
             'destination_type' => $destinationType,
-            'ref_table' => 'pos_stock_commit',
+            'ref_table' => 'pos_stock_commit_reversal',
             'ref_id' => (int)($header['id'] ?? 0),
             'item_id' => $identity['item_id'],
             'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
@@ -2873,6 +2941,7 @@ class PosOrderStockService
             'notes' => 'POS rollback fallback aggregate reversal. ' . $reason,
             'created_by' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : null,
             'manage_transaction' => false,
+            'skip_availability_refresh' => true,
         ]);
         if (!($post['ok'] ?? false)) {
             return $post;
@@ -2957,7 +3026,7 @@ class PosOrderStockService
             'lot_no' => $lotNo,
             'receipt_date' => $movementDate,
             'source_module' => 'POS',
-            'source_table' => 'pos_stock_commit',
+            'source_table' => 'pos_stock_commit_reversal',
             'source_id' => $commitId > 0 ? $commitId : null,
             'source_line_id' => $commitLineId > 0 ? $commitLineId : null,
         ]);
@@ -2987,7 +3056,7 @@ class PosOrderStockService
             'qty' => $reverseQty,
             'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
             'source_module' => 'POS',
-            'source_table' => 'pos_stock_commit',
+            'source_table' => 'pos_stock_commit_reversal',
             'source_id' => (int)($header['id'] ?? 0),
             'source_line_id' => (int)($line['id'] ?? 0),
             'notes' => 'POS rollback fallback aggregate reversal. ' . $reason,

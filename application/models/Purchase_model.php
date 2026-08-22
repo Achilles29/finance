@@ -75,7 +75,7 @@ class Purchase_model extends CI_Model
 
         if ($this->db->table_exists('pur_purchase_order')) {
             $row = $this->db
-                ->select("COUNT(*) AS total, SUM(CASE WHEN status IN ('DRAFT','APPROVED','ORDERED','PARTIAL_RECEIVED','RECEIVED') THEN 1 ELSE 0 END) AS open_total", false)
+            ->select("SUM(CASE WHEN status <> 'VOID' THEN 1 ELSE 0 END) AS total, SUM(CASE WHEN status IN ('DRAFT','APPROVED','ORDERED','PARTIAL_RECEIVED','RECEIVED') THEN 1 ELSE 0 END) AS open_total", false)
                 ->from('pur_purchase_order')
                 ->get()
                 ->row_array();
@@ -131,6 +131,9 @@ class Purchase_model extends CI_Model
         $status = strtoupper(trim($status));
         if ($status !== '' && $status !== 'ALL') {
             $this->db->where('po.status', $status);
+        } else {
+            // Kartu/ringkasan operasional hanya menghitung PO yang masih berlaku.
+            $this->db->where('po.status <>', 'VOID');
         }
         if ($from !== null) {
             $this->db->where('po.request_date >=', $from);
@@ -263,6 +266,8 @@ class Purchase_model extends CI_Model
         $status = strtoupper(trim($status));
         if ($status !== '' && $status !== 'ALL') {
             $this->db->where('po.status', $status);
+        } else {
+            $this->db->where('po.status <>', 'VOID');
         }
         if ($from !== null) {
             $this->db->where('po.request_date >=', $from);
@@ -316,6 +321,8 @@ class Purchase_model extends CI_Model
         $status = strtoupper(trim($status));
         if ($status !== '' && $status !== 'ALL') {
             $this->db->where('po.status', $status);
+        } else {
+            $this->db->where('po.status <>', 'VOID');
         }
         if ($from !== null) {
             $this->db->where('po.request_date >=', $from);
@@ -358,6 +365,8 @@ class Purchase_model extends CI_Model
         $status = strtoupper(trim($status));
         if ($status !== '' && $status !== 'ALL') {
             $this->db->where('po.status', $status);
+        } else {
+            $this->db->where('po.status <>', 'VOID');
         }
         if ($from !== null) {
             $this->db->where('po.request_date >=', $from);
@@ -10331,13 +10340,21 @@ class Purchase_model extends CI_Model
         }
 
         if ($this->db->table_exists('inv_stock_movement_log')) {
-            $this->db
-                ->where('ref_table', 'inv_stock_transfer')
-                ->where('ref_id', $id)
-                ->delete('inv_stock_movement_log');
-            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+            $this->load->library('InventoryMovementReversalService');
+            $reversal = $this->inventorymovementreversalservice->reverseMaterialMovementsForSource(
+                'inv_stock_transfer',
+                $id,
+                [
+                    'movement_date' => $transferDate,
+                    'created_by' => $userId > 0 ? $userId : null,
+                    'notes' => $voidNote,
+                    'manage_transaction' => false,
+                    'allow_negative_balance' => true,
+                ]
+            );
+            if (!($reversal['ok'] ?? false)) {
                 $this->db->trans_rollback();
-                return ['ok' => false, 'message' => 'Gagal menghapus histori movement transfer.'];
+                return ['ok' => false, 'message' => (string)($reversal['message'] ?? 'Gagal membuat movement pembalik transfer.')];
             }
         }
 
@@ -10391,7 +10408,7 @@ class Purchase_model extends CI_Model
                     'transfer_no' => (string)($header['transfer_no'] ?? ''),
                     'void_line_count' => count($lines),
                 ]),
-                'notes' => 'Transfer bahan baku di-void dan histori stok direbuild',
+                'notes' => 'Transfer bahan baku di-void dengan movement pembalik dan saldo stok disinkronkan ulang',
             ]);
         }
 
@@ -11191,13 +11208,21 @@ class Purchase_model extends CI_Model
         }
 
         if ($this->db->table_exists('inv_stock_movement_log')) {
-            $this->db
-                ->where('ref_table', 'inv_stock_adjustment')
-                ->where('ref_id', $id)
-                ->delete('inv_stock_movement_log');
-            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+            $this->load->library('InventoryMovementReversalService');
+            $reversal = $this->inventorymovementreversalservice->reverseMaterialMovementsForSource(
+                'inv_stock_adjustment',
+                $id,
+                [
+                    'movement_date' => $adjustmentDate,
+                    'created_by' => $userId > 0 ? $userId : null,
+                    'notes' => $voidNote,
+                    'manage_transaction' => false,
+                    'allow_negative_balance' => true,
+                ]
+            );
+            if (!($reversal['ok'] ?? false)) {
                 $this->db->trans_rollback();
-                return ['ok' => false, 'message' => 'Gagal menghapus histori movement adjustment.'];
+                return ['ok' => false, 'message' => (string)($reversal['message'] ?? 'Gagal membuat movement pembalik adjustment.')];
             }
         }
 
@@ -13242,6 +13267,15 @@ class Purchase_model extends CI_Model
         if (in_array($movementType, ['PURCHASE_IN', 'TRANSFER_IN'], true)) {
             $pack['delta']['in_qty_buy'] = max(0, $qtyBuyDelta);
             $pack['delta']['in_qty_content'] = max(0, $qtyContentDelta);
+        } elseif ($movementType === 'VOID_REVERSE') {
+            // Cancel the original IN/OUT bucket rather than creating an adjustment.
+            if ($qtyContentDelta >= 0 || ($qtyContentDelta == 0.0 && $qtyBuyDelta >= 0)) {
+                $pack['delta']['out_qty_buy'] = -max(0, $qtyBuyDelta);
+                $pack['delta']['out_qty_content'] = -max(0, $qtyContentDelta);
+            } else {
+                $pack['delta']['in_qty_buy'] = -abs($qtyBuyDelta);
+                $pack['delta']['in_qty_content'] = -abs($qtyContentDelta);
+            }
         } elseif (in_array($movementType, ['TRANSFER_OUT', 'USAGE_OUT'], true)) {
             $pack['delta']['out_qty_buy'] = abs(min(0, $qtyBuyDelta));
             $pack['delta']['out_qty_content'] = abs(min(0, $qtyContentDelta));
@@ -17749,6 +17783,7 @@ class Purchase_model extends CI_Model
         }
 
         $transactionNo = $this->generatePaymentNo($paymentDate);
+        $accountMutationId = 0;
 
         if ($this->db->table_exists('fin_account_mutation_log')) {
             $this->db->insert('fin_account_mutation_log', [
@@ -17766,8 +17801,9 @@ class Purchase_model extends CI_Model
                 'notes' => 'Auto pembayaran outstanding saat status PO diubah ke PAID',
                 'created_by' => $userId > 0 ? $userId : null,
             ]);
+            $accountMutationId = (int)$this->db->insert_id();
 
-            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+            if ($accountMutationId <= 0 || (int)($this->db->error()['code'] ?? 0) !== 0) {
                 return [
                     'ok' => false,
                     'message' => 'Gagal mencatat mutasi rekening saat auto-post PAID.',
@@ -17806,6 +17842,19 @@ class Purchase_model extends CI_Model
                 'ok' => false,
                 'message' => 'Gagal membuat payment plan otomatis saat status PAID.',
             ];
+        }
+        if ($accountMutationId > 0) {
+            $this->db->where('id', $accountMutationId)->update('fin_account_mutation_log', [
+                'ref_table' => 'pur_purchase_payment_plan',
+                'ref_id' => $paymentPlanId,
+                'ref_no' => $transactionNo,
+            ]);
+            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal menautkan mutasi rekening ke payment plan otomatis.',
+                ];
+            }
         }
 
         $totalPaidAfter = round($totalPaidBefore + $outstanding, 2);
@@ -19641,21 +19690,29 @@ class Purchase_model extends CI_Model
                 $linesReversed++;
             }
 
+            $existingNotes = trim((string)($receipt['notes'] ?? ''));
+            $voidNote = 'Receipt di-VOID otomatis karena status PO diubah ke VOID';
             if ($this->db->table_exists('inv_stock_movement_log')) {
-                $this->db
-                    ->where('ref_table', 'pur_purchase_receipt')
-                    ->where('ref_id', $receiptId)
-                    ->delete('inv_stock_movement_log');
-                if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                $this->load->library('InventoryMovementReversalService');
+                $reversal = $this->inventorymovementreversalservice->reverseMaterialMovementsForSource(
+                    'pur_purchase_receipt',
+                    $receiptId,
+                    [
+                        'movement_date' => $receiptDate,
+                        'created_by' => $userId > 0 ? $userId : null,
+                        'notes' => $voidNote,
+                        'manage_transaction' => false,
+                        'allow_negative_balance' => true,
+                    ]
+                );
+                if (!($reversal['ok'] ?? false)) {
                     return [
                         'ok' => false,
-                        'message' => 'Rollback receipt gagal saat menghapus histori movement receipt.',
+                        'message' => (string)($reversal['message'] ?? 'Rollback receipt gagal saat membuat movement pembalik.'),
                     ];
                 }
             }
 
-            $existingNotes = trim((string)($receipt['notes'] ?? ''));
-            $voidNote = 'Receipt di-VOID otomatis karena status PO diubah ke VOID';
             $updateReceipt = [
                 'status' => 'VOID',
                 'notes' => $existingNotes !== '' ? ($existingNotes . ' | ' . $voidNote) : $voidNote,
@@ -19685,7 +19742,7 @@ class Purchase_model extends CI_Model
                         'receipt_id' => $receiptId,
                         'lines_reversed' => $linesReversed,
                     ]),
-                    'notes' => 'Histori receipt dihapus otomatis saat VOID PO',
+                    'notes' => 'Receipt di-VOID otomatis saat VOID PO; movement pembalik dicatat untuk audit stok',
                 ]);
             }
 
@@ -20180,6 +20237,54 @@ class Purchase_model extends CI_Model
         return $this->inventoryledger->post($payload);
     }
 
+    private function ensureAccountMutationReversalReady(): array
+    {
+        if (!$this->db->table_exists('fin_account_mutation_log')) {
+            return ['ok' => false, 'message' => 'Rollback pembayaran membutuhkan mutation log rekening yang belum tersedia.'];
+        }
+        if (!$this->db->field_exists('reversal_of_mutation_id', 'fin_account_mutation_log')) {
+            return [
+                'ok' => false,
+                'message' => 'VOID PO aman belum siap. Jalankan migration 2026-08-22a_inventory_void_reversal_movement_link_foundation.sql terlebih dahulu.',
+            ];
+        }
+        return ['ok' => true];
+    }
+
+    private function findPaidPlanOriginAccountMutation(int $purchaseOrderId, int $paymentPlanId, int $accountId, float $amount): ?array
+    {
+        $amount = round($amount, 2);
+        if ($purchaseOrderId <= 0 || $paymentPlanId <= 0 || $accountId <= 0 || $amount <= 0) {
+            return null;
+        }
+
+        $query = $this->db
+            ->select('m.*')
+            ->from('fin_account_mutation_log m')
+            ->where('m.ref_module', 'PURCHASE')
+            ->where('m.mutation_type', 'OUT')
+            ->where('m.account_id', $accountId)
+            ->where('m.amount', $amount)
+            ->where('m.reversal_of_mutation_id IS NULL', null, false)
+            ->where('NOT EXISTS (SELECT 1 FROM fin_account_mutation_log r WHERE r.reversal_of_mutation_id = m.id)', null, false)
+            ->group_start()
+                ->group_start()
+                    ->where('m.ref_table', 'pur_purchase_payment_plan')
+                    ->where('m.ref_id', $paymentPlanId)
+                ->group_end()
+                ->or_group_start()
+                    ->where('m.ref_table', 'pur_purchase_order')
+                    ->where('m.ref_id', $purchaseOrderId)
+                ->group_end()
+            ->group_end()
+            ->order_by("CASE WHEN m.ref_table = 'pur_purchase_payment_plan' AND m.ref_id = {$paymentPlanId} THEN 0 ELSE 1 END", 'ASC', false)
+            ->order_by('m.id', 'DESC')
+            ->limit(1);
+
+        $row = $query->get()->row_array();
+        return $row ?: null;
+    }
+
     private function rollbackPaidPlansOnVoid(int $purchaseOrderId, int $fallbackAccountId, int $userId, string $sourceIp = ''): array
     {
         if (!$this->db->table_exists('pur_purchase_payment_plan')) {
@@ -20205,6 +20310,11 @@ class Purchase_model extends CI_Model
             ];
         }
 
+        $reversalReady = $this->ensureAccountMutationReversalReady();
+        if (!($reversalReady['ok'] ?? false)) {
+            return $reversalReady;
+        }
+
         $hasPaidFromAccount = $this->db->field_exists('paid_from_account_id', 'pur_purchase_payment_plan');
         $plansVoided = 0;
         $amountRestored = 0.0;
@@ -20226,6 +20336,19 @@ class Purchase_model extends CI_Model
                     return [
                         'ok' => false,
                         'message' => 'Rollback pembayaran gagal: akun asal pembayaran tidak ditemukan pada payment plan #' . $planId . '.',
+                    ];
+                }
+
+                $originMutation = $this->findPaidPlanOriginAccountMutation(
+                    $purchaseOrderId,
+                    $planId,
+                    $accountId,
+                    $amount
+                );
+                if (!$originMutation) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Rollback pembayaran gagal: mutasi asal payment plan #' . $planId . ' tidak ditemukan atau sudah pernah dibalik.',
                     ];
                 }
 
@@ -20253,22 +20376,27 @@ class Purchase_model extends CI_Model
                 }
 
                 $mutationNo = $this->generateAccountMutationNo(date('Y-m-d'));
-                if ($this->db->table_exists('fin_account_mutation_log')) {
-                    $this->db->insert('fin_account_mutation_log', [
-                        'mutation_no' => $mutationNo,
-                        'mutation_date' => date('Y-m-d'),
-                        'account_id' => $accountId,
-                        'mutation_type' => 'IN',
-                        'amount' => $amount,
-                        'balance_before' => round($balanceBefore, 2),
-                        'balance_after' => round($balanceAfter, 2),
-                        'ref_module' => 'PURCHASE',
-                        'ref_table' => 'pur_purchase_order',
-                        'ref_id' => $purchaseOrderId,
-                        'ref_no' => $this->nullableString($plan['transaction_no'] ?? null),
-                        'notes' => 'Rollback otomatis pembayaran karena status PO diubah ke VOID',
-                        'created_by' => $userId > 0 ? $userId : null,
-                    ]);
+                $insertedMutation = $this->db->insert('fin_account_mutation_log', [
+                    'mutation_no' => $mutationNo,
+                    'mutation_date' => date('Y-m-d'),
+                    'account_id' => $accountId,
+                    'mutation_type' => 'IN',
+                    'amount' => $amount,
+                    'balance_before' => round($balanceBefore, 2),
+                    'balance_after' => round($balanceAfter, 2),
+                    'ref_module' => 'PURCHASE',
+                    'ref_table' => 'pur_purchase_payment_plan',
+                    'ref_id' => $planId,
+                    'ref_no' => $this->nullableString($plan['transaction_no'] ?? null),
+                    'reversal_of_mutation_id' => (int)$originMutation['id'],
+                    'notes' => 'Pembatalan pembayaran karena PO di-VOID',
+                    'created_by' => $userId > 0 ? $userId : null,
+                ]);
+                if (!$insertedMutation || (int)$this->db->insert_id() <= 0 || (int)($this->db->error()['code'] ?? 0) !== 0) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Rollback pembayaran gagal saat mencatat mutasi pembatalan rekening.',
+                    ];
                 }
 
                 if ($this->db->table_exists('aud_transaction_log')) {
@@ -21046,10 +21174,16 @@ class Purchase_model extends CI_Model
             ];
         }
 
+        $transactionNo = trim((string)($payload['transaction_no'] ?? ''));
+        if ($transactionNo === '') {
+            $transactionNo = $this->generatePaymentNo($paymentDate);
+        }
+
         $this->db->where('id', $accountId)->update('fin_company_account', [
             'current_balance' => round($balance - $amount, 2),
         ]);
 
+        $accountMutationId = 0;
         if ($this->db->table_exists('fin_account_mutation_log')) {
             $this->db->insert('fin_account_mutation_log', [
                 'mutation_no' => $this->generateAccountMutationNo($paymentDate),
@@ -21062,15 +21196,18 @@ class Purchase_model extends CI_Model
                 'ref_module' => 'PURCHASE',
                 'ref_table' => 'pur_purchase_order',
                 'ref_id' => $purchaseOrderId,
-                'ref_no' => null,
+                'ref_no' => $transactionNo,
                 'notes' => 'Pembayaran purchase order',
                 'created_by' => $userId > 0 ? $userId : null,
             ]);
-        }
-
-        $transactionNo = trim((string)($payload['transaction_no'] ?? ''));
-        if ($transactionNo === '') {
-            $transactionNo = $this->generatePaymentNo($paymentDate);
+            $accountMutationId = (int)$this->db->insert_id();
+            if ($accountMutationId <= 0 || (int)($this->db->error()['code'] ?? 0) !== 0) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal mencatat mutasi rekening pembayaran purchase order.',
+                ];
+            }
         }
 
         $planData = [
@@ -21100,6 +21237,27 @@ class Purchase_model extends CI_Model
 
         $this->db->insert('pur_purchase_payment_plan', $planData);
         $planId = (int)$this->db->insert_id();
+        if ($planId <= 0 || (int)($this->db->error()['code'] ?? 0) !== 0) {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'message' => 'Gagal menyimpan payment plan purchase order.',
+            ];
+        }
+        if ($accountMutationId > 0) {
+            $this->db->where('id', $accountMutationId)->update('fin_account_mutation_log', [
+                'ref_table' => 'pur_purchase_payment_plan',
+                'ref_id' => $planId,
+                'ref_no' => $transactionNo,
+            ]);
+            if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal menautkan mutasi rekening ke payment plan.',
+                ];
+            }
+        }
 
         $totalPaid = 0.0;
         $statusAfter = strtoupper((string)($order['status'] ?? 'DRAFT'));

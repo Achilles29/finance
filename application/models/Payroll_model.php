@@ -802,6 +802,21 @@ class Payroll_model extends CI_Model
         return $no;
     }
 
+    private function ensure_account_mutation_reversal_ready(): array
+    {
+        if (!$this->db->table_exists('fin_account_mutation_log')) {
+            return ['ok' => false, 'message' => 'Mutation log rekening belum tersedia.'];
+        }
+        if (!$this->db->field_exists('reversal_of_mutation_id', 'fin_account_mutation_log')) {
+            return [
+                'ok' => false,
+                'message' => 'VOID pembayaran aman belum siap. Jalankan migration 2026-08-22a_inventory_void_reversal_movement_link_foundation.sql terlebih dahulu.',
+            ];
+        }
+
+        return ['ok' => true];
+    }
+
     private function debit_account_and_log_mutation(
         int $accountId,
         float $amount,
@@ -866,7 +881,8 @@ class Payroll_model extends CI_Model
         int $refId,
         string $refNo,
         string $notes,
-        int $actorUserId = 0
+        int $actorUserId = 0,
+        int $reversalOfMutationId = 0
     ): array {
         if ($amount <= 0) {
             return ['ok' => true, 'message' => 'Nominal kredit 0, tidak ada mutasi.'];
@@ -876,6 +892,12 @@ class Payroll_model extends CI_Model
         }
         if (!$this->db->table_exists('fin_company_account') || !$this->db->table_exists('fin_account_mutation_log')) {
             return ['ok' => false, 'message' => 'Tabel rekening/mutasi belum tersedia.'];
+        }
+        if ($reversalOfMutationId > 0) {
+            $ready = $this->ensure_account_mutation_reversal_ready();
+            if (!($ready['ok'] ?? false)) {
+                return $ready;
+            }
         }
 
         $account = $this->db->query('SELECT * FROM fin_company_account WHERE id = ? AND is_active = 1 LIMIT 1 FOR UPDATE', [$accountId])->row_array();
@@ -891,7 +913,7 @@ class Payroll_model extends CI_Model
             'current_balance' => $balanceAfter,
         ]);
 
-        $this->db->insert('fin_account_mutation_log', [
+        $mutationPayload = [
             'mutation_no' => $this->generate_account_mutation_no($mutationDate),
             'mutation_date' => $mutationDate,
             'account_id' => $accountId,
@@ -906,7 +928,19 @@ class Payroll_model extends CI_Model
             'notes' => $notes !== '' ? $notes : null,
             'created_by' => $actorUserId > 0 ? $actorUserId : null,
             'created_at' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+        if ($reversalOfMutationId > 0) {
+            $mutationPayload['reversal_of_mutation_id'] = $reversalOfMutationId;
+        }
+        $inserted = $this->db->insert('fin_account_mutation_log', $mutationPayload);
+        if (!$inserted || (int)$this->db->insert_id() <= 0) {
+            // Keep the account unchanged if the paired reversal log cannot be
+            // saved; the caller can then roll the whole VOID action back.
+            $this->db->where('id', $accountId)->update('fin_company_account', [
+                'current_balance' => $balanceBefore,
+            ]);
+            return ['ok' => false, 'message' => 'Gagal mencatat pengembalian saldo rekening.'];
+        }
 
         return ['ok' => true];
     }
@@ -1229,36 +1263,47 @@ class Payroll_model extends CI_Model
         }
 
         if ($currentStatus === 'PAID') {
-            if ($this->db->table_exists('fin_account_mutation_log') && $this->db->table_exists('fin_company_account')) {
-                $outs = $this->db->select('account_id, SUM(COALESCE(amount,0)) AS total_out', false)
-                    ->from('fin_account_mutation_log')
-                    ->where('ref_module', 'PAYROLL')
-                    ->where('ref_table', 'pay_meal_disbursement')
-                    ->where('ref_id', $disbursementId)
-                    ->where('mutation_type', 'OUT')
-                    ->group_by('account_id')
-                    ->get()->result_array();
+            $ready = $this->ensure_account_mutation_reversal_ready();
+            if (empty($ready['ok'])) {
+                $this->db->trans_complete();
+                return $ready;
+            }
+            if (!$this->db->table_exists('fin_company_account')) {
+                $this->db->trans_complete();
+                return ['ok' => false, 'message' => 'Rekening perusahaan belum tersedia untuk membatalkan batch uang makan.'];
+            }
 
-                foreach ($outs as $out) {
-                    $accountId = (int)($out['account_id'] ?? 0);
-                    $amount = round((float)($out['total_out'] ?? 0), 2);
-                    if ($accountId <= 0 || $amount <= 0) {
-                        continue;
-                    }
-                    $credit = $this->credit_account_and_log_mutation(
-                        $accountId,
-                        $amount,
-                        (string)($header['disbursement_date'] ?? date('Y-m-d')),
-                        'pay_meal_disbursement',
-                        $disbursementId,
-                        (string)($header['disbursement_no'] ?? ''),
-                        'VOID batch uang makan ' . (string)($header['disbursement_no'] ?? ''),
-                        $actorUserId
-                    );
-                    if (empty($credit['ok'])) {
-                        $this->db->trans_complete();
-                        return $credit;
-                    }
+            $outs = $this->db->select('m.*')
+                ->from('fin_account_mutation_log m')
+                ->where('m.ref_module', 'PAYROLL')
+                ->where('m.ref_table', 'pay_meal_disbursement')
+                ->where('m.ref_id', $disbursementId)
+                ->where('m.mutation_type', 'OUT')
+                ->where('m.reversal_of_mutation_id IS NULL', null, false)
+                ->where('NOT EXISTS (SELECT 1 FROM fin_account_mutation_log r WHERE r.reversal_of_mutation_id = m.id)', null, false)
+                ->order_by('m.id', 'ASC')
+                ->get()->result_array();
+
+            foreach ($outs as $out) {
+                $accountId = (int)($out['account_id'] ?? 0);
+                $amount = round((float)($out['amount'] ?? 0), 2);
+                if ($accountId <= 0 || $amount <= 0) {
+                    continue;
+                }
+                $credit = $this->credit_account_and_log_mutation(
+                    $accountId,
+                    $amount,
+                    (string)($header['disbursement_date'] ?? date('Y-m-d')),
+                    'pay_meal_disbursement',
+                    $disbursementId,
+                    (string)($header['disbursement_no'] ?? ''),
+                    'Pembatalan batch uang makan ' . (string)($header['disbursement_no'] ?? ''),
+                    $actorUserId,
+                    (int)($out['id'] ?? 0)
+                );
+                if (empty($credit['ok'])) {
+                    $this->db->trans_complete();
+                    return $credit;
                 }
             }
         }
@@ -2750,36 +2795,47 @@ class Payroll_model extends CI_Model
         }
 
         if ($currentStatus === 'PAID') {
-            if ($this->db->table_exists('fin_account_mutation_log') && $this->db->table_exists('fin_company_account')) {
-                $outs = $this->db->select('account_id, SUM(COALESCE(amount,0)) AS total_out', false)
-                    ->from('fin_account_mutation_log')
-                    ->where('ref_module', 'PAYROLL')
-                    ->where('ref_table', 'pay_salary_disbursement')
-                    ->where('ref_id', $disbursementId)
-                    ->where('mutation_type', 'OUT')
-                    ->group_by('account_id')
-                    ->get()->result_array();
+            $ready = $this->ensure_account_mutation_reversal_ready();
+            if (empty($ready['ok'])) {
+                $this->db->trans_complete();
+                return $ready;
+            }
+            if (!$this->db->table_exists('fin_company_account')) {
+                $this->db->trans_complete();
+                return ['ok' => false, 'message' => 'Rekening perusahaan belum tersedia untuk membatalkan batch gaji.'];
+            }
 
-                foreach ($outs as $out) {
-                    $accountId = (int)($out['account_id'] ?? 0);
-                    $amount = round((float)($out['total_out'] ?? 0), 2);
-                    if ($accountId <= 0 || $amount <= 0) {
-                        continue;
-                    }
-                    $credit = $this->credit_account_and_log_mutation(
-                        $accountId,
-                        $amount,
-                        (string)($header['disbursement_date'] ?? date('Y-m-d')),
-                        'pay_salary_disbursement',
-                        $disbursementId,
-                        (string)($header['disbursement_no'] ?? ''),
-                        'VOID batch gaji ' . (string)($header['disbursement_no'] ?? ''),
-                        $actorUserId
-                    );
-                    if (empty($credit['ok'])) {
-                        $this->db->trans_complete();
-                        return $credit;
-                    }
+            $outs = $this->db->select('m.*')
+                ->from('fin_account_mutation_log m')
+                ->where('m.ref_module', 'PAYROLL')
+                ->where('m.ref_table', 'pay_salary_disbursement')
+                ->where('m.ref_id', $disbursementId)
+                ->where('m.mutation_type', 'OUT')
+                ->where('m.reversal_of_mutation_id IS NULL', null, false)
+                ->where('NOT EXISTS (SELECT 1 FROM fin_account_mutation_log r WHERE r.reversal_of_mutation_id = m.id)', null, false)
+                ->order_by('m.id', 'ASC')
+                ->get()->result_array();
+
+            foreach ($outs as $out) {
+                $accountId = (int)($out['account_id'] ?? 0);
+                $amount = round((float)($out['amount'] ?? 0), 2);
+                if ($accountId <= 0 || $amount <= 0) {
+                    continue;
+                }
+                $credit = $this->credit_account_and_log_mutation(
+                    $accountId,
+                    $amount,
+                    (string)($header['disbursement_date'] ?? date('Y-m-d')),
+                    'pay_salary_disbursement',
+                    $disbursementId,
+                    (string)($header['disbursement_no'] ?? ''),
+                    'Pembatalan batch gaji ' . (string)($header['disbursement_no'] ?? ''),
+                    $actorUserId,
+                    (int)($out['id'] ?? 0)
+                );
+                if (empty($credit['ok'])) {
+                    $this->db->trans_complete();
+                    return $credit;
                 }
             }
         }
@@ -3516,7 +3572,7 @@ class Payroll_model extends CI_Model
         return ['ok' => true, 'message' => 'Pembayaran cicilan kasbon berhasil disimpan.'];
     }
 
-    public function void_cash_advance(int $id, string $notes = ''): array
+    public function void_cash_advance(int $id, string $notes = '', int $actorUserId = 0): array
     {
         $row = $this->get_cash_advance_by_id($id);
         if (!$row) {
@@ -3534,15 +3590,45 @@ class Payroll_model extends CI_Model
         if ((int)($hasPaid['c'] ?? 0) > 0) {
             return ['ok' => false, 'message' => 'Kasbon sudah ada pembayaran, tidak bisa di-VOID.'];
         }
+        $outMutations = [];
         if ($this->db->table_exists('fin_account_mutation_log')) {
-            $hasMutation = $this->db->select('COUNT(*) AS c', false)
-                ->from('fin_account_mutation_log')
-                ->where('ref_table', 'pay_cash_advance')
-                ->where('ref_id', $id)
-                ->where('mutation_type', 'OUT')
-                ->get()->row_array();
-            if ((int)($hasMutation['c'] ?? 0) > 0) {
-                return ['ok' => false, 'message' => 'Kasbon sudah punya mutasi kas keluar, VOID otomatis diblok agar laporan keuangan tetap aman.'];
+            $ready = $this->ensure_account_mutation_reversal_ready();
+            if (empty($ready['ok'])) {
+                return $ready;
+            }
+            $outMutations = $this->db->select('m.*')
+                ->from('fin_account_mutation_log m')
+                ->where('m.ref_module', 'PAYROLL')
+                ->where('m.ref_table', 'pay_cash_advance')
+                ->where('m.ref_id', $id)
+                ->where('m.mutation_type', 'OUT')
+                ->where('m.reversal_of_mutation_id IS NULL', null, false)
+                ->where('NOT EXISTS (SELECT 1 FROM fin_account_mutation_log r WHERE r.reversal_of_mutation_id = m.id)', null, false)
+                ->order_by('m.id', 'ASC')
+                ->get()->result_array();
+        }
+
+        $this->db->trans_begin();
+        foreach ($outMutations as $mutation) {
+            $accountId = (int)($mutation['account_id'] ?? 0);
+            $amount = round((float)($mutation['amount'] ?? 0), 2);
+            if ($accountId <= 0 || $amount <= 0) {
+                continue;
+            }
+            $credit = $this->credit_account_and_log_mutation(
+                $accountId,
+                $amount,
+                (string)($row['advance_date'] ?? date('Y-m-d')),
+                'pay_cash_advance',
+                $id,
+                (string)($row['advance_no'] ?? ''),
+                'Pembatalan kasbon ' . (string)($row['advance_no'] ?? ''),
+                $actorUserId,
+                (int)($mutation['id'] ?? 0)
+            );
+            if (empty($credit['ok'])) {
+                $this->db->trans_rollback();
+                return $credit;
             }
         }
 
@@ -3558,6 +3644,11 @@ class Payroll_model extends CI_Model
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
         $this->db->where('cash_advance_id', $id)->delete('pay_cash_advance_installment');
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal melakukan VOID kasbon.'];
+        }
+        $this->db->trans_commit();
         return ['ok' => true, 'message' => 'Kasbon berhasil di-VOID.'];
     }
 

@@ -643,6 +643,7 @@ class Production_model extends CI_Model
             'ADJUSTMENT_MINUS' => 'Adjustment Minus',
             'ADJUSTMENT' => 'Adjustment',
             'VOID_REVERSE' => 'Pembatalan Void',
+            'VOID_OUT' => 'Pembatalan Void',
         ];
 
         return $map[$movementType] ?? ($movementType !== '' ? $movementType : '-');
@@ -2112,7 +2113,7 @@ class Production_model extends CI_Model
         if ($movementType === 'TRANSFER_IN' || $movementType === 'TRANSFER_OUT') {
             return ['code' => 'TRANSFER', 'label' => 'Transfer'];
         }
-        if ($movementType === 'VOID_REVERSE' || strpos($notes, 'void') !== false) {
+        if (in_array($movementType, ['VOID_REVERSE', 'VOID_OUT'], true) || strpos($notes, 'void') !== false) {
             return ['code' => 'VOID', 'label' => 'Void'];
         }
         if (in_array($movementType, ['ADJUSTMENT_PLUS', 'ADJUSTMENT_MINUS', 'WASTE', 'SPOIL'], true) || strpos($sourceTable, 'adjustment') !== false) {
@@ -2154,20 +2155,24 @@ class Production_model extends CI_Model
             return ['ok' => false, 'message' => 'Identity component tidak valid.'];
         }
 
-        $this->db->select('*')
-            ->from('inv_component_movement_log')
-            ->where('location_type', $locationType)
-            ->where('component_id', $componentId)
-            ->where('uom_id', $uomId);
+        $hasReversalLink = $this->db->field_exists('reversal_of_movement_id', 'inv_component_movement_log');
+        $this->db->select($hasReversalLink ? 'm.*, origin.movement_type AS reversal_origin_type' : 'm.*, NULL AS reversal_origin_type', false)
+            ->from('inv_component_movement_log m')
+            ->where('m.location_type', $locationType)
+            ->where('m.component_id', $componentId)
+            ->where('m.uom_id', $uomId);
+        if ($hasReversalLink) {
+            $this->db->join('inv_component_movement_log origin', 'origin.id = m.reversal_of_movement_id', 'left');
+        }
         if ($divisionId !== null) {
-            $this->db->where('division_id', $divisionId);
+            $this->db->where('m.division_id', $divisionId);
         } else {
-            $this->db->where('division_id IS NULL', null, false);
+            $this->db->where('m.division_id IS NULL', null, false);
         }
         $logs = $this->db
-            ->order_by('movement_date', 'ASC')
-            ->order_by('movement_datetime', 'ASC')
-            ->order_by('id', 'ASC')
+            ->order_by('m.movement_date', 'ASC')
+            ->order_by('m.movement_datetime', 'ASC')
+            ->order_by('m.id', 'ASC')
             ->get()
             ->result_array();
 
@@ -2222,10 +2227,32 @@ class Production_model extends CI_Model
                 $daily[$movementDate]['waste_qty'] = round((float)$daily[$movementDate]['waste_qty'] + $qtyOut, 4);
             } elseif ($movementType === 'SPOIL') {
                 $daily[$movementDate]['spoil_qty'] = round((float)$daily[$movementDate]['spoil_qty'] + $qtyOut, 4);
-            } elseif (in_array($movementType, ['ADJUSTMENT_PLUS', 'VOID_REVERSE'], true)) {
+            } elseif ($movementType === 'ADJUSTMENT_PLUS') {
                 $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] + $qtyIn, 4);
             } elseif ($movementType === 'ADJUSTMENT_MINUS') {
                 $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] - $qtyOut, 4);
+            } elseif ($movementType === 'VOID_REVERSE') {
+                $originType = strtoupper(trim((string)($log['reversal_origin_type'] ?? '')));
+                if (in_array($originType, ['PRODUCTION_OUT', 'TRANSFER_OUT', 'USAGE'], true)) {
+                    $daily[$movementDate]['out_qty'] = round((float)$daily[$movementDate]['out_qty'] - $qtyIn, 4);
+                } elseif ($originType === 'WASTE') {
+                    $daily[$movementDate]['waste_qty'] = round((float)$daily[$movementDate]['waste_qty'] - $qtyIn, 4);
+                } elseif ($originType === 'SPOIL') {
+                    $daily[$movementDate]['spoil_qty'] = round((float)$daily[$movementDate]['spoil_qty'] - $qtyIn, 4);
+                } elseif ($originType === 'ADJUSTMENT_MINUS') {
+                    $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                } elseif (in_array($originType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
+                    $daily[$movementDate]['in_qty'] = round((float)$daily[$movementDate]['in_qty'] - $qtyIn, 4);
+                } else {
+                    $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                }
+            } elseif ($movementType === 'VOID_OUT') {
+                $originType = strtoupper(trim((string)($log['reversal_origin_type'] ?? '')));
+                if (in_array($originType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
+                    $daily[$movementDate]['in_qty'] = round((float)$daily[$movementDate]['in_qty'] - $qtyOut, 4);
+                } else {
+                    $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] - $qtyOut, 4);
+                }
             }
 
             $qtyAfter = round($qtyBefore + $qtyIn - $qtyOut, 4);
@@ -2867,13 +2894,21 @@ class Production_model extends CI_Model
             $divisionNameColumn = $this->division_name_column();
             $divisionNameSelect = $divisionNameColumn !== null ? ('d.' . $divisionNameColumn . ' AS division_name') : 'NULL AS division_name';
 
-            $this->db->select('m.id, m.movement_date, m.movement_datetime, m.location_type, m.division_id, ' . $divisionNameSelect . ', m.component_id, c.component_code, c.component_name, c.component_type, m.uom_id, u.code AS uom_code, m.movement_type, m.qty_in, m.qty_out, m.unit_cost, m.total_cost, m.source_table, m.source_id', false)
+            $hasReversalLink = $this->db->field_exists('reversal_of_movement_id', 'inv_component_movement_log');
+            $reversalSelect = $hasReversalLink
+                ? ', m.reversal_of_movement_id, origin.movement_type AS reversal_origin_type'
+                : ', NULL AS reversal_of_movement_id, NULL AS reversal_origin_type';
+
+            $this->db->select('m.id, m.movement_date, m.movement_datetime, m.location_type, m.division_id, ' . $divisionNameSelect . ', m.component_id, c.component_code, c.component_name, c.component_type, m.uom_id, u.code AS uom_code, m.movement_type, m.qty_in, m.qty_out, m.unit_cost, m.total_cost, m.source_table, m.source_id' . $reversalSelect, false)
                 ->from('inv_component_movement_log m')
                 ->join('mst_component c', 'c.id = m.component_id', 'inner')
                 ->join('mst_operational_division d', 'd.id = m.division_id', 'left')
                 ->join('mst_uom u', 'u.id = m.uom_id', 'left')
                 ->where('m.movement_date >=', $startDate)
                 ->where('m.movement_date <=', $endDate);
+            if ($hasReversalLink) {
+                $this->db->join('inv_component_movement_log origin', 'origin.id = m.reversal_of_movement_id', 'left');
+            }
 
             $this->apply_component_location_filter('m.location_type', $locationType);
             if ($divisionId > 0) {
@@ -2912,16 +2947,23 @@ class Production_model extends CI_Model
             // diproses agar saldo bulanan tetap benar.
             $voidPairKeys   = [];
             $originPairKeys = [];
-            foreach ($movementRows as $_r) {
-                $_mt = strtoupper(trim((string)($_r['movement_type'] ?? '')));
-                $_st = (string)($_r['source_table'] ?? '');
-                $_si = (int)($_r['source_id'] ?? 0);
-                if ($_st === '' || $_si <= 0) { continue; }
-                $_pk = $_st . '|' . $_si;
-                if (in_array($_mt, ['VOID_REVERSE', 'VOID_OUT'], true)) {
-                    $voidPairKeys[$_pk] = true;
-                } else {
-                    $originPairKeys[$_pk] = true;
+            if (!$hasReversalLink) {
+                // Legacy rows have no direct link to the movement they reverse. Keep the
+                // old same-document pairing only for those old rows; new linked rows are
+                // netted precisely below, including partial void/refund quantities.
+                foreach ($movementRows as $_r) {
+                    $_mt = strtoupper(trim((string)($_r['movement_type'] ?? '')));
+                    $_st = (string)($_r['source_table'] ?? '');
+                    $_si = (int)($_r['source_id'] ?? 0);
+                    if ($_st === '' || $_si <= 0) {
+                        continue;
+                    }
+                    $_pk = $_st . '|' . $_si;
+                    if (in_array($_mt, ['VOID_REVERSE', 'VOID_OUT'], true)) {
+                        $voidPairKeys[$_pk] = true;
+                    } else {
+                        $originPairKeys[$_pk] = true;
+                    }
                 }
             }
             $skipVoidPairKeys = array_intersect_key($voidPairKeys, $originPairKeys);
@@ -3029,12 +3071,37 @@ class Production_model extends CI_Model
                         $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] - $qtyOut, 4);
                         break;
                     case 'ADJUSTMENT_PLUS':
-                    case 'VOID_REVERSE':
                         $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] + $qtyIn, 4);
                         break;
                     case 'ADJUSTMENT_MINUS':
-                    case 'VOID_OUT':
                         if (!$handledAsOpeningSnapshotReverse) {
+                            $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] - $qtyOut, 4);
+                        }
+                        break;
+                    case 'VOID_REVERSE':
+                        $originType = strtoupper(trim((string)($movementRow['reversal_origin_type'] ?? '')));
+                        if (in_array($originType, ['PRODUCTION_OUT', 'TRANSFER_OUT', 'USAGE'], true)) {
+                            $dailyRows[$key][$movementDate]['out_qty'] = round((float)$dailyRows[$key][$movementDate]['out_qty'] - $qtyIn, 4);
+                        } elseif ($originType === 'WASTE') {
+                            $dailyRows[$key][$movementDate]['waste_qty'] = round((float)$dailyRows[$key][$movementDate]['waste_qty'] - $qtyIn, 4);
+                            $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                        } elseif ($originType === 'SPOIL') {
+                            $dailyRows[$key][$movementDate]['spoil_qty'] = round((float)$dailyRows[$key][$movementDate]['spoil_qty'] - $qtyIn, 4);
+                            $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                        } elseif ($originType === 'ADJUSTMENT_MINUS') {
+                            $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                        } elseif (in_array($originType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
+                            $dailyRows[$key][$movementDate]['in_qty'] = round((float)$dailyRows[$key][$movementDate]['in_qty'] - $qtyIn, 4);
+                        } else {
+                            // Legacy/unlinked reversals remain visible as a correction.
+                            $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                        }
+                        break;
+                    case 'VOID_OUT':
+                        $originType = strtoupper(trim((string)($movementRow['reversal_origin_type'] ?? '')));
+                        if (in_array($originType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
+                            $dailyRows[$key][$movementDate]['in_qty'] = round((float)$dailyRows[$key][$movementDate]['in_qty'] - $qtyOut, 4);
+                        } else {
                             $dailyRows[$key][$movementDate]['adjustment_qty'] = round((float)$dailyRows[$key][$movementDate]['adjustment_qty'] - $qtyOut, 4);
                         }
                         break;
@@ -3413,6 +3480,10 @@ class Production_model extends CI_Model
         }
         if (!$this->db->table_exists('inv_component_movement_log')) {
             return ['ok' => false, 'message' => 'Histori movement component belum tersedia.'];
+        }
+        $reversalReady = $this->assert_component_movement_reversal_ready();
+        if (!($reversalReady['ok'] ?? false)) {
+            return $reversalReady;
         }
 
         $openingMovements = $this->db->from('inv_component_movement_log')
@@ -5961,6 +6032,10 @@ class Production_model extends CI_Model
         if (!$this->db->table_exists('inv_component_movement_log')) {
             return ['ok' => false, 'message' => 'Histori movement component belum tersedia.'];
         }
+        $reversalReady = $this->assert_component_movement_reversal_ready();
+        if (!($reversalReady['ok'] ?? false)) {
+            return $reversalReady;
+        }
 
         $adjustmentMovements = $this->db->from('inv_component_movement_log')
             ->where('source_table', 'inv_component_adjustment')
@@ -6089,6 +6164,10 @@ class Production_model extends CI_Model
         if (!$this->db->table_exists('inv_component_movement_log')) {
             return ['ok' => false, 'message' => 'Histori movement component belum tersedia.'];
         }
+        $reversalReady = $this->assert_component_movement_reversal_ready();
+        if (!($reversalReady['ok'] ?? false)) {
+            return $reversalReady;
+        }
 
         $batchMovements = $this->db->from('inv_component_movement_log')
             ->where('source_table', 'inv_component_batch')
@@ -6154,55 +6233,22 @@ class Production_model extends CI_Model
             return ['ok' => false, 'message' => 'VOID batch ditolak: ' . (string)($voidLot['message'] ?? 'void lot component gagal.')];
         }
 
-        $this->load->library('InventoryLedger');
+        $this->load->library('InventoryMovementReversalService');
         if ($this->db->table_exists('inv_stock_movement_log')) {
-            $inventoryLogs = $this->db->from('inv_stock_movement_log')
-                ->where('ref_table', 'inv_component_batch')
-                ->where('ref_id', $id)
-                ->order_by('id', 'DESC')
-                ->get()
-                ->result_array();
-
-            foreach ($inventoryLogs as $log) {
-                $qtyBuyDelta = round((float)($log['qty_buy_delta'] ?? 0), 4);
-                $qtyContentDelta = round((float)($log['qty_content_delta'] ?? 0), 4);
-                if (abs($qtyBuyDelta) < 0.0001 && abs($qtyContentDelta) < 0.0001) {
-                    continue;
-                }
-
-                $payload = [
-                    'movement_scope' => (string)($log['movement_scope'] ?? 'DIVISION'),
+            $reverseInventory = $this->inventorymovementreversalservice->reverseMaterialMovementsForSource(
+                'inv_component_batch',
+                $id,
+                [
                     'movement_date' => (string)($header['batch_date'] ?? date('Y-m-d')),
-                    'movement_type' => 'VOID_REVERSE',
-                    'division_id' => !empty($log['division_id']) ? (int)$log['division_id'] : null,
-                    'destination_type' => (string)($log['destination_type'] ?? ''),
-                    'item_id' => !empty($log['item_id']) ? (int)$log['item_id'] : null,
-                    'material_id' => !empty($log['material_id']) ? (int)$log['material_id'] : null,
-                    'buy_uom_id' => !empty($log['buy_uom_id']) ? (int)$log['buy_uom_id'] : null,
-                    'content_uom_id' => !empty($log['content_uom_id']) ? (int)$log['content_uom_id'] : null,
-                    'qty_buy_delta' => -1 * $qtyBuyDelta,
-                    'qty_content_delta' => -1 * $qtyContentDelta,
-                    'profile_key' => $log['profile_key'] ?? null,
-                    'profile_name' => $log['profile_name'] ?? null,
-                    'profile_brand' => $log['profile_brand'] ?? null,
-                    'profile_description' => $log['profile_description'] ?? null,
-                    'profile_expired_date' => $log['profile_expired_date'] ?? null,
-                    'profile_content_per_buy' => $log['profile_content_per_buy'] ?? null,
-                    'profile_buy_uom_code' => $log['profile_buy_uom_code'] ?? null,
-                    'profile_content_uom_code' => $log['profile_content_uom_code'] ?? null,
-                    'stock_domain' => $log['stock_domain'] ?? 'MATERIAL',
-                    'unit_cost' => (float)($log['unit_cost'] ?? 0),
-                    'ref_table' => 'inv_component_batch',
-                    'ref_id' => $id,
-                    'notes' => 'VOID batch component reverse inventory movement #' . (int)($log['id'] ?? 0),
                     'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                    'notes' => 'VOID batch component',
                     'manage_transaction' => false,
-                ];
-                $reverseInventory = $this->inventoryledger->post($payload);
-                if (!($reverseInventory['ok'] ?? false)) {
-                    $this->db->trans_rollback();
-                    return ['ok' => false, 'message' => 'Gagal reverse movement inventory: ' . (string)($reverseInventory['message'] ?? '-')];
-                }
+                    'allow_negative_balance' => true,
+                ]
+            );
+            if (!($reverseInventory['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Gagal reverse movement inventory: ' . (string)($reverseInventory['message'] ?? '-')];
             }
         }
 
@@ -6448,6 +6494,21 @@ class Production_model extends CI_Model
         ];
     }
 
+    private function assert_component_movement_reversal_ready(): array
+    {
+        if (!$this->db->table_exists('inv_component_movement_log')) {
+            return ['ok' => false, 'message' => 'Histori movement component belum tersedia.'];
+        }
+        if (!$this->db->field_exists('reversal_of_movement_id', 'inv_component_movement_log')) {
+            return [
+                'ok' => false,
+                'message' => 'Schema reversal component belum siap. Jalankan migration 2026-08-22a_inventory_void_reversal_movement_link_foundation.sql terlebih dahulu.',
+            ];
+        }
+
+        return ['ok' => true];
+    }
+
     private function reverse_component_document_movement_row(
         array $movement,
         string $movementDate,
@@ -6472,7 +6533,7 @@ class Production_model extends CI_Model
         $reverseType = '';
         $reverseQty = 0.0;
         if ($qtyIn > 0) {
-            $reverseType = 'ADJUSTMENT_MINUS';
+            $reverseType = 'VOID_OUT';
             $reverseQty = $qtyIn;
         } elseif ($qtyOut > 0) {
             $reverseType = 'VOID_REVERSE';
@@ -6480,6 +6541,28 @@ class Production_model extends CI_Model
         }
         if ($reverseQty <= 0 || $reverseType === '') {
             return ['ok' => true];
+        }
+
+        $reversalReady = $this->assert_component_movement_reversal_ready();
+        if (!($reversalReady['ok'] ?? false)) {
+            return $reversalReady;
+        }
+        $originMovementId = (int)($movement['id'] ?? 0);
+        if ($originMovementId <= 0) {
+            return ['ok' => false, 'message' => 'Movement component asal tidak valid untuk reversal.'];
+        }
+
+        $reversedColumn = $reverseType === 'VOID_OUT' ? 'qty_out' : 'qty_in';
+        $reversedRow = $this->db
+            ->select('COALESCE(SUM(' . $reversedColumn . '), 0) AS total_qty', false)
+            ->from('inv_component_movement_log')
+            ->where('reversal_of_movement_id', $originMovementId)
+            ->get()
+            ->row_array();
+        $alreadyReversed = round((float)($reversedRow['total_qty'] ?? 0), 4);
+        $reverseQty = round(max(0, $reverseQty - $alreadyReversed), 4);
+        if ($reverseQty <= 0.0001) {
+            return ['ok' => true, 'already_reversed' => true];
         }
 
         $allowNegativeRollback = !empty($options['allow_negative_rollback']);
@@ -6509,7 +6592,7 @@ class Production_model extends CI_Model
 
         $now = date('Y-m-d H:i:s');
 
-        $this->db->insert('inv_component_movement_log', [
+        $reverseData = [
             'movement_no' => $this->generate_doc_no('inv_component_movement_log', 'movement_no', 'ICM', $movementDate),
             'movement_date' => $movementDate,
             'movement_datetime' => $movementDate . ' ' . date('H:i:s'),
@@ -6529,7 +6612,9 @@ class Production_model extends CI_Model
             'notes' => 'VOID reverse movement dari log #' . (int)($movement['id'] ?? 0),
             'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
             'created_at' => $now,
-        ]);
+        ];
+        $reverseData['reversal_of_movement_id'] = $originMovementId;
+        $this->db->insert('inv_component_movement_log', $reverseData);
 
         return [
             'ok' => true,

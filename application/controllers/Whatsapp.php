@@ -12,6 +12,38 @@ class Whatsapp extends MY_Controller
     private const PAGE_MANUAL    = 'wa.manual';
     private const PAGE_SETTINGS  = 'wa.settings';
 
+    /**
+     * Keeps user-facing finance summaries free from a transaction that was
+     * later VOIDed, while the raw mutation log still remains available for audit.
+     */
+    private function applyEffectiveAccountMutationFilter($builder, string $alias = ''): void
+    {
+        if (!$this->db->field_exists('reversal_of_mutation_id', 'fin_account_mutation_log')) {
+            return;
+        }
+
+        $base = $alias !== '' ? rtrim($alias, '.') . '.' : 'fin_account_mutation_log.';
+        $builder->where($base . 'reversal_of_mutation_id IS NULL', null, false)
+            ->where(
+                'NOT EXISTS (SELECT 1 FROM fin_account_mutation_log reversal '
+                . 'WHERE reversal.reversal_of_mutation_id = ' . $base . 'id)',
+                null,
+                false
+            );
+    }
+
+    private function effectiveAccountMutationSqlFilter(string $alias): string
+    {
+        if (!$this->db->field_exists('reversal_of_mutation_id', 'fin_account_mutation_log')) {
+            return '';
+        }
+
+        $prefix = rtrim($alias, '.') . '.';
+        return ' AND ' . $prefix . 'reversal_of_mutation_id IS NULL'
+            . ' AND NOT EXISTS (SELECT 1 FROM fin_account_mutation_log reversal'
+            . ' WHERE reversal.reversal_of_mutation_id = ' . $prefix . 'id)';
+    }
+
     public function __construct()
     {
         parent::__construct();
@@ -2302,12 +2334,14 @@ class Whatsapp extends MY_Controller
             ->get()
             ->result_array();
 
-        $summary = $this->db
+        $summaryQuery = $this->db
             ->select("COALESCE(SUM(CASE WHEN mutation_type = 'IN' THEN amount ELSE 0 END),0) AS total_in", false)
             ->select("COALESCE(SUM(CASE WHEN mutation_type = 'OUT' THEN amount ELSE 0 END),0) AS total_out", false)
             ->select('COUNT(*) AS mutation_count', false)
             ->from('fin_account_mutation_log')
-            ->where('mutation_date', $date)
+            ->where('mutation_date', $date);
+        $this->applyEffectiveAccountMutationFilter($summaryQuery);
+        $summary = $summaryQuery
             ->get()
             ->row_array() ?: [];
 
@@ -2402,22 +2436,26 @@ class Whatsapp extends MY_Controller
             return ['title' => 'Mutasi Rekening ' . $this->waDateLabel($date), 'body' => 'Tabel rekening/mutasi belum tersedia.'];
         }
 
-        $summary = $this->db
+        $summaryQuery = $this->db
             ->select("COALESCE(SUM(CASE WHEN l.mutation_type = 'IN' THEN l.amount ELSE 0 END),0) AS total_in", false)
             ->select("COALESCE(SUM(CASE WHEN l.mutation_type = 'OUT' THEN l.amount ELSE 0 END),0) AS total_out", false)
             ->select('COUNT(*) AS mutation_count', false)
             ->from('fin_account_mutation_log l')
-            ->where('l.mutation_date', $date)
+            ->where('l.mutation_date', $date);
+        $this->applyEffectiveAccountMutationFilter($summaryQuery, 'l');
+        $summary = $summaryQuery
             ->get()
             ->row_array() ?: [];
 
-        $rows = $this->db
+        $rowsQuery = $this->db
             ->select('l.*, a.account_code, a.account_name')
             ->from('fin_account_mutation_log l')
             ->join('fin_company_account a', 'a.id = l.account_id', 'left')
             ->where('l.mutation_date', $date)
             ->order_by('l.created_at', 'DESC')
-            ->order_by('l.id', 'DESC')
+            ->order_by('l.id', 'DESC');
+        $this->applyEffectiveAccountMutationFilter($rowsQuery, 'l');
+        $rows = $rowsQuery
             ->limit(15)
             ->get()
             ->result_array();
@@ -2611,6 +2649,7 @@ class Whatsapp extends MY_Controller
             GROUP BY status, stock_commit_status
             ORDER BY total DESC
         ", [$date])->result_array();
+        $effectiveMutationFilter = $this->effectiveAccountMutationSqlFilter('l');
         $rows = $this->db->query("
             SELECT order_no, customer_name, service_type, status, stock_commit_status, grand_total, ordered_at
             FROM pos_order
@@ -2646,6 +2685,7 @@ class Whatsapp extends MY_Controller
                    COUNT(l.id) AS mutation_count
             FROM fin_company_account a
             LEFT JOIN fin_account_mutation_log l ON l.account_id = a.id AND l.mutation_date = ?
+                $effectiveMutationFilter
             WHERE a.is_active = 1
             GROUP BY a.id
             HAVING mutation_count > 0 OR total_in <> 0 OR total_out <> 0
@@ -3704,7 +3744,7 @@ class Whatsapp extends MY_Controller
         $cashOutRows = [];
         $otherCashOutTotal = 0.0;
         if ($this->db->table_exists('fin_account_mutation_log')) {
-            $cashOutRows = $this->db
+            $cashOutQuery = $this->db
                 ->select('ml.mutation_no, ml.amount, ml.ref_module, ml.ref_table, ml.ref_no, ml.notes')
                 ->select('COALESCE(a.account_name, a.account_code, "Tanpa rekening") AS account_name', false)
                 ->from('fin_account_mutation_log ml')
@@ -3714,7 +3754,9 @@ class Whatsapp extends MY_Controller
                 ->where('ml.ref_module IS NOT NULL', null, false)
                 ->where_not_in('ml.ref_module', ['PURCHASE', 'FINANCE', 'FINANCE_TRANSFER', 'POS'])
                 ->order_by('ml.ref_module', 'ASC')
-                ->order_by('ml.id', 'ASC')
+                ->order_by('ml.id', 'ASC');
+            $this->applyEffectiveAccountMutationFilter($cashOutQuery, 'ml');
+            $cashOutRows = $cashOutQuery
                 ->limit(100)
                 ->get()
                 ->result_array();

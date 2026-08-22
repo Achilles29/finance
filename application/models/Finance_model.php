@@ -78,6 +78,21 @@ class Finance_model extends CI_Model
         return $no;
     }
 
+    private function ensure_account_mutation_reversal_ready(): array
+    {
+        if (!$this->db->table_exists('fin_account_mutation_log')) {
+            return ['ok' => false, 'message' => 'Tabel mutasi rekening belum tersedia.'];
+        }
+        if (!$this->table_has_field('fin_account_mutation_log', 'reversal_of_mutation_id')) {
+            return [
+                'ok' => false,
+                'message' => 'Fitur VOID aman belum siap. Jalankan migration 2026-08-22a_inventory_void_reversal_movement_link_foundation.sql terlebih dahulu.',
+            ];
+        }
+
+        return ['ok' => true];
+    }
+
     private function create_account_mutation(
         string $moduleCode,
         int $accountId,
@@ -88,7 +103,8 @@ class Finance_model extends CI_Model
         int $refId,
         string $refNo,
         string $notes,
-        int $actorUserId = 0
+        int $actorUserId = 0,
+        int $reversalOfMutationId = 0
     ): array {
         $mutationType = strtoupper(trim($mutationType));
         $amount = round($amount, 2);
@@ -104,6 +120,12 @@ class Finance_model extends CI_Model
         }
         if (!$this->db->table_exists('fin_company_account') || !$this->db->table_exists('fin_account_mutation_log')) {
             return ['ok' => false, 'message' => 'Tabel rekening atau mutation log belum tersedia.'];
+        }
+        if ($reversalOfMutationId > 0) {
+            $ready = $this->ensure_account_mutation_reversal_ready();
+            if (!($ready['ok'] ?? false)) {
+                return $ready;
+            }
         }
 
         $account = $this->db
@@ -127,7 +149,7 @@ class Finance_model extends CI_Model
         ]);
 
         $mutationNo = $this->generate_account_mutation_no($mutationDate);
-        $this->db->insert('fin_account_mutation_log', [
+        $mutationPayload = [
             'mutation_no' => $mutationNo,
             'mutation_date' => $mutationDate,
             'account_id' => $accountId,
@@ -142,11 +164,24 @@ class Finance_model extends CI_Model
             'notes' => $notes !== '' ? $notes : null,
             'created_by' => $actorUserId > 0 ? $actorUserId : null,
             'created_at' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+        if ($reversalOfMutationId > 0) {
+            $mutationPayload['reversal_of_mutation_id'] = $reversalOfMutationId;
+        }
+        $inserted = $this->db->insert('fin_account_mutation_log', $mutationPayload);
+        $mutationId = (int)$this->db->insert_id();
+        if (!$inserted || $mutationId <= 0) {
+            // This helper is normally called inside a transaction. Restore the
+            // locked balance as an extra safeguard for a direct caller.
+            $this->db->where('id', $accountId)->update('fin_company_account', [
+                'current_balance' => $balanceBefore,
+            ]);
+            return ['ok' => false, 'message' => 'Gagal mencatat mutasi rekening.'];
+        }
 
         return [
             'ok' => true,
-            'mutation_id' => (int)$this->db->insert_id(),
+            'mutation_id' => $mutationId,
             'mutation_no' => $mutationNo,
             'balance_before' => $balanceBefore,
             'balance_after' => $balanceAfter,
@@ -165,11 +200,20 @@ class Finance_model extends CI_Model
         if ($mutationId <= 0) {
             return ['ok' => true];
         }
+        $ready = $this->ensure_account_mutation_reversal_ready();
+        if (!($ready['ok'] ?? false)) {
+            return $ready;
+        }
         $mutation = $this->db
             ->query('SELECT * FROM fin_account_mutation_log WHERE id = ? LIMIT 1 FOR UPDATE', [$mutationId])
             ->row_array();
         if (!$mutation) {
             return ['ok' => false, 'message' => 'Mutasi asli tidak ditemukan untuk dibalik.'];
+        }
+        if ((int)$this->db
+            ->where('reversal_of_mutation_id', $mutationId)
+            ->count_all_results('fin_account_mutation_log') > 0) {
+            return ['ok' => true, 'message' => 'Mutasi ini sudah pernah dibalik.'];
         }
 
         $reverseType = strtoupper((string)($mutation['mutation_type'] ?? 'IN')) === 'IN' ? 'OUT' : 'IN';
@@ -186,7 +230,8 @@ class Finance_model extends CI_Model
             $refId,
             $refNo,
             $notes,
-            $actorUserId
+            $actorUserId,
+            $mutationId
         );
     }
 

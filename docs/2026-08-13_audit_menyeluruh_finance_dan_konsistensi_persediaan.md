@@ -1154,6 +1154,42 @@ Perintah ini tidak membuat periode, tidak membuat opening, dan tidak mengubah da
 2. Gunakan cron server yang sudah disiapkan: `* * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100`.
 3. Setelah menu muncul, simpan satu perubahan stok kecil, buka `POS > Ketersediaan POS`, lalu tekan `Proses Sekali`. Job harus berpindah ke selesai atau menunjukkan pesan error yang bisa ditindaklanjuti.
 
+### Fase 8A - VOID/Reversal yang Tidak Menghitung Transaksi - 22 Agustus 2026
+
+#### Prinsip yang dipakai
+
+1. Dokumen yang dibatalkan tidak dihapus dari database. Sistem menyimpan dokumen asal dan jejak pembatalannya agar alasan serta pelakunya masih dapat diaudit.
+2. Jejak pembatalan ditautkan langsung ke movement atau mutasi rekening asal. Dengan tautan ini, laporan operasional dan keuangan dapat mengabaikan keduanya sebagai satu transaksi yang tidak pernah berlaku.
+3. Refund pelanggan tetap berbeda dari VOID. Refund adalah uang yang benar-benar kembali kepada pelanggan, sehingga tetap dibaca sebagai transaksi keuangan dan pengurang penjualan yang sah.
+4. Perubahan ini berlaku untuk tindakan baru setelah migration dipasang. Data historis tidak dipaksa diubah atau dibersihkan kembali.
+
+#### Yang diperbaiki
+
+1. VOID adjustment bahan baku, transfer bahan baku, receipt/PO yang dibatalkan, penggunaan POS, dan pembalikan stok material sekarang menyimpan movement lawan berjenis `VOID_REVERSE` yang terhubung ke movement asal. Saldo stok dan lot kembali seperti sebelum dokumen dibuat, tetapi histori asli tidak dihapus.
+2. VOID batch component sekarang membatalkan output dan pemakaian bahan/component dengan movement yang terhubung. Batch yang keliru tidak lagi terbaca sebagai produksi, pemakaian, waste, spoil, atau adjustment aktif pada ringkasan operasional.
+3. Ringkasan harian dan bulanan material/component membaca pasangan movement tersebut sebagai nilai nol. Pembatalan spoil, waste, proses susut, selisih, dan adjustment sekarang membatalkan kategori asalnya juga, bukan dipindahkan ke kolom barang keluar biasa. Artinya adjustment spoil yang kemudian di-VOID tidak lagi dihitung sebagai spoil, dan batch yang di-VOID tidak lagi dihitung sebagai produksi.
+4. VOID PO yang sudah dibayar sekarang mengembalikan saldo rekening melalui satu mutasi lawan untuk setiap pembayaran asal. Ringkasan PO hanya menghitung PO yang masih berlaku. PO penuh senilai Rp1.000.000 yang di-VOID tidak lagi masuk total belanja; jika nilai PO aktif diperbaiki menjadi Rp900.000, ringkasan membaca Rp900.000 dari line aktifnya.
+5. VOID pencairan gaji, uang makan, dan kasbon yang belum memiliki cicilan sekarang memakai pasangan mutasi rekening yang terhubung. Saldo rekening kembali, tetapi laporan kas, estimasi keuangan, laporan periodik, rekap kas shift POS, dan laporan WhatsApp tidak menampilkan pasangan itu sebagai arus uang biasa.
+6. VOID DP POS mendapat perlakuan yang sama. Sebaliknya, refund POS tidak disembunyikan karena refund merupakan pengembalian uang yang benar-benar terjadi.
+7. Jika migration belum dijalankan, tindakan VOID yang membutuhkan pasangan movement/mutasi ditolak dengan pesan jelas sebelum data berubah. Ini lebih aman daripada membuat saldo berubah tanpa jejak pembalikan yang lengkap.
+8. Perbaikan lanjutan: perhitungan reversal sekarang dibuat di dalam writer stok bulanan, bukan hanya di pintu masuk ledger. Receipt PO dan fulfillment Store Request yang normal tidak lagi mencoba memakai variabel reversal yang belum ada.
+9. Halaman Purchase Order dan Store Request tidak lagi menampilkan potongan HTML atau pesan PHP mentah bila server gagal. Operator menerima pesan singkat untuk memuat ulang atau meneruskan error ke admin/server.
+
+#### Yang perlu dilakukan setelah deploy
+
+1. Jalankan `2026-08-22a_inventory_void_reversal_movement_link_foundation.sql` pada **lokal dan server** sebelum deploy PHP. File ini hanya menambah kolom tautan reversal, index, dan tipe movement `VOID_OUT` untuk component; tidak mengubah stok, lot, kas, transaksi, atau data historis.
+2. Deploy seluruh perubahan PHP fase ini sekaligus: writer stok, model PO/production/payroll/POS/keuangan, laporan kas, dan laporan WhatsApp. Jangan menyalin satu file saja karena satu VOID dapat menyentuh stok sekaligus rekening.
+3. Tidak perlu menjalankan repair data historis untuk fase ini. Fokusnya memastikan pembatalan baru tidak lagi masuk ke angka transaksi yang berlaku.
+
+#### Uji operator
+
+1. Buat adjustment bahan baku uji dengan kategori spoil atau waste, post, lalu VOID. Stok dan lot harus kembali; movement asal dan movement pembalik tetap terlihat di audit; ringkasan spoil/waste aktif harus kembali nol.
+2. Buat batch component uji, post, lalu VOID. Output component dan seluruh input harus kembali; halaman laporan produksi tidak boleh lagi menghitung batch tersebut sebagai produksi yang berlaku.
+3. Buat PO uji, bayar dari rekening, lalu VOID. Saldo rekening harus kembali. Daftar audit mutasi dapat menunjukkan asal dan pembatalannya, tetapi ringkasan belanja/keuangan/kas tidak boleh menghitung keduanya sebagai pengeluaran maupun pemasukan biasa.
+4. Void pencairan gaji atau uang makan uji. Saldo rekening harus kembali dan laporan keuangan normal tidak boleh lagi memasukkan nominal itu sebagai biaya gaji.
+5. Void kasbon uji yang belum mempunyai cicilan/pembayaran. Saldo rekening harus kembali. Kasbon yang sudah memiliki cicilan tetap harus ditolak, karena tidak aman dibatalkan tanpa proses koreksi tersendiri.
+6. Buat DP POS uji lalu VOID DP tersebut. Saldo rekening harus kembali dan rekap kas POS tidak boleh menganggap DP itu sebagai penjualan. Uji refund POS terpisah; refund tetap harus tampil sebagai uang keluar yang nyata.
+
 ### SQL dan deploy yang perlu dilakukan
 
 1. Jalankan `2026-08-13a_inventory_active_month_deficit_period_lock_foundation.sql` bila belum pernah dijalankan pada database target.
@@ -1178,6 +1214,7 @@ Perintah ini tidak membuat periode, tidak membuat opening, dan tidak mengubah da
 20. Jalankan `2026-08-21c_pos_refund_cash_and_gross_amount_schema.sql` pada lokal dan server sebelum deploy pengaman refund Fase 6C.
 21. Jalankan `2026-08-21e_pos_product_availability_queue.sql` pada lokal dan server sebelum deploy Fase 7A. Setelah itu pasang cron `php index.php pos availability_queue_run 100` setiap satu menit di Ubuntu.
 22. Jalankan `2026-08-21f_pos_availability_queue_monitor_menu_seed.sql` pada lokal dan server setelah SQL antrean Fase 7A. File ini hanya membuat menu, halaman, dan hak akses monitor; tidak mengubah data persediaan atau transaksi.
+23. Jalankan `2026-08-22a_inventory_void_reversal_movement_link_foundation.sql` pada lokal dan server sebelum deploy refactor VOID/reversal Fase 8A. File ini aman dijalankan ulang dan tidak mengubah data bisnis lama.
 
 ### Uji manual yang disarankan
 
@@ -1213,6 +1250,10 @@ Perintah ini tidak membuat periode, tidak membuat opening, dan tidak mengubah da
 30. Pada data uji yang memang aman, isi catatan, centang catatan bila muncul, ketik `POST CUT-OFF`, lalu posting. Pastikan run tercatat `POSTED`, opname dan opening terbentuk, lalu periode menjadi `CLOSED`.
 31. Coba simpan adjustment atau batch dengan tanggal pada bulan yang baru ditutup. Sistem harus menolak transaksi tersebut tanpa membuat movement atau lot baru.
 32. Uji kondisi terlambat: pilih bulan yang bulan berikutnya sudah memiliki mutasi. Hasil yang diharapkan adalah tombol posting ditolak dengan penjelasan bahwa opening tidak boleh dibentuk di atas bulan yang sudah berjalan. Tidak ada data yang boleh berubah.
+33. Setelah Fase 8A dipasang, post lalu VOID satu adjustment spoil uji. Pastikan stok/lot pulih, histori movement tetap ada, dan jumlah spoil aktif tidak bertambah.
+34. Post lalu VOID satu batch component uji. Pastikan output/input tidak lagi dihitung sebagai aktivitas produksi pada laporan normal.
+35. Bayar lalu VOID satu PO uji. Pastikan saldo rekening pulih dan laporan keuangan normal tidak menghitung pembayaran maupun pengembaliannya sebagai arus kas operasional.
+36. Uji refund POS secara terpisah dari VOID DP. Refund harus tetap terlihat sebagai uang keluar karena memang terjadi, sedangkan VOID DP tidak boleh masuk penjualan atau kas normal.
 
 ### Verifikasi teknis tahap ini
 
@@ -1220,6 +1261,8 @@ Perintah ini tidak membuat periode, tidak membuat opening, dan tidak mengubah da
 2. Pemeriksaan database lokal memastikan tabel period, defisit, settlement, dan cutoff event tersedia. Tidak ada data bisnis baru yang dibuat untuk pengujian ini.
 3. Akses HTTP tanpa login ke halaman baru dan detail batch diuji; semua diarahkan ke halaman login sebagaimana mestinya.
 4. Pengujian klik dengan akun operator tetap perlu dilakukan manual karena verifikasi ini tidak memakai sesi login pengguna.
+5. Pengujian fungsi writer material secara terisolasi mencakup pembatalan spoil, waste, receipt/pembelian, serta adjustment spoil. Masing-masing membatalkan bucket bulanan asalnya dan tidak berubah menjadi transaksi keluar biasa.
+6. Pengujian jalur receipt normal secara terisolasi memastikan update stok bulanan tetap berhasil setelah tambahan metadata reversal, tanpa membutuhkan transaksi VOID.
 
 ## Referensi Kode dan Dokumen
 

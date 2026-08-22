@@ -200,6 +200,9 @@ class InventoryLedger
         if ($this->ci->db->field_exists('adjustment_reason_code', 'inv_stock_movement_log')) {
             $movementData['adjustment_reason_code'] = $adjustmentReasonCode;
         }
+        if ($this->ci->db->field_exists('reversal_of_movement_id', 'inv_stock_movement_log')) {
+            $movementData['reversal_of_movement_id'] = $this->nullableInt($payload['reversal_of_movement_id'] ?? null);
+        }
 
         if ($scope === 'DIVISION' && $this->ci->db->field_exists('destination_type', 'inv_stock_movement_log')) {
             $movementData['destination_type'] = $destinationType;
@@ -316,6 +319,7 @@ class InventoryLedger
 
         $monthKey = date('Y-m-01', strtotime($movementDate));
         $movementType = strtoupper(trim((string)($payload['movement_type'] ?? 'ADJUSTMENT')));
+        $reversalOrigin = $this->resolveReversalOriginForMonthlyDelta($payload, $movementType);
         $divisionId = $scope === 'DIVISION' ? $this->nullableInt($context['division_id'] ?? null) : null;
         $destinationType = $scope === 'DIVISION'
             ? ($this->normalizeDestinationType((string)($payload['destination_type'] ?? '')) ?? 'OTHER')
@@ -438,7 +442,15 @@ class InventoryLedger
         } else {
             $mutationValue = round(abs($qtyContentDelta) * $mutationValueBase, 2);
         }
-        $delta = $this->buildMonthlyMovementDelta($movementType, $qtyBuyDelta, $qtyContentDelta, $mutationValue, $this->normalizeAdjustmentCategory((string)($payload['adjustment_category'] ?? '')), $isOpeningSnapshotMovement);
+        $delta = $this->buildMonthlyMovementDelta(
+            $movementType,
+            $qtyBuyDelta,
+            $qtyContentDelta,
+            $mutationValue,
+            $this->normalizeAdjustmentCategory((string)($payload['adjustment_category'] ?? '')),
+            $isOpeningSnapshotMovement,
+            $reversalOrigin
+        );
 
         $openingQtyBuy = round((float)($existing['opening_qty_buy'] ?? 0), 4);
         $openingQtyContent = round((float)($existing['opening_qty_content'] ?? 0), 4);
@@ -950,7 +962,15 @@ class InventoryLedger
         return $this->columnNullableCache[$cacheKey];
     }
 
-    private function buildMonthlyMovementDelta(string $movementType, float $qtyBuyDelta, float $qtyContentDelta, float $mutationValue, ?string $adjustmentCategory, bool $isOpeningSnapshotMovement): array
+    private function buildMonthlyMovementDelta(
+        string $movementType,
+        float $qtyBuyDelta,
+        float $qtyContentDelta,
+        float $mutationValue,
+        ?string $adjustmentCategory,
+        bool $isOpeningSnapshotMovement,
+        array $reversalOrigin = []
+    ): array
     {
         $delta = [
             'in_qty_buy' => 0.0,
@@ -992,9 +1012,88 @@ class InventoryLedger
             $delta['in_total_value'] = $mutationValue;
         } elseif ($movementType === 'VOID_REVERSE') {
             // Reversal of an out movement — reduces out_qty (true rollback, not a new adjustment).
-            $delta['out_qty_buy'] = -max(0, $qtyBuyDelta);
-            $delta['out_qty_content'] = -max(0, $qtyContentDelta);
-            $delta['out_total_value'] = -$mutationValue;
+            $originType = strtoupper(trim((string)($reversalOrigin['movement_type'] ?? '')));
+            $originCategory = $this->normalizeAdjustmentCategory((string)($reversalOrigin['adjustment_category'] ?? ''));
+            $originQtyBuy = (float)($reversalOrigin['qty_buy_delta'] ?? 0);
+            $originQtyContent = (float)($reversalOrigin['qty_content_delta'] ?? 0);
+            $cancelBuy = -abs($qtyBuyDelta);
+            $cancelContent = -abs($qtyContentDelta);
+            $cancelValue = -$mutationValue;
+
+            if (in_array($originType, ['PURCHASE_IN', 'TRANSFER_IN'], true)) {
+                $delta['in_qty_buy'] = $cancelBuy;
+                $delta['in_qty_content'] = $cancelContent;
+                $delta['in_total_value'] = $cancelValue;
+            } elseif (in_array($originType, ['TRANSFER_OUT', 'USAGE_OUT'], true)) {
+                $delta['out_qty_buy'] = $cancelBuy;
+                $delta['out_qty_content'] = $cancelContent;
+                $delta['out_total_value'] = $cancelValue;
+            } elseif ($originType === 'DISCARDED_OUT') {
+                $delta['discarded_qty_buy'] = $cancelBuy;
+                $delta['discarded_qty_content'] = $cancelContent;
+                $delta['discarded_total_value'] = $cancelValue;
+                $delta['waste_qty_buy'] = $cancelBuy;
+                $delta['waste_qty_content'] = $cancelContent;
+                $delta['waste_total_value'] = $cancelValue;
+            } elseif ($originType === 'SPOIL_OUT') {
+                $delta['spoil_qty_buy'] = $cancelBuy;
+                $delta['spoil_qty_content'] = $cancelContent;
+                $delta['spoilage_total_value'] = $cancelValue;
+            } elseif ($originType === 'WASTE_OUT') {
+                $delta['waste_qty_buy'] = $cancelBuy;
+                $delta['waste_qty_content'] = $cancelContent;
+                $delta['waste_total_value'] = $cancelValue;
+            } elseif ($originType === 'PROCESS_LOSS_OUT') {
+                $delta['process_loss_qty_buy'] = $cancelBuy;
+                $delta['process_loss_qty_content'] = $cancelContent;
+                $delta['process_loss_total_value'] = $cancelValue;
+            } elseif ($originType === 'VARIANCE_OUT') {
+                $delta['variance_qty_buy'] = $cancelBuy;
+                $delta['variance_qty_content'] = $cancelContent;
+                $delta['variance_total_value'] = $cancelValue;
+            } elseif ($originType === 'ADJUSTMENT_IN') {
+                $delta['adjustment_plus_qty_buy'] = $cancelBuy;
+                $delta['adjustment_plus_qty_content'] = $cancelContent;
+                $delta['adjustment_plus_total_value'] = $cancelValue;
+            } elseif ($originType === 'ADJUSTMENT') {
+                $originWasPlus = $originQtyBuy > 0 || $originQtyContent > 0;
+                if ($originWasPlus) {
+                    $delta['adjustment_plus_qty_buy'] = $cancelBuy;
+                    $delta['adjustment_plus_qty_content'] = $cancelContent;
+                    $delta['adjustment_plus_total_value'] = $cancelValue;
+                } else {
+                    $delta['adjustment_minus_qty_buy'] = $cancelBuy;
+                    $delta['adjustment_minus_qty_content'] = $cancelContent;
+                    $delta['adjustment_minus_total_value'] = $cancelValue;
+                }
+
+                if ($originCategory === 'WASTE') {
+                    $delta['waste_qty_buy'] = $cancelBuy;
+                    $delta['waste_qty_content'] = $cancelContent;
+                    $delta['waste_total_value'] = $cancelValue;
+                } elseif ($originCategory === 'SPOILAGE') {
+                    $delta['spoil_qty_buy'] = $cancelBuy;
+                    $delta['spoil_qty_content'] = $cancelContent;
+                    $delta['spoilage_total_value'] = $cancelValue;
+                } elseif ($originCategory === 'PROCESS_LOSS') {
+                    $delta['process_loss_qty_buy'] = $cancelBuy;
+                    $delta['process_loss_qty_content'] = $cancelContent;
+                    $delta['process_loss_total_value'] = $cancelValue;
+                } elseif ($originCategory === 'VARIANCE') {
+                    $delta['variance_qty_buy'] = $cancelBuy;
+                    $delta['variance_qty_content'] = $cancelContent;
+                    $delta['variance_total_value'] = $cancelValue;
+                }
+            } elseif ($qtyContentDelta >= 0 || ($qtyContentDelta == 0.0 && $qtyBuyDelta >= 0)) {
+                // Compatibility fallback for older callers without reversal metadata.
+                $delta['out_qty_buy'] = $cancelBuy;
+                $delta['out_qty_content'] = $cancelContent;
+                $delta['out_total_value'] = $cancelValue;
+            } else {
+                $delta['in_qty_buy'] = $cancelBuy;
+                $delta['in_qty_content'] = $cancelContent;
+                $delta['in_total_value'] = $cancelValue;
+            }
         } elseif (in_array($movementType, ['TRANSFER_OUT', 'USAGE_OUT'], true)) {
             $delta['out_qty_buy'] = abs(min(0, $qtyBuyDelta));
             $delta['out_qty_content'] = abs(min(0, $qtyContentDelta));
@@ -1038,23 +1137,23 @@ class InventoryLedger
             }
         }
 
-        if ($adjustmentCategory === 'WASTE') {
+        if ($movementType !== 'VOID_REVERSE' && $adjustmentCategory === 'WASTE') {
             $delta['waste_qty_buy'] = max($delta['waste_qty_buy'], abs($qtyBuyDelta));
             $delta['waste_qty_content'] = max($delta['waste_qty_content'], abs($qtyContentDelta));
             $delta['waste_total_value'] = max($delta['waste_total_value'], $mutationValue);
-        } elseif ($adjustmentCategory === 'SPOILAGE') {
+        } elseif ($movementType !== 'VOID_REVERSE' && $adjustmentCategory === 'SPOILAGE') {
             $delta['spoil_qty_buy'] = max($delta['spoil_qty_buy'], abs($qtyBuyDelta));
             $delta['spoil_qty_content'] = max($delta['spoil_qty_content'], abs($qtyContentDelta));
             $delta['spoilage_total_value'] = max($delta['spoilage_total_value'], $mutationValue);
-        } elseif ($adjustmentCategory === 'PROCESS_LOSS') {
+        } elseif ($movementType !== 'VOID_REVERSE' && $adjustmentCategory === 'PROCESS_LOSS') {
             $delta['process_loss_qty_buy'] = max($delta['process_loss_qty_buy'], abs($qtyBuyDelta));
             $delta['process_loss_qty_content'] = max($delta['process_loss_qty_content'], abs($qtyContentDelta));
             $delta['process_loss_total_value'] = max($delta['process_loss_total_value'], $mutationValue);
-        } elseif ($adjustmentCategory === 'VARIANCE') {
+        } elseif ($movementType !== 'VOID_REVERSE' && $adjustmentCategory === 'VARIANCE') {
             $delta['variance_qty_buy'] = max($delta['variance_qty_buy'], abs($qtyBuyDelta));
             $delta['variance_qty_content'] = max($delta['variance_qty_content'], abs($qtyContentDelta));
             $delta['variance_total_value'] = max($delta['variance_total_value'], $mutationValue);
-        } elseif ($adjustmentCategory === 'ADJUSTMENT_PLUS') {
+        } elseif ($movementType !== 'VOID_REVERSE' && $adjustmentCategory === 'ADJUSTMENT_PLUS') {
             $delta['adjustment_plus_qty_buy'] = max($delta['adjustment_plus_qty_buy'], max(0, $qtyBuyDelta));
             $delta['adjustment_plus_qty_content'] = max($delta['adjustment_plus_qty_content'], max(0, $qtyContentDelta));
             $delta['adjustment_plus_total_value'] = max($delta['adjustment_plus_total_value'], $mutationValue);
@@ -1063,6 +1162,48 @@ class InventoryLedger
         return $delta;
     }
 
+    /**
+     * Supplies the source bucket for a reversal. New writer calls pass this
+     * metadata directly; the lookup keeps the ledger safe for older callers
+     * that only provide the linked movement id.
+     */
+    private function resolveReversalOriginForMonthlyDelta(array $payload, string $movementType): array
+    {
+        $origin = [
+            'movement_type' => strtoupper(trim((string)($payload['reversal_of_movement_type'] ?? ''))),
+            'adjustment_category' => $payload['reversal_of_adjustment_category'] ?? null,
+            'qty_buy_delta' => (float)($payload['reversal_of_qty_buy_delta'] ?? 0),
+            'qty_content_delta' => (float)($payload['reversal_of_qty_content_delta'] ?? 0),
+        ];
+
+        if ($movementType !== 'VOID_REVERSE' || $origin['movement_type'] !== '') {
+            return $origin;
+        }
+
+        $originId = $this->nullableInt($payload['reversal_of_movement_id'] ?? null);
+        if ($originId === null
+            || !$this->ci->db->field_exists('reversal_of_movement_id', 'inv_stock_movement_log')) {
+            return $origin;
+        }
+
+        $query = $this->ci->db
+            ->select('movement_type, qty_buy_delta, qty_content_delta')
+            ->from('inv_stock_movement_log')
+            ->where('id', $originId)
+            ->limit(1);
+        if ($this->ci->db->field_exists('adjustment_category', 'inv_stock_movement_log')) {
+            $query->select('adjustment_category');
+        }
+        $row = $query->get()->row_array() ?: [];
+        if (!empty($row)) {
+            $origin['movement_type'] = strtoupper(trim((string)($row['movement_type'] ?? '')));
+            $origin['adjustment_category'] = $row['adjustment_category'] ?? null;
+            $origin['qty_buy_delta'] = (float)($row['qty_buy_delta'] ?? 0);
+            $origin['qty_content_delta'] = (float)($row['qty_content_delta'] ?? 0);
+        }
+
+        return $origin;
+    }
 
     private function generateMovementNo(string $movementDate): string
     {
