@@ -5,6 +5,7 @@ if ($reportNavActive === '') {
     $map = [
         'pos.report.daily_sales' => 'daily_sales',
         'pos.report.sales' => 'sales',
+        'pos.report.cost_control' => 'cost_control',
         'pos.report.sales.detail' => 'sales_detail',
         'pos.report.sales.extra' => 'sales_extra',
         'pos.report.sales.audit' => 'sales_audit',
@@ -21,6 +22,7 @@ if ($reportNavActive === '') {
 $navItems = [
     'daily_sales' => ['label' => 'Daily Sales', 'hint' => 'Harian', 'url' => 'pos/reports/daily-sales', 'icon' => 'ri-calendar-check-line'],
     'sales' => ['label' => 'Penjualan', 'hint' => 'Transaksi', 'url' => 'pos/reports/sales', 'icon' => 'ri-receipt-line'],
+    'cost_control' => ['label' => 'Cost Control', 'hint' => 'Biaya & HPP', 'url' => 'pos/reports/cost-control', 'icon' => 'ri-funds-box-line'],
     'sales_detail' => ['label' => 'Penjualan Produk', 'hint' => 'Per Item', 'url' => 'pos/reports/sales-detail', 'icon' => 'ri-file-list-3-line'],
     'sales_extra' => ['label' => 'Penjualan Extra', 'hint' => 'Per Extra', 'url' => 'pos/reports/sales-extra', 'icon' => 'ri-add-box-line'],
     'sales_audit' => ['label' => 'Audit Penjualan', 'hint' => 'HPP', 'url' => 'pos/reports/sales-audit', 'icon' => 'ri-shield-search-line'],

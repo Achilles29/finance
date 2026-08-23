@@ -8,6 +8,7 @@ class Pos extends MY_Controller
         parent::__construct();
         $this->load->model('Pos_model');
         $this->load->model('Pos_report_model');
+        $this->load->model('Cost_control_model');
         $this->load->model('Pos_order_monitor_model');
         $this->load->model('Pos_availability_queue_model');
         $this->load->model('Purchase_model');
@@ -3651,6 +3652,21 @@ public function self_order_tables_print()
         ]);
     }
 
+    public function report_cost_control()
+    {
+        $pageCode = $this->report_view_page_code('pos.report.cost_control.index');
+        $this->require_permission($pageCode, 'view');
+        $filters = $this->cost_control_filters();
+        $this->render('pos/report_cost_control_index', [
+            'page_title' => 'Cost Control POS',
+            'active_menu' => 'pos.report.cost_control',
+            'report_nav_active' => 'cost_control',
+            'filters' => $filters,
+            'dashboard' => $this->Cost_control_model->dashboard($filters),
+            'divisions' => $this->Cost_control_model->division_options(),
+        ]);
+    }
+
     public function report_sales_detail()
     {
         $pageCode = $this->report_view_page_code('pos.report.sales.detail.index');
@@ -3745,6 +3761,32 @@ public function self_order_tables_print()
             'margin_audit' => $this->Pos_report_model->order_margin_audit((int)$id),
             'payment_method_options' => $this->Pos_model->deposit_payment_method_options(),
             'can_edit_payment_method' => $this->can_edit_sales_transaction_payment(),
+        ]);
+    }
+
+    public function report_sales_document_print($id, $documentType = 'invoice')
+    {
+        $pageCode = $this->report_view_page_code('pos.report.sales.detail.index');
+        $this->require_permission($pageCode, 'view');
+
+        $documentType = strtolower(trim((string)$documentType));
+        if (!in_array($documentType, ['invoice', 'receipt'], true)) {
+            show_404();
+            return;
+        }
+
+        $order = $this->Pos_model->find_order_draft((int)$id);
+        if (!$order) {
+            show_404();
+            return;
+        }
+
+        $this->load->view('pos/report_sales_document_print', [
+            'order' => $order,
+            'payments' => $this->Pos_report_model->order_payment_rows((int)$id),
+            'refunds' => $this->Pos_report_model->order_refund_rows((int)$id),
+            'document_type' => $documentType,
+            'logo_url' => base_url('assets/img/logo.png'),
         ]);
     }
 
@@ -4119,6 +4161,22 @@ public function self_order_tables_print()
             'date_to' => $dateTo,
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(1, min(200, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+    }
+
+    private function cost_control_filters(): array
+    {
+        $dateFrom = $this->optional_report_date_input('date_from');
+        $dateTo = $this->optional_report_date_input('date_to');
+        $location = strtoupper(trim((string)$this->input->get('location_type', true)));
+        if (!in_array($location, ['ALL', 'REGULAR', 'EVENT'], true)) {
+            $location = 'ALL';
+        }
+        return [
+            'date_from' => $dateFrom !== '' ? $dateFrom : date('Y-m-01'),
+            'date_to' => $dateTo !== '' ? $dateTo : date('Y-m-d'),
+            'division_id' => max(0, (int)$this->input->get('division_id', true)),
+            'location_type' => $location,
         ];
     }
 

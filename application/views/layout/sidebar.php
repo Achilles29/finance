@@ -856,6 +856,17 @@ if (!function_exists('_append_pos_report_sidebar_children')) {
         'children' => [],
       ],
       [
+        'id' => -2618,
+        'parent_id' => -2601,
+        'menu_code' => 'pos.report.cost_control',
+        'menu_label' => 'Cost Control POS',
+        'icon' => 'ri-funds-box-line',
+        'url' => 'pos/reports/cost-control',
+        'page_id' => null,
+        'sort_order' => 2,
+        'children' => [],
+      ],
+      [
         'id' => -2603,
         'parent_id' => -2601,
         'menu_code' => 'pos.report.sales.detail',

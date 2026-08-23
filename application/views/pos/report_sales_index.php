@@ -141,6 +141,48 @@ $summaryCards = [
   .pos-report-sales-filter-action .btn {
     width: 100%;
   }
+  .pos-sales-action-icon {
+    position: relative;
+    width: 42px;
+    height: 38px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .pos-sales-action-icon svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .pos-sales-action-icon::after {
+    content: attr(data-action-label);
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 7px);
+    z-index: 20;
+    padding: 4px 7px;
+    border-radius: 6px;
+    background: #34231f;
+    color: #fff;
+    font-size: .68rem;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(3px);
+    transition: opacity .15s ease, transform .15s ease;
+  }
+  .pos-sales-action-icon:hover::after,
+  .pos-sales-action-icon:focus-visible::after {
+    opacity: 1;
+    transform: translateY(0);
+  }
   @media (max-width: 1399.98px) {
     .pos-report-sales-summary-grid {
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -407,7 +449,11 @@ $summaryCards = [
                 <div class="muted">Tagihan sebelum refund <?php echo $money($row['billing_before_refund'] ?? $row['grand_total'] ?? 0); ?> | Refund <?php echo $money($row['refund_amount'] ?? 0); ?> | Void <?php echo $money($row['void_amount'] ?? 0); ?></div>
               </div>
               <div class="d-grid">
-                <a href="<?php echo site_url('pos/reports/sales-detail/' . (int)($row['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-primary">Detail</a>
+                <div class="pos-report-actions justify-content-start">
+                  <a href="<?php echo site_url('pos/reports/sales-detail/' . (int)($row['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-primary pos-sales-action-icon" data-action-label="Detail" aria-label="Detail"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></a>
+                  <a href="<?php echo site_url('pos/reports/sales/print/' . (int)($row['id'] ?? 0) . '/invoice'); ?>" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary pos-sales-action-icon" data-action-label="Invoice" aria-label="Cetak Invoice"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2.5h8l4 4V21.5H6z"/><path d="M14 2.5v4h4M9 11h6M9 15h6"/></svg></a>
+                  <a href="<?php echo site_url('pos/reports/sales/print/' . (int)($row['id'] ?? 0) . '/receipt'); ?>" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary pos-sales-action-icon" data-action-label="Kwitansi" aria-label="Cetak Kwitansi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5h14v17l-2.3-1.6-2.3 1.6-2.4-1.6-2.3 1.6-2.4-1.6L5 20.5z"/><path d="M8.5 8h7M8.5 12h7"/></svg></a>
+                </div>
               </div>
             </div>
           <?php endforeach; ?>
@@ -484,7 +530,9 @@ $summaryCards = [
                     <td class="text-end <?php echo (float)($row['margin_percent'] ?? 0) < 0 ? 'text-danger' : ''; ?>"><?php echo number_format((float)($row['margin_percent'] ?? 0), 2, ',', '.'); ?>%</td>
                     <td>
                       <div class="pos-report-actions">
-                        <a href="<?php echo site_url('pos/reports/sales-detail/' . (int)($row['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-primary">Detail</a>
+                        <a href="<?php echo site_url('pos/reports/sales-detail/' . (int)($row['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-primary pos-sales-action-icon" data-action-label="Detail" aria-label="Detail"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></a>
+						<a href="<?php echo site_url('pos/reports/sales/print/' . (int)($row['id'] ?? 0) . '/invoice'); ?>" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary pos-sales-action-icon" data-action-label="Invoice" aria-label="Cetak Invoice"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2.5h8l4 4V21.5H6z"/><path d="M14 2.5v4h4M9 11h6M9 15h6"/></svg></a>
+						<a href="<?php echo site_url('pos/reports/sales/print/' . (int)($row['id'] ?? 0) . '/receipt'); ?>" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary pos-sales-action-icon" data-action-label="Kwitansi" aria-label="Cetak Kwitansi"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5h14v17l-2.3-1.6-2.3 1.6-2.4-1.6-2.3 1.6-2.4-1.6L5 20.5z"/><path d="M8.5 8h7M8.5 12h7"/></svg></a>
                       </div>
                     </td>
                   </tr>

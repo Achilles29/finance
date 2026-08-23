@@ -293,6 +293,8 @@ $this->load->view('pos/_report_styles');
 					<p class="pos-report-copy mb-0">Lihat nilai tagihan, penjualan bersih, HPP saat transaksi dibuat, pembalikan HPP refund, dan koreksi biaya setelah defisit stok terselesaikan dalam satu audit transaksi.</p>
 				</div>
 				<div class="d-flex gap-2">
+					<a href="<?php echo site_url('pos/reports/sales/print/' . (int)($header['id'] ?? 0) . '/invoice'); ?>" target="_blank" rel="noopener" class="btn btn-primary"><i class="ri-file-text-line me-1"></i>Invoice</a>
+					<a href="<?php echo site_url('pos/reports/sales/print/' . (int)($header['id'] ?? 0) . '/receipt'); ?>" target="_blank" rel="noopener" class="btn btn-outline-primary"><i class="ri-bill-line me-1"></i>Kwitansi</a>
 					<a href="<?php echo site_url('pos/reports/sales'); ?>" class="btn btn-outline-secondary">Kembali ke Penjualan</a>
 					<a href="<?php echo site_url('pos/reports/sales-detail'); ?>" class="btn btn-outline-dark">Ke Penjualan Produk</a>
 				</div>
