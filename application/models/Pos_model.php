@@ -7878,6 +7878,12 @@ class Pos_model extends CI_Model
                 throw new RuntimeException('Draft ini sudah memiliki jejak pembayaran, jadi tidak bisa dihapus langsung.');
             }
 
+            // Runtime jobs keep a foreign key to the stock snapshot. Remove
+            // completed jobs before a fully reversed snapshot is purged.
+            if ($this->db->table_exists('pos_runtime_job')) {
+                $this->db->where('order_id', $orderId)->delete('pos_runtime_job');
+            }
+
             if ($this->db->table_exists('pos_stock_commit')) {
                 $snapshotRows = $this->db->select('id, commit_status')
                     ->from('pos_stock_commit')
@@ -7888,7 +7894,9 @@ class Pos_model extends CI_Model
                 foreach ($snapshotRows as $snapshotRow) {
                     $snapshotIds[] = (int)($snapshotRow['id'] ?? 0);
                     $commitStatus = strtoupper(trim((string)($snapshotRow['commit_status'] ?? 'DRAFT')));
-                    if (in_array($commitStatus, ['COMMITTED', 'PARTIAL_REVERSED', 'REVERSED', 'VOID'], true)) {
+                    // A fully reversed or voided snapshot no longer affects
+                    // inventory, so a payment-free draft may be purged safely.
+                    if (in_array($commitStatus, ['COMMITTED', 'PARTIAL_REVERSED'], true)) {
                         throw new RuntimeException('Draft ini sudah punya snapshot stock commit yang terlanjur memengaruhi stok, jadi tidak bisa dihapus langsung.');
                     }
                 }
@@ -7899,10 +7907,6 @@ class Pos_model extends CI_Model
                 if (!empty($snapshotIds)) {
                     $this->db->where('order_id', $orderId)->delete('pos_stock_commit');
                 }
-            }
-
-            if ($this->db->table_exists('pos_runtime_job')) {
-                $this->db->where('order_id', $orderId)->delete('pos_runtime_job');
             }
 
             if ($this->db->table_exists('pos_order_monitor_task')) {

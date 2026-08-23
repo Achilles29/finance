@@ -4172,11 +4172,16 @@ public function self_order_tables_print()
         if (!in_array($location, ['ALL', 'REGULAR', 'EVENT'], true)) {
             $location = 'ALL';
         }
+        $view = strtolower(trim((string)$this->input->get('view', true)));
+        if (!in_array($view, ['flow', 'margin'], true)) {
+            $view = 'flow';
+        }
         return [
             'date_from' => $dateFrom !== '' ? $dateFrom : date('Y-m-01'),
             'date_to' => $dateTo !== '' ? $dateTo : date('Y-m-d'),
             'division_id' => max(0, (int)$this->input->get('division_id', true)),
             'location_type' => $location,
+            'view' => $view,
         ];
     }
 

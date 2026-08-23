@@ -77,3 +77,41 @@ kejutkan saya
   cron untuk semua halaman yang butuh cron. kamu cek semua
   
   cek semua halaman yang dobel
+
+
+  tadi server sempat lag, lalu banyak stok yang tidak sinkron, ada yang gagal sudah dihapus.
+  seperti draft POS-20260823-0007 stok terlanjur sinrkon jadi tidak bisa dihapus.
+  saya perlu kamu lakukan pengecekan untuk transaksi hari ini, pastikan stok sinkron dengan transaksi sukses. transaksi yang gagal dan draft jangan sinkron stok. POS-20260823-0007 lakukan penyeseuaian stok nya agar bisa dihapus draft
+
+
+oke kembali ke cost control
+Waste dan pengeluaran non-belanja itu bahan baku aja? atau termasuk component? menurutmu bagaimana baiknya?
+
+Kas non-belanja	Transaksi	Kas keluar
+PAYROLL	3	Rp 1.432.000
+POS	8	Rp 1.311.000
+FINANCE	1	Rp 103.500
+
+itu maksudnya gimana? payroll isinya apa? POS apa? Finance apa? mungkin baiknya bisa di expand untuk melihat rinciannya
+
+lalu untuk perhitungan perhitungan cost , hpp dan lainnya, mungkin bisa dibuat porsentase dibawahnya, sebagai perbandingan. kalau hanya rupiah kita tidak bisa membandingkan atau membaca % nya. bagaimanya menurutmu? % pembilang penyebutnya menurutmu apa yang tepat
+
+
+- untuk waste itu maksudnya bukan hanya waste ya, tapi semua penyesuaian yang menyebabkan minus
+
+01 · PENGADAAN
+PO / Receipt Bahan
+Rp 0
+kok 0?? kan purchase ada banyak. cek lagi sumber yang tepat
+
+jadi belanja dibagi menjadi beberapa jenis, antara lain:
+- bahan baku 
+- operasional
+- belanja aset
+- payroll/gaji (termasuk uang makan)
+
+belanja baku ini nanti yang seharusnya menjadi perhitungan hpp.
+dalam rumus hpp ada variable (berbeda beda tiap component / product)
+biaya variable ini seharusnya bisa mencover biaya operasional (gaji,litstrik dll) serta biaya penyusutan (waste , spoil dll)
+
+nah menurutmu bagaimana analisa yang tepat untuk menampilkannya? jadi jika sesuai hpp apakah pengeluaran non bahan baku kita bisa tercover oleh laba bersih (omzet dikurangi hpp)? apakah laba bersih bisa mengcover biaya operasional dan gaji? atau bagaimana?

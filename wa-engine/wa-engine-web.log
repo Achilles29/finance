@@ -1649,3 +1649,1519 @@ Closing session: SessionEntry {
 ✅  WA terhubung — nomor: 6285139324878
 ⚠️   Terputus (440). Reconnect: true, delay: 60000ms
 ✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+Failed to decrypt message with any known session...
+Session error:Error: Bad MAC Error: Bad MAC
+    at Object.verifyMAC (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/crypto.js:87:15)
+    at SessionCipher.doDecryptWhisperMessage (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:250:16)
+    at async SessionCipher.decryptWithSessions (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:147:29)
+    at async 96740078317645.0 [as awaitable] (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:171:28)
+    at async _asyncQueueExecutor (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/queue_job.js:20:29)
+Failed to decrypt message with any known session...
+Session error:Error: Bad MAC Error: Bad MAC
+    at Object.verifyMAC (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/crypto.js:87:15)
+    at SessionCipher.doDecryptWhisperMessage (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:250:16)
+    at async SessionCipher.decryptWithSessions (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:147:29)
+    at async 96740078317645.0 [as awaitable] (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:171:28)
+    at async _asyncQueueExecutor (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/queue_job.js:20:29)
+Failed to decrypt message with any known session...
+Session error:Error: Bad MAC Error: Bad MAC
+    at Object.verifyMAC (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/crypto.js:87:15)
+    at SessionCipher.doDecryptWhisperMessage (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:250:16)
+    at async SessionCipher.decryptWithSessions (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:147:29)
+    at async 96740078317645.0 [as awaitable] (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:171:28)
+    at async _asyncQueueExecutor (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/queue_job.js:20:29)
+Closing open session in favor of incoming prekey bundle
+Closing session: SessionEntry {
+  _chains: {
+    'BTx41wl9oER/UX6Qcvyw2ydMsJD2qxNwyWtCueGkFLoe': { chainKey: [Object], chainType: 1, messageKeys: {} }
+  },
+  registrationId: 584583525,
+  currentRatchet: {
+    ephemeralKeyPair: {
+      pubKey: <Buffer 05 3c 78 d7 09 7d a0 44 7f 51 7e 90 72 fc b0 db 27 4c b0 90 f6 ab 13 70 c9 6b 42 b9 e1 a4 14 ba 1e>,
+      privKey: <Buffer 10 cd 8c ae 12 ba 91 ff 70 4a b7 dd e1 6e 8d 04 43 b1 ae 25 da fc 55 a8 ca 54 54 c6 f6 a9 bd 6a>
+    },
+    lastRemoteEphemeralKey: <Buffer 05 c1 d0 d9 00 72 56 2f c9 5c 8e 95 80 85 69 93 b7 59 ce 90 25 5e 47 20 5c ca 58 3a 12 73 1e 73 0f>,
+    previousCounter: 0,
+    rootKey: <Buffer d3 bd bc ee 2f 85 91 87 20 43 5d 20 ac a6 d0 b5 f1 4e 9a 1e 0c 88 17 a3 c8 f3 b6 38 7c 2a 1d e6>
+  },
+  indexInfo: {
+    baseKey: <Buffer 05 be ac 76 75 22 10 fb e6 89 a7 cb 03 0b b5 04 1d b7 de 84 c5 19 95 97 c6 81 ec a1 10 37 19 f9 08>,
+    baseKeyType: 1,
+    closed: -1,
+    used: 1787459799606,
+    created: 1787459799606,
+    remoteIdentityKey: <Buffer 05 7f fc 7f d2 4d 0f 35 76 17 c8 ba a0 95 fb b8 a1 f5 f5 6c 05 f5 51 62 43 9c bb c6 ef 94 6f 45 2c>
+  },
+  pendingPreKey: {
+    signedKeyId: 1459147,
+    baseKey: <Buffer 05 be ac 76 75 22 10 fb e6 89 a7 cb 03 0b b5 04 1d b7 de 84 c5 19 95 97 c6 81 ec a1 10 37 19 f9 08>,
+    preKeyId: 35007
+  }
+}
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+❌  Unhandled rejection: Error: Connection Closed
+    at sendRawMessage (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:56:19)
+    at sendNode (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:75:16)
+    at file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-send.js:487:19
+    at async Object.transaction (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Utils/auth-utils.js:126:26)
+    at async relayMessage (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-send.js:288:9)
+    at async sendPeerDataOperationMessage (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-send.js:211:23)
+    at async sendRetryRequest (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js:100:27)
+    at async file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js:661:33
+    at async file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Utils/make-mutex.js:16:36 {
+  data: null,
+  isBoom: true,
+  isServer: false,
+  output: {
+    statusCode: 428,
+    payload: {
+      statusCode: 428,
+      error: 'Precondition Required',
+      message: 'Connection Closed'
+    },
+    headers: {}
+  }
+}
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+Failed to decrypt message with any known session...
+Session error:Error: Bad MAC Error: Bad MAC
+    at Object.verifyMAC (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/crypto.js:87:15)
+    at SessionCipher.doDecryptWhisperMessage (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:250:16)
+    at async SessionCipher.decryptWithSessions (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:147:29)
+    at async 6285139324878.0 [as awaitable] (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:171:28)
+    at async _asyncQueueExecutor (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/queue_job.js:20:29)
+Failed to decrypt message with any known session...
+Session error:Error: Bad MAC Error: Bad MAC
+    at Object.verifyMAC (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/crypto.js:87:15)
+    at SessionCipher.doDecryptWhisperMessage (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:250:16)
+    at async SessionCipher.decryptWithSessions (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:147:29)
+    at async 6285139324878.0 [as awaitable] (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:171:28)
+    at async _asyncQueueExecutor (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/queue_job.js:20:29)
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+❌  Unhandled rejection: Error: Connection Closed
+    at sendRawMessage (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:56:19)
+    at sendNode (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:75:16)
+    at file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-send.js:487:19
+    at async Object.transaction (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Utils/auth-utils.js:126:26)
+    at async relayMessage (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-send.js:288:9)
+    at async sendPeerDataOperationMessage (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-send.js:211:23)
+    at async sendRetryRequest (file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js:100:27)
+    at async file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js:661:33
+    at async file:///www/wwwroot/finance/wa-engine/node_modules/@whiskeysockets/baileys/lib/Utils/make-mutex.js:16:36 {
+  data: null,
+  isBoom: true,
+  isServer: false,
+  output: {
+    statusCode: 428,
+    payload: {
+      statusCode: 428,
+      error: 'Precondition Required',
+      message: 'Connection Closed'
+    },
+    headers: {}
+  }
+}
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (440). Reconnect: true, delay: 60000ms
+✅  WA terhubung — nomor: 6285139324878

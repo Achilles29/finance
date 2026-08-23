@@ -145,8 +145,16 @@ class PosOrderStockService
                     }
                 }
 
+                // PosStockCommitService stores decisions by PRODUCT/EXTRA
+                // keys, while this service indexes its runtime snapshot by
+                // commit_line:{id}. Pass the persisted key when finalising
+                // the reversal so returned stock and snapshot quantities stay
+                // in lockstep.
+                $persistedLineKey = strtoupper((string)($line['line_type'] ?? 'PRODUCT')) === 'EXTRA'
+                    ? ('EXTRA:' . (int)($line['order_line_extra_id'] ?? 0) . ':' . (int)($line['id'] ?? 0))
+                    : ('PRODUCT:' . (int)($line['order_line_id'] ?? 0) . ':' . (int)($line['id'] ?? 0));
                 $appliedDecisions[] = [
-                    'line_key' => $lineKey,
+                    'line_key' => $persistedLineKey,
                     'return_policy' => $policy,
                     'reverse_qty' => $reverseQty,
                     'notes' => (string)($decision['notes'] ?? ''),
