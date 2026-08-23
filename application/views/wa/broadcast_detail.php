@@ -24,12 +24,20 @@ foreach ($lines as $lineForCount) {
 $pendingLineCount = (int)($lineStatusCounts['PENDING'] ?? 0);
 $failedLineCount = (int)($lineStatusCounts['FAILED'] ?? 0);
 $canStart = $canEdit && (
-    in_array($currentStatus, ['DRAFT','FAILED'], true)
+    $currentStatus === 'DRAFT'
+    || ($currentStatus === 'FAILED' && $failedLineCount > 0)
     || ($currentStatus === 'SENDING' && $pendingLineCount > 0)
 );
 $canUpdate = $canEdit && in_array($currentStatus, ['DRAFT','FAILED','CANCELLED'], true);
 $startButtonLabel = $currentStatus === 'FAILED' ? 'Kirim Ulang Gagal' : ($currentStatus === 'SENDING' ? 'Lanjutkan Kirim' : 'Mulai Kirim');
 $bcId = (int)($broadcast['id'] ?? 0);
+$delayPattern = (array)($broadcast['delay_pattern'] ?? [1=>2,2=>2,3=>2,4=>2,5=>2,6=>2,7=>2,8=>2,9=>2,10=>2]);
+$failedLineIds = [];
+foreach ($lines as $lineForRetry) {
+    if (strtoupper((string)($lineForRetry['status'] ?? '')) === 'FAILED') {
+        $failedLineIds[] = (int)$lineForRetry['id'];
+    }
+}
 ?>
 
 <div class="container-xxl py-3">
@@ -62,6 +70,8 @@ $bcId = (int)($broadcast['id'] ?? 0);
             <dd class="col-7"><?= html_escape($targetTypeLabel[$broadcast['target_type'] ?? ''] ?? ($broadcast['target_type'] ?? '-')) ?></dd>
             <dt class="col-5">Total Target</dt>
             <dd class="col-7"><?= number_format(count($lines)) ?></dd>
+            <dt class="col-5">Pola Jeda</dt>
+            <dd class="col-7 small"><?= html_escape(implode(', ', array_map(static fn($value, $slot) => $slot . '=' . $value . ' dtk', $delayPattern, array_keys($delayPattern)))) ?></dd>
             <dt class="col-5">Terkirim</dt>
             <dd class="col-7 text-success fw-semibold"><?= number_format((int)($lineStatusCounts['SENT'] ?? 0)) ?></dd>
             <dt class="col-5">Gagal</dt>
@@ -173,6 +183,7 @@ $bcId = (int)($broadcast['id'] ?? 0);
 document.getElementById('btn-start')?.addEventListener('click', function () {
   const retryMode = <?= json_encode($currentStatus === 'FAILED') ?>;
   const resumeMode = <?= json_encode($currentStatus === 'SENDING') ?>;
+  const retryLineIds = <?= json_encode($failedLineIds) ?>;
   if (!confirm(retryMode ? 'Kirim ulang semua target yang gagal?' : (resumeMode ? 'Lanjutkan broadcast yang masih pending?' : 'Mulai kirim broadcast ke semua penerima sekarang?'))) return;
   const btn = this;
   const wrapper = document.getElementById('progress-bar-wrapper');
@@ -182,13 +193,24 @@ document.getElementById('btn-start')?.addEventListener('click', function () {
   btn.innerHTML = '<i class="ri ri-loader-4-line me-1"></i>Mengirim…';
   wrapper?.classList.remove('d-none');
 
-  let loopCount = 0;
+  let retryIndex = 0;
   const runBatch = () => {
-    loopCount += 1;
-    fetch('<?= site_url('wa/api/broadcast-start/' . $bcId) ?>?limit=8', {
+    const isRetry = retryMode && retryLineIds.length > 0;
+    const retryLast = isRetry && retryIndex === retryLineIds.length - 1;
+    const query = isRetry
+      ? `?retry=1&line_id=${encodeURIComponent(retryLineIds[retryIndex])}&retry_last=${retryLast ? '1' : '0'}`
+      : '';
+    fetch('<?= site_url('wa/api/broadcast-start/' . $bcId) ?>' + query, {
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     })
-      .then(r => r.json())
+      .then(async r => {
+        const body = await r.text();
+        try {
+          return JSON.parse(body);
+        } catch (e) {
+          throw new Error('Respons server HTTP ' + r.status + ': ' + body.slice(0, 300));
+        }
+      })
       .then(data => {
         if (!data.ok) {
           let msg = 'Gagal: ' + (data.message || 'Error tidak diketahui');
@@ -199,7 +221,9 @@ document.getElementById('btn-start')?.addEventListener('click', function () {
             }).join('\n');
           }
           alert(msg);
-          location.reload();
+          if (text) text.textContent = msg;
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ri ri-refresh-line me-1"></i>Coba Lagi';
           return;
         }
 
@@ -211,17 +235,24 @@ document.getElementById('btn-start')?.addEventListener('click', function () {
         if (bar) bar.style.width = pct + '%';
         if (text) text.textContent = 'Terkirim ' + sent + ' · Gagal ' + failed + ' · Pending ' + pending + ' (' + pct + '%)';
 
-        if (data.has_more) {
-          setTimeout(runBatch, 700);
+        if (isRetry) retryIndex += 1;
+        const shouldContinue = isRetry ? retryIndex < retryLineIds.length : data.has_more;
+        if (shouldContinue) {
+          const delaySeconds = Math.max(1, Number(data.delay_seconds || 1));
+          if (text) text.textContent += ' · Menunggu ' + delaySeconds + ' detik untuk penerima berikutnya';
+          setTimeout(runBatch, delaySeconds * 1000);
           return;
         }
 
-        alert('Broadcast selesai. Terkirim: ' + sent + ', Gagal: ' + failed);
+        alert('Antrean pesan personal selesai. Terkirim: ' + sent + ', Gagal: ' + failed);
         location.reload();
       })
       .catch(e => {
-        alert('Koneksi error: ' + e + '. Proses dapat dilanjutkan lagi dari target yang masih pending.');
-        location.reload();
+        const message = 'Koneksi error: ' + e.message + '. Proses dapat dilanjutkan lagi dari target yang masih pending.';
+        alert(message);
+        if (text) text.textContent = message;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ri ri-refresh-line me-1"></i>Coba Lagi';
       });
   };
 

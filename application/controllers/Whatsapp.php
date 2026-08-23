@@ -205,6 +205,7 @@ class Whatsapp extends MY_Controller
             $scheduledAt   = trim((string)$this->input->post('scheduled_at', true));
             $notes         = trim((string)$this->input->post('notes', true));
             $manualLines   = (string)$this->input->post('manual_lines', false);
+            $delayPattern  = $this->broadcastDelayPatternFromRequest();
             $memberIdsRaw  = trim((string)$this->input->post('selected_member_ids', true));
             $selectedMemberIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/\s*,\s*/', $memberIdsRaw)))));
             $media         = $this->handleWaImageUpload('media_image');
@@ -241,6 +242,7 @@ class Whatsapp extends MY_Controller
                 'media_name'     => $media['name'] ?? null,
                 'target_type'    => $targetType,
                 'scheduled_at'   => $scheduledAt !== '' ? $scheduledAt : null,
+                'delay_pattern_json' => $this->encodeBroadcastDelayPattern($delayPattern),
                 'notes'          => $notes ?: null,
                 'status'         => 'DRAFT',
                 'created_by'     => (int)($this->current_user['id'] ?? 0),
@@ -287,6 +289,7 @@ class Whatsapp extends MY_Controller
             $scheduledAt   = trim((string)$this->input->post('scheduled_at', true));
             $notes         = trim((string)$this->input->post('notes', true));
             $manualLines   = (string)$this->input->post('manual_lines', false);
+            $delayPattern  = $this->broadcastDelayPatternFromRequest();
             $memberIdsRaw  = trim((string)$this->input->post('selected_member_ids', true));
             $selectedMemberIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/\s*,\s*/', $memberIdsRaw)))));
             $media         = $this->handleWaImageUpload('media_image');
@@ -319,6 +322,7 @@ class Whatsapp extends MY_Controller
                 'custom_message' => $customMessage ?: null,
                 'target_type'    => $targetType,
                 'scheduled_at'   => $scheduledAt !== '' ? $scheduledAt : null,
+                'delay_pattern_json' => $this->encodeBroadcastDelayPattern($delayPattern),
                 'notes'          => $notes ?: null,
                 'status'         => 'DRAFT',
                 'total_sent'     => 0,
@@ -362,6 +366,7 @@ class Whatsapp extends MY_Controller
         if (!empty($broadcast['scheduled_at'])) {
             $broadcast['scheduled_at'] = date('Y-m-d\TH:i', strtotime($broadcast['scheduled_at']));
         }
+        $broadcast['delay_pattern'] = $this->normalizeBroadcastDelayPattern($broadcast['delay_pattern_json'] ?? null);
 
         $this->render('wa/broadcast_form', [
             'title'       => 'Edit Broadcast',
@@ -384,6 +389,8 @@ class Whatsapp extends MY_Controller
             ->join('auth_user u', 'u.id = b.created_by', 'left')
             ->where('b.id', $id)->limit(1)->get()->row_array();
         if (!$broadcast) { show_404(); return; }
+
+        $broadcast['delay_pattern'] = $this->normalizeBroadcastDelayPattern($broadcast['delay_pattern_json'] ?? null);
 
         $lines = $this->db->from('wa_broadcast_line')
             ->where('broadcast_id', $id)->order_by('id', 'ASC')->get()->result_array();
@@ -1141,33 +1148,25 @@ class Whatsapp extends MY_Controller
             $this->jsonOut(['ok' => false, 'message' => 'Broadcast tidak dapat dikirim pada status ini.']);
             return;
         }
-        $batchLimit = (int)$this->input->get('limit', true);
-        $batchLimit = max(1, min(15, $batchLimit > 0 ? $batchLimit : 8));
-
-        $lineStatuses = (string)$broadcast['status'] === 'FAILED' ? ['FAILED', 'PENDING'] : ['PENDING'];
-        $lines = $this->db->from('wa_broadcast_line')
+        $retryMode = (string)$this->input->get('retry', true) === '1';
+        $retryLast = (string)$this->input->get('retry_last', true) === '1';
+        $lineId = (int)$this->input->get('line_id', true);
+        $lineQuery = $this->db->from('wa_broadcast_line')
             ->where('broadcast_id', $id)
-            ->where_in('status', $lineStatuses)
             ->order_by('id', 'ASC')
-            ->limit($batchLimit)
-            ->get()->result_array();
-
-        if (empty($lines)) {
-            $this->jsonOut(['ok' => false, 'message' => 'Tidak ada target yang bisa dikirim.']);
-            return;
-        }
-
-        $botStatus = $this->callBotApi('/internal/status', 'GET');
-        $botState = strtoupper((string)($botStatus['status'] ?? 'UNKNOWN'));
-        if (($botStatus['ok'] ?? false) !== true || $botState !== 'CONNECTED') {
-            $message = $botStatus['message'] ?? 'WA Bot belum terhubung.';
-            if ($botState !== 'UNKNOWN' && $botState !== '') {
-                $message .= ' Status bot: ' . $botState . '.';
+            ->limit(1);
+        if ($retryMode) {
+            $lineQuery->where('status', 'FAILED');
+            if ($lineId > 0) {
+                $lineQuery->where('id', $lineId);
             }
-            $this->jsonOut([
-                'ok' => false,
-                'message' => $message . ' Buka WhatsApp > Pengaturan, start/restart engine atau scan QR bila diperlukan.',
-            ]);
+        } else {
+            $lineQuery->where('status', 'PENDING');
+        }
+        $line = $lineQuery->get()->row_array();
+
+        if (!$line) {
+            $this->jsonOut(['ok' => false, 'message' => 'Tidak ada target yang bisa dikirim.']);
             return;
         }
 
@@ -1191,40 +1190,37 @@ class Whatsapp extends MY_Controller
         $this->db->where('id', $id)->update('wa_broadcast', $broadcastUpdate);
 
         $sent = $failed = 0;
-        foreach ($lines as $line) {
-            $msg = $this->resolveMessage($messageTemplate, (array)json_decode($line['variables_json'] ?? '{}', true));
-            $result = $this->callBotApi('/internal/send', 'POST', [
-                'to'         => $line['phone_number'],
-                'message'    => $msg,
-                'image_path' => $mediaPath ?: null,
-            ]);
+        $msg = $this->resolveMessage($messageTemplate, (array)json_decode($line['variables_json'] ?? '{}', true));
+        $result = $this->callBotApi('/internal/send', 'POST', [
+            'to'         => $line['phone_number'],
+            'message'    => $msg,
+            'image_path' => $mediaPath ?: null,
+        ]);
 
-            if ($result['ok'] ?? false) {
-                $this->db->where('id', $line['id'])->update('wa_broadcast_line', [
-                    'status'           => 'SENT',
-                    'resolved_message' => $msg,
-                    'sent_at'          => date('Y-m-d H:i:s'),
-                    'error_msg'        => null,
-                ]);
-                $this->logSend($id, 'BROADCAST', $line['phone_number'], null, $line['display_name'], $this->messageLogPreview($msg, $mediaMeta), 'SENT');
-                $sent++;
-            } else {
-                $errMsg = $result['message'] ?? 'error';
-                $this->db->where('id', $line['id'])->update('wa_broadcast_line', [
-                    'status'      => 'FAILED',
-                    'error_msg'   => $errMsg,
-                    'retry_count' => (int)$line['retry_count'] + 1,
-                ]);
-                $this->logSend($id, 'BROADCAST', $line['phone_number'], null, $line['display_name'], $this->messageLogPreview($msg, $mediaMeta), 'FAILED', $errMsg);
-                $failed++;
-            }
-            usleep(900000); // jeda antar kirim untuk mengurangi risiko throttling WA saat broadcast massal
+        if ($result['ok'] ?? false) {
+            $this->db->where('id', $line['id'])->update('wa_broadcast_line', [
+                'status'           => 'SENT',
+                'resolved_message' => $msg,
+                'sent_at'          => date('Y-m-d H:i:s'),
+                'error_msg'        => null,
+            ]);
+            $this->logSend($id, 'BROADCAST', $line['phone_number'], null, $line['display_name'], $this->messageLogPreview($msg, $mediaMeta), 'SENT');
+            $sent++;
+        } else {
+            $errMsg = $result['message'] ?? 'error';
+            $this->db->where('id', $line['id'])->update('wa_broadcast_line', [
+                'status'      => 'FAILED',
+                'error_msg'   => $errMsg,
+                'retry_count' => (int)$line['retry_count'] + 1,
+            ]);
+            $this->logSend($id, 'BROADCAST', $line['phone_number'], null, $line['display_name'], $this->messageLogPreview($msg, $mediaMeta), 'FAILED', $errMsg);
+            $failed++;
         }
 
         $totalSent = (int)$this->db->where('broadcast_id', $id)->where('status', 'SENT')->count_all_results('wa_broadcast_line');
         $totalFailed = (int)$this->db->where('broadcast_id', $id)->where('status', 'FAILED')->count_all_results('wa_broadcast_line');
         $totalPending = (int)$this->db->where('broadcast_id', $id)->where('status', 'PENDING')->count_all_results('wa_broadcast_line');
-        $hasMore = $totalPending > 0;
+        $hasMore = $retryMode ? !$retryLast : $totalPending > 0;
         $finalStatus = $hasMore ? 'SENDING' : ($totalFailed > 0 ? 'FAILED' : 'DONE');
         $headerUpdate = [
             'status'       => $finalStatus,
@@ -1259,8 +1255,12 @@ class Whatsapp extends MY_Controller
             'total_pending' => $totalPending,
             'has_more' => $hasMore,
             'status' => $finalStatus,
+            'delay_seconds' => $hasMore
+                ? $this->broadcastDelayForLine($broadcast['delay_pattern_json'] ?? null, $this->broadcastLineSequence($id, (int)$line['id']))
+                : 0,
+            'sent_line_id' => (int)$line['id'],
             'message' => $hasMore
-                ? 'Batch terkirim, melanjutkan antrean berikutnya.'
+                ? 'Pesan personal dikirim, melanjutkan antrean berikutnya.'
                 : ($failed > 0
                 ? 'Sebagian/semua target gagal dikirim. Cek detail error per penerima, lalu gunakan tombol Kirim Ulang Gagal.'
                 : 'Broadcast berhasil dikirim.'),
@@ -1449,40 +1449,20 @@ class Whatsapp extends MY_Controller
         $this->jsonOut(['ok' => true, 'message' => $message]);
     }
 
-    // JSON API — ambil QR code string dari wa-bot (polling saat WAITING_QR)
+    // JSON API — ambil QR aktif dari wa-engine (polling saat WAITING_QR).
+    // QR WhatsApp berumur singkat, jadi jangan kirim QR cache ketika engine mati.
     public function api_qr()
     {
         $this->require_permission(self::PAGE_SETTINGS, 'view');
         $result = $this->callBotApi('/internal/qr', 'GET');
         if (($result['ok'] ?? false) === false) {
-            $session = $this->waSession();
-            $qrData  = trim((string)($session['qr_data'] ?? ''));
-            if ($qrData !== '') {
-                $this->jsonOut([
-                    'ok'     => true,
-                    'status' => strtoupper((string)($session['status'] ?? 'WAITING_QR')),
-                    'phone'  => $session['phone_number'] ?? null,
-                    'qr'     => $qrData,
-                    'has_qr' => true,
-                    'source' => 'session_fallback',
-                ]);
-                return;
-            }
-        }
-        if (($result['ok'] ?? false) && empty($result['qr'])) {
-            $session = $this->waSession();
-            $qrData  = trim((string)($session['qr_data'] ?? ''));
-            if ($qrData !== '') {
-                $result['qr'] = $qrData;
-                $result['has_qr'] = true;
-                if (empty($result['status'])) {
-                    $result['status'] = strtoupper((string)($session['status'] ?? 'WAITING_QR'));
-                }
-                if (empty($result['phone']) && !empty($session['phone_number'])) {
-                    $result['phone'] = $session['phone_number'];
-                }
-                $result['source'] = 'session_fallback';
-            }
+            $this->jsonOut([
+                'ok'      => false,
+                'status'  => 'ENGINE_OFFLINE',
+                'has_qr'  => false,
+                'message' => 'wa-engine tidak dapat dijangkau. Jalankan atau restart engine untuk membuat QR baru.',
+            ]);
+            return;
         }
         $this->jsonOut($result);
     }
@@ -1498,8 +1478,14 @@ class Whatsapp extends MY_Controller
         }
 
         $status = $this->engineStatusSnapshot();
+        $engineApi = $this->callBotApi('/internal/status', 'GET', [], 1);
+        $apiRunning = !empty($engineApi['ok']);
+        $running = $status['running'] || $apiRunning;
+        $portListening = $status['port_listening'] || $apiRunning;
         $message = '';
-        if ($status['running'] && !$status['port_listening']) {
+        if ($apiRunning) {
+            $message = 'Engine merespons API internal.';
+        } elseif ($status['running'] && !$status['port_listening']) {
             $message = 'Proses node terdeteksi, tetapi port belum listen.';
         } elseif (!$status['running'] && $status['port_listening']) {
             $message = 'Port aktif, tetapi proses node utama tidak terdeteksi.';
@@ -1507,11 +1493,11 @@ class Whatsapp extends MY_Controller
 
         $this->jsonOut([
             'ok'             => true,
-            'running'        => $status['running'],
+            'running'        => $running,
             'pids'           => $status['process_pids'],
             'port'           => $status['port'],
             'port_pids'      => $status['port_pids'],
-            'port_listening' => $status['port_listening'],
+            'port_listening' => $portListening,
             'message'        => $message,
         ]);
     }
@@ -1529,6 +1515,18 @@ class Whatsapp extends MY_Controller
         $engineDir = realpath(FCPATH . 'wa-engine');
         if (!$engineDir || !file_exists($engineDir . '/index.js')) {
             $this->jsonOut(['ok' => false, 'message' => 'Folder wa-engine tidak ditemukan di: ' . FCPATH . 'wa-engine']);
+            return;
+        }
+
+        // Cek endpoint engine langsung. Deteksi lsof/ss dapat gagal ketika
+        // PHP-FPM tidak diizinkan melihat PID Node, padahal engine hidup.
+        $engineApi = $this->callBotApi('/internal/status', 'GET', [], 1);
+        if (!empty($engineApi['ok'])) {
+            $this->jsonOut([
+                'ok'      => true,
+                'running' => true,
+                'message' => 'wa-engine sudah berjalan dan merespons API internal.',
+            ]);
             return;
         }
 
@@ -1574,7 +1572,9 @@ class Whatsapp extends MY_Controller
         if (file_exists($pidPath)) {
             @unlink($pidPath);
         }
-        $runner = "exec {$envStr}" . escapeshellarg($nodePath)
+        // Environment assignment wajib dijalankan oleh `env`; tanpa itu Bash
+        // menganggap WA_PORT=3070 sebagai executable dan engine langsung mati.
+        $runner = "exec env {$envStr}" . escapeshellarg($nodePath)
             . " " . escapeshellarg($engineDir . '/index.js')
             . " >> " . escapeshellarg($logPath) . " 2>&1";
 
@@ -1616,8 +1616,9 @@ class Whatsapp extends MY_Controller
         for ($i = 0; $i < 12; $i++) {
             usleep(500000);
             $check = $this->engineStatusSnapshot();
-            $running = $check['running'];
-            $portListening = $check['port_listening'];
+            $engineApi = $this->callBotApi('/internal/status', 'GET', [], 1);
+            $running = $check['running'] || !empty($engineApi['ok']);
+            $portListening = $check['port_listening'] || !empty($engineApi['ok']);
             if ($running && $portListening) {
                 break;
             }
@@ -1665,6 +1666,7 @@ class Whatsapp extends MY_Controller
         $pids = array_values(array_unique(array_merge($status['process_pids'], $status['port_pids'])));
 
         if (empty($pids)) {
+            $this->removeEnginePidFile();
             $this->jsonOut(['ok' => true, 'message' => "wa-engine sudah tidak berjalan."]);
             return;
         }
@@ -1684,6 +1686,7 @@ class Whatsapp extends MY_Controller
         }
 
         if (!$after['running'] && !$after['port_listening']) {
+            $this->removeEnginePidFile();
             $this->jsonOut(['ok' => true, 'message' => 'wa-engine dihentikan (PID: ' . implode(', ', $pids) . ')']);
         } else {
             $still = array_values(array_unique(array_merge($after['process_pids'], $after['port_pids'])));
@@ -1894,6 +1897,49 @@ class Whatsapp extends MY_Controller
         return $broadcastId;
     }
 
+    private function broadcastDelayPatternFromRequest(): array
+    {
+        return $this->normalizeBroadcastDelayPattern($this->input->post('delay_pattern', false));
+    }
+
+    private function normalizeBroadcastDelayPattern($value): array
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            $value = is_array($decoded) ? $decoded : [];
+        }
+        $value = is_array($value) ? $value : [];
+        $isList = array_keys($value) === range(0, count($value) - 1);
+        $pattern = [];
+        for ($slot = 1; $slot <= 10; $slot++) {
+            $raw = $isList
+                ? ($value[$slot - 1] ?? 2)
+                : ($value[$slot] ?? $value[(string)$slot] ?? 2);
+            $pattern[$slot] = max(1, min(60, (int)$raw));
+        }
+        return $pattern;
+    }
+
+    private function encodeBroadcastDelayPattern(array $pattern): string
+    {
+        return json_encode($this->normalizeBroadcastDelayPattern($pattern));
+    }
+
+    private function broadcastDelayForLine($patternValue, int $sequence): int
+    {
+        $pattern = $this->normalizeBroadcastDelayPattern($patternValue);
+        $slot = (($sequence - 1) % 10) + 1;
+        return $pattern[$slot];
+    }
+
+    private function broadcastLineSequence(int $broadcastId, int $lineId): int
+    {
+        return max(1, (int)$this->db->from('wa_broadcast_line')
+            ->where('broadcast_id', $broadcastId)
+            ->where('id <=', $lineId)
+            ->count_all_results());
+    }
+
     private function buildBroadcastTargets(string $manualLines = '', string $targetType = 'MANUAL', array $selectedMemberIds = []): array
     {
         $targets = [];
@@ -2003,18 +2049,18 @@ class Whatsapp extends MY_Controller
         return $template;
     }
 
-    private function callBotApi(string $endpoint, string $method = 'GET', array $payload = []): array
+    private function callBotApi(string $endpoint, string $method = 'GET', array $payload = [], int $timeout = 8): array
     {
         $session = $this->waSession();
         $url     = rtrim($session['bot_api_url'], '/') . $endpoint
                  . '?token=' . urlencode($session['bot_api_token']);
 
         $ch = curl_init($url);
-        $timeout = in_array($endpoint, ['/internal/send', '/internal/send-group'], true) ? 75 : 8;
+        $timeout = in_array($endpoint, ['/internal/send', '/internal/send-group'], true) ? 75 : max(1, $timeout);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => $timeout,
-            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_CONNECTTIMEOUT => min(5, $timeout),
             CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'X-Sync-Token: ' . $session['bot_api_token']],
         ]);
 
@@ -4296,6 +4342,15 @@ class Whatsapp extends MY_Controller
     {
         $engineDir = realpath(FCPATH . 'wa-engine') ?: (FCPATH . 'wa-engine');
         return rtrim($engineDir, '/\\') . '/index.js';
+    }
+
+    private function removeEnginePidFile(): void
+    {
+        $engineDir = realpath(FCPATH . 'wa-engine') ?: (FCPATH . 'wa-engine');
+        $pidPath = rtrim($engineDir, '/\\') . '/wa-engine.pid';
+        if (is_file($pidPath)) {
+            @unlink($pidPath);
+        }
     }
 
     private function engineProcessPids(): array

@@ -4,6 +4,7 @@ $broadcast = (array)($broadcast ?? []);
 $templates = (array)($templates ?? []);
 $groups    = (array)($groups ?? []);
 $selectedMembers = (array)($selected_members ?? []);
+$delayPattern = (array)($broadcast['delay_pattern'] ?? [1=>2,2=>2,3=>2,4=>2,5=>2,6=>2,7=>2,8=>2,9=>2,10=>2]);
 $formAction = $mode === 'edit' && !empty($broadcast['id'])
   ? site_url('wa/broadcast/edit/' . (int)$broadcast['id'])
   : site_url('wa/broadcast/create');
@@ -101,6 +102,21 @@ $formAction = $mode === 'edit' && !empty($broadcast['id'])
                 <input type="datetime-local" name="scheduled_at" class="form-control"
                   value="<?= html_escape($broadcast['scheduled_at'] ?? '') ?>">
                 <div class="form-text">Kosongkan untuk kirim segera setelah mulai.</div>
+              </div>
+            </div>
+            <div class="mt-3">
+              <label class="form-label fw-semibold">Pola Jeda Pesan Personal</label>
+              <div class="form-text mb-2">Jeda setelah penerima ke-1 sampai ke-10. Pola diulang dari urutan pertama hingga antrean selesai.</div>
+              <div class="row g-2">
+                <?php for ($slot = 1; $slot <= 10; $slot++): ?>
+                <div class="col-6 col-md-4 col-xl-2">
+                  <label class="form-label small mb-1">Pesan <?= $slot ?></label>
+                  <div class="input-group input-group-sm">
+                    <input type="number" name="delay_pattern[<?= $slot ?>]" class="form-control" min="1" max="60" required value="<?= (int)($delayPattern[$slot] ?? 2) ?>">
+                    <span class="input-group-text">dtk</span>
+                  </div>
+                </div>
+                <?php endfor; ?>
               </div>
             </div>
             <div class="mt-3" id="manual-lines-wrapper">

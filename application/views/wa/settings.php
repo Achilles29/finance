@@ -375,6 +375,7 @@ function fetchQr() {
     .then(data => {
       if (data.ok === false) {
         document.getElementById('qr-status-msg').textContent = data.message || 'Gagal membaca respons QR.';
+        clearQrTimers();
         return;
       }
       const status = (data.status || 'UNKNOWN').toUpperCase();
@@ -383,9 +384,7 @@ function fetchQr() {
         return;
       }
       if (data.qr) {
-        document.getElementById('qr-status-msg').textContent = status === 'DISCONNECTED'
-          ? 'Koneksi WA sedang terputus. Scan QR terakhir ini jika WhatsApp belum sempat terhubung.'
-          : 'Scan QR Code ini dengan WhatsApp di HP Anda.';
+        document.getElementById('qr-status-msg').textContent = 'Scan QR Code baru ini dengan WhatsApp di HP Anda.';
         clearInterval(qrCountdownTimer);
         startCountdown();
         renderQr(data.qr);
@@ -493,7 +492,11 @@ function engineRefreshStatus(silent = false) {
     });
 }
 
+let engineActionBusy = false;
+
 function engineAction(action) {
+  if (engineActionBusy) return;
+  engineActionBusy = true;
   const msgEl = document.getElementById('engine-action-msg');
   if (msgEl) msgEl.innerHTML = '<span class="text-muted"><i class="ri ri-loader-4-line me-1"></i>' + (action === 'start' ? 'Memulai…' : 'Menghentikan…') + '</span>';
 
@@ -511,17 +514,24 @@ function engineAction(action) {
     })
     .catch(e => {
       if (msgEl) msgEl.innerHTML = '<span class="text-danger">✗ ' + e + '</span>';
+    })
+    .finally(() => {
+      engineActionBusy = false;
+      setTimeout(() => engineRefreshStatus(true), 800);
     });
 }
 
 document.getElementById('btn-engine-start')?.addEventListener('click', () => engineAction('start'));
 document.getElementById('btn-engine-stop')?.addEventListener('click',  () => engineAction('stop'));
 document.getElementById('btn-engine-restart')?.addEventListener('click', function () {
+  if (engineActionBusy) return;
+  engineActionBusy = true;
   const msgEl = document.getElementById('engine-action-msg');
   if (msgEl) msgEl.innerHTML = '<span class="text-muted">Merestart…</span>';
   fetch('<?= site_url('wa/api/engine-stop') ?>', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
     .then(waSafeJsonResponse)
-    .then(() => {
+    .then(d => {
+      if (!d.ok) throw new Error(d.message || 'Gagal menghentikan wa-engine.');
       setTimeout(() => {
         fetch('<?= site_url('wa/api/engine-start') ?>', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
           .then(waSafeJsonResponse)
@@ -530,8 +540,17 @@ document.getElementById('btn-engine-restart')?.addEventListener('click', functio
               ? '<span class="text-success">✓ Restart berhasil — ' + (d.message || '') + '</span>'
               : '<span class="text-danger">✗ ' + (d.message || 'Gagal start ulang') + '</span>';
             setTimeout(() => engineRefreshStatus(true), 1000);
-          });
+          })
+          .catch(e => {
+            if (msgEl) msgEl.innerHTML = '<span class="text-danger">✗ ' + e.message + '</span>';
+          })
+          .finally(() => { engineActionBusy = false; });
       }, 1500);
+    })
+    .catch(e => {
+      if (msgEl) msgEl.innerHTML = '<span class="text-danger">✗ ' + e.message + '</span>';
+      engineActionBusy = false;
+      engineRefreshStatus(true);
     });
 });
 

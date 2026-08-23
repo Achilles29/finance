@@ -98,7 +98,7 @@ $toRow = $totalRows > 0 ? min($totalRows, $page * $perPage) : 0;
   <div class="wa-page-head">
     <div>
       <h4 class="wa-page-title"><i class="ri ri-broadcast-line me-1"></i>Broadcast WhatsApp</h4>
-      <p class="wa-page-subtitle">Kelola pesan massal, target member, status pengiriman, dan broadcast nonaktif.</p>
+      <p class="wa-page-subtitle">Kelola antrean pesan personal ke target member, pola jeda, status pengiriman, dan broadcast nonaktif.</p>
     </div>
     <?php if ($canCreate): ?>
     <a href="<?= site_url('wa/broadcast/create') ?>" class="btn btn-primary">
