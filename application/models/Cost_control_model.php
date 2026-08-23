@@ -97,11 +97,11 @@ class Cost_control_model extends CI_Model
             ->join('pur_purchase_receipt_line rl', 'rl.purchase_receipt_id = r.id')
             ->join('pur_purchase_order_line pol', 'pol.id = rl.purchase_order_line_id')
             ->where('r.status', 'POSTED')
-            ->where('UPPER(COALESCE(rl.line_kind, "ITEM"))', 'MATERIAL', false)
+            ->where("UPPER(COALESCE(rl.line_kind, 'ITEM')) = 'MATERIAL'", null, false)
             ->where('r.receipt_date >=', $filters['date_from'])
             ->where('r.receipt_date <=', $filters['date_to']);
         if ($usagePurpose) {
-            $base->where('UPPER(COALESCE(rl.usage_purpose, "BAHAN_BAKU"))', 'BAHAN_BAKU', false);
+            $base->where("UPPER(COALESCE(rl.usage_purpose, 'BAHAN_BAKU')) = 'BAHAN_BAKU'", null, false);
         }
         $this->apply_division_filter($base, 'r.destination_division_id', $filters);
         $this->apply_location_filter($base, 'r.destination_type', $filters);
@@ -115,11 +115,11 @@ class Cost_control_model extends CI_Model
             ->join('pur_purchase_order_line pol', 'pol.id = rl.purchase_order_line_id')
             ->join('mst_material m', 'm.id = rl.material_id', 'left')
             ->where('r.status', 'POSTED')
-            ->where('UPPER(COALESCE(rl.line_kind, "ITEM"))', 'MATERIAL', false)
+            ->where("UPPER(COALESCE(rl.line_kind, 'ITEM')) = 'MATERIAL'", null, false)
             ->where('r.receipt_date >=', $filters['date_from'])
             ->where('r.receipt_date <=', $filters['date_to']);
         if ($usagePurpose) {
-            $rowsQuery->where('UPPER(COALESCE(rl.usage_purpose, "BAHAN_BAKU"))', 'BAHAN_BAKU', false);
+            $rowsQuery->where("UPPER(COALESCE(rl.usage_purpose, 'BAHAN_BAKU')) = 'BAHAN_BAKU'", null, false);
         }
         $this->apply_division_filter($rowsQuery, 'r.destination_division_id', $filters);
         $this->apply_location_filter($rowsQuery, 'r.destination_type', $filters);
