@@ -197,10 +197,26 @@ maksud saya misal ada orderan, nah sementara NORI stok nya tidak cukup atau bahk
   <!-- cek dashboard ada defisit minyak goreng dan breadcrumb. padahal di stok ada. apakah defisit itu per profil? 
   bagaimana kalau kasusnya penggunaan stok lintas lot lintas profil? apakah dihitung defisit?
   lalu bagaimana penyelesaian minyak goreng dan breadcrumb ini? 
+<<<<<<< HEAD
   * * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100 -->
 <!-- buatkan halaman analisa dan saran dan tampilkan di dashboard, di atas Stok Produk Live POS.
 datanya menganalisa bahan baku yang menumpuk yang merupakan component base/prepare tapi stok base / prepare tersebut kritis atau kosong.
 misal stok Prepare DIMSUM FILL kosong. di formulanya ada ayam, sementara stok ayam di kitchen menumpuk banyak. maka berikan warning / analisa / dan saran untuk memproses DIMSUM FILL -->
+=======
+
+
+  * * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100
+
+  cron untuk semua halaman yang butuh cron. kamu cek semua
+  
+  cek semua halaman yang dobel
+<!-- 
+buatkan halaman analisa dan saran dan tampilkan di dashboard, di atas Stok Produk Live POS.
+datanya menganalisa bahan baku yang menumpuk yang merupakan component base/prepare tapi stok base / prepare tersebut kritis atau kosong.
+misal stok Prepare DIMSUM FILL kosong. di formulanya ada ayam, sementara stok ayam di kitchen menumpuk banyak. maka berikan warning / analisa / dan saran untuk memproses DIMSUM FILL
+ -->
+
+>>>>>>> d1389f9 (update)
 <!-- 
   Refactor void/reversal movement.
 Pindahkan sisa runtime schema ke migration.

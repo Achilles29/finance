@@ -1265,7 +1265,7 @@ class Purchase_model extends CI_Model
         return $best;
     }
 
-    private function searchOpeningExistingProfiles(string $q, int $limit): array
+    private function searchOpeningExistingProfiles(string $q, int $limit, bool $preferWarehouseStock = false): array
     {
         $limit = max(1, min(50, $limit));
         $rows = [];
@@ -1330,6 +1330,38 @@ class Purchase_model extends CI_Model
                 ->limit($limit * 2)
                 ->get()
                 ->result_array();
+
+            // Keep the actual active-stock identities in the result.  Catalog
+            // rows are useful as a zero-stock fallback, but must not replace
+            // the profile key that owns an existing warehouse balance.
+            $stockCandidates = $stockRows;
+        }
+
+        if ($preferWarehouseStock) {
+            foreach ($stockCandidates as $row) {
+                $itemId = (int)($row['id'] ?? 0);
+                if ($itemId <= 0) {
+                    continue;
+                }
+                $dedupeKey = implode('|', [
+                    $itemId,
+                    trim((string)($row['profile_key'] ?? '')),
+                    (int)($row['default_buy_uom_id'] ?? 0),
+                    (int)($row['default_content_uom_id'] ?? 0),
+                    number_format((float)($row['default_content_per_buy'] ?? 1), 6, '.', ''),
+                    strtoupper(trim((string)($row['profile_name'] ?? ''))),
+                    strtoupper(trim((string)($row['profile_brand'] ?? ''))),
+                    strtoupper(trim((string)($row['profile_description'] ?? ''))),
+                ]);
+                if (isset($seen[$dedupeKey])) {
+                    continue;
+                }
+                $seen[$dedupeKey] = true;
+                $rows[] = $row;
+                if (count($rows) >= $limit) {
+                    return $rows;
+                }
+            }
         }
 
         if ($this->db->table_exists('mst_purchase_catalog') && $this->db->table_exists('mst_item')) {
@@ -1435,8 +1467,8 @@ class Purchase_model extends CI_Model
             }
         }
 
-        // Catalog is the canonical source; stock suggestions are appended only when
-        // an identity is not found in active catalog.
+        // The default master/opening lookup remains catalog-first. Callers that
+        // need an exact active-stock profile have already inserted it above.
         foreach ($stockCandidates as $row) {
             $itemId = (int)($row['id'] ?? 0);
             if ($itemId <= 0) {
@@ -10661,6 +10693,24 @@ class Purchase_model extends CI_Model
         if ($scope === 'DIVISION' && $divisionId !== null && $divisionId > 0 && $destinationType !== null) {
             $stockRows = $this->search_division_stock_adjustment_items($q, $divisionId, $destinationType, $candidateLimit);
             foreach ($stockRows as $row) {
+                $dedupeKey = $this->openingSearchRowKey($row);
+                if (isset($seen[$dedupeKey])) {
+                    continue;
+                }
+                $seen[$dedupeKey] = true;
+                $rows[] = $row;
+            }
+        }
+
+        // Warehouse adjustments must retain the exact profile that currently
+        // owns stock. A catalog with the same item can have a different
+        // profile key, and is only a fallback for genuinely new stock.
+        if ($scope === 'WAREHOUSE') {
+            $warehouseStockRows = $this->searchOpeningExistingProfiles($q, $candidateLimit, true);
+            foreach ($warehouseStockRows as $row) {
+                if (($row['source_type'] ?? '') !== 'PROFILE_STOCK') {
+                    continue;
+                }
                 $dedupeKey = $this->openingSearchRowKey($row);
                 if (isset($seen[$dedupeKey])) {
                     continue;

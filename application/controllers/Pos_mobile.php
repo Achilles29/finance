@@ -340,6 +340,43 @@ class Pos_mobile extends CI_Controller
         $this->json_ok(['id' => (int)$id, 'direct_print_targets' => (array)($result['targets'] ?? [])]);
     }
 
+    public function order_reprint_targets($id): void
+    {
+        if (!$this->authorize_mobile(true)) {
+            return;
+        }
+
+        $payload = $this->request_payload();
+        $result = $this->Pos_model->direct_print_targets_for_order_reprint((int)$id, [
+            'printer_id' => max(0, (int)($payload['printer_id'] ?? 0)),
+            'line_scope' => strtoupper(trim((string)($payload['line_scope'] ?? 'ALL'))),
+        ]);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyiapkan cetak ulang order.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)$id,
+            'direct_print_targets' => (array)($result['targets'] ?? []),
+        ]);
+    }
+
+    public function order_confirm_print_targets($id): void
+    {
+        if (!$this->authorize_mobile(true)) {
+            return;
+        }
+        $result = $this->Pos_model->direct_print_targets_for_order_confirm((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyiapkan cetak order.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)$id,
+            'direct_print_targets' => (array)($result['targets'] ?? []),
+        ]);
+    }
+
     public function order_save(): void
     {
         if (!$this->authorize_mobile(true)) {
@@ -431,12 +468,68 @@ class Pos_mobile extends CI_Controller
         if (!$this->authorize_mobile(true)) {
             return;
         }
-        $result = $this->Pos_model->save_cashier_payment($this->request_payload(), $this->current_actor_employee_id());
+        $payload = $this->request_payload();
+        $clientEventId = trim((string)($payload['client_event_id'] ?? ''));
+        $localUuid = trim((string)($payload['local_uuid'] ?? ''));
+        $syncTableReady = $clientEventId !== '' && $this->db->table_exists('pos_mobile_sync_event');
+        if ($syncTableReady) {
+            $existing = $this->db
+                ->from('pos_mobile_sync_event')
+                ->where('client_event_id', $clientEventId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if ($existing) {
+                $status = strtoupper(trim((string)($existing['event_status'] ?? '')));
+                if ($status === 'PROCESSING') {
+                    $this->json_error('Payment sedang diproses server. Jangan kirim ulang dengan event baru.', 503, [
+                        'client_event_id' => $clientEventId,
+                        'sync_status' => 'PROCESSING',
+                    ]);
+                    return;
+                }
+                if ($status === 'REJECTED') {
+                    $this->json_error((string)($existing['error_message'] ?? 'Payment ditolak server.'), 422, [
+                        'client_event_id' => $clientEventId,
+                        'sync_status' => 'REJECTED',
+                    ]);
+                    return;
+                }
+                $stored = $this->decode_json_assoc((string)($existing['response_json'] ?? ''));
+                $this->json_ok($stored + [
+                    'duplicate' => true,
+                    'client_event_id' => $clientEventId,
+                ]);
+                return;
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $this->db->insert('pos_mobile_sync_event', [
+                'client_event_id' => $clientEventId,
+                'local_uuid' => $localUuid !== '' ? $localUuid : 'PAY-' . $clientEventId,
+                'event_type' => 'PAYMENT',
+                'event_status' => 'PROCESSING',
+                'request_json' => $this->encode_json($payload),
+                'requested_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        $result = $this->Pos_model->save_cashier_payment($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
+            if ($syncTableReady) {
+                $this->db->where('client_event_id', $clientEventId)->update('pos_mobile_sync_event', [
+                    'event_status' => 'REJECTED',
+                    'error_message' => (string)($result['message'] ?? 'Payment ditolak server.'),
+                    'response_json' => $this->encode_json($result),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan pembayaran POS.'), 422);
             return;
         }
-        $this->json_ok([
+        $response = [
             'id' => (int)($result['id'] ?? 0),
             'payment_no' => (string)($result['payment_no'] ?? ''),
             'order_status' => (string)($result['order_status'] ?? 'PAID'),
@@ -446,7 +539,17 @@ class Pos_mobile extends CI_Controller
             'change_total' => (float)($result['change_total'] ?? 0),
             'remaining_due' => (float)($result['remaining_due'] ?? 0),
             'loyalty' => (array)($result['loyalty'] ?? []),
-        ]);
+        ];
+        if ($syncTableReady) {
+            $this->db->where('client_event_id', $clientEventId)->update('pos_mobile_sync_event', [
+                'event_status' => 'ACCEPTED',
+                'server_order_id' => (int)($payload['order_id'] ?? 0),
+                'response_json' => $this->encode_json($response),
+                'processed_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+        $this->json_ok($response + ['client_event_id' => $clientEventId]);
     }
 
     public function payment_print_targets($id): void
