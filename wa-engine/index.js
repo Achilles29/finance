@@ -109,7 +109,7 @@ let reconnectDelay = 3000;
 // outgoing message. Keep the original payload so Baileys can re-encrypt it
 // with fresh recipient keys instead of silently dropping that retry.
 const outboundMessages = new Map();
-const outboundDeliveryWaiters = new Map();
+const outboundAcknowledgementWaiters = new Map();
 const outboundMessageStatuses = new Map();
 const OUTBOUND_MESSAGE_TTL_MS = 2 * 60 * 60 * 1000;
 const OUTBOUND_MESSAGE_LIMIT = 512;
@@ -308,7 +308,7 @@ async function getOutboundMessage(key) {
 
 function deliveryFailure(messageId, detail = '') {
   const suffix = detail ? ` Kode WhatsApp: ${detail}.` : '';
-  const err = new Error(`WhatsApp menolak pesan personal sebelum delivery dikonfirmasi.${suffix}`);
+  const err = new Error(`WhatsApp menolak pengiriman pesan personal.${suffix}`);
   err.httpCode = 502;
   err.messageId = messageId;
   err.accountRestricted = /account\s+(?:has\s+been\s+)?restricted/i.test(String(detail || ''));
@@ -319,42 +319,61 @@ function rememberOutboundStatus(messageId, status, detail = '') {
   if (!messageId || !Number.isFinite(Number(status))) return;
   const normalizedStatus = Number(status);
   const normalizedDetail = String(detail || '').trim();
+  const previous = outboundMessageStatuses.get(messageId);
+  // Receipts can arrive out of order (for example DELIVERY_ACK before a
+  // delayed SERVER_ACK). Never downgrade an already confirmed delivery.
+  const storedStatus = previous
+    && Number(previous.status) >= 3
+    && normalizedStatus > 0
+    && normalizedStatus < Number(previous.status)
+    ? Number(previous.status)
+    : normalizedStatus;
   outboundMessageStatuses.set(messageId, {
-    status: normalizedStatus,
-    detail: normalizedDetail,
+    status: storedStatus,
+    detail: storedStatus === Number(previous?.status) ? previous.detail : normalizedDetail,
     updatedAt: Date.now(),
   });
   console.log(`ℹ Status pesan WhatsApp ${messageId}: ${normalizedStatus}${normalizedDetail ? ` (${normalizedDetail})` : ''}`);
-  const waiter = outboundDeliveryWaiters.get(messageId);
-  // Baileys: SERVER_ACK=2, DELIVERY_ACK=3, READ=4.
-  if (waiter && normalizedStatus >= 3) {
+  const waiter = outboundAcknowledgementWaiters.get(messageId);
+  // SERVER_ACK=2 means WhatsApp has accepted the message. DELIVERY_ACK=3
+  // depends on the recipient device and may arrive much later, so requiring
+  // it here turns valid sends into false failures and stalls bulk queues.
+  if (waiter && normalizedStatus >= 2) {
     clearTimeout(waiter.timer);
-    outboundDeliveryWaiters.delete(messageId);
-    waiter.resolve(normalizedStatus);
+    outboundAcknowledgementWaiters.delete(messageId);
+    waiter.resolve({
+      receiptStatus: normalizedStatus,
+      deliveryConfirmed: normalizedStatus >= 3,
+    });
   } else if (waiter && normalizedStatus === 0) {
     clearTimeout(waiter.timer);
-    outboundDeliveryWaiters.delete(messageId);
+    outboundAcknowledgementWaiters.delete(messageId);
     waiter.reject(deliveryFailure(messageId, normalizedDetail));
   }
 }
 
-function waitForDeliveryReceipt(messageId, timeoutMs = 30000) {
+function waitForServerAcknowledgement(messageId, timeoutMs = 8000) {
   const known = outboundMessageStatuses.get(messageId);
-  if (known && known.status >= 3) return Promise.resolve(known.status);
+  if (known && known.status >= 2) {
+    return Promise.resolve({
+      receiptStatus: Number(known.status),
+      deliveryConfirmed: Number(known.status) >= 3,
+    });
+  }
   if (known && known.status === 0) return Promise.reject(deliveryFailure(messageId, known.detail));
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      outboundDeliveryWaiters.delete(messageId);
-      const err = new Error('Pesan belum menerima konfirmasi delivery WhatsApp dalam 30 detik. Pesan tidak ditandai terkirim.');
+      outboundAcknowledgementWaiters.delete(messageId);
+      const err = new Error('WhatsApp belum memberi konfirmasi penerimaan server. Status pengiriman belum pasti.');
       err.httpCode = 504;
       reject(err);
     }, timeoutMs);
-    outboundDeliveryWaiters.set(messageId, { resolve, reject, timer });
+    outboundAcknowledgementWaiters.set(messageId, { resolve, reject, timer });
   });
 }
 
-async function sendPersonalMessageConfirmed(jid, content) {
+async function sendPersonalMessageAccepted(jid, content) {
   const sent = await sendMessageWithTimeout(jid, content);
   rememberOutboundMessage(sent);
   const messageId = String(sent?.key?.id || '');
@@ -364,8 +383,8 @@ async function sendPersonalMessageConfirmed(jid, content) {
     throw err;
   }
   console.log(`➜ Pesan personal diterima engine: ${messageId} -> ${jid}`);
-  const receiptStatus = await waitForDeliveryReceipt(messageId);
-  return { sent, messageId, receiptStatus };
+  const acknowledgement = await waitForServerAcknowledgement(messageId);
+  return { sent, messageId, ...acknowledgement };
 }
 
 function normalizePersonalJid(toRaw) {
@@ -499,12 +518,14 @@ function startServer() {
         // LID is retained only for diagnostics because it can break local
         // echo or delivery on some WhatsApp clients.
         const jid = address.jid;
-        const confirmed = await sendPersonalMessageConfirmed(jid, outgoing.content);
+        const accepted = await sendPersonalMessageAccepted(jid, outgoing.content);
         return jsonReply(res, 200, {
           ok: true,
           to: jid,
-          message_id: confirmed.messageId,
-          receipt_status: confirmed.receiptStatus,
+          message_id: accepted.messageId,
+          receipt_status: accepted.receiptStatus,
+          delivery_confirmed: accepted.deliveryConfirmed,
+          delivery_status: accepted.deliveryConfirmed ? 'DELIVERED' : 'SERVER_ACCEPTED',
         });
       }
 

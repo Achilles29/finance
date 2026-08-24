@@ -304,7 +304,7 @@ foreach ($bulkLines as $bulkLineForRetry) {
             </div>
             <?php endfor; ?>
           </div>
-          <div class="alert alert-warning small mt-3 mb-0"><i class="ri ri-shield-check-line me-1"></i>Setelah tombol kirim ditekan, antrean dibuat cepat lalu pengiriman dimulai otomatis. Biarkan halaman terbuka ketika mengirim.</div>
+          <div class="alert alert-warning small mt-3 mb-0"><i class="ri ri-shield-check-line me-1"></i>Setelah tombol kirim ditekan, antrean dibuat cepat lalu pengiriman dimulai otomatis. Nomor yang ditolak WhatsApp dicatat gagal dan antrean lanjut; bot terputus menghentikan proses.</div>
         </div>
       </div>
     </div>

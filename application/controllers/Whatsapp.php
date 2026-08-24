@@ -907,7 +907,6 @@ class Whatsapp extends MY_Controller
             $sent = 0;
             $failed = 0;
             $errors = [];
-            $accountRestricted = false;
             foreach ($targets as $target) {
                 $result = $this->callBotApi('/internal/send', 'POST', [
                     'to'      => $target['phone'],
@@ -924,17 +923,10 @@ class Whatsapp extends MY_Controller
                     if (count($errors) < 5) {
                         $errors[] = ($target['name'] ? $target['name'] . ' · ' : '') . $target['phone'] . ': ' . $err;
                     }
-                    if ($this->isBotAccountRestrictedResult($result)) {
-                        $accountRestricted = true;
-                        break;
-                    }
                 }
             }
 
-            if ($accountRestricted) {
-                $remaining = max(0, count($targets) - $sent - $failed);
-                $this->session->set_flashdata('error', 'Pengiriman manual dihentikan: akun WhatsApp dibatasi untuk pesan personal (kode 463). Nomor berikutnya tidak diproses' . ($remaining > 0 ? ': ' . $remaining . ' nomor tetap tidak dikirim.' : '.') . ' Periksa notifikasi atau Pusat Bantuan WhatsApp pada nomor bot.');
-            } elseif ($failed > 0) {
+            if ($failed > 0) {
                 $this->session->set_flashdata('error', 'Pesan manual selesai dengan sebagian gagal. Terkirim: ' . $sent . ', gagal: ' . $failed . (empty($errors) ? '' : '. Contoh: ' . implode(' | ', $errors)));
             } else {
                 $this->session->set_flashdata('success', 'Pesan manual terkirim ke ' . $sent . ' nomor.');
@@ -1335,23 +1327,6 @@ class Whatsapp extends MY_Controller
             ]);
             return;
         }
-        if ($this->isBotAccountRestrictedResult($result)) {
-            $totalSent = (int)$this->db->where('broadcast_id', $id)->where('status', 'SENT')->count_all_results('wa_broadcast_line');
-            $totalFailed = (int)$this->db->where('broadcast_id', $id)->where('status', 'FAILED')->count_all_results('wa_broadcast_line');
-            $this->db->where('id', $id)->update('wa_broadcast', [
-                'status'       => 'FAILED',
-                'total_sent'   => $totalSent,
-                'total_failed' => $totalFailed,
-                'finished_at'  => date('Y-m-d H:i:s'),
-            ]);
-            $this->jsonOut([
-                'ok' => false,
-                'stopped' => true,
-                'account_restricted' => true,
-                'message' => 'Akun WhatsApp dibatasi untuk pesan personal (kode 463). Antrean dihentikan; nomor ini tetap pending dan dapat dicoba ulang setelah pembatasan dicabut.',
-            ]);
-            return;
-        }
         if (!($result['ok'] ?? false)) {
             $botStatusAfterSend = $this->callBotApi('/internal/status', 'GET', [], 2);
             if (!($botStatusAfterSend['ok'] ?? false) || strtoupper((string)($botStatusAfterSend['status'] ?? '')) !== 'CONNECTED') {
@@ -1429,7 +1404,9 @@ class Whatsapp extends MY_Controller
                 : 0,
             'sent_line_id' => (int)$line['id'],
             'message' => $hasMore
-                ? 'Pesan personal dikirim, melanjutkan antrean berikutnya.'
+                ? ($failed > 0
+                    ? 'Nomor ini gagal; melanjutkan antrean ke nomor berikutnya.'
+                    : 'Pesan personal dikirim, melanjutkan antrean berikutnya.')
                 : ($failed > 0
                 ? 'Sebagian/semua target gagal dikirim. Cek detail error per penerima, lalu gunakan tombol Kirim Ulang Gagal.'
                 : 'Broadcast berhasil dikirim.'),
@@ -2403,19 +2380,6 @@ class Whatsapp extends MY_Controller
             strpos($message, 'bot tidak terhubung') !== false
             || strpos($message, 'tidak dapat menghubungi wa bot') !== false
             || strpos($message, 'connection refused') !== false
-        );
-    }
-
-    private function isBotAccountRestrictedResult(array $result): bool
-    {
-        if (!empty($result['account_restricted'])) {
-            return true;
-        }
-        $message = strtolower(trim((string)($result['message'] ?? '')));
-        return $message !== '' && (
-            strpos($message, 'account has been restricted') !== false
-            || strpos($message, 'account restricted') !== false
-            || strpos($message, 'kode whatsapp: 463') !== false
         );
     }
 

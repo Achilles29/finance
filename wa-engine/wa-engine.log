@@ -143,3 +143,101 @@ Decrypted message with closed session.
 ✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
 ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 4
 ✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
+ℹ libsignal: Closing session (detail disembunyikan)
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB0A065C1C9526C355C95 -> 6285292961993@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB0A065C1C9526C355C95: 0 (463, Your account has been restricted)
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB029A255BBBC326383B5 -> 6285231412324@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB029A255BBBC326383B5: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB029A255BBBC326383B5
+ℹ Status pesan WhatsApp 3EB029A255BBBC326383B5: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB029A255BBBC326383B5
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB0979116F5D59F491E12 -> 6285730012324@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
+➜ Pesan personal diterima engine: 3EB06153DDF922903DCB66 -> 6285292961993@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB06153DDF922903DCB66: 0 (463, Your account has been restricted)
+➜ Pesan personal diterima engine: 3EB0445BDA0F75DF60AAE5 -> 6285292961993@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB0445BDA0F75DF60AAE5: 0 (463, Your account has been restricted)
+ℹ libsignal: Closing session (detail disembunyikan)
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB07979C298D626E4656F -> 6285292961993@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB07979C298D626E4656F: 0 (463, Your account has been restricted)
+ℹ Status pesan WhatsApp 3EB029A255BBBC326383B5: 2
+ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 2
+Closing open session in favor of incoming prekey bundle
+ℹ libsignal: Closing session (detail disembunyikan)
+Decrypted message with closed session.
+ℹ Status pesan WhatsApp A58C7F70FA8BCDEC9A1840F8C2004980: 3
+✓ Delivery WhatsApp dikonfirmasi: A58C7F70FA8BCDEC9A1840F8C2004980
+Decrypted message with closed session.
+ℹ Status pesan WhatsApp A55F71E939420AD90BE9FAE2859F028C: 3
+✓ Delivery WhatsApp dikonfirmasi: A55F71E939420AD90BE9FAE2859F028C
+Decrypted message with closed session.
+ℹ Status pesan WhatsApp A50303196FED246BD30662D33EC33072: 3
+✓ Delivery WhatsApp dikonfirmasi: A50303196FED246BD30662D33EC33072
+ℹ Status pesan WhatsApp 2AA79DA5541EC922CABC: 4
+✓ Delivery WhatsApp dikonfirmasi: 2AA79DA5541EC922CABC
+Decrypted message with closed session.
+ℹ Status pesan WhatsApp A5154F0EEF3DAB0E219628213AC31579: 3
+✓ Delivery WhatsApp dikonfirmasi: A5154F0EEF3DAB0E219628213AC31579
+➜ Pesan personal diterima engine: 3EB0CE8922FB5466FD839A -> 6285292961993@s.whatsapp.net
+↻ WhatsApp meminta retry enkripsi: 3EB0CE8922FB5466FD839A
+ℹ libsignal: Closing session (detail disembunyikan)
+ℹ Status pesan WhatsApp 3EB0CE8922FB5466FD839A: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0CE8922FB5466FD839A
+ℹ Status pesan WhatsApp 3EB0CE8922FB5466FD839A: 2
+➜ Pesan personal diterima engine: 3EB037D0468870A09AC0CC -> 6285198374391@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB037D0468870A09AC0CC: 2
+ℹ Status pesan WhatsApp 3EB0CE8922FB5466FD839A: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0CE8922FB5466FD839A
+ℹ Status pesan WhatsApp A5154F0EEF3DAB0E219628213AC31579: 3
+✓ Delivery WhatsApp dikonfirmasi: A5154F0EEF3DAB0E219628213AC31579
+ℹ Status pesan WhatsApp 3EB037D0468870A09AC0CC: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB037D0468870A09AC0CC
+ℹ Status pesan WhatsApp 3EB037D0468870A09AC0CC: 4
+✓ Delivery WhatsApp dikonfirmasi: 3EB037D0468870A09AC0CC
+🚀 wa-engine dimulai...
+🔄  Internal API siap di http://127.0.0.1:3070
+🔑  Token internal dikonfigurasi.
+🚀 wa-engine dimulai...
+🔄  Internal API siap di http://127.0.0.1:3070
+🔑  Token internal dikonfigurasi.
+✅  WA terhubung — nomor: 6285139324878
+ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
+ℹ Status pesan WhatsApp A5B989851CD507F148054F5963EA3307: 3
+✓ Delivery WhatsApp dikonfirmasi: A5B989851CD507F148054F5963EA3307
+ℹ Status pesan WhatsApp 3EB0353A21DA7ADA01AEF9: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0353A21DA7ADA01AEF9
+ℹ Status pesan WhatsApp 3EB02FACCA69EB09A7E0EE: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB02FACCA69EB09A7E0EE
+ℹ Status pesan WhatsApp 3EB098C37B81AAE1EFC562: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB098C37B81AAE1EFC562
+ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
+ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
+ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
+ℹ libsignal: Closing session (detail disembunyikan)
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB07B05913E073984F277 -> 6285730012324@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
+ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB0DF0524B80A48218E91 -> 6285292961993@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 4
+✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
+ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 4
+✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
+ℹ Status pesan WhatsApp 3EB0DF0524B80A48218E91: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0DF0524B80A48218E91
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB0B59B09CDE545F58DB7 -> 6285198374391@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB0B59B09CDE545F58DB7: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0B59B09CDE545F58DB7
