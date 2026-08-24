@@ -228,16 +228,13 @@ Buat pengujian integrasi otomatis, lalu lakukan UAT manual akhir. -->
 - SR gagal "**PO202608220012"**
 - pemakaian voucher belum bisa dipakai jika nominal transaksi kurang dari kurang dari nilai voucher "Masukkan nominal pembayaran yang valid."
 - adjustment gagal "**Gagal memposting adjustment stok."**
-
+<!-- 
 sepertinya perlu kamu cek RBAC setelah perubahan kita kemarin. karena seperti PO SR dari superadmin bisa, tapi dari user lain yang sudah diberi hak akses masih gagal. termasuk adjustmen , baik bahan baku maupun component di semua halaman adjustment
 
 
+ -->
 
-![
-
-
-](gambar.png)
-
+ kunci aset. agar tidak bisa diedit
 
 Proses dihentikan: Akun WhatsApp dibatasi untuk pesan personal (kode 463). Antrean dihentikan; nomor ini tetap pending dan dapat dicoba ulang setelah pembatasan dicabut.
 
@@ -245,3 +242,7 @@ masih seperti itu setelah kirim 1 nomor?
 apa tidak ada untuk mengatasi? itu kan sama saja polanya kamu kirim pesan manual yang sama ke beberapa nomor terpilih. form UI hanya untuk memudahkan saya. sementara proses backgroundnya kamu buat sedemikian rupa agar sama seperti kirim manual ke beberapa nomor
 kenapa saya coba kirim pesan manual selain 085730012324 tidak bisa?
 
+
+-  missmatch itu terjadi karena memang ada bug scirpt? atau leftover karena kemarin saya suruh repair data karena banya order gagal waktu server lag (di sever)
+- apakah kalau server normal masih memungkinkan missmatch dengan kasus yang kamu jelaskan?
+- lakukan perbaikan 1-5 mu, dan untuk repair data buatkan juga sql nya untuk saya run di server

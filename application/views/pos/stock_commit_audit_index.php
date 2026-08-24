@@ -24,6 +24,9 @@ $domainAuditSummary = is_array($domainAudit['summary'] ?? null) ? $domainAudit['
 $failedJobs = is_array($failed_jobs ?? null) ? $failed_jobs : [];
 $activeJobs = is_array($active_jobs ?? null) ? $active_jobs : [];
 $failedCommitSnapshots = is_array($failed_commit_snapshots ?? null) ? $failed_commit_snapshots : [];
+$voidMaterialLotAudit = is_array($void_material_lot_audit ?? null) ? $void_material_lot_audit : [];
+$voidMaterialLotAuditRows = is_array($voidMaterialLotAudit['rows'] ?? null) ? $voidMaterialLotAudit['rows'] : [];
+$voidMaterialLotAuditSummary = is_array($voidMaterialLotAudit['summary'] ?? null) ? $voidMaterialLotAudit['summary'] : [];
 $divisionOptions = is_array($division_options ?? null) ? $division_options : [];
 $auditMonthFrom = (string)($audit_month_from ?? date('Y-m-01', strtotime($asOfDate)));
 $auditMonthTo = (string)($audit_month_to ?? date('Y-m-t', strtotime($asOfDate)));
@@ -305,6 +308,7 @@ $GLOBALS['auditTab'] = $auditTab;
       <div class="sca-kpi"><span class="label">Job Aktif</span><div class="value" id="sca_active_job_count"><?php echo number_format(count($activeJobs)); ?></div></div>
       <div class="sca-kpi"><span class="label">Job Gagal</span><div class="value" id="sca_failed_job_count"><?php echo number_format(count($failedJobs)); ?></div></div>
       <div class="sca-kpi"><span class="label">Snapshot FAILED</span><div class="value"><?php echo number_format(count($failedCommitSnapshots)); ?></div></div>
+      <div class="sca-kpi"><span class="label">Void POS / Lot Perlu Audit</span><div class="value"><?php echo number_format((int)($voidMaterialLotAuditSummary['count'] ?? 0)); ?></div></div>
       <div class="sca-kpi"><span class="label">Mismatch Bahan Baku</span><div class="value"><?php echo number_format((int)($materialSummaryAll['mismatch_rows'] ?? 0)); ?></div></div>
       <div class="sca-kpi"><span class="label">Mismatch Base/Prepare</span><div class="value"><?php echo number_format((int)($componentSummaryAll['mismatched'] ?? 0)); ?></div></div>
       <div class="sca-kpi"><span class="label">Drift Monthly Bahan</span><div class="value"><?php echo number_format((int)($materialSummaryAll['drift_rows'] ?? 0)); ?></div></div>
@@ -392,6 +396,55 @@ $GLOBALS['auditTab'] = $auditTab;
             <?php endforeach; ?>
           <?php endif; ?>
         </div>
+      </div>
+    </div>
+
+    <div class="sca-card">
+      <div class="card-body p-3 p-lg-4">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
+          <div>
+            <div class="small text-uppercase fw-bold text-muted">Audit Jejak Void POS</div>
+            <h5 class="mb-1 mt-2">Void yang Berkaitan dengan Selisih Stok dan Lot</h5>
+            <div class="text-muted small">Bagian ini hanya menunjuk kandidat penyebab: stok dan lot bahan baku berbeda, lalu pada bahan yang sama terdapat pengembalian stok dari Void POS di bulan aktif. Tidak ada data yang diubah dari halaman ini.</div>
+          </div>
+          <div class="text-muted small">Fokus bulan: <strong><?php echo html_escape($auditMonthFrom); ?></strong></div>
+        </div>
+
+        <?php if (empty($voidMaterialLotAudit['ok']) && !empty($voidMaterialLotAudit['message'])): ?>
+          <div class="alert alert-warning mb-0"><?php echo html_escape((string)$voidMaterialLotAudit['message']); ?></div>
+        <?php elseif (empty($voidMaterialLotAuditRows)): ?>
+          <div class="alert alert-success mb-0">Tidak ada mismatch bahan baku bulan aktif yang berkaitan dengan pengembalian stok dari Void POS.</div>
+        <?php else: ?>
+          <div class="sca-table-wrap">
+            <table class="table table-sm align-middle sca-table mb-0">
+              <thead>
+                <tr>
+                  <th>Area</th>
+                  <th>Bahan Baku</th>
+                  <th class="text-end">Stok Sistem</th>
+                  <th class="text-end">Lot Aktif</th>
+                  <th class="text-end">Selisih Qty</th>
+                  <th class="text-end">Selisih Nilai</th>
+                  <th>Jejak Void POS</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($voidMaterialLotAuditRows as $auditRow): ?>
+                  <tr>
+                    <td><strong><?php echo html_escape((string)($auditRow['division_name'] ?? '-')); ?></strong><br><small class="text-muted"><?php echo html_escape((string)($auditRow['destination_group'] ?? '-')); ?></small></td>
+                    <td><strong><?php echo html_escape((string)($auditRow['material_name'] ?? '-')); ?></strong></td>
+                    <td class="text-end"><?php echo $fmtQty($auditRow['stock_qty'] ?? 0); ?></td>
+                    <td class="text-end"><?php echo $fmtQty($auditRow['lot_qty'] ?? 0); ?></td>
+                    <td class="text-end <?php echo abs((float)($auditRow['qty_delta'] ?? 0)) > 0.0001 ? 'text-danger fw-bold' : ''; ?>"><?php echo $fmtQty($auditRow['qty_delta'] ?? 0); ?></td>
+                    <td class="text-end <?php echo abs((float)($auditRow['value_delta'] ?? 0)) > 0.99 ? 'text-danger fw-bold' : ''; ?>">Rp <?php echo number_format((float)($auditRow['value_delta'] ?? 0), 2, ',', '.'); ?></td>
+                    <td><strong><?php echo html_escape((string)($auditRow['commit_refs'] ?? '-')); ?></strong><br><small class="text-muted">Qty balik <?php echo $fmtQty($auditRow['reversal_qty'] ?? 0); ?> | terakhir <?php echo html_escape((string)($auditRow['last_reversal_date'] ?? '-')); ?></small></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+          <div class="text-muted small mt-2">Gunakan daftar ini untuk menjalankan repair lot terkontrol atau SQL repair server. Jangan melakukan adjustment jumlah stok hanya untuk menghilangkan selisih ini.</div>
+        <?php endif; ?>
       </div>
     </div>
 

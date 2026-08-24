@@ -70,6 +70,26 @@ Untuk component, identitas internalnya berbeda karena component tidak memiliki p
 
 Void tidak menghapus data asal. Sistem membuat pembalikan stok dan menandai dokumen asal sebagai VOID atau CANCELLED INPUT. Laporan omzet, HPP, stok aktif, dan analisa operasional secara default mengecualikan transaksi VOID. Halaman audit tetap dapat menampilkannya bila diperlukan untuk menelusuri salah input.
 
+### Update 2026-08-24: Void POS gagal dan pasangan lot
+
+Pemeriksaan bulan aktif menemukan contoh nyata ketika server lambat: snapshot POS yang gagal kemudian di-VOID sempat mengembalikan jumlah ke stok divisi, tetapi lot FIFO-nya tidak ikut kembali. Pada database pemeriksaan, jejak ini berasal dari `PSC-202608-0632` dan `PSC-202608-0634`; keduanya berstatus VOID dan memakai fallback lama `POS return to stock aggregate reversal`.
+
+Jadi penyebabnya merupakan gabungan dua hal:
+
+1. Server lambat/gagal memicu snapshot POS tidak selesai.
+2. Fallback lama pada void mengembalikan stok tanpa bukti lot atau movement yang sepadan. Inilah bug yang membuat mismatch tersisa setelah transaksi gagal.
+
+Pengamanan baru untuk transaksi berikutnya:
+
+1. POS hanya memakai FIFO lintas lot/profil saat stok tersedia.
+2. Kekurangan stok dicatat sebagai Defisit Stok, bukan saldo atau lot minus.
+3. Void/refund hanya mengembalikan stok bila ada jejak lot atau movement asal yang terbukti milik snapshot POS tersebut.
+4. Bila jejak lama tidak cukup, sistem tidak menambah stok sendiri; snapshot aman untuk masuk antrean/retry dan jejaknya muncul di Audit Commit Stok POS.
+5. Audit Commit Stok POS menampilkan kandidat mismatch yang berkaitan dengan fallback Void POS lama, tanpa mengubah data apa pun.
+6. Pola aman yang sama diterapkan ke component: kekurangan menjadi defisit, sedangkan pengembalian hanya berjalan setelah lot component dipulihkan atau dibuatkan pasangan yang dapat dilacak.
+
+Repair aktif disediakan pada `sql/2026-08-24a_repair_failed_pos_void_material_lot_pairs.sql`. Script tersebut hanya membuat lot pasangan untuk stok yang sudah terlanjur kembali dari jejak fallback lama. Mode awalnya pratinjau (`@apply = 0`); tidak ada stok, movement, HPP, transaksi, atau keuangan yang diubah. Repair hanya boleh dijalankan setelah kandidatnya diperiksa pada database server dan hanya untuk bulan aktif yang memang terdampak.
+
 ## Ringkasan Eksekutif
 
 Aplikasi sudah memiliki fondasi yang cukup matang: transaksi purchase, store request, FIFO lot, produksi component, POS commit, void/refund, adjustment, payroll, dan laporan keuangan sudah terhubung. Kode PHP pada direktori `application/` lolos linting sintaks.

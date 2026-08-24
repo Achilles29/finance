@@ -3252,7 +3252,14 @@ class MaterialFifoManager
             return null;
         }
         $sql = 'SELECT * FROM inv_material_fifo_lot WHERE id = ? LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : '');
-        $row = $this->ci->db->query($sql, [$lotId])->row_array();
+        $query = $this->ci->db->query($sql, [$lotId]);
+        if ($query === false) {
+            $error = $this->ci->db->error();
+            $message = 'Gagal membaca lot FIFO #' . $lotId . ': ' . (string)($error['message'] ?? 'unknown database error');
+            log_message('error', 'MaterialFifoManager::findLotById ' . $message);
+            throw new RuntimeException($message);
+        }
+        $row = $query->row_array();
         return $row ?: null;
     }
 

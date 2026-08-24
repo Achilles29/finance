@@ -111,6 +111,7 @@ class PosOrderStockService
         try {
             $appliedDecisions = [];
             $physicalReturns = 0;
+            $returnWarnings = [];
             $materialAdjustmentGroups = [];
             $componentAdjustmentGroups = [];
 
@@ -127,6 +128,7 @@ class PosOrderStockService
                 }
 
                 $policy = strtoupper(trim((string)($decision['return_policy'] ?? 'RETURN_TO_STOCK')));
+                $returnWarning = '';
                 if (in_array($policy, ['RETURN_TO_STOCK', 'ADJUSTMENT_ONLY'], true)) {
                     $result = strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT'
                         ? $this->reverse_component_usage($snapshot['header'], $line, $reverseQty, $meta)
@@ -134,7 +136,10 @@ class PosOrderStockService
                     if (!($result['ok'] ?? false)) {
                         throw new RuntimeException((string)($result['message'] ?? 'Gagal mengembalikan stok order POS.'));
                     }
-                    if ($policy === 'RETURN_TO_STOCK') {
+                    $returnedQty = array_key_exists('returned_qty', $result)
+                        ? round((float)$result['returned_qty'], 4)
+                        : $reverseQty;
+                    if ($policy === 'RETURN_TO_STOCK' && $returnedQty > 0.0001) {
                         $physicalReturns++;
                     } else {
                         if (strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT') {
@@ -142,6 +147,10 @@ class PosOrderStockService
                         } else {
                             $this->collect_material_adjustment_only_line($materialAdjustmentGroups, $snapshot['header'], $line, $reverseQty, $meta);
                         }
+                    }
+                    $returnWarning = trim((string)($result['warning'] ?? ''));
+                    if ($returnWarning !== '') {
+                        $returnWarnings[] = $returnWarning;
                     }
                 }
 
@@ -157,7 +166,10 @@ class PosOrderStockService
                     'line_key' => $persistedLineKey,
                     'return_policy' => $policy,
                     'reverse_qty' => $reverseQty,
-                    'notes' => (string)($decision['notes'] ?? ''),
+                    'notes' => trim(implode(' | ', array_filter([
+                        trim((string)($decision['notes'] ?? '')),
+                        $returnWarning ?? '',
+                    ]))),
                 ];
             }
 
@@ -194,6 +206,7 @@ class PosOrderStockService
                 'commit_status' => (string)($apply['commit_status'] ?? ''),
                 'affected_lines' => (int)($apply['affected_lines'] ?? 0),
                 'adjustment_doc_count' => (int)($adjustmentPosting['adjustment_doc_count'] ?? 0),
+                'return_warnings' => array_values(array_unique($returnWarnings)),
             ];
         } catch (Throwable $e) {
             $db->trans_rollback();
@@ -233,6 +246,115 @@ class PosOrderStockService
             'header' => $snapshot['header'],
             'lines' => $all,
             'mismatches' => $mismatches,
+        ];
+    }
+
+    /**
+     * Read-only link between material/lot mismatch and POS void movements.
+     * It uses the already calculated reconcile rows so this audit never
+     * rebuilds stock and never changes a document.
+     */
+    public function audit_void_material_lot_drift(string $asOfDate, array $materialCompareRows = [], int $limit = 50): array
+    {
+        $asOfDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOfDate) ? $asOfDate : date('Y-m-d');
+        $limit = max(1, min(200, $limit));
+        if (empty($materialCompareRows)
+            || !$this->ci->db->table_exists('inv_stock_movement_log')
+            || !$this->ci->db->table_exists('pos_stock_commit')) {
+            return ['ok' => true, 'summary' => ['count' => 0], 'rows' => []];
+        }
+
+        $monthStart = date('Y-m-01', strtotime($asOfDate));
+        $destinationGroupExpr = "CASE WHEN m.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+        $sourceQuery = $this->ci->db
+            ->select(
+                "m.division_id,
+                 ({$destinationGroupExpr}) AS destination_group,
+                 m.material_id,
+                 MAX(m.movement_date) AS last_reversal_date,
+                 COUNT(DISTINCT m.ref_id) AS commit_count,
+                 ROUND(SUM(COALESCE(m.qty_content_delta, 0)), 4) AS reversal_qty,
+                 GROUP_CONCAT(DISTINCT CONCAT(COALESCE(c.commit_no, CONCAT('#', c.id)), ' [', COALESCE(c.commit_status, '-'), ']') ORDER BY c.id SEPARATOR ', ') AS commit_refs",
+                false
+            )
+            ->from('inv_stock_movement_log m')
+            ->join('pos_stock_commit c', 'c.id = m.ref_id', 'inner')
+            ->where('m.ref_table', 'pos_stock_commit_reversal')
+            ->where('m.movement_scope', 'DIVISION')
+            ->where('m.movement_type', 'VOID_REVERSE')
+            ->where('m.movement_date >=', $monthStart)
+            ->where('m.movement_date <=', $asOfDate)
+            ->where('m.qty_content_delta >', 0.0001, false)
+            ->where('m.material_id IS NOT NULL', null, false)
+            ->where_in('c.commit_status', ['VOID', 'FAILED'])
+            ->like('m.notes', 'POS return to stock aggregate reversal.', 'after')
+            ->group_by("m.division_id, {$destinationGroupExpr}, m.material_id", false)
+            ->get();
+        if ($sourceQuery === false) {
+            $error = $this->ci->db->error();
+            log_message('error', 'POS void lot audit query failed: ' . (string)($error['message'] ?? 'unknown database error'));
+            return [
+                'ok' => false,
+                'message' => 'Audit Void POS belum dapat membaca jejak movement. Periksa log server.',
+                'summary' => ['count' => 0],
+                'rows' => [],
+            ];
+        }
+
+        $sourceMap = [];
+        foreach ($sourceQuery->result_array() as $source) {
+            $key = (int)($source['division_id'] ?? 0)
+                . '|' . strtoupper((string)($source['destination_group'] ?? 'REGULER'))
+                . '|M-' . (int)($source['material_id'] ?? 0);
+            $sourceMap[$key] = $source;
+        }
+
+        $rows = [];
+        foreach ($materialCompareRows as $row) {
+            $hasLotMismatch = !empty($row['has_lot_mismatch'])
+                || !empty($row['has_lot_value_mismatch'])
+                || !empty($row['has_profile_lot_value_mismatch']);
+            if (!$hasLotMismatch) {
+                continue;
+            }
+
+            $key = (int)($row['division_id'] ?? 0)
+                . '|' . strtoupper((string)($row['destination_group'] ?? 'REGULER'))
+                . '|M-' . (int)($row['material_id'] ?? 0);
+            if (!isset($sourceMap[$key])) {
+                continue;
+            }
+
+            $source = $sourceMap[$key];
+            $rows[] = [
+                'division_id' => (int)($row['division_id'] ?? 0),
+                'division_name' => (string)($row['division_name'] ?? '-'),
+                'destination_group' => (string)($row['destination_group'] ?? 'REGULER'),
+                'material_id' => (int)($row['material_id'] ?? 0),
+                'material_name' => (string)($row['material_name'] ?? '-'),
+                'stock_qty' => round((float)($row['balance_qty_content'] ?? 0), 4),
+                'lot_qty' => round((float)($row['lot_qty_content'] ?? 0), 4),
+                'qty_delta' => round((float)($row['balance_qty_content'] ?? 0) - (float)($row['lot_qty_content'] ?? 0), 4),
+                'stock_value' => round((float)($row['stock_value_total'] ?? 0), 2),
+                'lot_value' => round((float)($row['lot_value_total'] ?? 0), 2),
+                'value_delta' => round((float)($row['lot_vs_balance_value_delta'] ?? 0), 2),
+                'last_reversal_date' => (string)($source['last_reversal_date'] ?? ''),
+                'commit_count' => (int)($source['commit_count'] ?? 0),
+                'reversal_qty' => round((float)($source['reversal_qty'] ?? 0), 4),
+                'commit_refs' => (string)($source['commit_refs'] ?? '-'),
+            ];
+        }
+
+        usort($rows, static function (array $left, array $right): int {
+            $leftMagnitude = abs((float)($left['value_delta'] ?? 0)) + abs((float)($left['qty_delta'] ?? 0));
+            $rightMagnitude = abs((float)($right['value_delta'] ?? 0)) + abs((float)($right['qty_delta'] ?? 0));
+            return $rightMagnitude <=> $leftMagnitude;
+        });
+
+        return [
+            'ok' => true,
+            'summary' => ['count' => count($rows)],
+            'rows' => array_slice($rows, 0, $limit),
         ];
     }
 
@@ -544,7 +666,7 @@ class PosOrderStockService
         }
 
         $identity = $materialIdentity;
-        if ($fifoAttempted && file_exists(APPPATH . 'libraries/InventoryDeficitService.php')) {
+        if (file_exists(APPPATH . 'libraries/InventoryDeficitService.php')) {
             $this->ci->load->library('InventoryDeficitService');
             if ($this->ci->inventorydeficitservice->isReady()) {
                 $deficit = $this->ci->inventorydeficitservice->record([
@@ -565,7 +687,9 @@ class PosOrderStockService
                     'source_table' => 'pos_stock_commit',
                     'source_id' => (int)($header['id'] ?? 0),
                     'source_line_id' => (int)($line['id'] ?? 0),
-                    'notes' => 'POS material tidak memiliki lot FIFO yang dapat dipakai. ' . $fifoError,
+                    'notes' => $fifoAttempted
+                        ? ('POS material tidak memiliki lot FIFO yang dapat dipakai. ' . $fifoError)
+                        : 'POS material tidak dapat menjalankan FIFO; kebutuhan dicatat sebagai defisit tanpa membuat stok minus.',
                 ]);
                 if (!($deficit['ok'] ?? false)) {
                     return $deficit;
@@ -581,49 +705,9 @@ class PosOrderStockService
                 ];
             }
         }
-        $qtyBuyAbs = $this->resolve_buy_qty_from_profile($requiredQty, (float)($identity['profile_content_per_buy'] ?? 0));
-        $post = $this->ci->inventoryledger->post([
-            'movement_scope' => 'DIVISION',
-            'movement_date' => $movementDate,
-            'movement_type' => 'USAGE_OUT',
-            'division_id' => $divisionId,
-            'destination_type' => $destinationType,
-            'ref_table' => 'pos_stock_commit',
-            'ref_id' => (int)($header['id'] ?? 0),
-            'item_id' => $identity['item_id'],
-            'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
-            'buy_uom_id' => $identity['buy_uom_id'],
-            'content_uom_id' => !empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : null,
-            'qty_buy_delta' => -1 * $qtyBuyAbs,
-            'qty_content_delta' => -1 * $requiredQty,
-            'profile_key' => $identity['profile_key'],
-            'profile_name' => $identity['profile_name'],
-            'profile_brand' => $identity['profile_brand'],
-            'profile_description' => $identity['profile_description'],
-            'profile_expired_date' => $identity['profile_expired_date'],
-            'profile_content_per_buy' => $identity['profile_content_per_buy'],
-            'profile_buy_uom_code' => $identity['profile_buy_uom_code'],
-            'profile_content_uom_code' => $identity['profile_content_uom_code'],
-            'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
-            'force_avg_cost_per_content' => round((float)($line['unit_cost_live'] ?? 0), 6),
-            'allow_negative_balance' => true,
-            'notes' => 'POS usage aggregate fallback' . ($fifoAttempted && $fifoError !== '' ? ' | FIFO fallback: ' . $fifoError : ''),
-            'created_by' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : null,
-            'manage_transaction' => false,
-            'skip_availability_refresh' => true,
-        ]);
-        if (!($post['ok'] ?? false)) {
-            return $post;
-        }
-
         return [
-            'ok' => true,
-            'movement_ref_type' => 'LEDGER_MOVEMENT',
-            'movement_ref_id' => (int)($post['data']['movement_id'] ?? 0),
-            'unit_cost_live' => round((float)($line['unit_cost_live'] ?? 0), 6),
-            'total_cost_live' => round($requiredQty * (float)($line['unit_cost_live'] ?? 0), 6),
-            'cost_source' => (string)($line['cost_source'] ?? 'LAST_LIVE'),
-            'notes' => 'Stock material diposting langsung ke ledger divisi dan diizinkan minus.',
+            'ok' => false,
+            'message' => 'POS tidak dapat mencatat defisit bahan baku karena fondasi Defisit Stok belum siap. Stok tidak dikurangi tanpa lot pasangan; periksa migration inventory lalu jalankan ulang antrean POS.',
         ];
     }
 
@@ -689,6 +773,16 @@ class PosOrderStockService
                 return $rollback;
             }
 
+            $rolledQty = round((float)($rollback['data']['rolled_qty'] ?? 0), 4);
+            if ($rolledQty <= 0.0001) {
+                return $this->skip_unlinked_material_return(
+                    $header,
+                    $line,
+                    $reverseQty,
+                    'Jejak lot pemakaian tidak ditemukan. Sistem tidak menambah stok tanpa lot pasangan.'
+                );
+            }
+
             $movementRollback = $this->apply_material_fifo_usage_rollback_to_movements(
                 $header,
                 $line,
@@ -701,7 +795,13 @@ class PosOrderStockService
             );
             if (!($movementRollback['ok'] ?? false)) {
                 if ($this->is_missing_rollback_movement_message((string)($movementRollback['message'] ?? ''))) {
-                    return $this->post_material_rollback_fallback($header, $line, $reverseQty, $meta, 'FIFO rollback fallback: movement usage lama tidak ditemukan.');
+                    return $this->post_material_rollback_fallback(
+                        $header,
+                        $line,
+                        $rolledQty,
+                        $meta,
+                        'FIFO rollback fallback: movement usage lama tidak ditemukan.'
+                    );
                 }
                 return $movementRollback;
             }
@@ -711,10 +811,26 @@ class PosOrderStockService
                 return $rebuild;
             }
 
-            return ['ok' => true];
+            return ['ok' => true, 'returned_qty' => $rolledQty];
         }
 
         if ($movementRefType === 'LEDGER_MOVEMENT' && !empty($line['movement_ref_id'])) {
+            $sourceMovement = $this->load_material_ledger_movement_for_reversal(
+                (int)($line['movement_ref_id'] ?? 0),
+                $header,
+                $line,
+                $divisionId,
+                $destinationType
+            );
+            if (!$sourceMovement) {
+                return $this->skip_unlinked_material_return(
+                    $header,
+                    $line,
+                    $reverseQty,
+                    'Jejak movement pemakaian tidak cocok dengan snapshot POS. Sistem tidak menambah stok tanpa lot pasangan.'
+                );
+            }
+
             $identity = $this->infer_material_identity($line, $divisionId, $destinationType);
             $rollback = $this->rollback_material_aggregate_movement(
                 (int)($line['movement_ref_id'] ?? 0),
@@ -730,57 +846,61 @@ class PosOrderStockService
             );
             if (!($rollback['ok'] ?? false)) {
                 if ($this->is_missing_rollback_movement_message((string)($rollback['message'] ?? ''))) {
-                    return $this->post_material_rollback_fallback($header, $line, $reverseQty, $meta, 'Aggregate rollback fallback: movement usage lama tidak ditemukan.');
+                    return $this->skip_unlinked_material_return(
+                        $header,
+                        $line,
+                        $reverseQty,
+                        'Movement pemakaian lama tidak ditemukan. Sistem tidak menambah stok tanpa lot pasangan.'
+                    );
                 }
                 return $rollback;
             }
+
+            $rolledQty = round((float)($rollback['data']['qty_content_reversed'] ?? 0), 4);
+            if ($rolledQty <= 0.0001) {
+                return $this->skip_unlinked_material_return(
+                    $header,
+                    $line,
+                    $reverseQty,
+                    'Movement pemakaian sudah pernah dibalik atau tidak memiliki kuantitas yang dapat dikembalikan.'
+                );
+            }
+
+            $lotRestore = $this->restore_material_lot_after_ledger_rollback(
+                $header,
+                $line,
+                $sourceMovement,
+                $rolledQty,
+                $meta,
+                $movementDate,
+                $divisionId,
+                $destinationType
+            );
+            if (!($lotRestore['ok'] ?? false)) {
+                return $lotRestore;
+            }
+
             $rebuild = $this->rebuild_material_identity_after_pos_rollback([
-                'item_id' => $identity['item_id'] ?? null,
-                'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
-                'buy_uom_id' => $identity['buy_uom_id'] ?? null,
-                'content_uom_id' => !empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : null,
-                'profile_key' => $identity['profile_key'] ?? null,
-                'division_id' => $divisionId,
-                'destination_type' => $destinationType,
+                'item_id' => $sourceMovement['item_id'] ?? ($identity['item_id'] ?? null),
+                'material_id' => $sourceMovement['material_id'] ?? (!empty($line['material_id']) ? (int)$line['material_id'] : null),
+                'buy_uom_id' => $sourceMovement['buy_uom_id'] ?? ($identity['buy_uom_id'] ?? null),
+                'content_uom_id' => $sourceMovement['content_uom_id'] ?? (!empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : null),
+                'profile_key' => $sourceMovement['profile_key'] ?? ($identity['profile_key'] ?? null),
+                'division_id' => !empty($sourceMovement['division_id']) ? (int)$sourceMovement['division_id'] : $divisionId,
+                'destination_type' => (string)($sourceMovement['destination_type'] ?? $destinationType),
             ], $movementDate);
             if (!($rebuild['ok'] ?? false)) {
                 return $rebuild;
             }
-            return ['ok' => true];
+            return ['ok' => true, 'returned_qty' => $rolledQty];
         }
 
-        $identity = $this->infer_material_identity($line, $divisionId, $destinationType);
-        $qtyBuyAbs = $this->resolve_buy_qty_from_profile($reverseQty, (float)($identity['profile_content_per_buy'] ?? 0));
-        return $this->ci->inventoryledger->post([
-            'movement_scope' => 'DIVISION',
-            'movement_date' => $movementDate,
-            'movement_type' => 'VOID_REVERSE',
-            'division_id' => $divisionId,
-            'destination_type' => $destinationType,
-            'ref_table' => 'pos_stock_commit_reversal',
-            'ref_id' => (int)($header['id'] ?? 0),
-            'item_id' => $identity['item_id'],
-            'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
-            'buy_uom_id' => $identity['buy_uom_id'],
-            'content_uom_id' => !empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : null,
-            'qty_buy_delta' => $qtyBuyAbs,
-            'qty_content_delta' => $reverseQty,
-            'profile_key' => $identity['profile_key'],
-            'profile_name' => $identity['profile_name'],
-            'profile_brand' => $identity['profile_brand'],
-            'profile_description' => $identity['profile_description'],
-            'profile_expired_date' => $identity['profile_expired_date'],
-            'profile_content_per_buy' => $identity['profile_content_per_buy'],
-            'profile_buy_uom_code' => $identity['profile_buy_uom_code'],
-            'profile_content_uom_code' => $identity['profile_content_uom_code'],
-            'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
-            'force_avg_cost_per_content' => round((float)($line['unit_cost_live'] ?? 0), 6),
-            'allow_negative_balance' => true,
-            'notes' => 'POS return to stock aggregate reversal.',
-            'created_by' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : null,
-            'manage_transaction' => false,
-            'skip_availability_refresh' => true,
-        ]);
+        return $this->skip_unlinked_material_return(
+            $header,
+            $line,
+            $reverseQty,
+            'Snapshot tidak memiliki jejak lot, movement, atau defisit yang dapat dibuktikan. Sistem tidak menambah stok tanpa lot pasangan.'
+        );
     }
 
     private function post_component_usage(array $header, array $line, array $meta): array
@@ -909,7 +1029,14 @@ class PosOrderStockService
             ];
         }
 
-        $movementQty = $deficitReady ? $issuedQty : $requiredQty;
+        if (!$deficitReady && $deficitQty > 0.0001) {
+            return [
+                'ok' => false,
+                'message' => 'POS tidak dapat mencatat defisit component karena fondasi Defisit Stok belum siap. Stok tidak dikurangi tanpa lot pasangan; periksa migration inventory lalu jalankan ulang antrean POS.',
+            ];
+        }
+
+        $movementQty = $issuedQty;
         $movement = $this->post_component_aggregate_movement([
             'movement_date' => $movementDate,
             'location_type' => $locationType,
@@ -927,7 +1054,9 @@ class PosOrderStockService
                 ? ('POS component usage parsial; defisit stok #' . $deficitId . ' dicatat untuk qty ' . number_format($deficitQty, 4, '.', '') . '.')
                 : ($lotError !== '' ? ('Lot fallback: ' . $lotError) : 'POS component usage posted.'),
             'actor_employee_id' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0,
-            'allow_negative' => !$deficitReady,
+            // A component movement may only follow a lot issue that was
+            // actually recorded. A shortage must become a deficit instead.
+            'allow_negative' => false,
         ]);
         if (!($movement['ok'] ?? false)) {
             return $movement;
@@ -945,7 +1074,7 @@ class PosOrderStockService
             'cost_source' => $deficitId > 0 ? 'DEFICIT_PENDING' : (string)($line['cost_source'] ?? 'LAST_LIVE'),
             'notes' => $deficitId > 0
                 ? ('Stock component diposting sebagian; kekurangan dicatat sebagai defisit stok #' . $deficitId . '.')
-                : ($lotIssueId ? 'Stock komponen diposting dan lot issue tercatat.' : 'Stock komponen diposting aggregate dan diizinkan minus.'),
+                : 'Stock komponen diposting dari lot issue yang tercatat.',
         ];
     }
 
@@ -1210,6 +1339,180 @@ class PosOrderStockService
             'manage_transaction' => false,
             'allow_negative_balance' => true,
         ]);
+    }
+
+    /**
+     * A ledger reference is valid for a POS reversal only when it points back
+     * to the same snapshot. This prevents an old/broken snapshot from adding
+     * stock by reversing an unrelated material movement.
+     */
+    private function load_material_ledger_movement_for_reversal(
+        int $movementId,
+        array $header,
+        array $line,
+        int $divisionId,
+        string $destinationType
+    ): ?array {
+        if ($movementId <= 0 || !$this->ci->db->table_exists('inv_stock_movement_log')) {
+            return null;
+        }
+
+        $query = $this->ci->db
+            ->from('inv_stock_movement_log')
+            ->where('id', $movementId)
+            ->limit(1)
+            ->get();
+        if ($query === false) {
+            $error = $this->ci->db->error();
+            log_message('error', 'POS material reversal cannot read source movement #' . $movementId . ': ' . (string)($error['message'] ?? 'unknown database error'));
+            return null;
+        }
+
+        $row = $query->row_array() ?: null;
+        if (!$row) {
+            return null;
+        }
+
+        $valid = strtolower(trim((string)($row['ref_table'] ?? ''))) === 'pos_stock_commit'
+            && (int)($row['ref_id'] ?? 0) === (int)($header['id'] ?? 0)
+            && strtoupper(trim((string)($row['movement_scope'] ?? ''))) === 'DIVISION'
+            && (float)($row['qty_content_delta'] ?? 0) < -0.0001;
+
+        if ($valid && $divisionId > 0) {
+            $valid = (int)($row['division_id'] ?? 0) === $divisionId;
+        }
+        if ($valid && $destinationType !== '') {
+            $valid = strtoupper(trim((string)($row['destination_type'] ?? ''))) === strtoupper(trim($destinationType));
+        }
+
+        $lineMaterialId = (int)($line['material_id'] ?? 0);
+        if ($valid && $lineMaterialId > 0) {
+            $valid = (int)($row['material_id'] ?? 0) === $lineMaterialId;
+        }
+        $lineUomId = (int)($line['required_uom_id'] ?? 0);
+        if ($valid && $lineUomId > 0) {
+            $valid = (int)($row['content_uom_id'] ?? 0) === $lineUomId;
+        }
+
+        if (!$valid) {
+            log_message('error', 'POS material reversal skipped invalid ledger evidence: commit #' . (int)($header['id'] ?? 0) . ', line #' . (int)($line['id'] ?? 0) . ', movement #' . $movementId . '.');
+            return null;
+        }
+
+        return $row;
+    }
+
+    /**
+     * Old snapshots may have a ledger reference but no FIFO issue reference.
+     * Reverse the existing FIFO issue first when it exists; any remaining
+     * quantity receives a traceable return lot so stock and FIFO stay paired.
+     */
+    private function restore_material_lot_after_ledger_rollback(
+        array $header,
+        array $line,
+        array $sourceMovement,
+        float $qty,
+        array $meta,
+        string $movementDate,
+        int $divisionId,
+        string $destinationType
+    ): array {
+        if ($qty <= 0.0001) {
+            return ['ok' => true, 'data' => ['rolled_qty' => 0.0, 'created_qty' => 0.0]];
+        }
+
+        if (!file_exists(APPPATH . 'libraries/MaterialFifoManager.php')) {
+            return ['ok' => false, 'message' => 'Library FIFO bahan baku belum tersedia untuk mengembalikan lot POS.'];
+        }
+
+        $this->ci->load->library('MaterialFifoManager');
+        $sourceCommitId = (int)($header['id'] ?? 0);
+        $sourceLineId = (int)($line['id'] ?? 0);
+        $fifoRollback = $this->ci->materialfifomanager->rollbackDivisionUsageLotsBySource(
+            'pos_stock_commit',
+            $sourceCommitId,
+            $sourceLineId > 0 ? $sourceLineId : null,
+            (string)($meta['notes'] ?? 'Void/refund POS'),
+            $qty
+        );
+        if (!($fifoRollback['ok'] ?? false)) {
+            return $fifoRollback;
+        }
+
+        $rolledQty = round((float)($fifoRollback['data']['rolled_qty'] ?? 0), 4);
+        $remainingQty = round(max(0, $qty - $rolledQty), 4);
+        if ($remainingQty <= 0.0001) {
+            return ['ok' => true, 'data' => ['rolled_qty' => $rolledQty, 'created_qty' => 0.0]];
+        }
+
+        $itemId = !empty($sourceMovement['item_id']) ? (int)$sourceMovement['item_id'] : (!empty($line['item_id']) ? (int)$line['item_id'] : null);
+        $materialId = !empty($sourceMovement['material_id']) ? (int)$sourceMovement['material_id'] : (!empty($line['material_id']) ? (int)$line['material_id'] : null);
+        $contentUomId = !empty($sourceMovement['content_uom_id']) ? (int)$sourceMovement['content_uom_id'] : (!empty($line['required_uom_id']) ? (int)$line['required_uom_id'] : null);
+        if (($itemId === null && $materialId === null) || $contentUomId === null) {
+            return ['ok' => false, 'message' => 'Identitas bahan baku tidak lengkap untuk membuat lot pengembalian POS.'];
+        }
+
+        $sourceMovementId = (int)($sourceMovement['id'] ?? 0);
+        $lotNo = substr(sprintf(
+            'POSR-%s-M%s-L%s-R%s',
+            date('Ymd', strtotime($movementDate)),
+            max(0, $sourceCommitId),
+            max(0, $sourceLineId),
+            max(0, $sourceMovementId)
+        ), 0, 80);
+
+        $register = $this->ci->materialfifomanager->registerReceiptInboundLot([
+            'location_scope' => 'DIVISION',
+            'division_id' => !empty($sourceMovement['division_id']) ? (int)$sourceMovement['division_id'] : $divisionId,
+            'destination_type' => (string)($sourceMovement['destination_type'] ?? $destinationType),
+            'item_id' => $itemId,
+            'material_id' => $materialId,
+            'buy_uom_id' => !empty($sourceMovement['buy_uom_id']) ? (int)$sourceMovement['buy_uom_id'] : null,
+            'content_uom_id' => $contentUomId,
+            'profile_key' => $sourceMovement['profile_key'] ?? null,
+            'profile_expired_date' => $sourceMovement['profile_expired_date'] ?? null,
+            'qty_content_in' => $remainingQty,
+            'unit_cost' => round((float)($sourceMovement['unit_cost'] ?? ($line['unit_cost_live'] ?? 0)), 6),
+            'lot_no' => $lotNo,
+            'receipt_date' => $movementDate,
+            'source_module' => 'POS',
+            'source_table' => 'pos_stock_commit_reversal',
+            'source_id' => $sourceCommitId > 0 ? $sourceCommitId : null,
+            'source_line_id' => $sourceLineId > 0 ? $sourceLineId : null,
+            'created_by' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : null,
+            'notes' => 'Fallback lot dari reversal POS untuk menjaga stok dan FIFO tetap seimbang.',
+        ]);
+        if (!($register['ok'] ?? false)) {
+            return $register;
+        }
+
+        return [
+            'ok' => true,
+            'data' => [
+                'rolled_qty' => $rolledQty,
+                'created_qty' => $remainingQty,
+                'lot_id' => (int)($register['data']['lot_id'] ?? 0),
+            ],
+        ];
+    }
+
+    private function skip_unlinked_material_return(array $header, array $line, float $qty, string $reason): array
+    {
+        $warning = 'Pengembalian stok bahan baku tidak diposting: ' . trim($reason);
+        log_message(
+            'error',
+            'POS material reversal skipped without paired evidence | commit #' . (int)($header['id'] ?? 0)
+            . ' | line #' . (int)($line['id'] ?? 0)
+            . ' | qty ' . number_format(max(0, $qty), 4, '.', '')
+            . ' | ' . $reason
+        );
+
+        return [
+            'ok' => true,
+            'returned_qty' => 0.0,
+            'skipped_qty' => round(max(0, $qty), 4),
+            'warning' => $warning,
+        ];
     }
 
     private function rollback_component_usage_movement(int $commitId, int $commitLineId, float $reverseQty, int $movementId = 0, array $fallbackContext = []): array
@@ -2965,8 +3268,14 @@ class PosOrderStockService
 
     private function rollback_or_restore_component_lots(array $header, array $line, float $reverseQty, array $meta, string $movementDate, ?string $locationType, ?int $divisionId): array
     {
-        if ($reverseQty <= 0 || $locationType === null || !file_exists(APPPATH . 'libraries/ComponentLotManager.php')) {
+        if ($reverseQty <= 0) {
             return ['ok' => true];
+        }
+        if ($locationType === null || !file_exists(APPPATH . 'libraries/ComponentLotManager.php')) {
+            return [
+                'ok' => false,
+                'message' => 'Lot component asal tidak tersedia untuk pengembalian POS. Sistem tidak mengembalikan stok tanpa lot pasangan.',
+            ];
         }
 
         $this->ci->load->library('ComponentLotManager');
@@ -3069,7 +3378,7 @@ class PosOrderStockService
             'source_line_id' => (int)($line['id'] ?? 0),
             'notes' => 'POS rollback fallback aggregate reversal. ' . $reason,
             'actor_employee_id' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0,
-            'allow_negative' => true,
+            'allow_negative' => false,
         ]);
     }
 

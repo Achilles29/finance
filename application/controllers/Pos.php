@@ -135,6 +135,12 @@ class Pos extends MY_Controller
         );
         $materialRowsAll = is_array($materialCompareRaw['rows'] ?? null) ? $materialCompareRaw['rows'] : [];
         $materialRowsAll = $this->sort_material_compare_rows($materialRowsAll);
+        $this->load->library('PosOrderStockService', null, 'posorderstockservice');
+        $voidMaterialLotAudit = $this->posorderstockservice->audit_void_material_lot_drift(
+            $asOfDate,
+            $materialRowsAll,
+            50
+        );
         $materialOptions = $this->build_material_compare_options($materialRowsAll);
         $materialRowsFiltered = $this->filter_material_compare_rows($materialRowsAll, [
             'status' => $status,
@@ -218,6 +224,7 @@ class Pos extends MY_Controller
             'audit_month_from' => $auditMonthFrom,
             'audit_month_to' => $auditMonthTo,
             'material_compare' => $materialCompare,
+            'void_material_lot_audit' => $voidMaterialLotAudit,
             'domain_audit' => !empty($domainAudit['ok']) ? (array)($domainAudit['data'] ?? []) : ['summary' => [], 'rows' => []],
             'component_compare' => $componentCompare,
             'division_options' => $divisionOptions,
