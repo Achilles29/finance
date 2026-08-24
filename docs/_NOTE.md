@@ -75,7 +75,7 @@ nah sekarang jadi kelihatan dan lebih lebar lagi missmatchnya. ini penting karen
 perbaiki:
 - kolom pencarian belum berfungsi
 - button "repair lot semua" seharusnya juga langsung me repair lot yang aktif tapi stok nya 0 -->
-<!-- sekarang pindah ke component. apakah 4 halamana adjustmen component /production/component-daily-recon, /production/component-daily, /production/component-reconcile, dan /production/component-adjustments juga ketika stok minus kemudian di adjustmen menjadi 0 atau lebih dari 0, lot nya juga ikut naik sejumlah kenaikan stock sehingga ada perbedaan antara stock dan lot?
+<!-- sekarang pindah ke component. apakah 4 halamana adjustmen component /production/component-daily-recon, /production/component-daily, /production/component-reconcile, dan /production/component-adjustments juga ketika stok minus kemudian di adjustmen menjadi 0 atau lebih dari 0, lot nya juga ikut naik sejumlah kenaikan stock sehingga ada perbedaan antara stock dan lot?4r
 Periksa, kalau iya maka lakukan penyesuaian seperti bahan baku, guarding adjustmen di ke 4 halaman itu, jika adjustmen dari minus, maka menyesuaikan kenaikan mulai dari 0 saja. -->
 <!-- lalu di /production/component-reconcile component yang tidak ada stock tapi ada lot aktif, tetap dimunculkan dengan stock 0 dan lot ada. sehingga dapat dilakukan adj lot. buatkan repair lot per child dan repair lot semmua untuk kasus serupa -->
 <!-- lakukan pengecekan di halaman adjustmen seperti daily matrix, daily recon, reconcile, adjustment , yang mungkin bisa mempengaruhi bahan baku juga -->
@@ -230,3 +230,18 @@ Buat pengujian integrasi otomatis, lalu lakukan UAT manual akhir. -->
 - adjustment gagal "**Gagal memposting adjustment stok."**
 
 sepertinya perlu kamu cek RBAC setelah perubahan kita kemarin. karena seperti PO SR dari superadmin bisa, tapi dari user lain yang sudah diberi hak akses masih gagal. termasuk adjustmen , baik bahan baku maupun component di semua halaman adjustment
+
+
+
+![
+
+
+](gambar.png)
+
+
+Proses dihentikan: Akun WhatsApp dibatasi untuk pesan personal (kode 463). Antrean dihentikan; nomor ini tetap pending dan dapat dicoba ulang setelah pembatasan dicabut.
+
+masih seperti itu setelah kirim 1 nomor?
+apa tidak ada untuk mengatasi? itu kan sama saja polanya kamu kirim pesan manual yang sama ke beberapa nomor terpilih. form UI hanya untuk memudahkan saya. sementara proses backgroundnya kamu buat sedemikian rupa agar sama seperti kirim manual ke beberapa nomor
+kenapa saya coba kirim pesan manual selain 085730012324 tidak bisa?
+

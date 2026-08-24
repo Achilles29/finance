@@ -24,12 +24,41 @@ const fs    = require('fs');
 const path  = require('path');
 const mysql = require('mysql2/promise');
 const pino  = require('pino');
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-} = require('@whiskeysockets/baileys');
+
+// libsignal logs full session objects when it rotates a ratchet. Those objects
+// contain cryptographic material, so retain only an innocuous event marker.
+const sensitiveLibsignalLog = /^(?:Closing session:|Opening session:|Removing old closed session:|Session already closed)/;
+for (const method of ['info', 'warn']) {
+  const original = console[method].bind(console);
+  console[method] = (...args) => {
+    if (sensitiveLibsignalLog.test(String(args[0] || ''))) {
+      original(`ℹ libsignal: ${String(args[0]).replace(/:$/, '')} (detail disembunyikan)`);
+      return;
+    }
+    original(...args);
+  };
+}
+
+// Baileys 7 is ESM-only. Keep this engine CommonJS so the surrounding
+// process management remains unchanged, then load the transport at startup.
+let makeWASocket;
+let useMultiFileAuthState;
+let DisconnectReason;
+let fetchLatestBaileysVersion;
+
+async function loadBaileys() {
+  const baileys = await import('@whiskeysockets/baileys');
+  makeWASocket = baileys.default || baileys.makeWASocket;
+  useMultiFileAuthState = baileys.useMultiFileAuthState;
+  DisconnectReason = baileys.DisconnectReason;
+  fetchLatestBaileysVersion = baileys.fetchLatestBaileysVersion;
+
+  if (typeof makeWASocket !== 'function'
+    || typeof useMultiFileAuthState !== 'function'
+    || typeof fetchLatestBaileysVersion !== 'function') {
+    throw new Error('Modul Baileys tidak memuat API koneksi WhatsApp yang diperlukan.');
+  }
+}
 
 // ─── Load .env sederhana ───────────────────────────────────
 try {
@@ -76,6 +105,14 @@ let latestQr      = null;
 let isStarting    = false;
 let reconnectTimer = null;
 let reconnectDelay = 3000;
+// Baileys can receive a retry receipt when a recipient cannot decrypt an
+// outgoing message. Keep the original payload so Baileys can re-encrypt it
+// with fresh recipient keys instead of silently dropping that retry.
+const outboundMessages = new Map();
+const outboundDeliveryWaiters = new Map();
+const outboundMessageStatuses = new Map();
+const OUTBOUND_MESSAGE_TTL_MS = 2 * 60 * 60 * 1000;
+const OUTBOUND_MESSAGE_LIMIT = 512;
 
 // ─── DB ─────────────────────────────────────────────────────
 async function getDb() {
@@ -215,6 +252,13 @@ async function buildGroupCommandReply(groupJid, command) {
 }
 
 async function sendMessageWithTimeout(jid, content, timeoutMs = 60000) {
+  // Connection can close after the HTTP endpoint has accepted a request.
+  // Check again immediately before every personal/group send.
+  if (!currentSock || botStatus !== 'CONNECTED') {
+    const err = new Error('Bot tidak terhubung. Pengiriman dihentikan.');
+    err.httpCode = 503;
+    throw err;
+  }
   let timer = null;
   try {
     return await Promise.race([
@@ -230,6 +274,98 @@ async function sendMessageWithTimeout(jid, content, timeoutMs = 60000) {
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function pruneOutboundMessages() {
+  const expiresAt = Date.now() - OUTBOUND_MESSAGE_TTL_MS;
+  for (const [id, row] of outboundMessages) {
+    if (row.storedAt < expiresAt || outboundMessages.size > OUTBOUND_MESSAGE_LIMIT) {
+      outboundMessages.delete(id);
+    }
+  }
+  for (const [id, row] of outboundMessageStatuses) {
+    if (row.updatedAt < expiresAt) outboundMessageStatuses.delete(id);
+  }
+}
+
+function rememberOutboundMessage(message) {
+  const id = String(message?.key?.id || '');
+  const body = message?.message;
+  if (!id || !body) return;
+
+  outboundMessages.set(id, { message: body, storedAt: Date.now() });
+  pruneOutboundMessages();
+}
+
+async function getOutboundMessage(key) {
+  const id = String(key?.id || '');
+  const message = outboundMessages.get(id)?.message;
+  console.log(message
+    ? `↻ WhatsApp meminta retry enkripsi: ${id}`
+    : `⚠️ WhatsApp meminta retry, tetapi payload tidak ditemukan: ${id}`);
+  return message;
+}
+
+function deliveryFailure(messageId, detail = '') {
+  const suffix = detail ? ` Kode WhatsApp: ${detail}.` : '';
+  const err = new Error(`WhatsApp menolak pesan personal sebelum delivery dikonfirmasi.${suffix}`);
+  err.httpCode = 502;
+  err.messageId = messageId;
+  err.accountRestricted = /account\s+(?:has\s+been\s+)?restricted/i.test(String(detail || ''));
+  return err;
+}
+
+function rememberOutboundStatus(messageId, status, detail = '') {
+  if (!messageId || !Number.isFinite(Number(status))) return;
+  const normalizedStatus = Number(status);
+  const normalizedDetail = String(detail || '').trim();
+  outboundMessageStatuses.set(messageId, {
+    status: normalizedStatus,
+    detail: normalizedDetail,
+    updatedAt: Date.now(),
+  });
+  console.log(`ℹ Status pesan WhatsApp ${messageId}: ${normalizedStatus}${normalizedDetail ? ` (${normalizedDetail})` : ''}`);
+  const waiter = outboundDeliveryWaiters.get(messageId);
+  // Baileys: SERVER_ACK=2, DELIVERY_ACK=3, READ=4.
+  if (waiter && normalizedStatus >= 3) {
+    clearTimeout(waiter.timer);
+    outboundDeliveryWaiters.delete(messageId);
+    waiter.resolve(normalizedStatus);
+  } else if (waiter && normalizedStatus === 0) {
+    clearTimeout(waiter.timer);
+    outboundDeliveryWaiters.delete(messageId);
+    waiter.reject(deliveryFailure(messageId, normalizedDetail));
+  }
+}
+
+function waitForDeliveryReceipt(messageId, timeoutMs = 30000) {
+  const known = outboundMessageStatuses.get(messageId);
+  if (known && known.status >= 3) return Promise.resolve(known.status);
+  if (known && known.status === 0) return Promise.reject(deliveryFailure(messageId, known.detail));
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      outboundDeliveryWaiters.delete(messageId);
+      const err = new Error('Pesan belum menerima konfirmasi delivery WhatsApp dalam 30 detik. Pesan tidak ditandai terkirim.');
+      err.httpCode = 504;
+      reject(err);
+    }, timeoutMs);
+    outboundDeliveryWaiters.set(messageId, { resolve, reject, timer });
+  });
+}
+
+async function sendPersonalMessageConfirmed(jid, content) {
+  const sent = await sendMessageWithTimeout(jid, content);
+  rememberOutboundMessage(sent);
+  const messageId = String(sent?.key?.id || '');
+  if (!messageId) {
+    const err = new Error('WhatsApp tidak mengembalikan ID pesan.');
+    err.httpCode = 502;
+    throw err;
+  }
+  console.log(`➜ Pesan personal diterima engine: ${messageId} -> ${jid}`);
+  const receiptStatus = await waitForDeliveryReceipt(messageId);
+  return { sent, messageId, receiptStatus };
 }
 
 function normalizePersonalJid(toRaw) {
@@ -260,9 +396,9 @@ function normalizePersonalJid(toRaw) {
   return `${digits}@s.whatsapp.net`;
 }
 
-async function resolveExistingPersonalJid(jid) {
+async function lookupPersonalAddress(jid) {
   if (!currentSock || typeof currentSock.onWhatsApp !== 'function') {
-    return jid;
+    return { jid, lid: null };
   }
 
   let timer = null;
@@ -274,14 +410,26 @@ async function resolveExistingPersonalJid(jid) {
       }),
     ]);
 
-    if (!rows) return jid;
+    if (!rows) {
+      const err = new Error('WhatsApp tidak merespons verifikasi nomor. Coba lagi saat koneksi bot stabil.');
+      err.httpCode = 503;
+      throw err;
+    }
     const first = Array.isArray(rows) ? rows[0] : rows;
-    if (first && first.exists === false) {
+    if (!first || first.exists !== true) {
       const err = new Error(`Nomor ${jid.replace('@s.whatsapp.net', '')} tidak terdaftar di WhatsApp.`);
       err.httpCode = 400;
       throw err;
     }
-    return first?.jid || jid;
+    if (!first.jid || !String(first.jid).endsWith('@s.whatsapp.net')) {
+      const err = new Error('WhatsApp tidak mengembalikan JID personal yang valid untuk nomor tujuan.');
+      err.httpCode = 502;
+      throw err;
+    }
+    return {
+      jid: String(first.jid),
+      lid: first.lid && String(first.lid).endsWith('@lid') ? String(first.lid) : null,
+    };
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -319,6 +467,20 @@ function startServer() {
         });
       }
 
+      // POST /internal/check-number body: { to: "62xxx" }
+      // Internal diagnostic only: validate the exact personal JID without
+      // sending a message.
+      if (url.pathname === '/internal/check-number' && req.method === 'POST') {
+        if (!currentSock || botStatus !== 'CONNECTED') {
+          return jsonReply(res, 503, { ok: false, message: 'Bot tidak terhubung.' });
+        }
+        let payload;
+        try { payload = JSON.parse(await readBody(req)); }
+        catch { return jsonReply(res, 400, { ok: false, message: 'JSON tidak valid.' }); }
+        const address = await lookupPersonalAddress(normalizePersonalJid(String(payload.to || '')));
+        return jsonReply(res, 200, { ok: true, jid: address.jid, lid: address.lid });
+      }
+
       // POST /internal/send   body: { to: "62xxx", message: "...", image_path?: "/path/file.jpg" }
       if (url.pathname === '/internal/send' && req.method === 'POST') {
         if (!currentSock || botStatus !== 'CONNECTED') {
@@ -332,9 +494,18 @@ function startServer() {
         const outgoing = buildOutgoingMessage(payload);
         if (!outgoing.hasContent) return jsonReply(res, 400, { ok: false, message: 'Pesan atau gambar wajib diisi.' });
 
-        const jid = await resolveExistingPersonalJid(normalizePersonalJid(toRaw));
-        await sendMessageWithTimeout(jid, outgoing.content);
-        return jsonReply(res, 200, { ok: true, to: jid });
+        const address = await lookupPersonalAddress(normalizePersonalJid(toRaw));
+        // Baileys' official direct-message API uses the verified phone JID.
+        // LID is retained only for diagnostics because it can break local
+        // echo or delivery on some WhatsApp clients.
+        const jid = address.jid;
+        const confirmed = await sendPersonalMessageConfirmed(jid, outgoing.content);
+        return jsonReply(res, 200, {
+          ok: true,
+          to: jid,
+          message_id: confirmed.messageId,
+          receipt_status: confirmed.receiptStatus,
+        });
       }
 
       // POST /internal/send-group   body: { group_jid: "120363xxx@g.us", message: "...", image_path?: "/path/file.jpg" }
@@ -372,13 +543,17 @@ function startServer() {
       jsonReply(res, 404, { ok: false, message: 'Endpoint tidak ditemukan.' });
 
     } catch (err) {
-      jsonReply(res, Number(err?.httpCode || 500), { ok: false, message: String(err?.message || err) });
+      jsonReply(res, Number(err?.httpCode || 500), {
+        ok: false,
+        message: String(err?.message || err),
+        account_restricted: !!err?.accountRestricted,
+      });
     }
   });
 
   server.listen(SYNC_PORT, '127.0.0.1', () => {
     console.log(`🔄  Internal API siap di http://127.0.0.1:${SYNC_PORT}`);
-    console.log(`🔑  Token: ${SYNC_TOKEN}`);
+    console.log('🔑  Token internal dikonfigurasi.');
   });
 }
 
@@ -395,16 +570,44 @@ async function start() {
     version,
     auth:   state,
     logger: pino({ level: 'silent' }),
+    // Do not sync full history after deploy. It is unnecessary for the bot
+    // and avoids a long reconnect while keeping the existing linked session.
+    syncFullHistory: false,
+    // Lets Baileys recreate only a stale recipient Signal session when WA
+    // asks for it, without resetting the bot's QR-linked account.
+    enableAutoSessionRecreation: true,
+    // Required for automatic resend after a recipient asks for fresh Signal
+    // encryption keys. The default implementation always returns undefined.
+    getMessage: getOutboundMessage,
   });
 
   currentSock = sock;
   sock.ev.on('creds.update', saveCreds);
 
+  sock.ev.on('messages.update', (updates) => {
+    for (const update of updates || []) {
+      const id = String(update?.key?.id || '');
+      const updateData = update?.update || {};
+      const status = updateData.status;
+      const detail = Array.isArray(updateData.messageStubParameters)
+        ? updateData.messageStubParameters.filter(value => value !== null && value !== undefined && value !== '').join(', ')
+        : String(updateData.messageStubParameters || '');
+      rememberOutboundStatus(id, status, detail);
+      if (id && Number(status) >= 3) {
+        console.log(`✓ Delivery WhatsApp dikonfirmasi: ${id}`);
+      }
+    }
+  });
+
   sock.ev.on('messages.upsert', async ({ messages }) => {
     try {
       for (const msg of messages || []) {
+        if (msg?.key?.fromMe) {
+          rememberOutboundMessage(msg);
+          continue;
+        }
         const remoteJid = msg?.key?.remoteJid || '';
-        if (!remoteJid.endsWith('@g.us') || msg?.key?.fromMe) continue;
+        if (!remoteJid.endsWith('@g.us')) continue;
         const command = normalizeIncomingCommand(extractIncomingText(msg.message));
         if (!command) continue;
 
@@ -419,8 +622,9 @@ async function start() {
 
   sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      console.log('📱  Scan QR ini dengan WhatsApp di HP kamu:');
-      require('qrcode-terminal').generate(qr, { small: true });
+      // QR is exposed through the authenticated settings page. Do not print
+      // it to the process log because a QR can link a WhatsApp account.
+      console.log('📱 QR WhatsApp tersedia di Pengaturan WA Bot.');
       latestQr = qr;
       setStatus('WAITING_QR');
       updateSessionQr(qr).catch(() => {});
@@ -463,8 +667,13 @@ async function start() {
 }
 
 // ─── Main ────────────────────────────────────────────────────
-startServer();
-start().catch(err => console.error('❌  Start error:', err));
+async function main() {
+  await loadBaileys();
+  startServer();
+  await start();
+}
+
+main().catch(err => console.error('❌  Start error:', err));
 
 process.on('unhandledRejection', (err) => {
   console.error('❌  Unhandled rejection:', err);

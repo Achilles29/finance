@@ -11,6 +11,7 @@ class Whatsapp extends MY_Controller
     private const PAGE_LOG       = 'wa.log';
     private const PAGE_MANUAL    = 'wa.manual';
     private const PAGE_SETTINGS  = 'wa.settings';
+    private const MANUAL_BULK_NOTE_PREFIX = '[MANUAL_BULK]';
 
     /**
      * Keeps user-facing finance summaries free from a transaction that was
@@ -867,8 +868,16 @@ class Whatsapp extends MY_Controller
     {
         $this->require_permission(self::PAGE_MANUAL, 'view');
 
+        $tab = strtolower(trim((string)$this->input->get('tab', true)));
+        $tab = in_array($tab, ['single', 'bulk'], true) ? $tab : 'single';
+
         if ($this->input->method() === 'post') {
             $this->require_permission(self::PAGE_MANUAL, 'create');
+
+            if ((string)$this->input->post('delivery_mode', true) === 'bulk') {
+                $this->createManualBulkQueue();
+                return;
+            }
 
             $message = trim((string)$this->input->post('message', false));
             $manualLines = (string)$this->input->post('manual_numbers', false);
@@ -887,23 +896,7 @@ class Whatsapp extends MY_Controller
                 return;
             }
 
-            $targets = [];
-            foreach ($this->parseManualTargets($manualLines) as $target) {
-                $targets[$target['phone']] = $target;
-            }
-
-            $memberIds = array_values(array_unique(array_filter(array_map('intval', preg_split('/\s*,\s*/', $memberIdsRaw)))));
-            foreach ($this->manualMemberRowsByIds($memberIds) as $member) {
-                $phone = $this->normalizeWaPhone((string)($member['mobile_phone'] ?? ''));
-                if ($phone === '') {
-                    continue;
-                }
-                $targets[$phone] = [
-                    'phone' => $phone,
-                    'name'  => (string)($member['member_name'] ?? ''),
-                    'source'=> 'member',
-                ];
-            }
+            $targets = $this->manualTargetsFromInput($manualLines, $memberIdsRaw);
 
             if (empty($targets)) {
                 $this->session->set_flashdata('error', 'Tidak ada nomor tujuan valid. Gunakan format 628xxxx atau pilih member aktif.');
@@ -914,6 +907,7 @@ class Whatsapp extends MY_Controller
             $sent = 0;
             $failed = 0;
             $errors = [];
+            $accountRestricted = false;
             foreach ($targets as $target) {
                 $result = $this->callBotApi('/internal/send', 'POST', [
                     'to'      => $target['phone'],
@@ -930,10 +924,17 @@ class Whatsapp extends MY_Controller
                     if (count($errors) < 5) {
                         $errors[] = ($target['name'] ? $target['name'] . ' · ' : '') . $target['phone'] . ': ' . $err;
                     }
+                    if ($this->isBotAccountRestrictedResult($result)) {
+                        $accountRestricted = true;
+                        break;
+                    }
                 }
             }
 
-            if ($failed > 0) {
+            if ($accountRestricted) {
+                $remaining = max(0, count($targets) - $sent - $failed);
+                $this->session->set_flashdata('error', 'Pengiriman manual dihentikan: akun WhatsApp dibatasi untuk pesan personal (kode 463). Nomor berikutnya tidak diproses' . ($remaining > 0 ? ': ' . $remaining . ' nomor tetap tidak dikirim.' : '.') . ' Periksa notifikasi atau Pusat Bantuan WhatsApp pada nomor bot.');
+            } elseif ($failed > 0) {
                 $this->session->set_flashdata('error', 'Pesan manual selesai dengan sebagian gagal. Terkirim: ' . $sent . ', gagal: ' . $failed . (empty($errors) ? '' : '. Contoh: ' . implode(' | ', $errors)));
             } else {
                 $this->session->set_flashdata('success', 'Pesan manual terkirim ke ' . $sent . ' nomor.');
@@ -944,8 +945,46 @@ class Whatsapp extends MY_Controller
 
         $recentManualLogs = $this->db->from('wa_send_log')
             ->where('source', 'MANUAL')
+            ->where('broadcast_id IS NULL', null, false)
             ->order_by('sent_at', 'DESC')
             ->limit(20)
+            ->get()
+            ->result_array();
+
+        $bulkQueue = [];
+        $bulkLines = [];
+        $bulkLineStatusCounts = ['PENDING' => 0, 'SENT' => 0, 'FAILED' => 0, 'SKIPPED' => 0];
+        $bulkId = max(0, (int)$this->input->get('bulk_id', true));
+        $bulkAutoStart = $tab === 'bulk'
+            && $bulkId > 0
+            && (string)$this->input->get('autostart', true) === '1';
+        if ($tab === 'bulk' && $bulkId > 0) {
+            $candidate = $this->db->from('wa_broadcast')->where('id', $bulkId)->limit(1)->get()->row_array();
+            if ($candidate && $this->isManualBulkQueue($candidate)) {
+                $bulkQueue = $candidate;
+                $bulkQueue['delay_pattern'] = $this->normalizeBroadcastDelayPattern($bulkQueue['delay_pattern_json'] ?? null);
+                $bulkLines = $this->db->from('wa_broadcast_line')
+                    ->where('broadcast_id', $bulkId)
+                    ->order_by('id', 'ASC')
+                    ->get()
+                    ->result_array();
+                foreach ($bulkLines as $line) {
+                    $status = strtoupper((string)($line['status'] ?? 'PENDING'));
+                    $bulkLineStatusCounts[$status] = (int)($bulkLineStatusCounts[$status] ?? 0) + 1;
+                }
+            } else {
+                $this->session->set_flashdata('error', 'Antrean pesan bulk tidak ditemukan.');
+                redirect('wa/manual?tab=bulk');
+                return;
+            }
+        }
+
+        $recentBulkQueues = $this->db->from('wa_broadcast')
+            ->select('id, name, status, total_targets, total_sent, total_failed, created_at, started_at, finished_at')
+            ->where('target_type', 'CUSTOM')
+            ->like('notes', self::MANUAL_BULK_NOTE_PREFIX, 'after')
+            ->order_by('id', 'DESC')
+            ->limit(8)
             ->get()
             ->result_array();
 
@@ -954,6 +993,12 @@ class Whatsapp extends MY_Controller
             'active_menu' => 'wa.manual',
             'can_create'  => $this->can(self::PAGE_MANUAL, 'create'),
             'recent_logs' => $recentManualLogs,
+            'active_tab'  => $tab,
+            'bulk_queue'  => $bulkQueue,
+            'bulk_lines'  => $bulkLines,
+            'bulk_line_status_counts' => $bulkLineStatusCounts,
+            'recent_bulk_queues' => $recentBulkQueues,
+            'bulk_auto_start' => $bulkAutoStart,
         ]);
     }
 
@@ -1138,14 +1183,99 @@ class Whatsapp extends MY_Controller
         $this->jsonOut(['ok' => true, 'rows' => $rows]);
     }
 
+    // JSON API — daftar member berpaginasi untuk pemilih pesan bulk.
+    public function api_member_picker()
+    {
+        if (!$this->can(self::PAGE_MANUAL, 'view')) {
+            $this->jsonOut(['ok' => false, 'message' => 'Akses ditolak.']);
+            return;
+        }
+
+        if (!$this->db->table_exists('crm_member')) {
+            $this->jsonOut([
+                'ok' => true,
+                'rows' => [],
+                'page' => 1,
+                'per_page' => 25,
+                'total_rows' => 0,
+                'total_pages' => 1,
+            ]);
+            return;
+        }
+
+        $q = trim((string)$this->input->get('q', true));
+        $page = max(1, (int)$this->input->get('page', true));
+        $perPage = (int)$this->input->get('per_page', true);
+        $perPage = in_array($perPage, [10, 25, 50, 100], true) ? $perPage : 25;
+
+        $this->db->from('crm_member');
+        $this->applyManualMemberPickerFilters($q);
+        $totalRows = (int)$this->db->count_all_results();
+        $totalPages = max(1, (int)ceil($totalRows / $perPage));
+        $page = min($page, $totalPages);
+
+        $this->db->select('id, member_no, member_name, mobile_phone, member_tier, member_status')
+            ->from('crm_member')
+            ->order_by('member_name', 'ASC')
+            ->order_by('member_no', 'ASC')
+            ->order_by('id', 'ASC')
+            ->limit($perPage, ($page - 1) * $perPage);
+        $this->applyManualMemberPickerFilters($q);
+
+        $this->jsonOut([
+            'ok' => true,
+            'rows' => $this->db->get()->result_array(),
+            'page' => $page,
+            'per_page' => $perPage,
+            'total_rows' => $totalRows,
+            'total_pages' => $totalPages,
+        ]);
+    }
+
     // JSON API — mulai kirim broadcast
     public function api_broadcast_start(int $id = 0)
     {
-        $this->require_permission(self::PAGE_BROADCAST, 'edit');
+        $canBroadcastEdit = $this->can(self::PAGE_BROADCAST, 'edit');
+        $canManualCreate = $this->can(self::PAGE_MANUAL, 'create');
+        if (!$canBroadcastEdit && !$canManualCreate) {
+            $this->jsonOut(['ok' => false, 'message' => 'Akses pengiriman antrean ditolak.']);
+            return;
+        }
 
         $broadcast = $this->db->from('wa_broadcast')->where('id', $id)->limit(1)->get()->row_array();
         if (!$broadcast || !in_array($broadcast['status'], ['DRAFT','FAILED','SENDING'], true)) {
-            $this->jsonOut(['ok' => false, 'message' => 'Broadcast tidak dapat dikirim pada status ini.']);
+            $this->jsonOut(['ok' => false, 'message' => 'Antrean tidak dapat dikirim pada status ini.']);
+            return;
+        }
+        $isManualBulk = $this->isManualBulkQueue($broadcast);
+        if (($isManualBulk && !$canManualCreate) || (!$isManualBulk && !$canBroadcastEdit)) {
+            $this->jsonOut(['ok' => false, 'message' => 'Anda tidak memiliki izin untuk mengirim antrean ini.']);
+            return;
+        }
+        $logSource = $isManualBulk ? 'MANUAL' : 'BROADCAST';
+        // A named MySQL lock prevents two browser tabs from processing the
+        // same queue simultaneously. Release it on shutdown as jsonOut()
+        // exits immediately after writing the response.
+        $locked = (int)($this->db->query('SELECT GET_LOCK(?, 0) AS locked', ['wa_broadcast_send_' . $id])->row_array()['locked'] ?? 0);
+        if ($locked !== 1) {
+            $this->jsonOut(['ok' => false, 'message' => 'Antrean sedang diproses oleh sesi lain.']);
+            return;
+        }
+        register_shutdown_function(function () use ($id): void {
+            try {
+                $this->db->query('SELECT RELEASE_LOCK(?)', ['wa_broadcast_send_' . $id]);
+            } catch (Throwable $e) {
+                // The DB connection may already be closed during shutdown.
+            }
+        });
+
+        $botStatus = $this->callBotApi('/internal/status', 'GET', [], 2);
+        if (!($botStatus['ok'] ?? false) || strtoupper((string)($botStatus['status'] ?? '')) !== 'CONNECTED') {
+            $this->jsonOut([
+                'ok' => false,
+                'stopped' => true,
+                'message' => 'Bot WhatsApp tidak terhubung. Antrean dihentikan; tidak ada nomor yang ditandai gagal.',
+            ]);
             return;
         }
         $retryMode = (string)$this->input->get('retry', true) === '1';
@@ -1197,6 +1327,43 @@ class Whatsapp extends MY_Controller
             'image_path' => $mediaPath ?: null,
         ]);
 
+        if ($this->isBotUnavailableResult($result)) {
+            $this->jsonOut([
+                'ok' => false,
+                'stopped' => true,
+                'message' => 'Bot WhatsApp terputus saat proses berjalan. Antrean dihentikan; nomor ini tetap pending.',
+            ]);
+            return;
+        }
+        if ($this->isBotAccountRestrictedResult($result)) {
+            $totalSent = (int)$this->db->where('broadcast_id', $id)->where('status', 'SENT')->count_all_results('wa_broadcast_line');
+            $totalFailed = (int)$this->db->where('broadcast_id', $id)->where('status', 'FAILED')->count_all_results('wa_broadcast_line');
+            $this->db->where('id', $id)->update('wa_broadcast', [
+                'status'       => 'FAILED',
+                'total_sent'   => $totalSent,
+                'total_failed' => $totalFailed,
+                'finished_at'  => date('Y-m-d H:i:s'),
+            ]);
+            $this->jsonOut([
+                'ok' => false,
+                'stopped' => true,
+                'account_restricted' => true,
+                'message' => 'Akun WhatsApp dibatasi untuk pesan personal (kode 463). Antrean dihentikan; nomor ini tetap pending dan dapat dicoba ulang setelah pembatasan dicabut.',
+            ]);
+            return;
+        }
+        if (!($result['ok'] ?? false)) {
+            $botStatusAfterSend = $this->callBotApi('/internal/status', 'GET', [], 2);
+            if (!($botStatusAfterSend['ok'] ?? false) || strtoupper((string)($botStatusAfterSend['status'] ?? '')) !== 'CONNECTED') {
+                $this->jsonOut([
+                    'ok' => false,
+                    'stopped' => true,
+                    'message' => 'Bot WhatsApp terputus saat proses berjalan. Antrean dihentikan; nomor ini tetap pending.',
+                ]);
+                return;
+            }
+        }
+
         if ($result['ok'] ?? false) {
             $this->db->where('id', $line['id'])->update('wa_broadcast_line', [
                 'status'           => 'SENT',
@@ -1204,7 +1371,7 @@ class Whatsapp extends MY_Controller
                 'sent_at'          => date('Y-m-d H:i:s'),
                 'error_msg'        => null,
             ]);
-            $this->logSend($id, 'BROADCAST', $line['phone_number'], null, $line['display_name'], $this->messageLogPreview($msg, $mediaMeta), 'SENT');
+            $this->logSend($id, $logSource, $line['phone_number'], null, $line['display_name'], $this->messageLogPreview($msg, $mediaMeta), 'SENT');
             $sent++;
         } else {
             $errMsg = $result['message'] ?? 'error';
@@ -1213,7 +1380,7 @@ class Whatsapp extends MY_Controller
                 'error_msg'   => $errMsg,
                 'retry_count' => (int)$line['retry_count'] + 1,
             ]);
-            $this->logSend($id, 'BROADCAST', $line['phone_number'], null, $line['display_name'], $this->messageLogPreview($msg, $mediaMeta), 'FAILED', $errMsg);
+            $this->logSend($id, $logSource, $line['phone_number'], null, $line['display_name'], $this->messageLogPreview($msg, $mediaMeta), 'FAILED', $errMsg);
             $failed++;
         }
 
@@ -1247,7 +1414,9 @@ class Whatsapp extends MY_Controller
                 ->result_array()
             : [];
         $this->jsonOut([
-            'ok' => $failed === 0 || $hasMore || $sent > 0,
+            // Delivery failure is a completed attempt: mark that recipient
+            // failed, then let the browser continue to the next one.
+            'ok' => true,
             'sent' => $sent,
             'failed' => $failed,
             'total_sent' => $totalSent,
@@ -1885,6 +2054,122 @@ class Whatsapp extends MY_Controller
         return compact('totalBroadcast','doneBroadcast','totalSent','todaySent','totalTemplates','totalGroups','recentLogs');
     }
 
+    private function createManualBulkQueue(): void
+    {
+        $redirectBase = 'wa/manual?tab=bulk';
+        $message = trim((string)$this->input->post('message', false));
+        $manualLines = (string)$this->input->post('manual_numbers', false);
+        $memberIdsRaw = trim((string)$this->input->post('selected_member_ids', true));
+        $media = $this->handleWaImageUpload('media_image');
+
+        if (!empty($media['error'])) {
+            $this->session->set_flashdata('error', $media['error']);
+            redirect($redirectBase);
+            return;
+        }
+        if ($message === '' && empty($media['path'])) {
+            $this->session->set_flashdata('error', 'Isi pesan atau gambar wajib diisi.');
+            redirect($redirectBase);
+            return;
+        }
+
+        $targets = $this->manualTargetsFromInput($manualLines, $memberIdsRaw);
+        if (empty($targets)) {
+            $this->session->set_flashdata('error', 'Pilih minimal satu member atau isi nomor tujuan yang valid.');
+            redirect($redirectBase);
+            return;
+        }
+
+        $delayPattern = $this->broadcastDelayPatternFromRequest();
+        $this->db->trans_start();
+        $this->db->insert('wa_broadcast', [
+            'name' => 'Bulk Manual · ' . date('d/m/Y H:i'),
+            'template_id' => null,
+            'custom_message' => $message ?: null,
+            'media_path' => $media['path'] ?? null,
+            'media_url' => $media['url'] ?? null,
+            'media_mime' => $media['mime'] ?? null,
+            'media_name' => $media['name'] ?? null,
+            'target_type' => 'CUSTOM',
+            'status' => 'DRAFT',
+            'scheduled_at' => null,
+            'delay_pattern_json' => $this->encodeBroadcastDelayPattern($delayPattern),
+            'total_targets' => count($targets),
+            'notes' => self::MANUAL_BULK_NOTE_PREFIX . ' Antrean dibuat dari tab Kirim Pesan Bulk.',
+            'created_by' => (int)($this->current_user['id'] ?? 0),
+        ]);
+        $bulkId = (int)$this->db->insert_id();
+        $this->insertBroadcastLines($bulkId, $targets);
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status() || $bulkId <= 0) {
+            $this->session->set_flashdata('error', 'Antrean pesan bulk gagal dibuat.');
+            redirect($redirectBase);
+            return;
+        }
+
+        $this->session->set_flashdata('success', 'Antrean bulk dibuat untuk ' . count($targets) . ' nomor. Pengiriman akan dimulai otomatis.');
+        redirect($redirectBase . '&bulk_id=' . $bulkId . '&autostart=1');
+    }
+
+    private function manualTargetsFromInput(string $manualLines, string $memberIdsRaw): array
+    {
+        $targets = [];
+        foreach ($this->parseManualTargets($manualLines) as $target) {
+            $phone = (string)($target['phone'] ?? '');
+            if ($phone === '') {
+                continue;
+            }
+            $name = trim((string)($target['name'] ?? ''));
+            $targets[$phone] = [
+                'phone' => $phone,
+                'name' => $name,
+                'vars' => ['nama' => $name ?: 'Pelanggan'],
+            ];
+        }
+
+        foreach ($this->manualMemberRowsByIds($this->manualMemberIdsFromRaw($memberIdsRaw)) as $member) {
+            $phone = $this->normalizeWaPhone((string)($member['mobile_phone'] ?? ''));
+            if ($phone === '') {
+                continue;
+            }
+            $name = trim((string)($member['member_name'] ?? ''));
+            $targets[$phone] = [
+                'phone' => $phone,
+                'name' => $name,
+                'vars' => ['nama' => $name ?: 'Pelanggan'],
+            ];
+        }
+
+        return array_values($targets);
+    }
+
+    private function manualMemberIdsFromRaw(string $raw): array
+    {
+        return array_values(array_unique(array_filter(array_map('intval', preg_split('/\s*,\s*/', $raw)))));
+    }
+
+    private function isManualBulkQueue(array $broadcast): bool
+    {
+        return strtoupper((string)($broadcast['target_type'] ?? '')) === 'CUSTOM'
+            && strpos((string)($broadcast['notes'] ?? ''), self::MANUAL_BULK_NOTE_PREFIX) === 0;
+    }
+
+    private function applyManualMemberPickerFilters(string $q): void
+    {
+        $this->db->where('is_active', 1)
+            ->where('member_status', 'ACTIVE')
+            ->where('mobile_phone IS NOT NULL', null, false)
+            ->where('mobile_phone !=', '');
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('member_no', $q)
+                ->or_like('member_name', $q)
+                ->or_like('mobile_phone', $q)
+            ->group_end();
+        }
+    }
+
     private function saveBroadcast(array $data, string $manualLines = '', string $targetType = 'MANUAL', array $selectedMemberIds = []): int
     {
         $this->db->insert('wa_broadcast', $data);
@@ -1979,14 +2264,19 @@ class Whatsapp extends MY_Controller
 
     private function insertBroadcastLines(int $broadcastId, array $targets): void
     {
+        $rows = [];
         foreach ($targets as $t) {
-            $this->db->insert('wa_broadcast_line', [
+            $rows[] = [
                 'broadcast_id'  => $broadcastId,
                 'phone_number'  => $t['phone'],
-                'display_name'  => $t['name'] ?: null,
+                'display_name'  => !empty($t['name']) ? mb_substr((string)$t['name'], 0, 100) : null,
                 'variables_json'=> !empty($t['vars']) ? json_encode($t['vars'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) : null,
                 'status'        => 'PENDING',
-            ]);
+            ];
+        }
+
+        foreach (array_chunk($rows, 100) as $batch) {
+            $this->db->insert_batch('wa_broadcast_line', $batch);
         }
     }
 
@@ -2106,6 +2396,29 @@ class Whatsapp extends MY_Controller
         return $decoded;
     }
 
+    private function isBotUnavailableResult(array $result): bool
+    {
+        $message = strtolower(trim((string)($result['message'] ?? '')));
+        return $message !== '' && (
+            strpos($message, 'bot tidak terhubung') !== false
+            || strpos($message, 'tidak dapat menghubungi wa bot') !== false
+            || strpos($message, 'connection refused') !== false
+        );
+    }
+
+    private function isBotAccountRestrictedResult(array $result): bool
+    {
+        if (!empty($result['account_restricted'])) {
+            return true;
+        }
+        $message = strtolower(trim((string)($result['message'] ?? '')));
+        return $message !== '' && (
+            strpos($message, 'account has been restricted') !== false
+            || strpos($message, 'account restricted') !== false
+            || strpos($message, 'kode whatsapp: 463') !== false
+        );
+    }
+
     private function normalizeWaScheduleTime(string $raw): ?string
     {
         $raw = trim($raw);
@@ -2212,6 +2525,9 @@ class Whatsapp extends MY_Controller
             ->where('is_active', 1)
             ->where('member_status', 'ACTIVE')
             ->where_in('id', $ids)
+            ->order_by('member_name', 'ASC')
+            ->order_by('member_no', 'ASC')
+            ->order_by('id', 'ASC')
             ->get()
             ->result_array();
     }

@@ -25,11 +25,13 @@ $pendingLineCount = (int)($lineStatusCounts['PENDING'] ?? 0);
 $failedLineCount = (int)($lineStatusCounts['FAILED'] ?? 0);
 $canStart = $canEdit && (
     $currentStatus === 'DRAFT'
-    || ($currentStatus === 'FAILED' && $failedLineCount > 0)
+    || ($currentStatus === 'FAILED' && ($pendingLineCount > 0 || $failedLineCount > 0))
     || ($currentStatus === 'SENDING' && $pendingLineCount > 0)
 );
 $canUpdate = $canEdit && in_array($currentStatus, ['DRAFT','FAILED','CANCELLED'], true);
-$startButtonLabel = $currentStatus === 'FAILED' ? 'Kirim Ulang Gagal' : ($currentStatus === 'SENDING' ? 'Lanjutkan Kirim' : 'Mulai Kirim');
+$startButtonLabel = $currentStatus === 'FAILED'
+    ? ($pendingLineCount > 0 ? 'Lanjutkan Pending' : 'Kirim Ulang Gagal')
+    : ($currentStatus === 'SENDING' ? 'Lanjutkan Kirim' : 'Mulai Kirim');
 $bcId = (int)($broadcast['id'] ?? 0);
 $delayPattern = (array)($broadcast['delay_pattern'] ?? [1=>2,2=>2,3=>2,4=>2,5=>2,6=>2,7=>2,8=>2,9=>2,10=>2]);
 $failedLineIds = [];
@@ -181,8 +183,8 @@ foreach ($lines as $lineForRetry) {
 
 <script>
 document.getElementById('btn-start')?.addEventListener('click', function () {
-  const retryMode = <?= json_encode($currentStatus === 'FAILED') ?>;
-  const resumeMode = <?= json_encode($currentStatus === 'SENDING') ?>;
+  const retryMode = <?= json_encode($currentStatus === 'FAILED' && $pendingLineCount === 0 && $failedLineCount > 0) ?>;
+  const resumeMode = <?= json_encode(($currentStatus === 'SENDING' || $currentStatus === 'FAILED') && $pendingLineCount > 0) ?>;
   const retryLineIds = <?= json_encode($failedLineIds) ?>;
   if (!confirm(retryMode ? 'Kirim ulang semua target yang gagal?' : (resumeMode ? 'Lanjutkan broadcast yang masih pending?' : 'Mulai kirim broadcast ke semua penerima sekarang?'))) return;
   const btn = this;

@@ -905,6 +905,7 @@ $route['wa/api/status']                   = 'whatsapp/api_status';
 $route['wa/api/send-test']                = 'whatsapp/api_send_test';
 $route['wa/api/log-retry/(:num)']         = 'whatsapp/api_log_retry/$1';
 $route['wa/api/member-search']            = 'whatsapp/api_member_search';
+$route['wa/api/member-picker']            = 'whatsapp/api_member_picker';
 $route['wa/api/broadcast-start/(:num)']   = 'whatsapp/api_broadcast_start/$1';
 $route['wa/api/template-preview']         = 'whatsapp/api_template_preview';
 $route['wa/api/schedule-run']             = 'whatsapp/api_schedule_run';
