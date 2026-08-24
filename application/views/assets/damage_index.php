@@ -63,7 +63,7 @@ $statusBadge = static function ($status): string {
 <div class="card mb-3">
   <div class="card-body">
     <form class="row g-2 align-items-end" method="get" action="<?= site_url('asset-management/damage') ?>">
-      <div class="col-12 col-lg-3">
+      <div class="col-12 col-lg-2">
         <label class="form-label">Cari laporan</label>
         <input type="text" class="form-control" name="q" value="<?= html_escape($filters['q'] ?? '') ?>" placeholder="Kode, nama, serial, alasan, lokasi">
       </div>
@@ -75,7 +75,7 @@ $statusBadge = static function ($status): string {
         <label class="form-label">Sampai tanggal</label>
         <input type="date" class="form-control" name="date_to" value="<?= html_escape($filters['date_to'] ?? '') ?>">
       </div>
-      <div class="col-6 col-lg-2">
+      <div class="col-6 col-lg-1">
         <label class="form-label">Jenis</label>
         <select class="form-select" name="event_type">
           <option value="ALL">Semua</option>
@@ -110,8 +110,9 @@ $statusBadge = static function ($status): string {
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-12 col-lg-1 d-grid">
-        <button class="btn btn-outline-primary" type="submit"><i class="ri ri-search-line"></i></button>
+      <div class="col-12 col-lg-3 ms-lg-auto asset-filter-actions">
+        <button class="btn btn-outline-primary" type="submit" title="Terapkan filter" aria-label="Terapkan filter"><i class="ri ri-search-line" aria-hidden="true"></i></button>
+        <a class="btn btn-outline-secondary" href="<?= site_url('asset-management/damage') ?>" title="Bersihkan filter" aria-label="Bersihkan filter"><i class="ri ri-refresh-line" aria-hidden="true"></i></a>
       </div>
     </form>
   </div>

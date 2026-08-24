@@ -230,6 +230,113 @@ class Pos_mobile extends CI_Controller
         ]));
     }
 
+    /**
+     * Build a server-authoritative dummy print package for a mobile-bound
+     * printer. The APK must not recreate Finance templates locally.
+     */
+    public function printer_test($id): void
+    {
+        if (!$this->authorize_mobile(true)) {
+            return;
+        }
+
+        $printer = $this->Pos_model->find_printer_device((int)$id);
+        if (!$printer) {
+            $this->json_error('Device printer tidak ditemukan.', 404);
+            return;
+        }
+
+        $this->load->library('PosPrinterPreviewService');
+        $generalSettings = (array)($this->Pos_model->printer_general_settings()['payload'] ?? []);
+        $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
+        $allowedDocumentTypes = ['RECEIPT', 'KITCHEN_TICKET', 'VOID_SLIP', 'REFUND_SLIP', 'DEPOSIT_RECEIPT'];
+        $documentType = strtoupper(trim((string)($printer['template_document_type'] ?? '')));
+        if (!in_array($documentType, $allowedDocumentTypes, true)) {
+            $documentType = $role === 'KASIR' ? 'RECEIPT' : 'KITCHEN_TICKET';
+        }
+
+        $selectedTemplate = null;
+        $templateId = max(0, (int)($printer['template_id'] ?? 0));
+        if ($templateId > 0) {
+            $candidate = $this->Pos_model->find_printer_template($templateId);
+            if ($candidate && (int)($candidate['is_active'] ?? 0) === 1) {
+                $candidateType = strtoupper(trim((string)($candidate['document_type'] ?? '')));
+                if (in_array($candidateType, $allowedDocumentTypes, true)) {
+                    $selectedTemplate = $candidate;
+                    $documentType = $candidateType;
+                }
+            }
+        }
+
+        if (!$selectedTemplate) {
+            foreach ($this->Pos_model->active_printer_template_options() as $template) {
+                if (strtoupper(trim((string)($template['document_type'] ?? ''))) !== $documentType) {
+                    continue;
+                }
+                $templateRole = strtoupper(trim((string)($template['template_name'] ?? '')));
+                if ($templateRole === $role) {
+                    $selectedTemplate = $this->Pos_model->find_printer_template((int)($template['id'] ?? 0));
+                    break;
+                }
+            }
+        }
+
+        if (!$selectedTemplate) {
+            foreach ($this->Pos_model->active_printer_template_options() as $template) {
+                if (
+                    strtoupper(trim((string)($template['document_type'] ?? ''))) === $documentType
+                    && (int)($template['is_default'] ?? 0) === 1
+                ) {
+                    $selectedTemplate = $this->Pos_model->find_printer_template((int)($template['id'] ?? 0));
+                    break;
+                }
+            }
+        }
+
+        $payload = $this->posprinterpreviewservice->defaultPayload($documentType, $generalSettings);
+        if ($selectedTemplate) {
+            $payload = $this->posprinterpreviewservice->decodePayload(
+                (string)($selectedTemplate['template_payload'] ?? '{}'),
+                $documentType,
+                $generalSettings
+            );
+        } elseif (in_array($role, ['BAR', 'KITCHEN'], true)) {
+            // Keep the dummy sample aligned with the server printer division
+            // when no dedicated template has been configured yet.
+            $payload['division_filter'] = $role;
+        }
+
+        $preview = $this->posprinterpreviewservice->buildPreviewPackage(
+            $payload,
+            $printer,
+            $documentType
+        );
+        $this->json_ok([
+            'printer' => [
+                'id' => (int)($printer['id'] ?? 0),
+                'device_code' => (string)($printer['device_code'] ?? ''),
+                'device_name' => (string)($printer['device_name'] ?? ''),
+                'printer_role' => $role,
+                'print_scope' => (string)($printer['print_scope'] ?? 'DIVISION'),
+            ],
+            'template' => [
+                'id' => (int)($selectedTemplate['id'] ?? 0),
+                'template_name' => (string)($selectedTemplate['template_name'] ?? 'Default Finance'),
+                'document_type' => $documentType,
+                'division_filter' => (string)($payload['division_filter'] ?? 'ALL'),
+            ],
+            'preview' => $preview,
+            'print_payload' => [
+                // Bluetooth SPP cannot render the agent's logo marker. Keep
+                // the server-generated text layout without printing the
+                // marker as visible characters on thermal paper.
+                'text' => implode("\n", (array)($preview['lines'] ?? [])),
+                'paper_width_mm' => (int)($preview['paper_width_mm'] ?? 80),
+                'chars_per_line' => (int)($preview['chars_per_line'] ?? 48),
+            ],
+        ]);
+    }
+
     public function orders(): void
     {
         if (!$this->authorize_mobile(true)) {

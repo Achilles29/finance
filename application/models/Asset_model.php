@@ -11,6 +11,8 @@ class Asset_model extends CI_Model
     private const TABLE_WORKFLOW = 'asset_workflow';
     private const TABLE_DEP_RUN = 'asset_depreciation_run';
     private const TABLE_DEP_LINE = 'asset_depreciation_run_line';
+    private const TABLE_MASTER_CHANGE = 'asset_master_change_request';
+    private $masterLockReadyCache = null;
 
     public function table_ready(): bool
     {
@@ -27,6 +29,66 @@ class Asset_model extends CI_Model
             && $this->db->table_exists(self::TABLE_WORKFLOW)
             && $this->db->table_exists(self::TABLE_DEP_RUN)
             && $this->db->table_exists(self::TABLE_DEP_LINE);
+    }
+
+    /**
+     * Status fisik aset dan status kunci data master sengaja dipisahkan.
+     * Migration baru boleh belum dijalankan di lingkungan lama, jadi semua
+     * pemanggil dapat tetap menampilkan aset secara aman.
+     */
+    public function master_lock_ready(): bool
+    {
+        if ($this->masterLockReadyCache !== null) {
+            return (bool)$this->masterLockReadyCache;
+        }
+
+        $this->masterLockReadyCache = $this->table_ready()
+            && $this->db->field_exists('master_lock_status', self::TABLE_ASSET)
+            && $this->db->field_exists('master_locked_by', self::TABLE_ASSET)
+            && $this->db->field_exists('master_locked_at', self::TABLE_ASSET)
+            && $this->db->table_exists(self::TABLE_MASTER_CHANGE);
+        return (bool)$this->masterLockReadyCache;
+    }
+
+    public function master_lock_status_labels(): array
+    {
+        return [
+            'OPEN' => 'Masih pendataan',
+            'LOCKED' => 'Terkunci',
+        ];
+    }
+
+    public function master_change_status_labels(): array
+    {
+        return [
+            'PENDING' => 'Menunggu review',
+            'APPROVED' => 'Disetujui',
+            'REJECTED' => 'Ditolak',
+            'POSTED' => 'Diterapkan',
+            'CANCELLED' => 'Dibatalkan',
+        ];
+    }
+
+    public function master_change_field_labels(): array
+    {
+        return [
+            'asset_name' => 'Nama aset',
+            'category_id' => 'Kategori',
+            'brand' => 'Brand',
+            'model_name' => 'Model / spesifikasi',
+            'serial_no' => 'Nomor serial',
+            'batch_no' => 'Nomor batch',
+            'purchase_date' => 'Tanggal beli',
+            'acquisition_date' => 'Tanggal mulai aset',
+            'acquisition_cost' => 'Harga per unit',
+            'residual_value' => 'Nilai residu',
+            'useful_life_months' => 'Umur manfaat',
+            'depreciation_method' => 'Metode penyusutan',
+            'depreciation_start_month' => 'Bulan mulai susut',
+            'photo_path' => 'Foto aset',
+            'photo_mime' => 'Jenis file foto',
+            'notes' => 'Catatan aset',
+        ];
     }
 
     public function status_labels(): array
@@ -590,6 +652,9 @@ class Asset_model extends CI_Model
         if (!$existing) {
             return ['ok' => false, 'message' => 'Aset tidak ditemukan.'];
         }
+        if ($this->asset_master_is_locked($existing)) {
+            return ['ok' => false, 'message' => 'Data awal aset sudah dikunci. Ajukan perubahan data aset agar riwayat perubahan tetap jelas.'];
+        }
 
         if (!empty($photo['photo_path'])) {
             $data['photo_path'] = $photo['photo_path'];
@@ -621,6 +686,326 @@ class Asset_model extends CI_Model
         }
         $this->db->trans_commit();
         return ['ok' => true, 'id' => $id];
+    }
+
+    /**
+     * Mengunci data awal unit aset yang sudah selesai didata. Kunci ini tidak
+     * mengubah kondisi fisik ataupun nilai aset; hanya mengubah jalur edit.
+     */
+    public function lock_assets(array $assetIds, int $userId, ?int $divisionScopeId = null): array
+    {
+        if (!$this->master_lock_ready()) {
+            return ['ok' => false, 'message' => 'Fondasi kunci aset belum siap. Jalankan migration asset master lock terlebih dahulu.'];
+        }
+
+        $assetIds = array_values(array_unique(array_filter(array_map('intval', $assetIds), static function ($id): bool {
+            return $id > 0;
+        })));
+        if (empty($assetIds)) {
+            return ['ok' => false, 'message' => 'Pilih minimal satu unit aset untuk dikunci.'];
+        }
+
+        $this->db
+            ->select('id, division_id, status, condition_score, acquisition_cost')
+            ->from(self::TABLE_ASSET)
+            ->where_in('id', $assetIds)
+            ->where('master_lock_status', 'OPEN');
+        if ($divisionScopeId !== null && $divisionScopeId > 0) {
+            $this->db->where('division_id', $divisionScopeId);
+        }
+        $rows = $this->db->get()->result_array();
+        if (empty($rows)) {
+            return ['ok' => false, 'message' => 'Tidak ada aset terbuka yang dapat dikunci pada pilihan tersebut.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $locked = 0;
+        $this->db->trans_begin();
+        foreach ($rows as $row) {
+            $this->db
+                ->where('id', (int)$row['id'])
+                ->where('master_lock_status', 'OPEN')
+                ->update(self::TABLE_ASSET, [
+                    'master_lock_status' => 'LOCKED',
+                    'master_locked_by' => $userId > 0 ? $userId : null,
+                    'master_locked_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            if ($this->db->affected_rows() <= 0) {
+                continue;
+            }
+
+            $locked++;
+            $this->insert_event([
+                'asset_id' => (int)$row['id'],
+                'event_type' => 'ADJUSTMENT',
+                'event_date' => date('Y-m-d'),
+                'from_status' => (string)($row['status'] ?? 'ACTIVE'),
+                'to_status' => (string)($row['status'] ?? 'ACTIVE'),
+                'from_division_id' => $row['division_id'] ?? null,
+                'to_division_id' => $row['division_id'] ?? null,
+                'condition_score_before' => (int)($row['condition_score'] ?? 0),
+                'condition_score_after' => (int)($row['condition_score'] ?? 0),
+                'amount' => (float)($row['acquisition_cost'] ?? 0),
+                'reason' => 'Data awal aset dikunci. Perubahan identitas, nilai, foto, atau penyusutan berikutnya wajib melalui pengajuan perubahan data aset.',
+                'created_by' => $userId > 0 ? $userId : null,
+                'created_at' => $now,
+            ]);
+        }
+
+        if (!$this->db->trans_status()) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal mengunci data aset.'];
+        }
+        $this->db->trans_commit();
+
+        return [
+            'ok' => true,
+            'locked' => $locked,
+            'skipped' => max(0, count($assetIds) - $locked),
+            'message' => $locked . ' unit aset berhasil dikunci.',
+        ];
+    }
+
+    /** Mengunci seluruh unit yang masih terbuka dalam produk/grup terpilih. */
+    public function lock_asset_groups(array $groupKeys, int $userId, ?int $divisionScopeId = null): array
+    {
+        if (!$this->master_lock_ready()) {
+            return ['ok' => false, 'message' => 'Fondasi kunci aset belum siap. Jalankan migration asset master lock terlebih dahulu.'];
+        }
+
+        $groupKeys = array_values(array_unique(array_filter(array_map(static function ($key): string {
+            return strtolower(trim((string)$key));
+        }, $groupKeys), static function (string $key): bool {
+            return (bool)preg_match('/^[a-f0-9]{40}$/', $key);
+        })));
+        if (empty($groupKeys)) {
+            return ['ok' => false, 'message' => 'Pilih minimal satu produk aset untuk dikunci.'];
+        }
+
+        // The group-key expression is raw SQL, but each hash must still be
+        // quoted as a value. where_in(..., false) disables both protections.
+        $quotedGroupKeys = array_map(function (string $groupKey): string {
+            return $this->db->escape($groupKey);
+        }, $groupKeys);
+        $this->db
+            ->select('a.id')
+            ->from(self::TABLE_ASSET . ' a')
+            ->where('a.master_lock_status', 'OPEN')
+            ->where($this->asset_group_key_expr() . ' IN (' . implode(',', $quotedGroupKeys) . ')', null, false);
+        if ($divisionScopeId !== null && $divisionScopeId > 0) {
+            $this->db->where('a.division_id', $divisionScopeId);
+        }
+        $ids = array_map('intval', array_column($this->db->get()->result_array(), 'id'));
+        if (empty($ids)) {
+            return ['ok' => false, 'message' => 'Semua unit pada produk yang dipilih sudah terkunci atau berada di luar scope divisi Anda.'];
+        }
+
+        return $this->lock_assets($ids, $userId, $divisionScopeId);
+    }
+
+    public function count_master_change_requests(array $filters = []): int
+    {
+        if (!$this->master_lock_ready()) {
+            return 0;
+        }
+
+        $this->build_master_change_query($filters, 'COUNT(DISTINCT r.id) AS total');
+        $row = $this->db->get()->row_array();
+        return (int)($row['total'] ?? 0);
+    }
+
+    public function list_master_change_requests(array $filters = [], int $limit = 25, int $offset = 0): array
+    {
+        if (!$this->master_lock_ready()) {
+            return [];
+        }
+
+        $this->build_master_change_query($filters, $this->master_change_select());
+        $rows = $this->db
+            ->order_by("FIELD(r.status, 'PENDING','APPROVED','REJECTED','POSTED','CANCELLED')", 'ASC', false)
+            ->order_by('r.created_at', 'DESC')
+            ->order_by('r.id', 'DESC')
+            ->limit(max(1, min($limit, 100)), max(0, $offset))
+            ->get()
+            ->result_array();
+
+        return $this->decorate_master_change_requests($rows);
+    }
+
+    public function find_master_change_request(int $id): ?array
+    {
+        if ($id <= 0 || !$this->master_lock_ready()) {
+            return null;
+        }
+
+        $this->build_master_change_query(['id' => $id], $this->master_change_select());
+        $row = $this->db->limit(1)->get()->row_array();
+        if (!$row) {
+            return null;
+        }
+        $rows = $this->decorate_master_change_requests([$row]);
+        return $rows[0] ?? null;
+    }
+
+    public function create_master_change_request(int $assetId, array $requestedData, string $reason, ?array $evidence, int $userId): array
+    {
+        if (!$this->master_lock_ready()) {
+            return ['ok' => false, 'message' => 'Fondasi pengajuan perubahan aset belum siap. Jalankan migration terlebih dahulu.'];
+        }
+
+        $asset = $this->find_asset($assetId);
+        if (!$asset) {
+            return ['ok' => false, 'message' => 'Aset tidak ditemukan.'];
+        }
+        if (!$this->asset_master_is_locked($asset)) {
+            return ['ok' => false, 'message' => 'Aset ini masih dalam pendataan awal sehingga dapat diedit langsung.'];
+        }
+
+        $reason = trim($reason);
+        if ($reason === '') {
+            return ['ok' => false, 'message' => 'Alasan perubahan wajib diisi agar riwayat aset jelas.'];
+        }
+
+        $before = $this->asset_master_snapshot($asset);
+        $requested = $this->master_change_requested_snapshot($before, $requestedData);
+        $changes = $this->master_change_diff_rows($before, $requested);
+        if (empty($changes)) {
+            return ['ok' => false, 'message' => 'Tidak ada perubahan data yang diajukan.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $this->db->trans_begin();
+        $this->db->insert(self::TABLE_MASTER_CHANGE, [
+            'request_no' => $this->next_master_change_no(),
+            'asset_id' => $assetId,
+            'status' => 'PENDING',
+            'before_snapshot' => json_encode($before, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'requested_snapshot' => json_encode($requested, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            'change_summary' => $this->master_change_summary_text($changes),
+            'reason' => $reason,
+            'evidence_path' => $evidence['evidence_path'] ?? null,
+            'evidence_mime' => $evidence['evidence_mime'] ?? null,
+            'requested_by' => $userId > 0 ? $userId : null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $requestId = (int)$this->db->insert_id();
+        if (!$this->db->trans_status()) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal membuat pengajuan perubahan aset.'];
+        }
+        $this->db->trans_commit();
+
+        return ['ok' => true, 'id' => $requestId, 'message' => 'Pengajuan perubahan data aset berhasil dikirim untuk direview.'];
+    }
+
+    public function approve_master_change_request(int $requestId, int $userId): array
+    {
+        return $this->transition_master_change_request($requestId, 'PENDING', [
+            'status' => 'APPROVED',
+            'approved_by' => $userId > 0 ? $userId : null,
+            'approved_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], 'Hanya pengajuan yang masih menunggu review yang dapat disetujui.');
+    }
+
+    public function reject_master_change_request(int $requestId, string $reason, int $userId): array
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            return ['ok' => false, 'message' => 'Alasan penolakan wajib diisi.'];
+        }
+        return $this->transition_master_change_request($requestId, 'PENDING', [
+            'status' => 'REJECTED',
+            'rejected_by' => $userId > 0 ? $userId : null,
+            'rejected_at' => date('Y-m-d H:i:s'),
+            'rejection_reason' => $reason,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], 'Hanya pengajuan yang masih menunggu review yang dapat ditolak.');
+    }
+
+    public function cancel_master_change_request(int $requestId, int $userId): array
+    {
+        return $this->transition_master_change_request($requestId, 'PENDING', [
+            'status' => 'CANCELLED',
+            'cancelled_by' => $userId > 0 ? $userId : null,
+            'cancelled_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ], 'Hanya pengajuan yang masih menunggu review yang dapat dibatalkan.');
+    }
+
+    /** Menerapkan pengajuan yang sudah disetujui dan membuat audit event. */
+    public function post_master_change_request(int $requestId, int $userId): array
+    {
+        $request = $this->find_master_change_request($requestId);
+        if (!$request) {
+            return ['ok' => false, 'message' => 'Pengajuan perubahan aset tidak ditemukan.'];
+        }
+        if (strtoupper((string)($request['status'] ?? '')) !== 'APPROVED') {
+            return ['ok' => false, 'message' => 'Hanya pengajuan yang sudah disetujui yang dapat diterapkan.'];
+        }
+
+        $asset = $this->find_asset((int)($request['asset_id'] ?? 0));
+        if (!$asset || !$this->asset_master_is_locked($asset)) {
+            return ['ok' => false, 'message' => 'Aset sudah tidak tersedia atau tidak lagi berada pada kondisi terkunci.'];
+        }
+
+        $current = $this->asset_master_snapshot($asset);
+        $before = is_array($request['before_snapshot_data'] ?? null) ? $request['before_snapshot_data'] : [];
+        $requested = is_array($request['requested_snapshot_data'] ?? null) ? $request['requested_snapshot_data'] : [];
+        if (!$this->master_change_snapshots_equal($before, $current)) {
+            return ['ok' => false, 'message' => 'Data aset sudah berubah setelah pengajuan dibuat. Tolong buat pengajuan baru agar perubahan tidak menimpa data terbaru.'];
+        }
+
+        $changes = $this->master_change_diff_rows($current, $requested);
+        if (empty($changes)) {
+            return ['ok' => false, 'message' => 'Tidak ada perubahan yang perlu diterapkan pada data aset saat ini.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $update = $this->master_change_snapshot_to_update($requested);
+        $update['updated_by'] = $userId > 0 ? $userId : null;
+        $update['updated_at'] = $now;
+
+        $this->db->trans_begin();
+        $this->db->where('id', (int)$asset['id'])->update(self::TABLE_ASSET, $update);
+        $this->db->where('id', $requestId)->where('status', 'APPROVED')->update(self::TABLE_MASTER_CHANGE, [
+            'status' => 'POSTED',
+            'posted_by' => $userId > 0 ? $userId : null,
+            'posted_at' => $now,
+            'updated_at' => $now,
+        ]);
+        if ($this->db->affected_rows() <= 0) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Status pengajuan sudah berubah. Muat ulang halaman lalu periksa kembali.'];
+        }
+
+        $this->insert_event([
+            'asset_id' => (int)$asset['id'],
+            'event_type' => 'ADJUSTMENT',
+            'event_date' => date('Y-m-d'),
+            'from_status' => (string)($asset['status'] ?? 'ACTIVE'),
+            'to_status' => (string)($asset['status'] ?? 'ACTIVE'),
+            'from_division_id' => $asset['division_id'] ?? null,
+            'to_division_id' => $asset['division_id'] ?? null,
+            'condition_score_before' => (int)($asset['condition_score'] ?? 0),
+            'condition_score_after' => (int)($asset['condition_score'] ?? 0),
+            'amount' => (float)($update['acquisition_cost'] ?? $asset['acquisition_cost'] ?? 0),
+            'reason' => 'Pengajuan ' . (string)($request['request_no'] ?? '-') . ' diterapkan: ' . $this->master_change_summary_text($changes),
+            'evidence_path' => $request['evidence_path'] ?? null,
+            'evidence_mime' => $request['evidence_mime'] ?? null,
+            'created_by' => $userId > 0 ? $userId : null,
+            'created_at' => $now,
+        ]);
+
+        if (!$this->db->trans_status()) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal menerapkan pengajuan perubahan aset.'];
+        }
+        $this->db->trans_commit();
+
+        return ['ok' => true, 'message' => 'Pengajuan perubahan sudah diterapkan ke data aset dan tercatat pada riwayat.'];
     }
 
     public function record_damage(int $assetId, array $payload, ?array $evidence, int $userId): array
@@ -1582,6 +1967,279 @@ class Asset_model extends CI_Model
         return $row ?: null;
     }
 
+    private function master_change_select(): string
+    {
+        return "
+            r.*,
+            a.asset_code,
+            a.asset_name,
+            a.category_id,
+            a.division_id,
+            a.master_lock_status,
+            c.category_name,
+            d.name AS division_name,
+            requester.username AS requested_by_name,
+            approver.username AS approved_by_name,
+            rejector.username AS rejected_by_name,
+            poster.username AS posted_by_name,
+            canceller.username AS cancelled_by_name
+        ";
+    }
+
+    private function build_master_change_query(array $filters, string $select): void
+    {
+        $this->db
+            ->select($select, false)
+            ->from(self::TABLE_MASTER_CHANGE . ' r')
+            ->join(self::TABLE_ASSET . ' a', 'a.id = r.asset_id', 'inner')
+            ->join(self::TABLE_CATEGORY . ' c', 'c.id = a.category_id', 'left')
+            ->join('mst_operational_division d', 'd.id = a.division_id', 'left')
+            ->join('auth_user requester', 'requester.id = r.requested_by', 'left')
+            ->join('auth_user approver', 'approver.id = r.approved_by', 'left')
+            ->join('auth_user rejector', 'rejector.id = r.rejected_by', 'left')
+            ->join('auth_user poster', 'poster.id = r.posted_by', 'left')
+            ->join('auth_user canceller', 'canceller.id = r.cancelled_by', 'left');
+
+        $id = (int)($filters['id'] ?? 0);
+        if ($id > 0) {
+            $this->db->where('r.id', $id);
+        }
+
+        $status = strtoupper(trim((string)($filters['status'] ?? 'ALL')));
+        if ($status !== 'ALL' && isset($this->master_change_status_labels()[$status])) {
+            $this->db->where('r.status', $status);
+        }
+
+        $q = trim((string)($filters['q'] ?? ''));
+        if ($q !== '') {
+            $this->db->group_start()
+                ->like('r.request_no', $q)
+                ->or_like('a.asset_code', $q)
+                ->or_like('a.asset_name', $q)
+                ->or_like('c.category_name', $q)
+                ->or_like('d.name', $q)
+                ->or_like('r.reason', $q)
+                ->or_like('requester.username', $q)
+                ->group_end();
+        }
+
+        $dateFrom = trim((string)($filters['date_from'] ?? ''));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+            $this->db->where('DATE(r.created_at) >= ' . $this->db->escape($dateFrom), null, false);
+        }
+        $dateTo = trim((string)($filters['date_to'] ?? ''));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+            $this->db->where('DATE(r.created_at) <= ' . $this->db->escape($dateTo), null, false);
+        }
+
+        $divisionId = (int)($filters['division_id'] ?? 0);
+        if ($divisionId > 0) {
+            $this->db->where('a.division_id', $divisionId);
+        }
+        $divisionScopeId = (int)($filters['division_scope_id'] ?? 0);
+        if ($divisionScopeId > 0) {
+            $this->db->where('a.division_id', $divisionScopeId);
+        }
+    }
+
+    private function decorate_master_change_requests(array $rows): array
+    {
+        $statusLabels = $this->master_change_status_labels();
+        foreach ($rows as &$row) {
+            $before = $this->decode_master_change_snapshot($row['before_snapshot'] ?? null);
+            $requested = $this->decode_master_change_snapshot($row['requested_snapshot'] ?? null);
+            $row['before_snapshot_data'] = $before;
+            $row['requested_snapshot_data'] = $requested;
+            $row['change_rows'] = $this->master_change_diff_rows($before, $requested);
+            $status = strtoupper((string)($row['status'] ?? ''));
+            $row['status_label'] = $statusLabels[$status] ?? ($status ?: '-');
+            $row['change_count'] = count($row['change_rows']);
+        }
+        unset($row);
+        return $rows;
+    }
+
+    private function decode_master_change_snapshot($value): array
+    {
+        if (is_array($value)) {
+            return $this->master_change_requested_snapshot([], $value);
+        }
+        $decoded = json_decode((string)$value, true);
+        return is_array($decoded) ? $this->master_change_requested_snapshot([], $decoded) : [];
+    }
+
+    private function asset_master_is_locked(array $asset): bool
+    {
+        return $this->master_lock_ready()
+            && strtoupper((string)($asset['master_lock_status'] ?? 'OPEN')) === 'LOCKED';
+    }
+
+    private function asset_master_snapshot(array $asset): array
+    {
+        $snapshot = [];
+        foreach ($this->master_change_field_labels() as $field => $label) {
+            $snapshot[$field] = $this->normalise_master_change_value($field, $asset[$field] ?? null);
+        }
+        return $snapshot;
+    }
+
+    private function master_change_requested_snapshot(array $base, array $requested): array
+    {
+        $out = [];
+        foreach ($this->master_change_field_labels() as $field => $label) {
+            $value = array_key_exists($field, $requested)
+                ? $requested[$field]
+                : ($base[$field] ?? null);
+            $out[$field] = $this->normalise_master_change_value($field, $value);
+        }
+        return $out;
+    }
+
+    private function normalise_master_change_value(string $field, $value)
+    {
+        if (in_array($field, ['category_id', 'useful_life_months'], true)) {
+            $int = (int)$value;
+            return $int > 0 ? $int : null;
+        }
+        if (in_array($field, ['acquisition_cost', 'residual_value'], true)) {
+            return number_format(max(0, (float)$value), 2, '.', '');
+        }
+        if ($field === 'depreciation_method') {
+            $method = strtoupper(trim((string)$value));
+            return in_array($method, ['NONE', 'STRAIGHT_LINE'], true) ? $method : 'STRAIGHT_LINE';
+        }
+        if (in_array($field, ['purchase_date', 'acquisition_date'], true)) {
+            $value = trim((string)$value);
+            return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : null;
+        }
+        if ($field === 'depreciation_start_month') {
+            $value = trim((string)$value);
+            return preg_match('/^\d{4}-\d{2}$/', $value) ? $value : null;
+        }
+        $value = trim((string)$value);
+        return $value === '' ? null : $value;
+    }
+
+    private function master_change_diff_rows(array $before, array $requested): array
+    {
+        $rows = [];
+        foreach ($this->master_change_field_labels() as $field => $label) {
+            $old = $this->normalise_master_change_value($field, $before[$field] ?? null);
+            $new = $this->normalise_master_change_value($field, $requested[$field] ?? null);
+            if ($old === $new) {
+                continue;
+            }
+            $rows[] = [
+                'field' => $field,
+                'label' => $label,
+                'before' => $old,
+                'after' => $new,
+                'before_label' => $this->master_change_display_value($field, $old),
+                'after_label' => $this->master_change_display_value($field, $new),
+            ];
+        }
+        return $rows;
+    }
+
+    private function master_change_snapshots_equal(array $left, array $right): bool
+    {
+        return empty($this->master_change_diff_rows($left, $right));
+    }
+
+    private function master_change_display_value(string $field, $value): string
+    {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+        if ($field === 'category_id') {
+            $labels = $this->master_change_category_labels();
+            return $labels[(int)$value] ?? ('Kategori #' . (int)$value);
+        }
+        if (in_array($field, ['acquisition_cost', 'residual_value'], true)) {
+            return 'Rp ' . number_format((float)$value, 0, ',', '.');
+        }
+        if ($field === 'depreciation_method') {
+            return strtoupper((string)$value) === 'NONE' ? 'Tidak disusutkan' : 'Garis lurus';
+        }
+        if ($field === 'photo_path') {
+            return basename((string)$value);
+        }
+        if ($field === 'photo_mime') {
+            return strtoupper((string)$value);
+        }
+        return (string)$value;
+    }
+
+    private function master_change_category_labels(): array
+    {
+        static $cache = null;
+        if ($cache !== null) {
+            return $cache;
+        }
+        $cache = [];
+        foreach ($this->category_options(false) as $category) {
+            $cache[(int)$category['id']] = (string)($category['category_name'] ?? ('Kategori #' . (int)$category['id']));
+        }
+        return $cache;
+    }
+
+    private function master_change_summary_text(array $changes): string
+    {
+        $labels = array_values(array_filter(array_map(static function (array $row): string {
+            return (string)($row['label'] ?? '');
+        }, $changes)));
+        return implode(', ', $labels);
+    }
+
+    private function master_change_snapshot_to_update(array $snapshot): array
+    {
+        $data = [];
+        foreach ($this->master_change_field_labels() as $field => $label) {
+            $data[$field] = $this->normalise_master_change_value($field, $snapshot[$field] ?? null);
+        }
+        return $data;
+    }
+
+    private function transition_master_change_request(int $requestId, string $expectedStatus, array $data, string $invalidMessage): array
+    {
+        if (!$this->master_lock_ready()) {
+            return ['ok' => false, 'message' => 'Fondasi pengajuan perubahan aset belum siap.'];
+        }
+        $request = $this->find_master_change_request($requestId);
+        if (!$request) {
+            return ['ok' => false, 'message' => 'Pengajuan perubahan aset tidak ditemukan.'];
+        }
+        if (strtoupper((string)($request['status'] ?? '')) !== strtoupper($expectedStatus)) {
+            return ['ok' => false, 'message' => $invalidMessage];
+        }
+        $ok = $this->db
+            ->where('id', $requestId)
+            ->where('status', $expectedStatus)
+            ->update(self::TABLE_MASTER_CHANGE, $data);
+        if (!$ok || $this->db->affected_rows() <= 0) {
+            return ['ok' => false, 'message' => 'Status pengajuan tidak dapat diubah. Muat ulang halaman lalu coba lagi.'];
+        }
+        return ['ok' => true, 'asset_id' => (int)($request['asset_id'] ?? 0)];
+    }
+
+    private function next_master_change_no(): string
+    {
+        $prefix = 'AMCR-' . date('Ym') . '-';
+        $row = $this->db
+            ->select('request_no')
+            ->from(self::TABLE_MASTER_CHANGE)
+            ->like('request_no', $prefix, 'after')
+            ->order_by('request_no', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+        $last = 0;
+        if (!empty($row['request_no']) && preg_match('/-(\d+)$/', (string)$row['request_no'], $m)) {
+            $last = (int)$m[1];
+        }
+        return $prefix . str_pad((string)($last + 1), 4, '0', STR_PAD_LEFT);
+    }
+
     private function asset_select(): string
     {
         return "
@@ -1606,6 +2264,14 @@ class Asset_model extends CI_Model
 
     private function asset_group_select(): string
     {
+        $lockColumns = $this->master_lock_ready()
+            ? "
+            SUM(CASE WHEN a.master_lock_status = 'LOCKED' THEN 1 ELSE 0 END) AS locked_count,
+            SUM(CASE WHEN a.master_lock_status <> 'LOCKED' OR a.master_lock_status IS NULL THEN 1 ELSE 0 END) AS open_count,"
+            : "
+            0 AS locked_count,
+            COUNT(*) AS open_count,";
+
         return "
             " . $this->asset_group_key_expr() . " AS group_key,
             MIN(a.id) AS first_asset_id,
@@ -1618,6 +2284,7 @@ class Asset_model extends CI_Model
             MIN(a.model_name) AS model_name,
             MIN(NULLIF(a.photo_path, '')) AS photo_path,
             COUNT(*) AS unit_count,
+            " . $lockColumns . "
             SUM(CASE WHEN a.status = 'ACTIVE' THEN 1 ELSE 0 END) AS active_count,
             SUM(CASE WHEN a.status = 'BROKEN' THEN 1 ELSE 0 END) AS broken_count,
             SUM(CASE WHEN a.status = 'REPAIR' THEN 1 ELSE 0 END) AS repair_count,
@@ -1836,11 +2503,20 @@ class Asset_model extends CI_Model
 
     private function decorate_assets(array $rows): array
     {
+        $lockReady = $this->master_lock_ready();
+        $lockLabels = $this->master_lock_status_labels();
         foreach ($rows as &$row) {
             $row['book_value'] = $this->calculate_book_value($row);
             $row['depreciation_percent'] = $this->calculate_depreciation_percent($row);
             $row['status_label'] = $this->status_labels()[strtoupper((string)($row['status'] ?? ''))] ?? (string)($row['status'] ?? '-');
             $row['physical_status_label'] = $this->physical_status_labels()[strtoupper((string)($row['physical_status'] ?? ''))] ?? (string)($row['physical_status'] ?? '-');
+            $lockStatus = $lockReady ? strtoupper((string)($row['master_lock_status'] ?? 'OPEN')) : 'OPEN';
+            if (!isset($lockLabels[$lockStatus])) {
+                $lockStatus = 'OPEN';
+            }
+            $row['master_lock_status'] = $lockStatus;
+            $row['master_lock_status_label'] = $lockLabels[$lockStatus];
+            $row['is_master_locked'] = $lockReady && $lockStatus === 'LOCKED';
         }
         unset($row);
         return $rows;
@@ -1863,6 +2539,8 @@ class Asset_model extends CI_Model
             }
 
             $row['unit_count'] = (int)($row['unit_count'] ?? count($units));
+            $row['locked_count'] = (int)($row['locked_count'] ?? 0);
+            $row['open_count'] = (int)($row['open_count'] ?? max(0, $row['unit_count'] - $row['locked_count']));
             $row['active_count'] = (int)($row['active_count'] ?? 0);
             $row['broken_count'] = (int)($row['broken_count'] ?? 0);
             $row['repair_count'] = (int)($row['repair_count'] ?? 0);

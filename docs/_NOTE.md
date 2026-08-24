@@ -242,7 +242,20 @@ masih seperti itu setelah kirim 1 nomor?
 apa tidak ada untuk mengatasi? itu kan sama saja polanya kamu kirim pesan manual yang sama ke beberapa nomor terpilih. form UI hanya untuk memudahkan saya. sementara proses backgroundnya kamu buat sedemikian rupa agar sama seperti kirim manual ke beberapa nomor
 kenapa saya coba kirim pesan manual selain 085730012324 tidak bisa?
 
-
+<!-- 
 -  missmatch itu terjadi karena memang ada bug scirpt? atau leftover karena kemarin saya suruh repair data karena banya order gagal waktu server lag (di sever)
 - apakah kalau server normal masih memungkinkan missmatch dengan kasus yang kamu jelaskan?
-- lakukan perbaikan 1-5 mu, dan untuk repair data buatkan juga sql nya untuk saya run di server
+- lakukan perbaikan 1-5 mu, dan untuk repair data buatkan juga sql nya untuk saya run di server -->
+
+sekarang aku ingin kamu memeriksa halaman modul /pos/printers , beserta semua halaman dan database terkait printer, serta hasil cetaknya. saya masih menemukan banyak data ambigu, tumpang tindih, yang akhir nya membingungkan dan tidak simple. padahal prinsip awalnya simple:
+1. pengaturan koneksi printer per divisi / lokasi
+2. pengaturan umum tampilan printer (terkait data data master misal nama outlet, logo , dan lain sebagainya)
+3. pengaturan tampilan printer per divisi / lokasi, terkait layouting printer, data apa saja yang ditampilkan dan tidak perlu ditampilkan di masing masing lokasi
+4. halaman panduan.
+5. halaman lain yang menurutmu penting
+
+nah coba lakukan analisa detail, dan buatkan saran perbaikian!
+
+
+
+kunci source code untuk dijual, dengan licensi

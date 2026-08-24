@@ -12,6 +12,7 @@ class Assets extends MY_Controller
     private const PAGE_HANDOVER = 'asset.handover.index';
     private const PAGE_DISPOSAL = 'asset.disposal.index';
     private const PAGE_DEPRECIATION = 'asset.depreciation.index';
+    private const PAGE_MASTER_CHANGE = 'asset.master_change.index';
 
     public function __construct()
     {
@@ -41,8 +42,10 @@ class Assets extends MY_Controller
             'divisions' => $this->Asset_model->division_options(),
             'status_labels' => $this->Asset_model->status_labels(),
             'table_ready' => $this->Asset_model->table_ready(),
+            'master_lock_ready' => $this->Asset_model->master_lock_ready(),
             'can_create' => $this->can(self::PAGE_ITEM, 'create'),
             'can_edit' => $this->can(self::PAGE_ITEM, 'edit'),
+            'can_lock' => $this->can(self::PAGE_ITEM, 'edit'),
             'can_delete' => $this->can(self::PAGE_ITEM, 'delete'),
             'can_damage' => $this->can(self::PAGE_DAMAGE, 'create'),
         ]);
@@ -96,6 +99,14 @@ class Assets extends MY_Controller
             show_404();
             return;
         }
+        if (!$this->ensure_asset_in_scope($asset, 'asset-management')) {
+            return;
+        }
+        if ($this->Asset_model->master_lock_ready() && !empty($asset['is_master_locked'])) {
+            $this->session->set_flashdata('error', 'Data awal aset sudah dikunci. Ajukan perubahan data agar riwayat tetap jelas.');
+            redirect($this->can(self::PAGE_MASTER_CHANGE, 'create') ? 'asset-management/changes/create/' . (int)$asset['id'] : 'asset-management/detail/' . (int)$asset['id']);
+            return;
+        }
         $this->render_form($asset);
     }
 
@@ -106,6 +117,14 @@ class Assets extends MY_Controller
         $asset = $this->Asset_model->find_asset($id);
         if (!$asset) {
             show_404();
+            return;
+        }
+        if (!$this->ensure_asset_in_scope($asset, 'asset-management')) {
+            return;
+        }
+        if ($this->Asset_model->master_lock_ready() && !empty($asset['is_master_locked'])) {
+            $this->session->set_flashdata('error', 'Data awal aset sudah dikunci. Ajukan perubahan data agar riwayat tetap jelas.');
+            redirect($this->can(self::PAGE_MASTER_CHANGE, 'create') ? 'asset-management/changes/create/' . $id : 'asset-management/detail/' . $id);
             return;
         }
 
@@ -141,6 +160,9 @@ class Assets extends MY_Controller
             show_404();
             return;
         }
+        if (!$this->ensure_asset_in_scope($asset, 'asset-management')) {
+            return;
+        }
 
         $this->render('assets/detail', [
             'page_title' => 'Detail Aset',
@@ -148,6 +170,9 @@ class Assets extends MY_Controller
             'asset' => $asset,
             'events' => $this->Asset_model->asset_events((int)$id),
             'can_edit' => $this->can(self::PAGE_ITEM, 'edit'),
+            'can_lock' => $this->can(self::PAGE_ITEM, 'edit'),
+            'can_change_create' => $this->can(self::PAGE_MASTER_CHANGE, 'create'),
+            'master_lock_ready' => $this->Asset_model->master_lock_ready(),
             'can_damage' => $this->can(self::PAGE_DAMAGE, 'create'),
         ]);
     }
@@ -189,8 +214,214 @@ class Assets extends MY_Controller
             'divisions' => $this->Asset_model->division_options(),
             'status_labels' => $this->Asset_model->status_labels(),
             'can_edit' => $this->can(self::PAGE_ITEM, 'edit'),
+            'can_lock' => $this->can(self::PAGE_ITEM, 'edit'),
+            'can_change_create' => $this->can(self::PAGE_MASTER_CHANGE, 'create'),
+            'master_lock_ready' => $this->Asset_model->master_lock_ready(),
             'can_damage' => $this->can(self::PAGE_DAMAGE, 'create'),
         ]);
+    }
+
+    /** Mengunci satu atau banyak data awal aset tanpa mengubah kondisi fisiknya. */
+    public function lock_bulk()
+    {
+        $this->require_permission(self::PAGE_ITEM, 'edit');
+        if (!$this->Asset_model->master_lock_ready()) {
+            $this->session->set_flashdata('error', 'Fitur kunci aset belum siap. Jalankan migration asset master lock terlebih dahulu.');
+            redirect('asset-management');
+            return;
+        }
+
+        $scopeId = $this->active_division_id();
+        $assetIds = (array)$this->input->post('asset_ids');
+        $groupKeys = (array)$this->input->post('group_keys');
+        $locked = 0;
+        $messages = [];
+
+        if (!empty($groupKeys)) {
+            $result = $this->Asset_model->lock_asset_groups($groupKeys, $this->actor_user_id(), $scopeId);
+            if (!empty($result['ok'])) {
+                $locked += (int)($result['locked'] ?? 0);
+            } else {
+                $messages[] = (string)($result['message'] ?? 'Produk aset gagal dikunci.');
+            }
+        }
+        if (!empty($assetIds)) {
+            $result = $this->Asset_model->lock_assets($assetIds, $this->actor_user_id(), $scopeId);
+            if (!empty($result['ok'])) {
+                $locked += (int)($result['locked'] ?? 0);
+            } else {
+                $messages[] = (string)($result['message'] ?? 'Unit aset gagal dikunci.');
+            }
+        }
+
+        if ($locked > 0) {
+            $this->session->set_flashdata('success', $locked . ' unit aset sudah dikunci. Setiap perubahan data awal berikutnya harus melalui pengajuan perubahan data aset.');
+        } else {
+            $this->session->set_flashdata('error', !empty($messages) ? implode(' ', $messages) : 'Pilih unit atau produk aset yang ingin dikunci.');
+        }
+        $back = trim((string)$this->input->post('back_url', true));
+        redirect($back !== '' ? $back : 'asset-management');
+    }
+
+    public function lock_asset($id)
+    {
+        $this->require_permission(self::PAGE_ITEM, 'edit');
+        $asset = $this->Asset_model->find_asset((int)$id);
+        if (!$asset) {
+            show_404();
+            return;
+        }
+        if (!$this->ensure_asset_in_scope($asset, 'asset-management')) {
+            return;
+        }
+
+        $result = $this->Asset_model->lock_assets([(int)$asset['id']], $this->actor_user_id(), $this->active_division_id());
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', !empty($result['ok']) ? 'Data awal aset sudah dikunci.' : (string)($result['message'] ?? 'Gagal mengunci aset.'));
+        redirect('asset-management/detail/' . (int)$asset['id']);
+    }
+
+    public function changes()
+    {
+        $this->require_permission(self::PAGE_MASTER_CHANGE, 'view');
+        $filters = $this->master_change_filters();
+        $perPage = $this->per_page();
+        $page = $this->page();
+        $total = $this->Asset_model->count_master_change_requests($filters);
+        $pg = $this->build_pagination($total, $perPage, $page);
+
+        $this->render('assets/change_index', [
+            'page_title' => 'Perubahan Data Aset',
+            'active_menu' => 'asset.master_change',
+            'asset_nav_active' => 'changes',
+            'filters' => $filters,
+            'pg' => $pg,
+            'rows' => $this->Asset_model->list_master_change_requests($filters, $pg['per_page'], $pg['offset']),
+            'divisions' => $this->Asset_model->division_options(),
+            'status_labels' => $this->Asset_model->master_change_status_labels(),
+            'master_lock_ready' => $this->Asset_model->master_lock_ready(),
+            'can_create' => $this->can(self::PAGE_MASTER_CHANGE, 'create'),
+            'can_edit' => $this->can(self::PAGE_MASTER_CHANGE, 'edit'),
+            'can_delete' => $this->can(self::PAGE_MASTER_CHANGE, 'delete'),
+        ]);
+    }
+
+    public function change_create($assetId)
+    {
+        $this->require_permission(self::PAGE_MASTER_CHANGE, 'create');
+        $asset = $this->Asset_model->find_asset((int)$assetId);
+        if (!$asset) {
+            show_404();
+            return;
+        }
+        if (!$this->ensure_asset_in_scope($asset, 'asset-management/changes')) {
+            return;
+        }
+        if (!$this->Asset_model->master_lock_ready() || empty($asset['is_master_locked'])) {
+            $this->session->set_flashdata('error', 'Aset ini belum dikunci. Lengkapi data awal melalui Edit Aset terlebih dahulu.');
+            redirect('asset-management/detail/' . (int)$asset['id']);
+            return;
+        }
+        $this->render_master_change_form($asset);
+    }
+
+    public function change_store($assetId)
+    {
+        $this->require_permission(self::PAGE_MASTER_CHANGE, 'create');
+        $asset = $this->Asset_model->find_asset((int)$assetId);
+        if (!$asset) {
+            show_404();
+            return;
+        }
+        if (!$this->ensure_asset_in_scope($asset, 'asset-management/changes')) {
+            return;
+        }
+        if (!$this->Asset_model->master_lock_ready() || empty($asset['is_master_locked'])) {
+            $this->session->set_flashdata('error', 'Aset ini belum dikunci sehingga belum membutuhkan pengajuan perubahan.');
+            redirect('asset-management/detail/' . (int)$asset['id']);
+            return;
+        }
+
+        $payload = $this->master_change_payload_from_post($asset);
+        if (empty($payload['ok'])) {
+            $this->session->set_flashdata('error', (string)($payload['message'] ?? 'Data pengajuan tidak valid.'));
+            redirect('asset-management/changes/create/' . (int)$asset['id']);
+            return;
+        }
+
+        $photo = $this->handle_image_upload('asset_photo', 'uploads/assets/photos', 'photo', false);
+        if ($photo === false) {
+            redirect('asset-management/changes/create/' . (int)$asset['id']);
+            return;
+        }
+        if (!empty($photo['photo_path'])) {
+            $payload['data']['photo_path'] = $photo['photo_path'];
+            $payload['data']['photo_mime'] = $photo['photo_mime'] ?? null;
+        }
+        $evidence = $this->handle_image_upload('evidence_file', 'uploads/assets/evidence', 'evidence', false);
+        if ($evidence === false) {
+            redirect('asset-management/changes/create/' . (int)$asset['id']);
+            return;
+        }
+
+        $result = $this->Asset_model->create_master_change_request(
+            (int)$asset['id'],
+            $payload['data'],
+            (string)$payload['reason'],
+            $evidence,
+            $this->actor_user_id()
+        );
+        if (empty($result['ok'])) {
+            $this->session->set_flashdata('error', (string)($result['message'] ?? 'Gagal mengirim pengajuan perubahan aset.'));
+            redirect('asset-management/changes/create/' . (int)$asset['id']);
+            return;
+        }
+        $this->session->set_flashdata('success', (string)$result['message']);
+        redirect('asset-management/changes/' . (int)$result['id']);
+    }
+
+    public function change_detail($id)
+    {
+        $this->require_permission(self::PAGE_MASTER_CHANGE, 'view');
+        $request = $this->Asset_model->find_master_change_request((int)$id);
+        if (!$request) {
+            show_404();
+            return;
+        }
+        $asset = $this->Asset_model->find_asset((int)($request['asset_id'] ?? 0));
+        if (!$asset || !$this->ensure_asset_in_scope($asset, 'asset-management/changes')) {
+            return;
+        }
+
+        $this->render('assets/change_detail', [
+            'page_title' => 'Detail Perubahan Data Aset',
+            'active_menu' => 'asset.master_change',
+            'asset_nav_active' => 'changes',
+            'request' => $request,
+            'asset' => $asset,
+            'can_edit' => $this->can(self::PAGE_MASTER_CHANGE, 'edit'),
+            'can_delete' => $this->can(self::PAGE_MASTER_CHANGE, 'delete'),
+            'can_cancel_own' => (int)($request['requested_by'] ?? 0) === $this->actor_user_id(),
+        ]);
+    }
+
+    public function change_approve($id)
+    {
+        $this->master_change_action((int)$id, 'approve');
+    }
+
+    public function change_reject($id)
+    {
+        $this->master_change_action((int)$id, 'reject');
+    }
+
+    public function change_post($id)
+    {
+        $this->master_change_action((int)$id, 'post');
+    }
+
+    public function change_cancel($id)
+    {
+        $this->master_change_action((int)$id, 'cancel');
     }
 
     public function damage_index()
@@ -1146,6 +1377,147 @@ class Assets extends MY_Controller
         }
 
         return $this->Asset_model->save_recon_lines($id, $lines, $this->actor_user_id());
+    }
+
+    private function master_change_action(int $id, string $action): void
+    {
+        $request = $this->Asset_model->find_master_change_request($id);
+        if (!$request) {
+            show_404();
+            return;
+        }
+        $asset = $this->Asset_model->find_asset((int)($request['asset_id'] ?? 0));
+        if (!$asset || !$this->ensure_asset_in_scope($asset, 'asset-management/changes')) {
+            return;
+        }
+
+        $action = strtolower($action);
+        if ($action === 'cancel') {
+            $canCancelOwn = (int)($request['requested_by'] ?? 0) === $this->actor_user_id();
+            if (!$canCancelOwn && !$this->can(self::PAGE_MASTER_CHANGE, 'delete')) {
+                $this->session->set_flashdata('error', 'Hanya pembuat pengajuan atau petugas berwenang yang dapat membatalkan pengajuan ini.');
+                redirect('asset-management/changes/' . $id);
+                return;
+            }
+            $result = $this->Asset_model->cancel_master_change_request($id, $this->actor_user_id());
+            $successMessage = 'Pengajuan perubahan dibatalkan.';
+        } else {
+            $this->require_permission(self::PAGE_MASTER_CHANGE, 'edit');
+            if ($action === 'approve') {
+                $result = $this->Asset_model->approve_master_change_request($id, $this->actor_user_id());
+                $successMessage = 'Pengajuan perubahan disetujui. Terapkan saat siap memperbarui data aset.';
+            } elseif ($action === 'reject') {
+                $result = $this->Asset_model->reject_master_change_request(
+                    $id,
+                    trim((string)$this->input->post('rejection_reason', true)),
+                    $this->actor_user_id()
+                );
+                $successMessage = 'Pengajuan perubahan ditolak.';
+            } elseif ($action === 'post') {
+                $result = $this->Asset_model->post_master_change_request($id, $this->actor_user_id());
+                $successMessage = 'Pengajuan perubahan diterapkan ke data aset dan tercatat di riwayat.';
+            } else {
+                show_404();
+                return;
+            }
+        }
+
+        $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', !empty($result['ok']) ? $successMessage : (string)($result['message'] ?? 'Aksi pengajuan perubahan gagal.'));
+        redirect('asset-management/changes/' . $id);
+    }
+
+    private function render_master_change_form(array $asset): void
+    {
+        $this->render('assets/change_form', [
+            'page_title' => 'Ajukan Perubahan Data Aset',
+            'active_menu' => 'asset.master_change',
+            'asset_nav_active' => 'changes',
+            'asset' => $asset,
+            'categories' => $this->Asset_model->category_options(false),
+        ]);
+    }
+
+    private function master_change_payload_from_post(array $asset): array
+    {
+        $assetName = trim((string)$this->input->post('asset_name', true));
+        if ($assetName === '') {
+            return ['ok' => false, 'message' => 'Nama aset wajib diisi.'];
+        }
+
+        $categoryId = (int)$this->input->post('category_id', true);
+        $category = $this->category_by_id($categoryId);
+        $purchaseDate = $this->valid_date((string)$this->input->post('purchase_date', true));
+        $acquisitionDate = $this->valid_date((string)$this->input->post('acquisition_date', true)) ?: $purchaseDate;
+        $method = strtoupper(trim((string)$this->input->post('depreciation_method', true)));
+        if (!in_array($method, ['NONE', 'STRAIGHT_LINE'], true)) {
+            $method = strtoupper((string)($asset['depreciation_method'] ?? $category['default_depreciation_method'] ?? 'STRAIGHT_LINE'));
+        }
+        $life = (int)$this->input->post('useful_life_months', true);
+        if ($life <= 0 && $method !== 'NONE') {
+            $life = (int)($category['default_useful_life_months'] ?? $asset['useful_life_months'] ?? 36);
+        }
+        $startMonth = trim((string)$this->input->post('depreciation_start_month', true));
+        if (!preg_match('/^\d{4}-\d{2}$/', $startMonth)) {
+            $startMonth = $acquisitionDate ? date('Y-m', strtotime($acquisitionDate)) : null;
+        }
+
+        $reason = trim((string)$this->input->post('reason', true));
+        if ($reason === '') {
+            return ['ok' => false, 'message' => 'Alasan perubahan wajib diisi.'];
+        }
+
+        return [
+            'ok' => true,
+            'reason' => $reason,
+            'data' => [
+                'asset_name' => $assetName,
+                'category_id' => $categoryId > 0 ? $categoryId : null,
+                'brand' => $this->null_if_empty((string)$this->input->post('brand', true)),
+                'model_name' => $this->null_if_empty((string)$this->input->post('model_name', true)),
+                'serial_no' => $this->null_if_empty((string)$this->input->post('serial_no', true)),
+                'batch_no' => $this->null_if_empty((string)$this->input->post('batch_no', true)),
+                'purchase_date' => $purchaseDate,
+                'acquisition_date' => $acquisitionDate,
+                'acquisition_cost' => max(0, (float)$this->input->post('acquisition_cost', true)),
+                'residual_value' => max(0, (float)$this->input->post('residual_value', true)),
+                'useful_life_months' => max(0, min(600, $life)),
+                'depreciation_method' => $method,
+                'depreciation_start_month' => $startMonth,
+                'notes' => $this->null_if_empty((string)$this->input->post('notes', true)),
+            ],
+        ];
+    }
+
+    private function master_change_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('status', true) ?: 'ALL'));
+        if ($status !== 'ALL' && !isset($this->Asset_model->master_change_status_labels()[$status])) {
+            $status = 'ALL';
+        }
+        $divisionId = (int)$this->input->get('division_id', true);
+        $scopeId = $this->active_division_id();
+        if ($scopeId !== null) {
+            $divisionId = $scopeId;
+        }
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'status' => $status,
+            'date_from' => $this->valid_date((string)$this->input->get('date_from', true)),
+            'date_to' => $this->valid_date((string)$this->input->get('date_to', true)),
+            'division_id' => $divisionId,
+            'division_scope_id' => $scopeId ?? 0,
+        ];
+    }
+
+    private function ensure_asset_in_scope(array $asset, string $fallback): bool
+    {
+        $scopeId = $this->active_division_id();
+        if ($scopeId === null || (int)($asset['division_id'] ?? 0) === $scopeId) {
+            return true;
+        }
+        $this->session->set_flashdata('error', 'Aset ini berada di luar scope divisi Anda.');
+        redirect($fallback);
+        return false;
     }
 
     private function render_form(?array $asset): void

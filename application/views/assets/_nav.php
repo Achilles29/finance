@@ -2,6 +2,7 @@
 $active = (string)($asset_nav_active ?? '');
 $items = [
   'items' => ['label' => 'Daftar Aset', 'url' => site_url('asset-management'), 'icon' => 'ri-list-check-2'],
+  'changes' => ['label' => 'Perubahan Data', 'url' => site_url('asset-management/changes'), 'icon' => 'ri-file-edit-line'],
   'damage' => ['label' => 'Lapor Rusak', 'url' => site_url('asset-management/damage'), 'icon' => 'ri-alert-line'],
   'recon' => ['label' => 'Rekon Bulanan', 'url' => site_url('asset-management/recon'), 'icon' => 'ri-calendar-check-line'],
   'labels' => ['label' => 'QR Label', 'url' => site_url('asset-management/labels'), 'icon' => 'ri-fingerprint-line'],
@@ -24,7 +25,10 @@ $items = [
 .asset-section-tabs .nav-link:hover{border-color:#18745c;color:#18745c;background:#f7fbf9}
 .asset-section-tabs .nav-link.active{background:#18745c;border-color:#18745c;color:#fff;box-shadow:0 10px 22px rgba(24,116,92,.18)}
 .asset-section-tabs .nav-link i{margin-right:0!important;font-size:1.05rem;line-height:1}
-@media (max-width:575.98px){.asset-module-nav{grid-template-columns:repeat(2,minmax(0,1fr));gap:.42rem}.asset-module-nav-link{font-size:.8rem;padding:.5rem .48rem}.asset-section-tabs{grid-template-columns:1fr}}
+.asset-filter-actions{display:flex;align-items:stretch;justify-content:flex-end;gap:.45rem}
+.asset-filter-actions .btn{flex:0 0 42px;width:42px;height:42px;padding:0;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+.asset-filter-actions .btn i{display:block;font-size:1.15rem;line-height:1}
+@media (max-width:575.98px){.asset-module-nav{grid-template-columns:repeat(2,minmax(0,1fr));gap:.42rem}.asset-module-nav-link{font-size:.8rem;padding:.5rem .48rem}.asset-section-tabs{grid-template-columns:1fr}.asset-filter-actions .btn{min-width:0}}
 </style>
 <div class="asset-module-nav">
   <?php foreach ($items as $key => $item): ?>

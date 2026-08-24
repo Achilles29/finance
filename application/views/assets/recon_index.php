@@ -98,8 +98,9 @@ $reconBadge = static function ($status): string {
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-12 col-lg-2 d-grid">
-        <button class="btn btn-outline-primary" type="submit"><i class="ri ri-search-line me-1"></i>Terapkan</button>
+      <div class="col-12 col-lg-5 asset-filter-actions">
+        <button class="btn btn-outline-primary" type="submit" title="Terapkan filter" aria-label="Terapkan filter"><i class="ri ri-search-line" aria-hidden="true"></i></button>
+        <a class="btn btn-outline-secondary" href="<?= site_url('asset-management/recon') ?>" title="Bersihkan filter" aria-label="Bersihkan filter"><i class="ri ri-refresh-line" aria-hidden="true"></i></a>
       </div>
     </form>
   </div>

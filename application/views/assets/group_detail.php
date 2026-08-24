@@ -5,6 +5,9 @@ $filters = $filters ?? [];
 $pg = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $rows = $rows ?? [];
 $statusLabels = $status_labels ?? [];
+$masterLockReady = !empty($master_lock_ready);
+$canLock = !empty($can_lock) && $masterLockReady;
+$canChangeCreate = !empty($can_change_create);
 $fmtMoney = static function ($value): string {
   return 'Rp ' . number_format((float)$value, 0, ',', '.');
 };
@@ -67,6 +70,7 @@ $photo = trim((string)($group['photo_path'] ?? ''));
     <div class="text-end">
       <div class="h4 mb-0"><?= number_format((int)($group['unit_count'] ?? 0), 0, ',', '.') ?></div>
       <div class="text-muted small">total unit</div>
+      <?php if ($masterLockReady): ?><div class="small mt-1"><span class="badge bg-success">Terkunci <?= (int)($group['locked_count'] ?? 0) ?></span> <span class="badge bg-secondary">Pendataan <?= (int)($group['open_count'] ?? 0) ?></span></div><?php endif; ?>
     </div>
   </div>
 </div>
@@ -81,7 +85,7 @@ $photo = trim((string)($group['photo_path'] ?? ''));
 <div class="card mb-3">
   <div class="card-body">
     <form class="row g-2 align-items-end" method="get" action="<?= site_url('asset-management/group/' . rawurlencode((string)($group['group_key'] ?? ''))) ?>">
-      <div class="col-12 col-lg-4">
+      <div class="col-12 col-lg-3">
         <label class="form-label">Cari unit</label>
         <input type="text" class="form-control" name="q" value="<?= html_escape($filters['q'] ?? '') ?>" placeholder="Kode aset, serial, lokasi, PIC">
       </div>
@@ -110,18 +114,22 @@ $photo = trim((string)($group['photo_path'] ?? ''));
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-12 col-lg-2 d-grid">
-        <button class="btn btn-outline-primary" type="submit"><i class="ri ri-search-line me-1"></i>Terapkan</button>
+      <div class="col-12 col-lg-3 asset-filter-actions">
+        <button class="btn btn-outline-primary" type="submit" title="Terapkan filter" aria-label="Terapkan filter"><i class="ri ri-search-line" aria-hidden="true"></i></button>
+        <a class="btn btn-outline-secondary" href="<?= site_url('asset-management/group/' . rawurlencode((string)($group['group_key'] ?? ''))) ?>" title="Bersihkan filter" aria-label="Bersihkan filter"><i class="ri ri-refresh-line" aria-hidden="true"></i></a>
       </div>
     </form>
   </div>
 </div>
 
+<form method="post" action="<?= site_url('asset-management/lock-bulk') ?>" onsubmit="return confirm('Kunci unit aset terpilih? Setelah terkunci, perubahan data awal harus melalui pengajuan perubahan data aset.');">
+  <input type="hidden" name="back_url" value="<?= html_escape('asset-management/group/' . rawurlencode((string)($group['group_key'] ?? '')) . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : '')) ?>">
 <div class="card">
   <div class="table-responsive">
     <table class="table table-hover asset-table mb-0">
       <colgroup>
-        <col style="width:31%">
+        <?php if ($canLock): ?><col style="width:5%"><?php endif; ?>
+        <col style="width:<?= $canLock ? '28%' : '31%' ?>">
         <col style="width:24%">
         <col style="width:16%">
         <col style="width:13%">
@@ -130,6 +138,7 @@ $photo = trim((string)($group['photo_path'] ?? ''));
       </colgroup>
       <thead class="table-light">
         <tr>
+          <?php if ($canLock): ?><th class="text-center"><input class="form-check-input" type="checkbox" data-asset-lock-select-all title="Pilih semua unit terbuka"></th><?php endif; ?>
           <th>Unit Aset</th>
           <th>Lokasi</th>
           <th>Nilai</th>
@@ -140,11 +149,16 @@ $photo = trim((string)($group['photo_path'] ?? ''));
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="6" class="text-center text-muted py-5">Belum ada unit pada filter ini.</td></tr>
+          <tr><td colspan="<?= $canLock ? 7 : 6 ?>" class="text-center text-muted py-5">Belum ada unit pada filter ini.</td></tr>
         <?php endif; ?>
         <?php foreach ($rows as $row): ?>
           <?php $unitPhoto = trim((string)($row['photo_path'] ?? '')); ?>
           <tr>
+            <?php if ($canLock): ?>
+              <td class="text-center">
+                <?php if (empty($row['is_master_locked'])): ?><input class="form-check-input" type="checkbox" name="asset_ids[]" value="<?= (int)$row['id'] ?>" data-asset-lock-item><?php else: ?><i class="ri ri-lock-line text-success" title="Data awal terkunci"></i><?php endif; ?>
+              </td>
+            <?php endif; ?>
             <td style="min-width:280px">
               <div class="d-flex gap-2 align-items-center">
                 <?php if ($unitPhoto !== ''): ?>
@@ -156,6 +170,7 @@ $photo = trim((string)($group['photo_path'] ?? ''));
                   <div class="fw-semibold"><?= html_escape($row['asset_code'] ?? '-') ?></div>
                   <div class="small text-muted"><?= html_escape($row['asset_name'] ?? '-') ?><?= !empty($row['serial_no']) ? ' | SN ' . html_escape($row['serial_no']) : '' ?></div>
                   <?php if (!empty($row['batch_no'])): ?><div class="small text-muted">Batch <?= html_escape($row['batch_no']) ?></div><?php endif; ?>
+                  <?php if ($masterLockReady): ?><div class="small mt-1"><span class="badge bg-<?= !empty($row['is_master_locked']) ? 'success' : 'secondary' ?>"><?= html_escape($row['master_lock_status_label'] ?? '-') ?></span></div><?php endif; ?>
                 </div>
               </div>
             </td>
@@ -179,7 +194,8 @@ $photo = trim((string)($group['photo_path'] ?? ''));
                 <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">Aksi</button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   <li><a class="dropdown-item" href="<?= site_url('asset-management/detail/' . (int)$row['id']) ?>"><i class="ri ri-eye-line me-1"></i>Detail</a></li>
-                  <?php if (!empty($can_edit)): ?><li><a class="dropdown-item" href="<?= site_url('asset-management/edit/' . (int)$row['id']) ?>"><i class="ri ri-edit-line me-1"></i>Edit</a></li><?php endif; ?>
+                  <?php if (!empty($can_edit) && empty($row['is_master_locked'])): ?><li><a class="dropdown-item" href="<?= site_url('asset-management/edit/' . (int)$row['id']) ?>"><i class="ri ri-edit-line me-1"></i>Edit data awal</a></li><?php endif; ?>
+                  <?php if (!empty($row['is_master_locked']) && $canChangeCreate): ?><li><a class="dropdown-item" href="<?= site_url('asset-management/changes/create/' . (int)$row['id']) ?>"><i class="ri ri-file-edit-line me-1"></i>Ajukan perubahan data</a></li><?php endif; ?>
                   <?php if (!empty($can_damage)): ?><li><a class="dropdown-item text-danger" href="<?= site_url('asset-management/damage/' . (int)$row['id']) ?>"><i class="ri ri-alert-line me-1"></i>Lapor Rusak</a></li><?php endif; ?>
                 </ul>
               </div>
@@ -190,7 +206,7 @@ $photo = trim((string)($group['photo_path'] ?? ''));
     </table>
   </div>
   <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <span class="text-muted small">Total <?= number_format((int)($pg['total'] ?? 0), 0, ',', '.') ?> unit</span>
+    <div class="d-flex align-items-center gap-2"><span class="text-muted small">Total <?= number_format((int)($pg['total'] ?? 0), 0, ',', '.') ?> unit</span><?php if ($canLock): ?><button type="submit" class="btn btn-sm btn-outline-success"><i class="ri ri-lock-line me-1"></i>Kunci Unit Terpilih</button><?php endif; ?></div>
     <div class="btn-group">
       <?php
         $query = $_GET;
@@ -205,3 +221,14 @@ $photo = trim((string)($group['photo_path'] ?? ''));
     </div>
   </div>
 </div>
+</form>
+
+<?php if ($canLock): ?>
+<script>
+(function(){
+  var all = document.querySelector('[data-asset-lock-select-all]');
+  if (!all) return;
+  all.addEventListener('change', function(){ document.querySelectorAll('[data-asset-lock-item]').forEach(function(item){ item.checked = all.checked; }); });
+})();
+</script>
+<?php endif; ?>

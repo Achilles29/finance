@@ -2,6 +2,8 @@
 $this->load->view('assets/_nav', ['asset_nav_active' => 'items']);
 $asset = $asset ?? [];
 $events = $events ?? [];
+$masterLockReady = !empty($master_lock_ready);
+$isMasterLocked = !empty($asset['is_master_locked']);
 $fmtMoney = static function ($value): string { return 'Rp ' . number_format((float)$value, 0, ',', '.'); };
 $photo = trim((string)($asset['photo_path'] ?? ''));
 $statusClass = [
@@ -42,7 +44,11 @@ $statusClass = [
   <div class="d-flex flex-wrap gap-2">
     <?php if (!empty($asset['group_key'])): ?><a href="<?= site_url('asset-management/group/' . rawurlencode((string)$asset['group_key'])) ?>" class="btn btn-outline-secondary"><i class="ri ri-stack-line me-1"></i>Grup</a><?php endif; ?>
     <?php if (!empty($can_damage)): ?><a href="<?= site_url('asset-management/damage/' . (int)$asset['id']) ?>" class="btn btn-outline-danger"><i class="ri ri-alert-line me-1"></i>Lapor Rusak</a><?php endif; ?>
-    <?php if (!empty($can_edit)): ?><a href="<?= site_url('asset-management/edit/' . (int)$asset['id']) ?>" class="btn btn-primary"><i class="ri ri-edit-line me-1"></i>Edit</a><?php endif; ?>
+    <?php if ($isMasterLocked && !empty($can_change_create)): ?><a href="<?= site_url('asset-management/changes/create/' . (int)$asset['id']) ?>" class="btn btn-primary"><i class="ri ri-file-edit-line me-1"></i>Ajukan Perubahan</a><?php endif; ?>
+    <?php if (!$isMasterLocked && !empty($can_edit)): ?><a href="<?= site_url('asset-management/edit/' . (int)$asset['id']) ?>" class="btn btn-primary"><i class="ri ri-edit-line me-1"></i>Edit Data Awal</a><?php endif; ?>
+    <?php if (!$isMasterLocked && !empty($can_lock) && $masterLockReady): ?>
+      <form method="post" action="<?= site_url('asset-management/lock/' . (int)$asset['id']) ?>" onsubmit="return confirm('Kunci data awal aset ini? Perubahan berikutnya wajib melalui pengajuan perubahan data aset.');"><button type="submit" class="btn btn-outline-success"><i class="ri ri-lock-line me-1"></i>Kunci Data</button></form>
+    <?php endif; ?>
     <a href="<?= site_url('asset-management') ?>" class="btn btn-outline-secondary">Kembali</a>
   </div>
 </div>
@@ -62,6 +68,12 @@ $statusClass = [
         <span class="fw-semibold">Kondisi <?= (int)($asset['condition_score'] ?? 0) ?>%</span>
       </div>
       <div class="asset-progress mt-2"><span style="width:<?= max(0, min(100, (int)($asset['condition_score'] ?? 0))) ?>%"></span></div>
+      <?php if ($masterLockReady): ?>
+        <div class="mt-3 p-2 rounded border <?= $isMasterLocked ? 'border-success bg-light' : 'border-secondary bg-light' ?>">
+          <div class="fw-semibold"><i class="ri <?= $isMasterLocked ? 'ri-lock-line' : 'ri-lock-unlock-line' ?> me-1"></i>Data awal: <?= html_escape($asset['master_lock_status_label'] ?? '-') ?></div>
+          <div class="small text-muted"><?= $isMasterLocked ? 'Perubahan identitas dan nilai wajib melalui pengajuan agar riwayatnya tercatat.' : 'Pendataan masih dapat dilengkapi langsung sebelum dikunci.' ?></div>
+        </div>
+      <?php endif; ?>
     </div>
   </div>
   <div class="col-lg-8">
@@ -82,6 +94,7 @@ $statusClass = [
         <div class="k">Divisi</div><div class="v"><?= html_escape($asset['division_name'] ?? '-') ?></div>
         <div class="k">Outlet / lokasi</div><div class="v"><?= html_escape(trim((string)($asset['outlet_name'] ?? '') . ' ' . (string)($asset['current_location'] ?? '')) ?: '-') ?></div>
         <div class="k">PIC</div><div class="v"><?= html_escape($asset['custodian_name'] ?? '-') ?></div>
+        <?php if ($masterLockReady): ?><div class="k">Kunci data awal</div><div class="v"><?= html_escape($asset['master_lock_status_label'] ?? '-') ?><?= !empty($asset['master_locked_at']) ? ' | ' . html_escape($asset['master_locked_at']) : '' ?></div><?php endif; ?>
         <div class="k">Catatan</div><div class="v"><?= nl2br(html_escape($asset['notes'] ?? '-')) ?></div>
       </div>
     </div>

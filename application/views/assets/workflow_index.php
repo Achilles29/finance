@@ -87,7 +87,7 @@ $detailText = static function (array $row, string $type, callable $fmtMoney, arr
 <div class="asset-panel mb-3">
   <div class="p-3">
     <form class="row g-2 align-items-end" method="get" action="<?= site_url($config['url'] ?? 'asset-management') ?>">
-      <div class="col-12 col-lg-4">
+      <div class="col-12 col-lg-3">
         <label class="form-label">Cari</label>
         <input type="search" name="q" class="form-control" value="<?= html_escape($filters['q'] ?? '') ?>" placeholder="Nomor workflow, kode/nama aset, alasan, vendor, PIC">
       </div>
@@ -115,8 +115,9 @@ $detailText = static function (array $row, string $type, callable $fmtMoney, arr
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-12 col-lg-1 d-grid">
-        <button class="btn btn-outline-primary" type="submit"><i class="ri ri-search-line"></i></button>
+      <div class="col-12 col-lg-2 asset-filter-actions">
+        <button class="btn btn-outline-primary" type="submit" title="Terapkan filter" aria-label="Terapkan filter"><i class="ri ri-search-line" aria-hidden="true"></i></button>
+        <a class="btn btn-outline-secondary" href="<?= site_url($config['url'] ?? 'asset-management') ?>" title="Bersihkan filter" aria-label="Bersihkan filter"><i class="ri ri-refresh-line" aria-hidden="true"></i></a>
       </div>
     </form>
   </div>

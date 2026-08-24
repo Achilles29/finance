@@ -35,7 +35,7 @@ $statusLabels = $status_labels ?? [];
 <div class="asset-panel mb-3 asset-no-print">
   <div class="p-3">
     <form class="row g-2 align-items-end" method="get" action="<?= site_url('asset-management/labels') ?>">
-      <div class="col-12 col-lg-4">
+      <div class="col-12 col-lg-3">
         <label class="form-label">Cari aset</label>
         <input type="search" class="form-control" name="q" value="<?= html_escape($filters['q'] ?? '') ?>" placeholder="Kode, nama, kategori, serial, lokasi">
       </div>
@@ -73,8 +73,9 @@ $statusLabels = $status_labels ?? [];
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-12 col-lg-1 d-grid">
-        <button class="btn btn-outline-primary" type="submit"><i class="ri ri-search-line"></i></button>
+      <div class="col-12 col-lg-2 asset-filter-actions">
+        <button class="btn btn-outline-primary" type="submit" title="Terapkan filter" aria-label="Terapkan filter"><i class="ri ri-search-line" aria-hidden="true"></i></button>
+        <a class="btn btn-outline-secondary" href="<?= site_url('asset-management/labels') ?>" title="Bersihkan filter" aria-label="Bersihkan filter"><i class="ri ri-refresh-line" aria-hidden="true"></i></a>
       </div>
     </form>
   </div>

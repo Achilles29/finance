@@ -5,6 +5,8 @@ $pg = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $summary = $summary ?? [];
 $rows = $rows ?? [];
 $statusLabels = $status_labels ?? [];
+$masterLockReady = !empty($master_lock_ready);
+$canLock = !empty($can_lock) && $masterLockReady;
 $fmtMoney = static function ($value): string {
   return 'Rp ' . number_format((float)$value, 0, ',', '.');
 };
@@ -42,6 +44,9 @@ $fmtMoney = static function ($value): string {
 <?php if (empty($table_ready)): ?>
   <div class="alert alert-warning">Tabel aset belum siap. Jalankan SQL <code>2026-08-09a_asset_management_module.sql</code>.</div>
 <?php endif; ?>
+<?php if (!empty($table_ready) && !$masterLockReady): ?>
+  <div class="alert alert-warning">Fitur kunci data aset belum siap. Jalankan SQL <code>2026-08-24b_asset_master_lock_and_change_request_foundation.sql</code> sebelum mengunci pendataan aset.</div>
+<?php endif; ?>
 
 <div class="row g-3 mb-3">
   <div class="col-6 col-lg-3"><div class="asset-stat p-3"><div class="label">Jenis aset</div><div class="value"><?= number_format((int)($pg['total'] ?? 0), 0, ',', '.') ?></div><div class="small text-muted">Grup produk pada filter</div></div></div>
@@ -53,7 +58,7 @@ $fmtMoney = static function ($value): string {
 <div class="card mb-3">
   <div class="card-body">
     <form class="row g-2 align-items-end" method="get" action="<?= site_url('asset-management') ?>">
-      <div class="col-12 col-lg-4">
+      <div class="col-12 col-lg-3">
         <label class="form-label">Cari aset</label>
         <input type="text" class="form-control" name="q" value="<?= html_escape($filters['q'] ?? '') ?>" placeholder="Nama, kategori, brand, model, kode unit, lokasi">
       </div>
@@ -91,18 +96,22 @@ $fmtMoney = static function ($value): string {
           <?php endforeach; ?>
         </select>
       </div>
-      <div class="col-12 col-lg-1 d-grid">
-        <button class="btn btn-outline-primary" type="submit"><i class="ri ri-search-line"></i></button>
+      <div class="col-12 col-lg-2 asset-filter-actions">
+        <button class="btn btn-outline-primary" type="submit" title="Terapkan filter" aria-label="Terapkan filter"><i class="ri ri-search-line" aria-hidden="true"></i></button>
+        <a class="btn btn-outline-secondary" href="<?= site_url('asset-management') ?>" title="Bersihkan filter" aria-label="Bersihkan filter"><i class="ri ri-refresh-line" aria-hidden="true"></i></a>
       </div>
     </form>
   </div>
 </div>
 
+<form method="post" action="<?= site_url('asset-management/lock-bulk') ?>" onsubmit="return confirm('Kunci semua unit yang masih terbuka pada produk aset terpilih? Setelah terkunci, perubahan data awal harus melalui pengajuan perubahan data aset.');">
+  <input type="hidden" name="back_url" value="<?= html_escape('asset-management' . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : '')) ?>">
 <div class="card">
   <div class="table-responsive">
     <table class="table table-hover asset-table mb-0">
       <colgroup>
-        <col style="width:26%">
+        <?php if ($canLock): ?><col style="width:5%"><?php endif; ?>
+        <col style="width:<?= $canLock ? '23%' : '26%' ?>">
         <col style="width:8%">
         <col style="width:18%">
         <col style="width:18%">
@@ -112,6 +121,7 @@ $fmtMoney = static function ($value): string {
       </colgroup>
       <thead class="table-light">
         <tr>
+          <?php if ($canLock): ?><th class="text-center"><input class="form-check-input" type="checkbox" data-asset-lock-select-all title="Pilih semua produk pada halaman ini"></th><?php endif; ?>
           <th>Produk Aset</th>
           <th class="text-center">Qty</th>
           <th>Status Unit</th>
@@ -123,7 +133,7 @@ $fmtMoney = static function ($value): string {
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="7" class="text-center text-muted py-5">Belum ada grup aset pada filter ini.</td></tr>
+          <tr><td colspan="<?= $canLock ? 8 : 7 ?>" class="text-center text-muted py-5">Belum ada grup aset pada filter ini.</td></tr>
         <?php endif; ?>
         <?php foreach ($rows as $row): ?>
           <?php
@@ -136,6 +146,15 @@ $fmtMoney = static function ($value): string {
             }
           ?>
           <tr>
+            <?php if ($canLock): ?>
+              <td class="text-center">
+                <?php if ((int)($row['open_count'] ?? 0) > 0): ?>
+                  <input class="form-check-input" type="checkbox" name="group_keys[]" value="<?= html_escape((string)$row['group_key']) ?>" data-asset-lock-item>
+                <?php else: ?>
+                  <i class="ri ri-lock-line text-success" title="Semua unit sudah terkunci"></i>
+                <?php endif; ?>
+              </td>
+            <?php endif; ?>
             <td style="min-width:310px">
               <div class="d-flex gap-2 align-items-center">
                 <?php if ($photo !== ''): ?>
@@ -148,6 +167,9 @@ $fmtMoney = static function ($value): string {
                   <div class="small text-muted"><?= html_escape($row['category_name'] ?? '-') ?><?= !empty($row['sample_asset_code']) ? ' | contoh ' . html_escape($row['sample_asset_code']) : '' ?></div>
                   <?php if (!empty($row['brand']) || !empty($row['model_name'])): ?>
                     <div class="small text-muted"><?= html_escape(trim((string)($row['brand'] ?? '') . ' ' . (string)($row['model_name'] ?? ''))) ?></div>
+                  <?php endif; ?>
+                  <?php if ($masterLockReady): ?>
+                    <div class="small mt-1"><span class="badge bg-<?= (int)($row['locked_count'] ?? 0) > 0 ? 'success' : 'secondary' ?>">Terkunci <?= (int)($row['locked_count'] ?? 0) ?></span> <span class="text-muted">Pendataan <?= (int)($row['open_count'] ?? 0) ?></span></div>
                   <?php endif; ?>
                 </div>
               </div>
@@ -189,7 +211,10 @@ $fmtMoney = static function ($value): string {
     </table>
   </div>
   <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <span class="text-muted small">Total <?= number_format((int)($pg['total'] ?? 0), 0, ',', '.') ?> grup aset</span>
+    <div class="d-flex align-items-center gap-2">
+      <span class="text-muted small">Total <?= number_format((int)($pg['total'] ?? 0), 0, ',', '.') ?> grup aset</span>
+      <?php if ($canLock): ?><button type="submit" class="btn btn-sm btn-outline-success"><i class="ri ri-lock-line me-1"></i>Kunci Produk Terpilih</button><?php endif; ?>
+    </div>
     <div class="btn-group">
       <?php
         $query = $_GET;
@@ -204,3 +229,16 @@ $fmtMoney = static function ($value): string {
     </div>
   </div>
 </div>
+</form>
+
+<?php if ($canLock): ?>
+<script>
+(function(){
+  var all = document.querySelector('[data-asset-lock-select-all]');
+  if (!all) return;
+  all.addEventListener('change', function(){
+    document.querySelectorAll('[data-asset-lock-item]').forEach(function(item){ item.checked = all.checked; });
+  });
+})();
+</script>
+<?php endif; ?>

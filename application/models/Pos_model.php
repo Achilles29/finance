@@ -12083,7 +12083,9 @@ class Pos_model extends CI_Model
         foreach ($orderLines as $orderLineId => $line) {
             $requestedLine = $requestedMap[$orderLineId] ?? [];
             $requestedExtras = (array)($requestedExtraMap[$orderLineId] ?? []);
-            $hasRequestedProduct = !empty($requestedLine);
+            // An entry may intentionally contain only extras. Presence of order_line_id
+            // alone must not promote that selection to a full product reversal.
+            $hasRequestedProduct = !empty($requestedLine) && array_key_exists('qty', $requestedLine);
             $hasRequestedExtras = !empty($requestedExtras);
             if (!$hasRequestedProduct && !$hasRequestedExtras) {
                 continue;
