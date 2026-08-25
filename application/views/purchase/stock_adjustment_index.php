@@ -44,7 +44,21 @@ $adjustmentReasonOptions = [
   'VARIANCE' => ['over_usage' => 'Over Usage','under_usage' => 'Under Usage','unrecorded_usage' => 'Unrecorded Usage','counting_error' => 'Counting Error','system_mismatch' => 'System Mismatch','theft_suspected' => 'Theft Suspected','unknown_shrinkage' => 'Unknown Shrinkage','other' => 'Other'],
   'ADJUSTMENT_PLUS' => ['opening_correction' => 'Opening Correction','stock_found' => 'Stock Found','manual_reclass' => 'Manual Reclass','other' => 'Other'],
 ];
-$adjustmentKindOptions = ['WASTE' => 'Waste','SPOIL' => 'Spoil','PROCESS_LOSS' => 'Process Loss','MINUS' => 'Variance / Minus','PLUS' => 'Adjustment Plus'];
+$adjustmentKindOptions = $isDivisionScope
+  ? [
+      'WASTE' => 'Waste (Isi)',
+      'SPOIL' => 'Spoil (Isi)',
+      'PROCESS_LOSS' => 'P.Loss (Isi)',
+      'MINUS' => 'Variance (Isi)',
+      'PLUS' => 'Adj + (Isi)',
+    ]
+  : [
+      'WASTE' => 'Waste',
+      'SPOIL' => 'Spoil',
+      'PROCESS_LOSS' => 'Process Loss',
+      'MINUS' => 'Variance / Minus',
+      'PLUS' => 'Adjustment Plus',
+    ];
 $resolveReasonLabel = static function (string $category, ?string $value) use ($adjustmentReasonOptions): string {
   $key = trim((string)$value);
   return $key === '' ? '-' : (string)($adjustmentReasonOptions[$category][$key] ?? $key);
@@ -118,6 +132,25 @@ $lineJenisAlasan = static function (array $row) use ($resolveReasonLabel): array
   if ((float)($row['qty_process_loss_content']     ?? 0) > 0) return ['P.Loss',  $resolveReasonLabel('PROCESS_LOSS',    $row['process_loss_reason_code']     ?? null)];
   if ((float)($row['qty_variance_content']         ?? 0) > 0) return ['Minus',   $resolveReasonLabel('VARIANCE',        $row['variance_reason_code']         ?? null)];
   return ['-', '-'];
+};
+$documentAdjustmentBreakdown = static function (array $row) use ($isWarehouseScope): array {
+  $qtySuffix = $isWarehouseScope ? 'buy' : 'content';
+  $parts = [
+    ['label' => 'Waste',    'field' => 'total_waste_' . $qtySuffix,                'is_plus' => false],
+    ['label' => 'Spoil',    'field' => 'total_spoil_' . $qtySuffix,                'is_plus' => false],
+    ['label' => 'P.Loss',   'field' => 'total_process_loss_' . $qtySuffix,         'is_plus' => false],
+    ['label' => 'Variance', 'field' => 'total_variance_' . $qtySuffix,             'is_plus' => false],
+    ['label' => 'Adj +',    'field' => 'total_adjustment_plus_' . $qtySuffix,      'is_plus' => true],
+  ];
+  $result = [];
+  foreach ($parts as $part) {
+    $qty = (float)($row[$part['field']] ?? 0);
+    if ($qty > 0) {
+      $part['qty'] = $qty;
+      $result[] = $part;
+    }
+  }
+  return $result;
 };
 $fmtMoney = static function ($value): string { return 'Rp ' . number_format((float)$value, 2, ',', '.'); };
 
@@ -265,6 +298,10 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
 .adjustment-kind-panel { border:1px solid rgba(15,23,42,.08); border-radius:1rem; background:rgba(255,255,255,.86); padding:1rem; }
 .adj-scroll-wrap { max-height:66vh; overflow-y:auto; overflow-x:auto; }
 .adj-scroll-wrap table thead th { position:sticky; top:0; z-index:2; background:#fff; border-bottom:2px solid rgba(0,0,0,.09); }
+.adj-adjustment-description { min-width:190px; }
+.adj-adjustment-kind { display:inline-flex; align-items:center; gap:.3rem; margin:.08rem .15rem .08rem 0; padding:.16rem .46rem; border-radius:999px; font-size:.72rem; line-height:1.25; font-weight:700; white-space:nowrap; }
+.adj-adjustment-kind.is-minus { color:#9f1239; background:#fff1f2; border:1px solid #fecdd3; }
+.adj-adjustment-kind.is-plus { color:#166534; background:#f0fdf4; border:1px solid #bbf7d0; }
 .adjustment-confirm-modal .modal-content { border:0; border-radius:1rem; box-shadow:0 1.5rem 3rem rgba(17,24,39,.18); }
 .adjustment-confirm-modal .modal-header, .adjustment-confirm-modal .modal-footer { border:0; }
 .adjustment-confirm-hero { width:3rem; height:3rem; border-radius:.9rem; display:inline-flex; align-items:center; justify-content:center; background:linear-gradient(180deg,#fff7ed,#ffedd5); color:#c2410c; font-size:1.35rem; flex:0 0 auto; }
@@ -466,18 +503,23 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
           <?php if ($isDivisionScope): ?><th>Divisi / Tujuan</th><?php endif; ?>
           <th>Status</th>
           <th class="text-end">Lines</th>
-          <th class="text-end"><?php echo html_escape($wasteColumnLabel); ?></th>
-          <th class="text-end"><?php echo html_escape($spoilColumnLabel); ?></th>
-          <th class="text-end"><?php echo html_escape($processLossColumnLabel); ?></th>
-          <th class="text-end"><?php echo html_escape($varianceColumnLabel); ?></th>
-          <th class="text-end"><?php echo html_escape($adjustmentPlusColumnLabel); ?></th>
+          <?php if ($isDivisionScope): ?>
+            <th class="text-end">Penyesuaian (Isi)</th>
+            <th>Keterangan</th>
+          <?php else: ?>
+            <th class="text-end"><?php echo html_escape($wasteColumnLabel); ?></th>
+            <th class="text-end"><?php echo html_escape($spoilColumnLabel); ?></th>
+            <th class="text-end"><?php echo html_escape($processLossColumnLabel); ?></th>
+            <th class="text-end"><?php echo html_escape($varianceColumnLabel); ?></th>
+            <th class="text-end"><?php echo html_escape($adjustmentPlusColumnLabel); ?></th>
+          <?php endif; ?>
           <th class="text-end">Nilai Total</th>
           <th>Aksi</th>
         </tr>
       </thead>
       <tbody>
       <?php if (empty($pagedRows)): ?>
-        <tr><td colspan="<?php echo $isDivisionScope ? '12' : '11'; ?>" class="text-center text-muted py-4">Belum ada dokumen adjustment untuk filter ini.</td></tr>
+        <tr><td colspan="<?php echo $isDivisionScope ? '9' : '11'; ?>" class="text-center text-muted py-4">Belum ada dokumen adjustment untuk filter ini.</td></tr>
       <?php else: ?>
         <?php foreach ($pagedRows as $row): ?>
           <?php
@@ -487,6 +529,16 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
               + (float)($row['total_variance_value'] ?? 0)
               + (float)($row['total_adjustment_plus_value'] ?? 0);
             $rowStatus = strtoupper((string)($row['status'] ?? 'DRAFT'));
+            $documentAdjustmentParts = $isDivisionScope ? $documentAdjustmentBreakdown($row) : [];
+            $documentShrinkQty = 0.0;
+            $documentPlusQty = 0.0;
+            foreach ($documentAdjustmentParts as $documentAdjustmentPart) {
+              if (!empty($documentAdjustmentPart['is_plus'])) {
+                $documentPlusQty += (float)$documentAdjustmentPart['qty'];
+              } else {
+                $documentShrinkQty += (float)$documentAdjustmentPart['qty'];
+              }
+            }
           ?>
           <tr id="stock-adjustment-<?php echo (int)($row['id'] ?? 0); ?>">
             <td>
@@ -502,11 +554,37 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
             <?php endif; ?>
             <td><?php echo ui_status_badge((string)($row['status'] ?? 'DRAFT')); ?></td>
             <td class="text-end small"><?php echo number_format((int)($row['line_count'] ?? 0)); ?></td>
-            <td class="text-end small"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_waste_buy'] ?? 0) : ($row['total_waste_content'] ?? 0))); ?></td>
-            <td class="text-end small"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_spoil_buy'] ?? 0) : ($row['total_spoil_content'] ?? 0))); ?></td>
-            <td class="text-end small"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_process_loss_buy'] ?? 0) : ($row['total_process_loss_content'] ?? 0))); ?></td>
-            <td class="text-end small"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_variance_buy'] ?? 0) : ($row['total_variance_content'] ?? 0))); ?></td>
-            <td class="text-end small"><?php echo ui_num((float)($isWarehouseScope ? ($row['total_adjustment_plus_buy'] ?? 0) : ($row['total_adjustment_plus_content'] ?? 0))); ?></td>
+            <?php if ($isDivisionScope): ?>
+              <td class="text-end small fw-semibold">
+                <?php if ($documentShrinkQty > 0): ?>
+                  <div class="text-danger">-<?php echo ui_num($documentShrinkQty); ?></div>
+                <?php endif; ?>
+                <?php if ($documentPlusQty > 0): ?>
+                  <div class="text-success">+<?php echo ui_num($documentPlusQty); ?></div>
+                <?php endif; ?>
+                <?php if ($documentShrinkQty <= 0 && $documentPlusQty <= 0): ?>
+                  <span class="text-muted">-</span>
+                <?php endif; ?>
+              </td>
+              <td class="small adj-adjustment-description">
+                <?php if (empty($documentAdjustmentParts)): ?>
+                  <span class="text-muted">-</span>
+                <?php else: ?>
+                  <?php foreach ($documentAdjustmentParts as $documentAdjustmentPart): ?>
+                    <span class="adj-adjustment-kind <?php echo !empty($documentAdjustmentPart['is_plus']) ? 'is-plus' : 'is-minus'; ?>">
+                      <?php echo html_escape((string)$documentAdjustmentPart['label']); ?>
+                      <strong><?php echo (!empty($documentAdjustmentPart['is_plus']) ? '+' : '-') . ui_num((float)$documentAdjustmentPart['qty']); ?></strong>
+                    </span>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </td>
+            <?php else: ?>
+              <td class="text-end small"><?php echo ui_num((float)($row['total_waste_buy'] ?? 0)); ?></td>
+              <td class="text-end small"><?php echo ui_num((float)($row['total_spoil_buy'] ?? 0)); ?></td>
+              <td class="text-end small"><?php echo ui_num((float)($row['total_process_loss_buy'] ?? 0)); ?></td>
+              <td class="text-end small"><?php echo ui_num((float)($row['total_variance_buy'] ?? 0)); ?></td>
+              <td class="text-end small"><?php echo ui_num((float)($row['total_adjustment_plus_buy'] ?? 0)); ?></td>
+            <?php endif; ?>
             <td class="text-end small fw-semibold"><?php echo html_escape($fmtMoney($documentTotalValue)); ?></td>
             <td>
               <?php if ($rowStatus === 'DRAFT'): ?>
@@ -795,23 +873,26 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
               </div>
 
               <div class="col-md-5">
-                <label class="form-label">Jenis Koreksi</label>
+                <label class="form-label" id="adjustment_qty_label">Penyesuaian (<?php echo html_escape($qtyUnitLabel); ?>)</label>
+                <input type="number" class="form-control" id="adjustment_qty_input" min="0" step="0.01" value="0" disabled>
+                <div class="form-text" id="adjustment_qty_hint">Pilih keterangan penyesuaian terlebih dahulu.</div>
+              </div>
+
+              <div class="col-md-7">
+                <label class="form-label">Keterangan</label>
                 <select class="form-select" id="adjustment_kind" required>
-                  <option value="">Pilih jenis koreksi...</option>
+                  <option value="">Pilih keterangan penyesuaian...</option>
                   <?php foreach ($adjustmentKindOptions as $val => $lbl): ?>
                     <option value="<?php echo html_escape($val); ?>"><?php echo html_escape($lbl); ?></option>
                   <?php endforeach; ?>
                 </select>
+                <div class="form-text">Satu line hanya untuk satu jenis. Tambahkan line baru bila jenisnya berbeda.</div>
               </div>
 
               <div class="col-12">
                 <div class="adjustment-kind-panel d-none" id="adjustment-kind-panel">
                   <div class="row g-3">
-                    <div class="col-md-4">
-                      <label class="form-label" id="adjustment_qty_label">Qty Adjustment</label>
-                      <input type="number" class="form-control" id="adjustment_qty_input" min="0" step="0.01" value="0">
-                    </div>
-                    <div class="col-md-8">
+                    <div class="col-12">
                       <label class="form-label" id="adjustment_reason_label">Alasan</label>
                       <select class="form-select" id="adjustment_reason_input"><option value="other">Other</option></select>
                     </div>
@@ -881,11 +962,16 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
                   <tr>
                     <th>Objek</th>
                     <th class="text-end"><?php echo html_escape($availColumnLabel); ?></th>
-                    <th class="text-end"><?php echo html_escape($wasteColumnLabel); ?></th>
-                    <th class="text-end"><?php echo html_escape($spoilColumnLabel); ?></th>
-                    <th class="text-end"><?php echo html_escape($processLossColumnLabel); ?></th>
-                    <th class="text-end"><?php echo html_escape($varianceColumnLabel); ?></th>
-                    <th class="text-end"><?php echo html_escape($adjustmentPlusColumnLabel); ?></th>
+                    <?php if ($isDivisionScope): ?>
+                      <th class="text-end">Penyesuaian (Isi)</th>
+                      <th>Keterangan</th>
+                    <?php else: ?>
+                      <th class="text-end"><?php echo html_escape($wasteColumnLabel); ?></th>
+                      <th class="text-end"><?php echo html_escape($spoilColumnLabel); ?></th>
+                      <th class="text-end"><?php echo html_escape($processLossColumnLabel); ?></th>
+                      <th class="text-end"><?php echo html_escape($varianceColumnLabel); ?></th>
+                      <th class="text-end"><?php echo html_escape($adjustmentPlusColumnLabel); ?></th>
+                    <?php endif; ?>
                     <th class="text-end"><?php echo html_escape($costColumnLabel); ?></th>
                     <th class="text-end">Nilai</th>
                     <th>Lot In</th>
@@ -974,6 +1060,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
   const stockScope      = document.getElementById('stock_scope')?.value || 'WAREHOUSE';
   const isDivisionScope = stockScope === 'DIVISION';
   const isWarehouseScope = stockScope === 'WAREHOUSE';
+  const draftTableColspan = isDivisionScope ? 8 : 11;
   const alertArea       = document.getElementById('adjustment-alert');
   const formAlertArea   = document.getElementById('adjustment-form-alert');
   const profileModalEl  = document.getElementById('adjustmentProfilePickerModal');
@@ -1229,6 +1316,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
   const adjustmentKindPanelEl    = document.getElementById('adjustment-kind-panel');
   const adjustmentQtyLabelEl     = document.getElementById('adjustment_qty_label');
   const adjustmentQtyInputEl     = document.getElementById('adjustment_qty_input');
+  const adjustmentQtyHintEl      = document.getElementById('adjustment_qty_hint');
   const adjustmentReasonLabelEl  = document.getElementById('adjustment_reason_label');
   const adjustmentReasonInputEl  = document.getElementById('adjustment_reason_input');
   const adjustmentPlusCostWrapEl = document.getElementById('adjustment-plus-cost-wrap');
@@ -1245,6 +1333,9 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     MINUS:        {qtyField:'qty_variance_content',         reasonField:'variance_reason_code',         qtyLabel:'Variance',     reasonLabel:'Alasan Variance',     reasonCategory:'VARIANCE'},
     PLUS:         {qtyField:'qty_adjustment_plus_content',  reasonField:'adjustment_plus_reason_code',  qtyLabel:'Adj Plus',     reasonLabel:'Alasan Plus',         reasonCategory:'ADJUSTMENT_PLUS', needsInbound:true},
   };
+  const adjustmentKindDirectionHint = (kind) => kind === 'PLUS'
+    ? 'Adj + akan menambah stok dan membutuhkan harga per isi untuk lot masuk.'
+    : 'Jenis ini akan mengurangi stok sesuai jumlah yang Anda isi.';
   const renderUnitCostHint = () => {
     if (!unitCostHintEl) return;
     const kind = String(adjustmentKindEl?.value || '').toUpperCase();
@@ -1302,14 +1393,18 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     const config = adjustmentKindConfig[kind] || null;
     if (!adjustmentKindPanelEl||!adjustmentQtyInputEl||!adjustmentReasonInputEl||!adjustmentQtyLabelEl||!adjustmentReasonLabelEl) return;
     if (!config) {
-      adjustmentKindPanelEl.classList.add('d-none'); adjustmentQtyInputEl.value='0';
+      adjustmentKindPanelEl.classList.add('d-none'); adjustmentQtyInputEl.value='0'; adjustmentQtyInputEl.disabled=true;
+      adjustmentQtyLabelEl.textContent='Penyesuaian (<?php echo html_escape($qtyUnitLabel); ?>)';
+      if (adjustmentQtyHintEl) adjustmentQtyHintEl.textContent='Pilih keterangan penyesuaian terlebih dahulu.';
       adjustmentReasonInputEl.innerHTML='<option value="other">Other</option>'; adjustmentReasonInputEl.value='other';
       adjustmentPlusCostWrapEl?.classList.add('d-none'); adjustmentPlusLotWrapEl?.classList.add('d-none'); adjustmentPlusExpWrapEl?.classList.add('d-none');
       renderUnitCostHint();
       return;
     }
     adjustmentKindPanelEl.classList.remove('d-none');
-    adjustmentQtyLabelEl.textContent = config.qtyLabel + ' (<?php echo html_escape($qtyUnitLabel); ?>)';
+    adjustmentQtyInputEl.disabled=false;
+    adjustmentQtyLabelEl.textContent = 'Penyesuaian (<?php echo html_escape($qtyUnitLabel); ?>)';
+    if (adjustmentQtyHintEl) adjustmentQtyHintEl.textContent = adjustmentKindDirectionHint(kind);
     adjustmentReasonLabelEl.textContent = config.reasonLabel;
     const reasonCategory = config.reasonCategory || kind;
     const reasonOptions = reasonLabelMap[reasonCategory] || {other:'Other'};
@@ -1346,6 +1441,13 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
       +'</div>';
     renderAdjustmentKindForm();
   };
+  const draftAdjustmentParts = (line) => [
+    {label:'Waste',    category:'WASTE',              reason:line.waste_reason_code,            qty:Number(line.qty_waste_content || 0),           isPlus:false},
+    {label:'Spoil',    category:'SPOILAGE',           reason:line.spoil_reason_code,            qty:Number(line.qty_spoil_content || 0),           isPlus:false},
+    {label:'P.Loss',   category:'PROCESS_LOSS',       reason:line.process_loss_reason_code,     qty:Number(line.qty_process_loss_content || 0),    isPlus:false},
+    {label:'Variance', category:'VARIANCE',           reason:line.variance_reason_code,         qty:Number(line.qty_variance_content || 0),        isPlus:false},
+    {label:'Adj +',    category:'ADJUSTMENT_PLUS',    reason:line.adjustment_plus_reason_code,  qty:Number(line.qty_adjustment_plus_content || 0), isPlus:true},
+  ].filter(part => part.qty > 0);
   const renderDraftLines = () => {
     const lc = document.getElementById('draft-summary-line-count');
     const qt = document.getElementById('draft-summary-qty-total');
@@ -1355,7 +1457,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     if (!lines.length) {
       if (lc) lc.textContent='0'; if (qt) qt.textContent='0';
       if (sv) sv.textContent=fmtMoney(0); if (nv) nv.textContent=fmtMoney(0);
-      if (draftTableBody) draftTableBody.innerHTML='<tr><td colspan="11" class="text-center text-muted py-3">Belum ada line draft.</td></tr>';
+      if (draftTableBody) draftTableBody.innerHTML='<tr><td colspan="'+draftTableColspan+'" class="text-center text-muted py-3">Belum ada line draft.</td></tr>';
       return;
     }
     if (draftTableBody) draftTableBody.innerHTML = lines.map((line,index) => {
@@ -1367,19 +1469,28 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
       draftQtyTotal += qtyByScope(line,shrinkQty+addQty);
       draftShrinkValue += shrinkQty*Number(line.unit_cost||0);
       draftAdditionValue += addQty*Number(line.unit_cost||0);
-      const rParts = [];
-      if (Number(line.qty_waste_content||0)>0)            rParts.push('Waste: '+reasonLabel('WASTE',line.waste_reason_code));
-      if (Number(line.qty_spoil_content||0)>0)            rParts.push('Spoil: '+reasonLabel('SPOILAGE',line.spoil_reason_code));
-      if (Number(line.qty_variance_content||0)>0)         rParts.push('Minus: '+reasonLabel('VARIANCE',line.variance_reason_code));
-      if (Number(line.qty_adjustment_plus_content||0)>0)  rParts.push('Plus: '+reasonLabel('ADJUSTMENT_PLUS',line.adjustment_plus_reason_code));
+      const adjustmentParts = draftAdjustmentParts(line);
+      const rParts = adjustmentParts.map(part => part.label+': '+reasonLabel(part.category,part.reason));
+      const adjustmentCells = isDivisionScope
+        ? '<td class="text-end small fw-semibold">'
+          +(shrinkQty > 0 ? '<div class="text-danger">-'+fmt(qtyByScope(line,shrinkQty))+'</div>' : '')
+          +(addQty > 0 ? '<div class="text-success">+'+fmt(qtyByScope(line,addQty))+'</div>' : '')
+          +(shrinkQty <= 0 && addQty <= 0 ? '<span class="text-muted">-</span>' : '')
+          +'</td>'
+          +'<td class="small adj-adjustment-description">'
+          +(adjustmentParts.length ? adjustmentParts.map(part => '<span class="adj-adjustment-kind '+(part.isPlus?'is-plus':'is-minus')+'">'
+            +escHtml(part.label)+' <strong>'+(part.isPlus?'+':'-')+fmt(qtyByScope(line,part.qty))+'</strong>'
+            +'<span class="fw-normal">'+escHtml(reasonLabel(part.category,part.reason))+'</span></span>').join('') : '<span class="text-muted">-</span>')
+          +'</td>'
+        : '<td class="text-end small">'+fmt(qtyByScope(line,line.qty_waste_content))+'</td>'
+          +'<td class="text-end small">'+fmt(qtyByScope(line,line.qty_spoil_content))+'</td>'
+          +'<td class="text-end small">'+fmt(qtyByScope(line,line.qty_process_loss_content))+'</td>'
+          +'<td class="text-end small">'+fmt(qtyByScope(line,line.qty_variance_content))+'</td>'
+          +'<td class="text-end small">'+fmt(qtyByScope(line,line.qty_adjustment_plus_content))+'</td>';
       return '<tr>'
-        +'<td><div class="fw-semibold small">'+objText+'</div><small class="text-muted d-block">'+(profileText||'-')+'</small><small class="text-muted">'+(rParts.join(' | ')||'-')+'</small></td>'
+        +'<td><div class="fw-semibold small">'+objText+'</div><small class="text-muted d-block">'+(profileText||'-')+'</small>'+(isDivisionScope?'':'<small class="text-muted">'+(rParts.join(' | ')||'-')+'</small>')+'</td>'
         +'<td class="text-end small">'+fmt(isWarehouseScope?line.available_qty_buy:line.available_qty_content)+' '+qtyUnitByScope(line)+'</td>'
-        +'<td class="text-end small">'+fmt(qtyByScope(line,line.qty_waste_content))+'</td>'
-        +'<td class="text-end small">'+fmt(qtyByScope(line,line.qty_spoil_content))+'</td>'
-        +'<td class="text-end small">'+fmt(qtyByScope(line,line.qty_process_loss_content))+'</td>'
-        +'<td class="text-end small">'+fmt(qtyByScope(line,line.qty_variance_content))+'</td>'
-        +'<td class="text-end small">'+fmt(qtyByScope(line,line.qty_adjustment_plus_content))+'</td>'
+        +adjustmentCells
         +'<td class="text-end small">'+fmt6(costByScope(line,line.unit_cost))+'</td>'
         +'<td class="text-end small fw-semibold">'+fmtMoney(lineVal)+'</td>'
         +'<td class="small"><div>'+(line.inbound_lot_no||'-')+'</div><small class="text-muted">'+(line.inbound_expiry_date||'')+'</small></td>'

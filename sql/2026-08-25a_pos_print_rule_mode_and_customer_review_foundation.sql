@@ -97,7 +97,7 @@ SELECT
   'MAIN',
   parent.id
 FROM sys_page page
-JOIN sys_menu parent ON parent.menu_code = 'pos.report.group'
+JOIN sys_menu parent ON parent.menu_code = 'grp.pos'
 WHERE page.page_code = 'pos.customer_review.index'
 ON DUPLICATE KEY UPDATE
   menu_label = VALUES(menu_label),

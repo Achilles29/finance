@@ -2,6 +2,37 @@
 $order = is_array($order ?? null) ? $order : [];
 $header = is_array($order['header'] ?? null) ? $order['header'] : [];
 $lines = is_array($order['lines'] ?? null) ? $order['lines'] : [];
+$displayLineEntries = [];
+$bundleIndexes = [];
+foreach ($lines as $line) {
+	if (!is_array($line)) {
+		continue;
+	}
+	$bundleId = max(0, (int)($line['bundle_id'] ?? 0));
+	$lineType = strtoupper(trim((string)($line['line_type'] ?? 'PRODUCT')));
+	if ($bundleId <= 0) {
+		if ($lineType !== 'BUNDLE_HEADER') {
+			$displayLineEntries[] = ['type' => 'LINE', 'line' => $line];
+		}
+		continue;
+	}
+	$bundleKey = 'B:' . $bundleId;
+	if (!isset($bundleIndexes[$bundleKey])) {
+		$bundleIndexes[$bundleKey] = count($displayLineEntries);
+		$displayLineEntries[] = [
+			'type' => 'BUNDLE',
+			'bundle_name' => trim((string)($line['bundle_name'] ?? '')),
+			'bundle_code' => trim((string)($line['bundle_code'] ?? '')),
+			'lines' => [],
+		];
+	}
+	if ($lineType !== 'BUNDLE_HEADER') {
+		$displayLineEntries[$bundleIndexes[$bundleKey]]['lines'][] = $line;
+	}
+}
+$displayLineEntries = array_values(array_filter($displayLineEntries, static function (array $entry): bool {
+	return $entry['type'] !== 'BUNDLE' || !empty($entry['lines']);
+}));
 $payments = is_array($payments ?? null) ? $payments : [];
 $refunds = is_array($refunds ?? null) ? $refunds : [];
 $voids = is_array($voids ?? null) ? $voids : [];
@@ -450,7 +481,15 @@ $this->load->view('pos/_report_styles');
 							<?php if (empty($lines)): ?>
 								<tr><td colspan="9" class="text-center pos-report-empty">Belum ada line order.</td></tr>
 							<?php else: ?>
-								<?php foreach ($lines as $line): ?>
+								<?php foreach ($displayLineEntries as $entry): ?>
+									<?php if ($entry['type'] === 'BUNDLE'): ?>
+										<?php $bundleLabel = trim((string)($entry['bundle_name'] ?? '')) ?: (trim((string)($entry['bundle_code'] ?? '')) ?: 'Paket bundle'); ?>
+										<tr class="table-warning"><td colspan="9"><div class="fw-semibold text-uppercase">Paket: <?php echo html_escape($bundleLabel); ?></div><div class="pos-report-meta"><?php echo html_escape((string)($entry['bundle_code'] ?? '')); ?> | <?php echo number_format(count((array)($entry['lines'] ?? []))); ?> produk di dalam bundle</div></td></tr>
+										<?php $entryLines = (array)($entry['lines'] ?? []); $isBundleItem = true; ?>
+									<?php else: ?>
+										<?php $entryLines = [(array)($entry['line'] ?? [])]; $isBundleItem = false; ?>
+									<?php endif; ?>
+									<?php foreach ($entryLines as $line): ?>
 									<?php
 									$lineId = (int)($line['id'] ?? 0);
 									$lineAudit = is_array($marginLineMap[$lineId] ?? null) ? $marginLineMap[$lineId] : [];
@@ -472,10 +511,10 @@ $this->load->view('pos/_report_styles');
 									$lineHppFinal = (float)($lineAudit['hpp_final_amount'] ?? ($lineHppSale - $lineHppRefund + $lineHppCorrection));
 									?>
 									<tr>
-										<td><?php echo (int)($line['line_no'] ?? 0); ?></td>
+										<td><?php echo $isBundleItem ? '-' : (int)($line['line_no'] ?? 0); ?></td>
 										<td>
-											<div class="fw-semibold"><?php echo html_escape((string)($line['product_name'] ?? $line['bundle_name'] ?? '-')); ?></div>
-											<div class="pos-report-meta"><?php echo html_escape((string)($line['product_code'] ?? $line['bundle_code'] ?? '-')); ?> | <?php echo html_escape((string)($line['uom_code'] ?? '-')); ?></div>
+											<div class="<?php echo $isBundleItem ? 'ps-3 fw-semibold' : 'fw-semibold'; ?>"><?php echo $isBundleItem ? '-> ' : ''; ?><?php echo html_escape((string)($line['product_name'] ?? $line['bundle_name'] ?? '-')); ?></div>
+											<div class="pos-report-meta<?php echo $isBundleItem ? ' ps-3' : ''; ?>"><?php echo html_escape((string)($line['product_code'] ?? $line['bundle_code'] ?? '-')); ?> | <?php echo html_escape((string)($line['uom_code'] ?? '-')); ?></div>
 											<?php if (!empty($lineExtras)): ?>
 												<div class="mt-2 pos-report-inline-list">
 													<?php foreach ($lineExtras as $extra): ?>
@@ -497,6 +536,7 @@ $this->load->view('pos/_report_styles');
 										<td class="text-end fw-semibold"><?php echo $money($lineHppFinal); ?></td>
 										<td><span class="pos-report-badge <?php echo html_escape($statusTone($line['line_status'] ?? '')); ?>"><?php echo html_escape((string)($line['line_status'] ?? '-')); ?></span></td>
 									</tr>
+									<?php endforeach; ?>
 								<?php endforeach; ?>
 							<?php endif; ?>
 						</tbody>

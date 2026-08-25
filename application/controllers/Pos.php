@@ -2358,6 +2358,11 @@ public function self_order_tables_print()
     public function printer_download($key = '')
     {
         $this->require_permission('pos.printer.index', 'view');
+        if ($key === 'agent_bundle') {
+            $this->printer_download_bundle();
+            return;
+        }
+
         $files = $this->printer_download_files();
         if (!isset($files[$key])) {
             show_404();
@@ -2389,6 +2394,8 @@ public function self_order_tables_print()
             $mime = 'text/plain';
         } elseif (substr($path, -5) === '.json') {
             $mime = 'application/json';
+        } elseif (substr($path, -3) === '.sh') {
+            $mime = 'text/plain';
         }
 
         $this->output
@@ -5749,9 +5756,62 @@ public function self_order_tables_print()
             'detect_py' => ['filename' => 'detect_printers.py', 'path' => $base . 'detect_printers.py'],
             'run_windows' => ['filename' => 'run_windows.bat', 'path' => $base . 'run_windows.bat'],
             'detect_windows' => ['filename' => 'detect_windows.bat', 'path' => $base . 'detect_windows.bat'],
+            'run_linux' => ['filename' => 'run_linux.sh', 'path' => $base . 'run_linux.sh'],
+            'detect_linux' => ['filename' => 'detect_linux.sh', 'path' => $base . 'detect_linux.sh'],
             'config_example' => ['filename' => 'config.example.json', 'path' => $base . 'config.example.json'],
             'config_json' => ['filename' => 'config.json', 'path' => ''],
         ];
+    }
+
+    /**
+     * Builds a clean agent package on demand. Active agent config and logs stay
+     * on the cashier computer and are deliberately excluded from the archive.
+     */
+    private function printer_download_bundle(): void
+    {
+        if (!class_exists('ZipArchive')) {
+            show_error('Fitur unduh paket printer membutuhkan ekstensi ZIP pada server.', 500);
+            return;
+        }
+
+        $temporaryBase = tempnam(sys_get_temp_dir(), 'namua_printer_agent_');
+        if ($temporaryBase === false) {
+            show_error('Paket printer belum bisa dibuat karena folder sementara server tidak tersedia.', 500);
+            return;
+        }
+
+        $archivePath = $temporaryBase . '.zip';
+        @unlink($temporaryBase);
+        $archive = new ZipArchive();
+        if ($archive->open($archivePath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            @unlink($archivePath);
+            show_error('Paket printer belum bisa dibuat. Coba ulangi beberapa saat lagi.', 500);
+            return;
+        }
+
+        foreach ($this->printer_download_files() as $key => $file) {
+            if ($key === 'config_json') {
+                continue;
+            }
+            $path = (string)($file['path'] ?? '');
+            if ($path === '' || !is_file($path)) {
+                continue;
+            }
+            $archive->addFile($path, 'pos_printer_agent/' . (string)$file['filename']);
+        }
+        $archive->close();
+
+        $content = file_get_contents($archivePath);
+        @unlink($archivePath);
+        if ($content === false) {
+            show_error('Paket printer belum bisa dibaca setelah dibuat.', 500);
+            return;
+        }
+
+        $this->output
+            ->set_content_type('application/zip')
+            ->set_header('Content-Disposition: attachment; filename="namua-pos-printer-agent.zip"')
+            ->set_output($content);
     }
 
     private function build_printer_agent_config(string $agentName = ''): array

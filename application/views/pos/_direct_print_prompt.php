@@ -46,10 +46,16 @@ window.PosDirectAgentPrint = window.PosDirectAgentPrint || {
   send: async function (target, timeoutMs) {
     const port = Number((target || {}).python_port || 0);
     if (!port) throw new Error('Port Local Agent belum valid.');
+    // Satu printer fisik bisa menerima beberapa slip sekaligus dari BAR,
+    // KITCHEN, dan CHECKER. Beri agent waktu cukup untuk mengantrekan cetak
+    // tersebut; batas lama 8 detik membuat slip yang sudah tercetak tercatat
+    // salah sebagai gagal di halaman kasir.
+    const requestedTimeoutMs = Number((target || {}).response_timeout_ms || timeoutMs || 30000);
+    const responseTimeoutMs = Math.max(10000, Math.min(60000, requestedTimeoutMs));
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timeout = window.setTimeout(function () {
       if (controller) controller.abort();
-    }, Math.max(3000, Number(timeoutMs || 8000)));
+    }, responseTimeoutMs);
     try {
       const response = await fetch('http://127.0.0.1:' + port + '/cetak', {
         method: 'POST',
@@ -77,7 +83,7 @@ window.PosDirectAgentPrint = window.PosDirectAgentPrint || {
       return result;
     } catch (error) {
       if (error && error.name === 'AbortError') {
-        throw new Error('Local Agent tidak memberi jawaban dalam 8 detik. Pastikan aplikasi agent dan printer sedang menyala.');
+        throw new Error('Local Agent belum memberi jawaban dalam ' + Math.ceil(responseTimeoutMs / 1000) + ' detik. Cetak mungkin masih diproses; cek Monitor Cetak sebelum mengirim ulang.');
       }
       if (error && /failed to fetch|networkerror/i.test(String(error.message || ''))) {
         throw new Error('Tidak dapat menghubungi Local Agent. Pastikan aplikasi agent sedang berjalan di komputer ini dan port printer sudah sesuai.');

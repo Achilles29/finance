@@ -2,6 +2,37 @@
 $order = is_array($order ?? null) ? $order : [];
 $header = is_array($order['header'] ?? null) ? $order['header'] : [];
 $lines = is_array($order['lines'] ?? null) ? $order['lines'] : [];
+$displayEntries = [];
+$bundleIndexes = [];
+foreach ($lines as $line) {
+    if (!is_array($line)) {
+        continue;
+    }
+    $bundleId = max(0, (int)($line['bundle_id'] ?? 0));
+    $lineType = strtoupper(trim((string)($line['line_type'] ?? 'PRODUCT')));
+    if ($bundleId <= 0) {
+        if ($lineType !== 'BUNDLE_HEADER') {
+            $displayEntries[] = ['type' => 'LINE', 'line' => $line];
+        }
+        continue;
+    }
+    $bundleKey = 'B:' . $bundleId;
+    if (!isset($bundleIndexes[$bundleKey])) {
+        $bundleIndexes[$bundleKey] = count($displayEntries);
+        $displayEntries[] = [
+            'type' => 'BUNDLE',
+            'bundle_name' => trim((string)($line['bundle_name'] ?? '')),
+            'bundle_code' => trim((string)($line['bundle_code'] ?? '')),
+            'lines' => [],
+        ];
+    }
+    if ($lineType !== 'BUNDLE_HEADER') {
+        $displayEntries[$bundleIndexes[$bundleKey]]['lines'][] = $line;
+    }
+}
+$displayEntries = array_values(array_filter($displayEntries, static function (array $entry): bool {
+    return $entry['type'] !== 'BUNDLE' || !empty($entry['lines']);
+}));
 $payments = is_array($payments ?? null) ? $payments : [];
 $refunds = is_array($refunds ?? null) ? $refunds : [];
 $documentType = ($document_type ?? 'invoice') === 'receipt' ? 'receipt' : 'invoice';
@@ -71,6 +102,10 @@ $paymentState = $remaining <= 0.009 && $paidTotal > 0 ? 'LUNAS' : ($paidTotal > 
     tr:last-child td { border-bottom:0; }
     .text-end { text-align:right; white-space:nowrap; }
     .product { font-weight:800; }
+    .bundle-row td { padding:8px 10px; background:#fff4e8; color:var(--accent-deep); border-top:1px solid #efcfb6; border-bottom:1px solid #efcfb6; font-weight:900; text-transform:uppercase; letter-spacing:.03em; }
+    .bundle-meta { margin-top:2px; color:#9f6b31; font-size:9px; font-weight:700; text-transform:none; }
+    .bundle-item { padding-left:14px; position:relative; }
+    .bundle-item::before { content:""; position:absolute; left:2px; top:7px; width:7px; height:7px; border-left:1px solid #ba8d68; border-bottom:1px solid #ba8d68; }
     .product-meta, .note { color:var(--muted); font-size:10px; margin-top:2px; }
     .extra { color:var(--muted); font-size:10px; margin-top:3px; }
     .totals { width:100%; max-width:310px; margin:15px 0 0 auto; }
@@ -103,11 +138,30 @@ $paymentState = $remaining <= 0.009 && $paidTotal > 0 ? 'LUNAS' : ($paidTotal > 
     </section>
 
     <section class="panel"><div class="panel-title">Rincian Pesanan</div><table><thead><tr><th>Produk</th><th class="text-end">Qty</th><th class="text-end">Harga</th><th class="text-end">Total</th></tr></thead><tbody>
-      <?php foreach ($lines as $line): ?>
-      <?php $extras = (array)($line['extras'] ?? []); $lineAmount = (float)($line['net_amount'] ?? 0); foreach ($extras as $extra) $lineAmount += (float)($extra['net_amount'] ?? 0); ?>
-      <tr><td><div class="product"><?php echo html_escape((string)($line['product_name'] ?? $line['bundle_name'] ?? '-')); ?></div><div class="product-meta"><?php echo html_escape((string)($line['product_code'] ?? $line['bundle_code'] ?? '')); ?></div><?php foreach ($extras as $extra): ?><div class="extra">+ <?php echo html_escape((string)($extra['extra_name'] ?? '-')); ?> (<?php echo $qty($extra['qty'] ?? 0); ?> x <?php echo $money($extra['unit_price'] ?? 0); ?>)</div><?php endforeach; ?><?php if (trim((string)($line['notes'] ?? '')) !== ''): ?><div class="note">Catatan: <?php echo html_escape((string)$line['notes']); ?></div><?php endif; ?></td><td class="text-end"><?php echo $qty($line['qty'] ?? 0); ?></td><td class="text-end"><?php echo $money($line['unit_price'] ?? 0); ?></td><td class="text-end"><?php echo $money($lineAmount); ?></td></tr>
+      <?php foreach ($displayEntries as $entry): ?>
+        <?php if ($entry['type'] === 'BUNDLE'): ?>
+          <?php $bundleLabel = trim((string)($entry['bundle_name'] ?? '')) ?: (trim((string)($entry['bundle_code'] ?? '')) ?: 'Paket bundle'); ?>
+          <tr class="bundle-row"><td colspan="4">Paket: <?php echo html_escape($bundleLabel); ?><div class="bundle-meta"><?php echo html_escape((string)($entry['bundle_code'] ?? '')); ?></div></td></tr>
+          <?php $entryLines = (array)($entry['lines'] ?? []); $isBundleItem = true; ?>
+        <?php else: ?>
+          <?php $entryLines = [(array)($entry['line'] ?? [])]; $isBundleItem = false; ?>
+        <?php endif; ?>
+        <?php foreach ($entryLines as $line): ?>
+          <?php $extras = (array)($line['extras'] ?? []); $lineAmount = (float)($line['net_amount'] ?? 0); foreach ($extras as $extra) { $lineAmount += (float)($extra['net_amount'] ?? 0); } ?>
+          <tr>
+            <td>
+              <div class="product<?php echo $isBundleItem ? ' bundle-item' : ''; ?>"><?php echo html_escape((string)($line['product_name'] ?? '-')); ?></div>
+              <div class="product-meta<?php echo $isBundleItem ? ' bundle-item' : ''; ?>"><?php echo html_escape((string)($line['product_code'] ?? '')); ?></div>
+              <?php foreach ($extras as $extra): ?><div class="extra<?php echo $isBundleItem ? ' bundle-item' : ''; ?>">+ <?php echo html_escape((string)($extra['extra_name'] ?? '-')); ?> (<?php echo $qty($extra['qty'] ?? 0); ?> x <?php echo $money($extra['unit_price'] ?? 0); ?>)</div><?php endforeach; ?>
+              <?php if (trim((string)($line['notes'] ?? '')) !== ''): ?><div class="note<?php echo $isBundleItem ? ' bundle-item' : ''; ?>">Catatan: <?php echo html_escape((string)$line['notes']); ?></div><?php endif; ?>
+            </td>
+            <td class="text-end"><?php echo $qty($line['qty'] ?? 0); ?></td>
+            <td class="text-end"><?php echo $money($line['unit_price'] ?? 0); ?></td>
+            <td class="text-end"><?php echo $money($lineAmount); ?></td>
+          </tr>
+        <?php endforeach; ?>
       <?php endforeach; ?>
-      <?php if (empty($lines)): ?><tr><td colspan="4">Tidak ada item.</td></tr><?php endif; ?>
+      <?php if (empty($displayEntries)): ?><tr><td colspan="4">Tidak ada item.</td></tr><?php endif; ?>
     </tbody></table></section>
 
     <table class="totals"><tbody><tr><td>Subtotal</td><td class="text-end"><?php echo $money($header['subtotal_amount'] ?? 0); ?></td></tr><?php if ($discountTotal > 0): ?><tr><td>Potongan</td><td class="text-end">- <?php echo $money($discountTotal); ?></td></tr><?php endif; ?><?php if ((float)($header['tax_amount'] ?? 0) > 0): ?><tr><td>Pajak</td><td class="text-end"><?php echo $money($header['tax_amount'] ?? 0); ?></td></tr><?php endif; ?><?php if ((float)($header['service_amount'] ?? 0) > 0): ?><tr><td>Service</td><td class="text-end"><?php echo $money($header['service_amount'] ?? 0); ?></td></tr><?php endif; ?><tr class="total"><td>Grand Total</td><td class="text-end"><?php echo $money($grandTotal); ?></td></tr></tbody></table>

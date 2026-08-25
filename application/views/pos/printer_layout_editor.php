@@ -46,26 +46,25 @@ $formData = array_merge($default, $layout, $payload);
 $isExisting = !empty($layout['id']);
 ?>
 <style>
-  .layout-editor-grid{display:grid;grid-template-columns:minmax(420px,.95fr) minmax(430px,1.05fr);gap:1rem;align-items:stretch;min-height:min(78vh,860px)}
-  .layout-editor-controls,.layout-editor-preview>.print-config-card{height:min(78vh,860px);min-height:650px;overflow:hidden}.layout-editor-controls .card-body,.layout-editor-preview>.print-config-card>.card-body{height:100%;display:flex;flex-direction:column;padding:0}
+  .layout-editor-grid{display:grid;grid-template-columns:minmax(420px,.93fr) minmax(480px,1.07fr);gap:1rem;align-items:stretch;min-height:clamp(620px,calc(100vh - 220px),960px)}
+  .layout-editor-controls,.layout-editor-preview>.print-config-card{height:clamp(620px,calc(100vh - 220px),960px);min-height:0;overflow:hidden}.layout-editor-controls .card-body,.layout-editor-preview>.print-config-card>.card-body{height:100%;display:flex;flex-direction:column;padding:0}
   .layout-editor-form-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:1.15rem 1.15rem 1.5rem}.layout-editor-savebar{flex:0 0 auto;display:flex;justify-content:flex-end;gap:.55rem;align-items:center;padding:.85rem 1.15rem;background:rgba(255,255,255,.96);border-top:1px solid #eadbd3;box-shadow:0 -8px 18px rgba(90,53,43,.05)}
-  .layout-editor-preview{position:sticky;top:12px;align-self:start}.layout-editor-preview-head{flex:0 0 auto;padding:1.15rem 1.15rem .75rem}.layout-editor-preview-controls{padding:0 1.15rem .75rem}.layout-editor-preview-stage-wrap{display:flex;flex:1;min-height:0;padding:0 1.15rem 1.15rem}
+  .layout-editor-preview{position:sticky;top:12px;align-self:start}.layout-editor-preview-stage-wrap{display:flex;flex:1;min-height:0;padding:.75rem}
   .layout-editor-switches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.48rem}
   .layout-editor-switch{display:flex;gap:.55rem;align-items:center;min-height:40px;border:1px solid #ebdcd4;border-radius:10px;padding:.42rem .52rem;background:#fff}
   .layout-editor-switch .form-check-input{margin:0;flex:0 0 auto}
   .layout-editor-switch label{font-size:.82rem;line-height:1.25;color:#554640}
   .layout-editor-section{margin:0 0 .8rem;border:1px solid #eadbd3;border-radius:13px;background:#fff;overflow:hidden}.layout-editor-section>summary{display:flex;align-items:center;justify-content:space-between;gap:.6rem;cursor:pointer;list-style:none;padding:.8rem .9rem;background:#fcf7f4;color:#513b35;font-weight:800;font-size:.9rem}.layout-editor-section>summary::-webkit-details-marker{display:none}.layout-editor-section>summary:after{content:'+';display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#f2e2da;color:#a80e27;font-size:1rem}.layout-editor-section[open]>summary:after{content:'-';background:#a80e27;color:#fff}.layout-editor-section-body{padding:.85rem}
-  .layout-preview-stage{width:100%;min-height:0;display:flex;align-items:center;justify-content:center;padding:1.5rem;background:radial-gradient(circle at 50% 10%,#4a4f58 0,#1d2025 56%,#101216 100%);border-radius:16px;overflow:auto}
-  .layout-preview-paper{--preview-paper-width:440px;--preview-font-size:13px;box-sizing:border-box;width:min(100%,var(--preview-paper-width));background:#fff;color:#1f1f1f;box-shadow:0 18px 34px rgba(0,0,0,.36);padding:1rem;min-height:360px;transition:width .15s ease}
-  .layout-preview-paper.paper-58{--preview-paper-width:319px}
-  .layout-preview-paper.paper-80{--preview-paper-width:440px}
-  .layout-preview-paper img{display:block;max-width:62%;max-height:76px;margin:0 auto .7rem;object-fit:contain}
+  .layout-preview-stage{width:100%;min-height:0;flex:1;display:flex;align-items:flex-start;justify-content:center;padding:1rem;background:radial-gradient(circle at 50% 10%,#4a4f58 0,#1d2025 56%,#101216 100%);border-radius:16px;overflow-x:hidden;overflow-y:auto}
+  .layout-preview-paper{--preview-paper-width:340px;--preview-font-size:9.6px;box-sizing:border-box;width:min(100%,var(--preview-paper-width));margin:0 auto;flex:0 0 auto;background:#fff;color:#1f1f1f;box-shadow:0 18px 34px rgba(0,0,0,.36);padding:.85rem;min-height:360px;transition:width .15s ease}
+  .layout-preview-paper.paper-58{--preview-paper-width:250px}
+  .layout-preview-paper.paper-80{--preview-paper-width:340px}
+  .layout-preview-paper>img{display:block;max-width:62%;max-height:76px;margin:0 auto .7rem;object-fit:contain}
   .layout-preview-paper pre{margin:0;overflow-x:auto;white-space:pre;background:transparent;border:0;padding:0;font-family:Consolas,"Courier New",monospace;font-size:var(--preview-font-size);line-height:1.42;color:#1d2025;tab-size:4}
   .layout-preview-qr{display:flex;align-items:center;justify-content:center;gap:.7rem;margin-top:.8rem;padding-top:.8rem;border-top:1px dashed #c9b8ae;text-align:center;font:700 .7rem Arial,sans-serif;color:#554640}
-  .layout-preview-qr .qr-copy{max-width:175px;line-height:1.35}.layout-preview-qr img{width:82px;height:82px;flex:0 0 auto;display:block;padding:4px;border:1px solid #d9c3b8;background:#fff;border-radius:5px}
+  .layout-preview-qr .qr-copy{max-width:175px;line-height:1.35}.layout-preview-qr-code{width:82px;height:82px;flex:0 0 auto;display:grid;place-items:center;padding:4px;border:1px solid #d9c3b8;background:#fff;border-radius:5px}.layout-preview-qr-code img,.layout-preview-qr-code canvas{display:none!important}.layout-preview-qr-code [data-pos-qr-visual="true"]{display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;image-rendering:pixelated}
   .layout-preview-paper.paper-58 .layout-preview-qr{flex-direction:column;gap:.5rem}.layout-preview-paper.paper-58 .layout-preview-qr .qr-copy{max-width:100%}
-  .layout-preview-meta{display:flex;justify-content:space-between;gap:.5rem;align-items:center;padding:.55rem .75rem;background:#f8f4f1;border:1px solid #eadbd3;border-radius:10px;margin-bottom:.75rem;font-size:.78rem;color:#6f5c54}
-  @media(max-width:1199.98px){.layout-editor-grid{grid-template-columns:minmax(360px,.95fr) minmax(400px,1.05fr)}.layout-editor-switches{grid-template-columns:1fr}}
+  @media(max-width:1199.98px){.layout-editor-grid{grid-template-columns:minmax(360px,.93fr) minmax(430px,1.07fr)}.layout-editor-switches{grid-template-columns:1fr}}
   @media(max-width:991.98px){.layout-editor-grid{grid-template-columns:1fr;min-height:0}.layout-editor-controls,.layout-editor-preview>.print-config-card{height:auto;min-height:0;overflow:visible}.layout-editor-controls .card-body,.layout-editor-preview>.print-config-card>.card-body{height:auto}.layout-editor-form-scroll{overflow:visible}.layout-editor-preview{position:static}.layout-preview-stage{min-height:460px}.layout-editor-switches{grid-template-columns:1fr}}
 </style>
 <div class="container-xxl py-3 print-config-page">
@@ -82,19 +81,20 @@ $isExisting = !empty($layout['id']);
         <div class="col-md-4"><label class="form-label">Posisi footer</label><select class="form-select" name="footer_align"><?php foreach (['LEFT'=>'Kiri','CENTER'=>'Tengah','RIGHT'=>'Kanan'] as $key=>$label): ?><option value="<?= $key ?>" <?= (($formData['footer_align'] ?? 'CENTER') === $key) ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select></div>
         <div class="col-md-4"><label class="form-label">Sumber barcode footer</label><select class="form-select" name="footer_barcode_source"><?php foreach (['ORDER_NO'=>'Nomor order','PAYMENT_NO'=>'Nomor pembayaran','VOID_NO'=>'Nomor void','REFUND_NO'=>'Nomor refund','VOUCHER_CODE'=>'Kode voucher','CUSTOM'=>'Teks khusus'] as $key=>$label): ?><option value="<?= $key ?>" <?= (($formData['footer_barcode_source'] ?? 'ORDER_NO') === $key) ? 'selected' : '' ?>><?= $label ?></option><?php endforeach; ?></select></div>
         <div class="col-12"><label class="form-label">Teks barcode khusus</label><input class="form-control" name="footer_barcode_custom" value="<?= html_escape((string)($formData['footer_barcode_custom'] ?? '')) ?>" placeholder="Hanya dipakai jika sumber barcode adalah teks khusus."></div>
+        <div class="col-12"><details class="layout-editor-section" open><summary>Simulasi ukuran & test printer</summary><div class="layout-editor-section-body"><div class="row g-3"><div class="col-12"><label class="form-label">Preview menggunakan koneksi</label><select id="preview-connection" class="form-select"><option value="0" <?= $previewConnectionId <= 0 ? 'selected' : '' ?>>Ukuran standar 80 mm / 48 karakter</option><?php foreach ($connections as $connection): ?><option value="<?= (int)$connection['id'] ?>" <?= (int)$connection['id'] === $previewConnectionId ? 'selected' : '' ?>><?= html_escape((string)$connection['connection_name']) ?> - <?= (int)($connection['paper_width_mm'] ?? 80) ?> mm / <?= (int)($connection['chars_per_line'] ?? 48) ?> karakter</option><?php endforeach; ?></select><div class="form-text">Pilihan ini hanya mengatur simulasi di layar. Ukuran dan jumlah karakter cetak tetap mengikuti koneksi pada Aturan Cetak.</div></div><?php if ($isExisting): ?><div class="col-12 border-top pt-3"><label class="form-label">Test ke printer yang memakai layout ini</label><?php if (!empty($testRoutes)): ?><div class="input-group"><select class="form-select" id="layout-test-route"><?php foreach ($testRoutes as $route): ?><option value="<?= (int)$route['id'] ?>"><?= html_escape((string)$route['route_name']) ?> - <?= html_escape((string)$route['connection_name']) ?></option><?php endforeach; ?></select><?php if ($canSave): ?><button type="button" class="btn btn-outline-primary" id="test-layout"><?= $this->load->view('pos/_icon', ['name' => 'print', 'label' => 'Test cetak'], true) ?><span class="ms-1">Test</span></button><?php endif; ?></div><div class="form-text">Test memakai aturan ini, sehingga hasilnya dikirim ke printer fisik yang benar.</div><?php else: ?><div class="print-config-note">Layout ini belum tersambung ke Aturan Cetak aktif. Simpan, hubungkan di <a href="<?= site_url('pos/printers/rules') ?>">Aturan Cetak</a>, lalu kembali ke sini untuk test.</div><?php endif; ?></div><?php else: ?><div class="col-12 border-top pt-3"><div class="print-config-note">Simpan layout terlebih dahulu. Setelah dihubungkan ke Aturan Cetak, pilihan test printer akan tersedia di sini.</div></div><?php endif; ?></div></div></details></div>
         <div class="col-12"><div class="print-config-kicker mb-1">Data yang ditampilkan</div><div class="small text-muted mb-2">Buka bagian yang ingin diatur. Setiap perubahan langsung tercermin pada kertas di kanan.</div><div id="layout-review-qr-hint" class="alert alert-warning small py-2 mb-2 <?= !empty($generalPayload['customer_review_qr_enabled']) ? 'd-none' : '' ?>"><strong>QR ulasan belum aktif secara umum.</strong> Toggle pada layout hanya menentukan struk ini boleh menampilkan QR. Aktifkan sumber QR di <a href="<?= site_url('pos/customer-reviews') ?>">Ulasan Pelanggan</a> agar preview dan hasil cetak benar-benar menampilkannya.</div><?php foreach ($switchGroups as $groupName => $keys): ?><details class="layout-editor-section" <?= $groupName === 'Identitas & waktu' ? 'open' : '' ?>><summary><?= html_escape($groupName) ?></summary><div class="layout-editor-section-body"><div class="layout-editor-switches"><?php foreach ($keys as $key): $label = $switches[$key] ?? $key; ?><div class="layout-editor-switch"><input class="form-check-input" type="checkbox" role="switch" name="<?= $key ?>" id="<?= $key ?>" value="1" <?= !empty($formData[$key]) ? 'checked' : '' ?>><label for="<?= $key ?>"><?= html_escape($label) ?></label></div><?php endforeach; ?></div></div></details><?php endforeach; ?></div>
         <div class="col-md-6"><div class="layout-editor-switch"><input class="form-check-input" type="checkbox" role="switch" name="is_default" id="is-default" value="1" <?= !empty($formData['is_default']) ? 'checked' : '' ?>><label for="is-default">Jadikan layout default untuk jenis dokumen ini</label></div></div>
         <div class="col-md-6"><div class="layout-editor-switch"><input class="form-check-input" type="checkbox" role="switch" name="is_active" id="is-active" value="1" <?= !empty($formData['is_active']) ? 'checked' : '' ?>><label for="is-active">Layout siap dipakai pada aturan cetak</label></div></div>
       </form>
       <div class="layout-editor-savebar"><a class="btn btn-light" href="<?= site_url('pos/printers/layouts') ?>">Batal</a><?php if ($canSave): ?><button type="button" class="btn btn-primary" id="save-layout"><?= $this->load->view('pos/_icon', ['name' => 'save', 'label' => ''], true) ?><span class="ms-1">Simpan Layout</span></button><?php endif; ?></div>
     </div></section>
-    <aside class="layout-editor-preview"><section class="card print-config-card"><div class="card-body"><div class="layout-editor-preview-head"><div class="d-flex align-items-start justify-content-between gap-2"><div><div class="print-config-kicker">Preview langsung</div><h5 class="mb-0">Contoh hasil cetak</h5></div><span class="print-config-status generated" id="preview-paper-label">80 mm</span></div></div>
-      <div class="layout-editor-preview-controls"><label class="form-label">Simulasikan di printer</label><select id="preview-connection" class="form-select"><option value="0" <?= $previewConnectionId <= 0 ? 'selected' : '' ?>>Gunakan ukuran standar 80 mm</option><?php foreach ($connections as $connection): ?><option value="<?= (int)$connection['id'] ?>" <?= (int)$connection['id'] === $previewConnectionId ? 'selected' : '' ?>><?= html_escape((string)$connection['connection_name']) ?> - <?= (int)($connection['paper_width_mm'] ?? 80) ?> mm / <?= (int)($connection['chars_per_line'] ?? 48) ?> karakter</option><?php endforeach; ?></select><div class="layout-preview-meta mt-2"><span id="preview-document-label">Struk pembayaran</span><span id="preview-char-label">48 karakter</span></div></div>
-      <div class="layout-editor-preview-stage-wrap"><div class="layout-preview-stage"><div class="layout-preview-paper paper-80" id="layout-preview-paper"><img id="layout-preview-logo" class="d-none" alt="Logo pada layout"><pre id="layout-preview-lines">Menyiapkan preview...</pre><div class="layout-preview-qr d-none" id="layout-preview-qr"><img class="d-none" id="layout-preview-qr-image" alt="QR ulasan pelanggan"><div class="qr-copy" id="layout-preview-qr-message"></div></div></div></div></div>
-      <?php if ($isExisting): ?><div class="layout-editor-preview-controls border-top pt-3"><label class="form-label">Test ke printer yang memakai layout ini</label><?php if (!empty($testRoutes)): ?><div class="input-group"><select class="form-select" id="layout-test-route"><?php foreach ($testRoutes as $route): ?><option value="<?= (int)$route['id'] ?>"><?= html_escape((string)$route['route_name']) ?> - <?= html_escape((string)$route['connection_name']) ?></option><?php endforeach; ?></select><?php if ($canSave): ?><button type="button" class="btn btn-outline-primary" id="test-layout"><?= $this->load->view('pos/_icon', ['name' => 'print', 'label' => 'Test cetak'], true) ?><span class="ms-1">Test</span></button><?php endif; ?></div><div class="form-text">Test memakai layout ini dan koneksi fisik yang dipilih oleh aturan tersebut.</div><?php else: ?><div class="print-config-note">Layout ini belum tersambung ke aturan cetak aktif. Simpan, hubungkan di <a href="<?= site_url('pos/printers/rules') ?>">Aturan Cetak</a>, lalu kembali ke sini untuk test pada printer fisik.</div><?php endif; ?></div><?php else: ?><div class="layout-editor-preview-controls pt-0"><div class="print-config-note">Simpan layout terlebih dahulu. Setelah dihubungkan ke Aturan Cetak, tombol test akan muncul di sini.</div></div><?php endif; ?>
+    <aside class="layout-editor-preview"><section class="card print-config-card"><div class="card-body">
+      <div class="layout-editor-preview-stage-wrap"><div class="layout-preview-stage"><div class="layout-preview-paper paper-80" id="layout-preview-paper"><img id="layout-preview-logo" class="d-none" alt="Logo pada layout"><pre id="layout-preview-lines">Menyiapkan preview...</pre><div class="layout-preview-qr d-none" id="layout-preview-qr"><div class="layout-preview-qr-code d-none" id="layout-preview-qr-image" role="img" aria-label="QR ulasan pelanggan"></div><div class="qr-copy" id="layout-preview-qr-message"></div></div></div></div></div>
     </div></section></aside>
   </div>
 </div>
+<script src="<?= base_url('assets/vendor/qrcodejs/qrcode.min.js') ?>"></script>
+<script src="<?= base_url('assets/js/pos-local-qr.js') ?>?v=20260825g"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const ui = window.PrinterConfigUI;
@@ -107,15 +107,13 @@ document.addEventListener('DOMContentLoaded', function () {
   const previewQrImage = document.getElementById('layout-preview-qr-image');
   const previewQrMessage = document.getElementById('layout-preview-qr-message');
   const reviewQrHint = document.getElementById('layout-review-qr-hint');
-  const paperLabel = document.getElementById('preview-paper-label');
-  const documentLabel = document.getElementById('preview-document-label');
-  const charLabel = document.getElementById('preview-char-label');
   let previewTimer = null;
   function payload() { const result = ui.formObject(form); result.connection_id = Number(previewConnection.value || 0); return result; }
+  function clearPreviewQr() { previewQrMessage.textContent = ''; if (window.PosLocalQr) { window.PosLocalQr.clear(previewQrImage); } else { previewQrImage.textContent = ''; } previewQrImage.classList.add('d-none'); }
   function applyPreviewPaperMetrics(width, chars) {
-    const paperPixels = width === 58 ? 319 : 440;
-    const printablePixels = Math.max(200, paperPixels - 32);
-    const fontSize = Math.max(10, Math.min(13, printablePixels / Math.max(1, chars) / 0.606));
+    const paperPixels = width === 58 ? 250 : 340;
+    const printablePixels = Math.max(160, paperPixels - 28);
+    const fontSize = Math.max(8.2, Math.min(9.8, printablePixels / Math.max(1, chars) / 0.606));
     previewPaper.className = 'layout-preview-paper paper-' + width;
     previewPaper.style.setProperty('--preview-font-size', fontSize.toFixed(2) + 'px');
   }
@@ -131,9 +129,6 @@ document.addEventListener('DOMContentLoaded', function () {
       // still scroll inside the dark stage to inspect a long thermal receipt.
       const previewStage = document.querySelector('.layout-preview-stage');
       if (previewStage) previewStage.scrollTop = 0;
-      paperLabel.textContent = width + ' mm';
-      documentLabel.textContent = String(preview.document_type_label || 'Dokumen');
-      charLabel.textContent = String(chars) + ' karakter';
       if (preview.logo_url) { previewLogo.src = String(preview.logo_url); previewLogo.classList.remove('d-none'); } else { previewLogo.removeAttribute('src'); previewLogo.classList.add('d-none'); }
       const reviewQr = preview.customer_review_qr || {};
       if (reviewQrHint) {
@@ -145,18 +140,18 @@ document.addEventListener('DOMContentLoaded', function () {
         const qrUrl = String(reviewQr.url || '');
         previewQrMessage.textContent = String(reviewQr.message || 'Bagikan ulasan Anda dengan scan QR berikut.');
         if (qrUrl !== '') {
-          previewQrImage.src = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&ecc=H&data=' + encodeURIComponent(qrUrl);
+          const rendered = Boolean(window.PosLocalQr && window.PosLocalQr.render(previewQrImage, qrUrl, {size: 220, label: 'QR ulasan pelanggan'}));
           previewQrImage.classList.remove('d-none');
+          if (!rendered) previewQrMessage.textContent += ' (QR belum dapat dimuat. Muat ulang halaman.)';
         } else {
-          previewQrImage.removeAttribute('src');
-          previewQrImage.classList.add('d-none');
+          clearPreviewQr();
           previewQrMessage.textContent += ' (QR area akan tersedia setelah migration ulasan dipasang.)';
         }
         previewQr.classList.remove('d-none');
       } else {
-        previewQrMessage.textContent = ''; previewQrImage.removeAttribute('src'); previewQrImage.classList.add('d-none'); previewQr.classList.add('d-none');
+        clearPreviewQr(); previewQr.classList.add('d-none');
       }
-    } catch (error) { previewLines.textContent = 'Preview tidak dapat dibuat.\n' + String(error.message || 'Coba periksa data layout.'); previewQrMessage.textContent = ''; previewQrImage.removeAttribute('src'); previewQrImage.classList.add('d-none'); previewQr.classList.add('d-none'); }
+    } catch (error) { previewLines.textContent = 'Preview tidak dapat dibuat.\n' + String(error.message || 'Coba periksa data layout.'); clearPreviewQr(); previewQr.classList.add('d-none'); }
   }
   function schedulePreview() { window.clearTimeout(previewTimer); previewTimer = window.setTimeout(renderPreview, 180); }
   form.addEventListener('input', schedulePreview); form.addEventListener('change', schedulePreview); previewConnection.addEventListener('change', renderPreview);
