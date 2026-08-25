@@ -75,6 +75,12 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     border:1px solid rgba(224,209,198,.7); border-radius:14px; padding:.75rem .85rem; background:#fffdfb;
   }
   .self-order-line-card + .self-order-line-card, .self-order-payment-card + .self-order-payment-card { margin-top:.6rem; }
+  .self-order-bundle-card { border:1px solid rgba(194,34,43,.22); border-radius:15px; padding:.75rem; background:#fff9f5; }
+  .self-order-bundle-title { color:#8f1924; font-size:.78rem; font-weight:900; letter-spacing:.035em; text-transform:uppercase; }
+  .self-order-bundle-code { color:#9a7f70; font-size:.7rem; margin-top:.12rem; }
+  .self-order-bundle-lines { display:grid; gap:.45rem; margin-top:.65rem; }
+  .self-order-bundle-lines .self-order-line-card { border-color:rgba(224,209,198,.85); box-shadow:none; margin-top:0; }
+  .self-order-line-card.is-bundle-item { padding-left:1rem; }
   .self-order-line-preview { display:grid; gap:.6rem; }
   .self-order-extra-list { margin-top:.45rem; display:grid; gap:.35rem; }
   .self-order-extra-chip { display:inline-flex; align-items:center; gap:.35rem; padding:.18rem .5rem; border-radius:999px; background:#fff1e8; color:#9a4e0f; font-size:.72rem; font-weight:700; margin-right:.35rem; }
@@ -658,30 +664,80 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     return detail;
   }
 
+  function buildOrderLineEntries(lines) {
+    const entries = [];
+    const bundles = new Map();
+    (Array.isArray(lines) ? lines : []).forEach((line) => {
+      const bundleId = Number(line && line.bundle_id ? line.bundle_id : 0);
+      const lineType = String(line && line.line_type ? line.line_type : 'PRODUCT').toUpperCase();
+      if (bundleId <= 0) {
+        if (lineType !== 'BUNDLE_HEADER') {
+          entries.push({ type: 'LINE', line });
+        }
+        return;
+      }
+
+      const bundleKey = `bundle-${bundleId}`;
+      if (!bundles.has(bundleKey)) {
+        const bundle = {
+          type: 'BUNDLE',
+          bundle_id: bundleId,
+          bundle_name: line.bundle_name || 'Paket bundle',
+          bundle_code: line.bundle_code || '',
+          lines: []
+        };
+        bundles.set(bundleKey, bundle);
+        entries.push(bundle);
+      }
+
+      const bundle = bundles.get(bundleKey);
+      if (line.bundle_name) bundle.bundle_name = line.bundle_name;
+      if (line.bundle_code) bundle.bundle_code = line.bundle_code;
+      if (lineType !== 'BUNDLE_HEADER') {
+        bundle.lines.push(line);
+      }
+    });
+    return entries.filter((entry) => entry.type !== 'BUNDLE' || entry.lines.length > 0);
+  }
+
+  function renderOrderLineCard(line, isBundleItem = false) {
+    const extras = Array.isArray(line.extras) ? line.extras : [];
+    return `
+      <div class="self-order-line-card${isBundleItem ? ' is-bundle-item' : ''}">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div>
+            <div class="fw-semibold">${isBundleItem ? '-> ' : ''}${escapeHtml(line.product_name || line.bundle_name || '-')}</div>
+            <div class="self-order-subtle">${escapeHtml(line.product_code || line.bundle_code || '')}</div>
+          </div>
+          <div class="text-end">
+            <div class="fw-semibold">x${Number(line.qty || 0)}</div>
+            <div class="self-order-subtle">${money(line.net_amount || 0)}</div>
+          </div>
+        </div>
+        ${String(line.notes || '').trim() !== '' ? `<div class="self-order-subtle mt-2">Catatan: ${escapeHtml(line.notes)}</div>` : ''}
+        ${extras.length ? `<div class="self-order-extra-list">${extras.map((extra) => {
+          const extraLabel = `${escapeHtml(extra.extra_name || '-')} x${Number(extra.qty || 0)}`;
+          const extraNote = String(extra.notes || '').trim() !== '' ? ` | ${escapeHtml(extra.notes)}` : '';
+          return `<span class="self-order-extra-chip">${extraLabel}${extraNote}</span>`;
+        }).join('')}</div>` : ''}
+      </div>
+    `;
+  }
+
   function renderOrderLineCards(lines, emptyMessage = 'Belum ada line order.') {
     if (!Array.isArray(lines) || !lines.length) {
       return `<div class="self-order-empty">${escapeHtml(emptyMessage)}</div>`;
     }
-    return lines.map((line) => {
-      const extras = Array.isArray(line.extras) ? line.extras : [];
+    return buildOrderLineEntries(lines).map((entry) => {
+      if (entry.type !== 'BUNDLE') {
+        return renderOrderLineCard(entry.line || {}, false);
+      }
+      const bundleLabel = entry.bundle_name || entry.bundle_code || 'Paket bundle';
       return `
-        <div class="self-order-line-card">
-          <div class="d-flex justify-content-between align-items-start gap-2">
-            <div>
-              <div class="fw-semibold">${escapeHtml(line.product_name || line.bundle_name || '-')}</div>
-              <div class="self-order-subtle">${escapeHtml(line.product_code || line.bundle_code || '')}</div>
-            </div>
-            <div class="text-end">
-              <div class="fw-semibold">x${Number(line.qty || 0)}</div>
-              <div class="self-order-subtle">${money(line.net_amount || 0)}</div>
-            </div>
-          </div>
-          ${String(line.notes || '').trim() !== '' ? `<div class="self-order-subtle mt-2">Catatan: ${escapeHtml(line.notes)}</div>` : ''}
-          ${extras.length ? `<div class="self-order-extra-list">${extras.map((extra) => {
-            const extraLabel = `${escapeHtml(extra.extra_name || '-')} x${Number(extra.qty || 0)}`;
-            const extraNote = String(extra.notes || '').trim() !== '' ? ` • ${escapeHtml(extra.notes)}` : '';
-            return `<span class="self-order-extra-chip">${extraLabel}${extraNote}</span>`;
-          }).join('')}</div>` : ''}
+        <div class="self-order-bundle-card">
+          <div class="self-order-bundle-title">Paket: ${escapeHtml(bundleLabel)}</div>
+          ${entry.bundle_code ? `<div class="self-order-bundle-code">${escapeHtml(entry.bundle_code)}</div>` : ''}
+          <div class="self-order-bundle-lines">${entry.lines.map((line) => renderOrderLineCard(line || {}, true)).join('')}</div>
         </div>
       `;
     }).join('');

@@ -1,54 +1,90 @@
-# POS Printer Local Service
+# Namua POS Printer Local Agent
 
-Service ini mengikuti pola dashboard:
+Local Agent menjembatani browser POS dengan printer fisik Bluetooth, serial, atau USB. Aplikasi Finance menyimpan koneksi, layout, dan aturan cetak di database. Agent membaca printer aktif dari API bootstrap, lalu membuka endpoint lokal untuk setiap printer.
 
-- printer Bluetooth diidentifikasi dengan `mac_address`
-- service Python lokal berjalan di laptop kasir
-- browser POS mengirim payload ke `http://127.0.0.1:{python_port}/cetak`
-- service lokal mendeteksi COM dari MAC lalu mencetak raw ESC/POS
+## Cara kerja
 
-## Alur kerja
+1. Admin mengatur koneksi printer, tampilan umum, layout, dan aturan cetak di Finance.
+2. Browser POS pada komputer kasir mengirim pekerjaan ke `http://127.0.0.1:<python_port>/cetak`.
+3. Agent memilih printer berdasarkan data bootstrap dan mengirim teks ESC/POS, logo, serta QR fisik.
+4. Layout/routing yang diubah di Finance akan di-refresh oleh agent secara berkala. Restart hanya diperlukan bila port agent diubah atau agent bermasalah.
 
-1. `core` menyimpan master printer, route, dan template.
-2. Service lokal membaca printer aktif dari endpoint bootstrap.
-3. Saat kasir melakukan `Simpan Transaksi`, `Payment`, `Void`, atau `Refund`, browser menerima `print_jobs`.
-4. Browser memanggil `localhost:{python_port}/cetak`.
-5. Service lokal akan refresh daftar printer dari API `core` secara berkala dan menulis ulang daftar printer aktif ke `config.json` lokal.
+Agent sengaja hanya mendengarkan `127.0.0.1`. Browser POS dan agent harus berjalan pada komputer kasir yang sama.
 
-Catatan:
-- restart service tetap diperlukan bila Anda mengubah `python_port`, karena port lama sudah terikat di proses yang sedang berjalan.
-- perubahan routing printer/divisi dibaca langsung dari `core`, bukan dari `config.json`.
-6. Service lokal mencetak ke printer Bluetooth yang MAC-nya sesuai.
+## File yang disalin ke komputer kasir
+
+Salin folder ini secara utuh. Minimal file berikut harus ada:
+
+- `agent.py`
+- `requirements.txt`
+- `config.example.json`, lalu salin menjadi `config.json`
+- `run_windows.bat` atau `run_linux.sh`
+- `detect_windows.bat` atau `detect_linux.sh`
+- `detect_printers.py` dan `check_saved_printers.py` untuk pemeriksaan
+
+Jangan salin `config.json` dari komputer lain tanpa memeriksa nama agent, API key, dan perangkatnya.
 
 ## Dependensi
 
-```bash
-pip install -r requirements.txt
+```text
+Flask>=3.0.0
+flask-cors>=4.0.0
+pyserial>=3.5
+Pillow>=10.0.0
+qrcode[pil]>=7.4.2
 ```
 
-Isi `requirements.txt` sekarang:
+`qrcode[pil]` dan `Pillow` wajib agar QR ulasan dapat tercetak sebagai gambar pada kertas.
 
-- `Flask`
-- `flask-cors`
-- `pyserial`
-- `Pillow`
+## Windows
 
-## Instalasi Windows
+1. Install Python 3.10+ dari https://www.python.org/downloads/windows/ dan centang `Add Python to PATH`.
+2. Salin folder ini, misalnya ke `C:\NamuaPosPrinterAgent`.
+3. Buka Command Prompt pada folder tersebut:
 
 ```bat
-cd C:\pos_printer_agent
+cd C:\NamuaPosPrinterAgent
 python -m venv .venv
 .venv\Scripts\activate
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Download dari halaman panduan printer di `core`:
+4. Hubungkan dan nyalakan printer, kemudian jalankan `detect_windows.bat`.
+5. Salin `config.example.json` menjadi `config.json`, lalu isi konfigurasi agent yang benar.
+6. Uji bootstrap:
 
-- `agent.py`
-- `config.json`
-- `requirements.txt`
-- `detect_printers.py`
-- `detect_windows.bat`
+```bat
+.venv\Scripts\python.exe agent.py --config config.json --once
+```
+
+7. Jika valid, jalankan `run_windows.bat`.
+8. Untuk autostart, buat Task Scheduler dengan trigger `At log on`; Action menunjuk ke `run_windows.bat`; `Start in` menunjuk folder agent.
+
+## Linux (Debian/Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip bluez libjpeg-dev zlib1g-dev
+sudo usermod -aG dialout $USER
+```
+
+Keluar lalu masuk kembali setelah menambahkan grup `dialout`.
+
+```bash
+cd /opt/namua-pos-printer-agent
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+chmod +x run_linux.sh detect_linux.sh
+./detect_linux.sh
+cp config.example.json config.json
+./.venv/bin/python agent.py --config config.json --once
+./run_linux.sh
+```
+
+Untuk autostart, lihat contoh systemd di halaman `POS > Printer > Panduan` pada Finance.
 
 ## Format config
 
@@ -60,11 +96,12 @@ Download dari halaman panduan printer di `core`:
   "log_file": "./agent.log",
   "api": {
     "enabled": true,
-    "base_url": "https://core.namuacoffee.com",
+    "base_url": "https://finance.example.com",
     "endpoint": "/pos/printers/bootstrap",
     "key": "",
     "key_query_param": "key",
     "agent_name_param": "agent_name",
+    "refresh_seconds": 30,
     "timeout_seconds": 8
   },
   "logo": {
@@ -78,43 +115,14 @@ Download dari halaman panduan printer di `core`:
 }
 ```
 
-## Menjalankan service
-
-Validasi bootstrap lebih dulu:
-
-```bat
-python agent.py --config config.json --once
-```
-
-Kalau printer aktif sudah terbaca, jalankan service:
-
-```bat
-python agent.py --config config.json
-```
-
-Service akan membuka endpoint lokal sesuai `python_port` tiap printer.
-
-Contoh:
-
-- `http://127.0.0.1:3000/cetak`
-- `http://127.0.0.1:3001/cetak`
-
 ## Endpoint lokal
 
-### Health check
+Setiap printer aktif membuka endpoint sesuai `python_port` dari bootstrap, misalnya:
 
-```text
-GET /health
-```
+- `GET http://127.0.0.1:3000/health`
+- `POST http://127.0.0.1:3000/cetak`
 
-### Cetak
-
-```text
-POST /cetak
-Content-Type: application/json
-```
-
-Payload:
+Contoh payload cetak:
 
 ```json
 {
@@ -123,33 +131,19 @@ Payload:
 }
 ```
 
-## MAC address
+## Marker khusus
 
-Format yang disarankan di master printer:
-
-```text
-86677A7B9914
-```
-
-Format dengan separator tetap diterima, misalnya:
-
-```text
-86:67:7A:7B:99:14
-```
-
-## Logo struk
-
-Gunakan marker di payload teks:
+Logo dan QR ditulis ke payload sebagai marker, kemudian diubah agent menjadi gambar ESC/POS:
 
 ```text
 [[LOGO_URL:https://domain/logo.png]]
+[[QRCODE:https://domain/review/abc]]
 ```
 
-Service akan mencoba mengambil gambar lalu mengubahnya ke ESC/POS.
+## Pemeriksaan masalah
 
-## Catatan implementasi
-
-- `python_port` harus unik per role printer.
-- Dua role boleh memakai MAC yang sama bila memang testing memakai satu printer fisik yang sama.
-- `IP address`, `port`, dan nama spooler tidak dipakai untuk pola Bluetooth ini.
-- `venv` tidak wajib, tapi tetap disarankan agar environment printer tidak bercampur dengan Python global.
+- QR tidak tercetak: jalankan kembali `python -m pip install -r requirements.txt`, lalu restart agent.
+- Test gagal: buka `http://127.0.0.1:<port>/health` pada komputer kasir dan periksa `agent.log`.
+- Teks terlalu sempit: cocokkan `paper_width_mm` dan `chars_per_line` pada Koneksi Printer dengan printer fisik.
+- Routing salah: periksa Aturan Cetak di Finance. Jangan mengubah routing di `config.json`.
+- Port berubah: restart agent karena proses lama masih memegang port sebelumnya.

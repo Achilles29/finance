@@ -79,6 +79,11 @@ class PrinterService:
         self.refresh_seconds = max(5, int(self.api.get("refresh_seconds", 30) or 30))
         self.printers = self.normalize_printers(config.get("printers") or [], source="config")
         self.started_ports: Dict[int, Dict[str, Any]] = {}
+        # Satu perangkat Bluetooth/COM dapat dipakai oleh beberapa role printer.
+        # Akses serial harus bergantian agar request BAR/KITCHEN/CHECKER tidak
+        # saling berebut membuka port yang sama.
+        self.physical_printer_locks: Dict[str, threading.RLock] = {}
+        self.physical_printer_locks_guard = threading.Lock()
         self.last_refresh_at = 0.0
 
     def run(self) -> int:
@@ -314,6 +319,36 @@ class PrinterService:
         app.run(host="127.0.0.1", port=int(printer["python_port"]), debug=False, use_reloader=False)
 
     def safe_print(
+        self,
+        mac: str,
+        text: str,
+        paper_width_mm: int = 80,
+        copies: int = 1,
+        open_drawer: bool = False,
+        cut_mode: str = "PARTIAL",
+    ) -> None:
+        lock_key = self.normalize_mac(mac) or str(mac or "UNKNOWN").strip().upper()
+        queued_at = time.monotonic()
+        with self.physical_printer_lock(lock_key):
+            waited_seconds = time.monotonic() - queued_at
+            if waited_seconds >= 0.2:
+                logging.info(
+                    "Cetak MAC %s menunggu %.1f detik karena perangkat fisik sedang mencetak slip lain.",
+                    lock_key,
+                    waited_seconds,
+                )
+            self.safe_print_to_device(mac, text, paper_width_mm, copies, open_drawer, cut_mode)
+
+    def physical_printer_lock(self, mac: str) -> threading.RLock:
+        key = self.normalize_mac(mac) or str(mac or "UNKNOWN").strip().upper()
+        with self.physical_printer_locks_guard:
+            lock = self.physical_printer_locks.get(key)
+            if lock is None:
+                lock = threading.RLock()
+                self.physical_printer_locks[key] = lock
+            return lock
+
+    def safe_print_to_device(
         self,
         mac: str,
         text: str,

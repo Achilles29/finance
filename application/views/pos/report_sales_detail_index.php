@@ -22,7 +22,7 @@ $qty = static function ($value, int $decimals = 0): string {
         <div class="pos-report-card">
           <div class="pos-report-card-label">Produk</div>
           <div class="pos-report-card-value"><?php echo number_format((int)($overview['product_count'] ?? 0)); ?></div>
-          <div class="pos-report-card-note">Jumlah produk unik yang muncul di periode ini.</div>
+          <div class="pos-report-card-note">Produk unik yang muncul di periode ini; bundle ditampilkan sebagai kelompok di tabel.</div>
         </div>
       </div>
       <div class="col-xl-2 col-md-4 col-sm-6">
@@ -163,8 +163,8 @@ $qty = static function ($value, int $decimals = 0): string {
     <div class="pos-report-section p-3">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <div>
-          <h5 class="mb-1">Overview Produk</h5>
-          <div class="pos-report-meta">Penjualan bersih item tidak memasukkan pajak/service. Diskon transaksi dibagi proporsional ke produk dan extra. Koreksi HPP defisit hanya melekat pada produk induk karena sumber koreksi stok dicatat per line produk.</div>
+          <h5 class="mb-1">Overview Produk & Bundle</h5>
+          <div class="pos-report-meta">Bundle ditampilkan sebagai satu kelompok, lalu isi produknya berada tepat di bawahnya. Penjualan bersih item tidak memasukkan pajak/service. Diskon transaksi dibagi proporsional ke produk dan extra.</div>
         </div>
       </div>
 
@@ -173,7 +173,7 @@ $qty = static function ($value, int $decimals = 0): string {
           <table class="table table-sm align-middle mb-0 pos-report-table">
             <thead>
               <tr>
-                <th>Produk</th>
+                <th>Produk / Bundle</th>
                 <th>Kategori</th>
                 <th>Divisi</th>
                 <th class="text-end">Order</th>
@@ -191,16 +191,35 @@ $qty = static function ($value, int $decimals = 0): string {
               </tr>
             </thead>
             <tbody>
+              <?php
+              $displayRows = [];
+              foreach ((array)$rows as $topRow) {
+                  $displayRows[] = $topRow;
+                  if (strtoupper((string)($topRow['row_type'] ?? '')) === 'BUNDLE') {
+                      foreach ((array)($topRow['children'] ?? []) as $bundleChild) {
+                          $displayRows[] = $bundleChild;
+                      }
+                  }
+              }
+              ?>
               <?php if (empty($rows)): ?>
                 <tr>
-                  <td colspan="15" class="text-center pos-report-empty">Belum ada data produk untuk filter yang dipilih.</td>
+                  <td colspan="15" class="text-center pos-report-empty">Belum ada data produk atau bundle untuk filter yang dipilih.</td>
                 </tr>
               <?php else: ?>
-                <?php foreach ($rows as $row): ?>
-                  <tr>
+                <?php foreach ($displayRows as $row): ?>
+                  <?php $isBundle = strtoupper((string)($row['row_type'] ?? '')) === 'BUNDLE'; ?>
+                  <tr<?php echo $isBundle ? ' class="table-warning"' : ''; ?>>
                     <td>
-                      <div class="fw-semibold"><?php echo html_escape((string)($row['product_name'] ?? '-')); ?></div>
-                      <div class="pos-report-meta"><?php echo html_escape((string)($row['product_code'] ?? '-')); ?></div>
+                      <?php if ($isBundle): ?>
+                        <div class="fw-semibold text-uppercase">Paket: <?php echo html_escape((string)($row['bundle_name'] ?? $row['product_name'] ?? '-')); ?></div>
+                        <div class="pos-report-meta"><?php echo html_escape((string)($row['bundle_code'] ?? $row['product_code'] ?? '-')); ?> | <?php echo number_format(count((array)($row['children'] ?? []))); ?> produk di dalam bundle</div>
+                      <?php else: ?>
+                        <div class="<?php echo strtoupper((string)($row['row_type'] ?? '')) === 'BUNDLE_ITEM' ? 'ps-3 fw-semibold' : 'fw-semibold'; ?>">
+                          <?php echo strtoupper((string)($row['row_type'] ?? '')) === 'BUNDLE_ITEM' ? '-> ' : ''; ?><?php echo html_escape((string)($row['product_name'] ?? '-')); ?>
+                        </div>
+                        <div class="pos-report-meta<?php echo strtoupper((string)($row['row_type'] ?? '')) === 'BUNDLE_ITEM' ? ' ps-3' : ''; ?>"><?php echo html_escape((string)($row['product_code'] ?? '-')); ?></div>
+                      <?php endif; ?>
                     </td>
                     <td><?php echo html_escape((string)($row['category_name'] ?? '-')); ?></td>
                     <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>

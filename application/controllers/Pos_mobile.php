@@ -11,6 +11,7 @@ class Pos_mobile extends CI_Controller
         $this->load->database();
         $this->load->model('Auth_model');
         $this->load->model('Pos_model');
+        $this->load->model('Pos_print_model');
     }
 
     public function ping(): void
@@ -222,13 +223,75 @@ class Pos_mobile extends CI_Controller
             return;
         }
 
-        $this->json_ok($this->Pos_model->printer_device_rows([
-            'q' => trim((string)$this->input->get('q', true)),
-            'status' => strtoupper(trim((string)$this->input->get('status', true))) ?: 'ACTIVE',
-            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
-            'page' => max(1, (int)$this->input->get('page', true) ?: 1),
-            'limit' => max(1, min(100, (int)$this->input->get('limit', true) ?: 100)),
-        ]));
+        if ($this->Pos_print_model->ready()) {
+            $outletId = max(0, (int)$this->input->get('outlet_id', true));
+            $catalog = $this->Pos_print_model->connection_rows([
+                'q' => trim((string)$this->input->get('q', true)),
+                'status' => strtoupper(trim((string)$this->input->get('status', true))) ?: 'ACTIVE',
+                'page' => max(1, (int)$this->input->get('page', true) ?: 1),
+                'limit' => max(5, min(100, (int)$this->input->get('limit', true) ?: 100)),
+            ]);
+            $routes = $this->Pos_print_model->route_rows([
+                'status' => 'ACTIVE',
+                'limit' => 100,
+            ]);
+            $routeRows = (array)($routes['rows'] ?? []);
+            $rows = [];
+            foreach ((array)($catalog['rows'] ?? []) as $connection) {
+                $connectionOutlet = max(0, (int)($connection['outlet_id'] ?? 0));
+                if ($outletId > 0 && $connectionOutlet > 0 && $connectionOutlet !== $outletId) {
+                    continue;
+                }
+                $connectionId = (int)($connection['id'] ?? 0);
+                $connectionRoutes = [];
+                foreach ($routeRows as $route) {
+                    if ((int)($route['connection_id'] ?? 0) !== $connectionId) {
+                        continue;
+                    }
+                    $connectionRoutes[] = [
+                        'id' => (int)($route['id'] ?? 0),
+                        'event_code' => (string)($route['event_code'] ?? ''),
+                        'document_type' => (string)($route['document_type'] ?? ''),
+                        'route_name' => (string)($route['route_name'] ?? ''),
+                        'layout_name' => (string)($route['layout_name'] ?? ''),
+                        'print_mode' => (string)($route['print_mode'] ?? 'AUTO'),
+                        'copy_count' => max(1, (int)($route['copy_count'] ?? 0) ?: (int)($route['default_copy_count'] ?? 1)),
+                    ];
+                }
+                $rows[] = [
+                    'id' => $connectionId,
+                    'server_source' => 'pos_print_connection',
+                    'device_code' => (string)($connection['connection_code'] ?? ''),
+                    'device_name' => (string)($connection['connection_name'] ?? ''),
+                    'outlet_id' => $connectionOutlet,
+                    'outlet_name' => (string)($connection['outlet_name'] ?? ''),
+                    'printer_role' => strtoupper(trim((string)($connection['location_label'] ?? 'CUSTOM'))) ?: 'CUSTOM',
+                    'print_scope' => 'SERVER_RULE',
+                    'connection_type' => (string)($connection['connection_type'] ?? 'LOCAL_AGENT'),
+                    'paper_width_mm' => (int)($connection['paper_width_mm'] ?? 80),
+                    'chars_per_line' => (int)($connection['chars_per_line'] ?? 48),
+                    'copies' => max(1, (int)($connection['default_copy_count'] ?? 1)),
+                    'cut_mode' => (string)($connection['cut_mode'] ?? 'PARTIAL'),
+                    'open_drawer' => !empty($connection['open_drawer']) ? 1 : 0,
+                    'template_name' => (string)($connectionRoutes[0]['layout_name'] ?? ''),
+                    'template_document_type' => (string)($connectionRoutes[0]['document_type'] ?? ''),
+                    'server_routes' => $connectionRoutes,
+                    'is_active' => (int)($connection['is_active'] ?? 0),
+                ];
+            }
+            $this->json_ok([
+                'rows' => $rows,
+                'meta' => $catalog['meta'] ?? ['total' => count($rows), 'page' => 1, 'limit' => count($rows), 'total_pages' => 1],
+                'config_source' => 'pos_print_connection/pos_print_layout/pos_print_route/pos_print_general_setting',
+                'general' => (array)($this->Pos_print_model->general_settings($outletId)['payload'] ?? []),
+            ]);
+            return;
+        }
+
+        $this->json_error(
+            'Konfigurasi printer pos_print_* belum siap. Jalankan migration konfigurasi printer baru terlebih dahulu.',
+            503
+        );
     }
 
     /**
@@ -241,101 +304,96 @@ class Pos_mobile extends CI_Controller
             return;
         }
 
-        $printer = $this->Pos_model->find_printer_device((int)$id);
-        if (!$printer) {
-            $this->json_error('Device printer tidak ditemukan.', 404);
+        if ($this->Pos_print_model->ready()) {
+            $connection = $this->Pos_print_model->find_connection((int)$id);
+            if (!$connection || (int)($connection['is_active'] ?? 0) !== 1) {
+                $this->json_error('Koneksi printer aktif tidak ditemukan di server.', 404);
+                return;
+            }
+            $routeRows = $this->Pos_print_model->route_rows(['status' => 'ACTIVE', 'limit' => 100]);
+            $route = null;
+            foreach ((array)($routeRows['rows'] ?? []) as $candidate) {
+                if ((int)($candidate['connection_id'] ?? 0) === (int)$id) {
+                    $route = $candidate;
+                    break;
+                }
+            }
+            if (!$route) {
+                $this->json_error('Printer belum memiliki aturan cetak aktif. Atur koneksi, layout, dan aturan cetak di Finance terlebih dahulu.', 422);
+                return;
+            }
+            $template = $this->Pos_print_model->runtime_template($route);
+            $this->load->library('PosPrinterPreviewService');
+            $preview = $this->posprinterpreviewservice->buildPreviewPackage(
+                (array)($template['payload'] ?? []),
+                [
+                    'printer_name' => (string)($route['connection_name'] ?? $connection['connection_name'] ?? ''),
+                    'printer_role' => (string)($route['location_label'] ?? $connection['location_label'] ?? 'CUSTOM'),
+                    'print_scope' => (string)($route['content_scope'] ?? 'ALL_ITEMS'),
+                    'connection_type' => (string)($route['connection_type'] ?? 'LOCAL_AGENT'),
+                    'paper_width_mm' => (int)($route['paper_width_mm'] ?? $connection['paper_width_mm'] ?? 80),
+                    'chars_per_line' => (int)($route['chars_per_line'] ?? $connection['chars_per_line'] ?? 48),
+                    'python_port' => (int)($route['python_port'] ?? 0),
+                    'agent_host' => (string)($route['agent_host'] ?? ''),
+                ],
+                (string)($template['document_type'] ?? 'RECEIPT')
+            );
+            $text = $this->mobile_print_text(implode("\n", (array)($preview['lines'] ?? [])) . "\n");
+            $attemptId = $this->Pos_print_model->create_attempt([
+                'event_code' => 'TEST',
+                'document_type' => (string)($template['document_type'] ?? 'RECEIPT'),
+                'attempt_kind' => 'TEST',
+                'route_id' => (int)($route['id'] ?? 0),
+                'connection_id' => (int)$id,
+                'layout_id' => (int)($route['layout_id'] ?? 0),
+                'connection_name' => (string)($route['connection_name'] ?? $connection['connection_name'] ?? ''),
+                'connection_code' => (string)($route['connection_code'] ?? $connection['connection_code'] ?? ''),
+                'route_name' => (string)($route['route_name'] ?? ''),
+                'route_code' => (string)($route['route_code'] ?? ''),
+                'layout_name' => (string)($route['layout_name'] ?? ''),
+                'layout_code' => (string)($route['layout_code'] ?? ''),
+                'outlet_id' => (int)($route['outlet_id'] ?? $connection['outlet_id'] ?? 0),
+                'terminal_id' => (int)($route['terminal_id'] ?? 0),
+                'line_count' => count((array)($preview['lines'] ?? [])),
+                'copy_count' => max(1, (int)($route['copy_count'] ?? 0) ?: (int)($route['default_copy_count'] ?? 1)),
+            ]);
+            $this->json_ok([
+                'printer' => [
+                    'id' => (int)$id,
+                    'device_code' => (string)($connection['connection_code'] ?? ''),
+                    'device_name' => (string)($connection['connection_name'] ?? ''),
+                    'printer_role' => (string)($route['location_label'] ?? $connection['location_label'] ?? 'CUSTOM'),
+                    'print_scope' => (string)($route['content_scope'] ?? 'ALL_ITEMS'),
+                ],
+                'route' => [
+                    'id' => (int)($route['id'] ?? 0),
+                    'event_code' => (string)($route['event_code'] ?? ''),
+                    'route_name' => (string)($route['route_name'] ?? ''),
+                ],
+                'template' => [
+                    'id' => (int)($route['layout_id'] ?? 0),
+                    'template_name' => (string)($route['layout_name'] ?? 'Default Finance'),
+                    'document_type' => (string)($template['document_type'] ?? 'RECEIPT'),
+                    'division_filter' => (string)(($template['payload']['division_filter'] ?? 'ALL')),
+                ],
+                'preview' => $preview,
+                'print_payload' => [
+                    'text' => $text,
+                    'paper_width_mm' => (int)($preview['paper_width_mm'] ?? 80),
+                    'chars_per_line' => (int)($preview['chars_per_line'] ?? 48),
+                    'copies' => max(1, (int)($route['copy_count'] ?? 0) ?: (int)($route['default_copy_count'] ?? 1)),
+                    'cut_mode' => (string)($route['cut_mode'] ?? $connection['cut_mode'] ?? 'PARTIAL'),
+                    'open_drawer' => !empty($route['open_drawer'] ?? $connection['open_drawer']) ? 1 : 0,
+                    'print_attempt_id' => $attemptId,
+                ],
+            ]);
             return;
         }
 
-        $this->load->library('PosPrinterPreviewService');
-        $generalSettings = (array)($this->Pos_model->printer_general_settings()['payload'] ?? []);
-        $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
-        $allowedDocumentTypes = ['RECEIPT', 'KITCHEN_TICKET', 'VOID_SLIP', 'REFUND_SLIP', 'DEPOSIT_RECEIPT'];
-        $documentType = strtoupper(trim((string)($printer['template_document_type'] ?? '')));
-        if (!in_array($documentType, $allowedDocumentTypes, true)) {
-            $documentType = $role === 'KASIR' ? 'RECEIPT' : 'KITCHEN_TICKET';
-        }
-
-        $selectedTemplate = null;
-        $templateId = max(0, (int)($printer['template_id'] ?? 0));
-        if ($templateId > 0) {
-            $candidate = $this->Pos_model->find_printer_template($templateId);
-            if ($candidate && (int)($candidate['is_active'] ?? 0) === 1) {
-                $candidateType = strtoupper(trim((string)($candidate['document_type'] ?? '')));
-                if (in_array($candidateType, $allowedDocumentTypes, true)) {
-                    $selectedTemplate = $candidate;
-                    $documentType = $candidateType;
-                }
-            }
-        }
-
-        if (!$selectedTemplate) {
-            foreach ($this->Pos_model->active_printer_template_options() as $template) {
-                if (strtoupper(trim((string)($template['document_type'] ?? ''))) !== $documentType) {
-                    continue;
-                }
-                $templateRole = strtoupper(trim((string)($template['template_name'] ?? '')));
-                if ($templateRole === $role) {
-                    $selectedTemplate = $this->Pos_model->find_printer_template((int)($template['id'] ?? 0));
-                    break;
-                }
-            }
-        }
-
-        if (!$selectedTemplate) {
-            foreach ($this->Pos_model->active_printer_template_options() as $template) {
-                if (
-                    strtoupper(trim((string)($template['document_type'] ?? ''))) === $documentType
-                    && (int)($template['is_default'] ?? 0) === 1
-                ) {
-                    $selectedTemplate = $this->Pos_model->find_printer_template((int)($template['id'] ?? 0));
-                    break;
-                }
-            }
-        }
-
-        $payload = $this->posprinterpreviewservice->defaultPayload($documentType, $generalSettings);
-        if ($selectedTemplate) {
-            $payload = $this->posprinterpreviewservice->decodePayload(
-                (string)($selectedTemplate['template_payload'] ?? '{}'),
-                $documentType,
-                $generalSettings
-            );
-        } elseif (in_array($role, ['BAR', 'KITCHEN'], true)) {
-            // Keep the dummy sample aligned with the server printer division
-            // when no dedicated template has been configured yet.
-            $payload['division_filter'] = $role;
-        }
-
-        $preview = $this->posprinterpreviewservice->buildPreviewPackage(
-            $payload,
-            $printer,
-            $documentType
+        $this->json_error(
+            'Konfigurasi printer pos_print_* belum siap. Atur koneksi, layout, dan aturan cetak di Finance terlebih dahulu.',
+            503
         );
-        $this->json_ok([
-            'printer' => [
-                'id' => (int)($printer['id'] ?? 0),
-                'device_code' => (string)($printer['device_code'] ?? ''),
-                'device_name' => (string)($printer['device_name'] ?? ''),
-                'printer_role' => $role,
-                'print_scope' => (string)($printer['print_scope'] ?? 'DIVISION'),
-            ],
-            'template' => [
-                'id' => (int)($selectedTemplate['id'] ?? 0),
-                'template_name' => (string)($selectedTemplate['template_name'] ?? 'Default Finance'),
-                'document_type' => $documentType,
-                'division_filter' => (string)($payload['division_filter'] ?? 'ALL'),
-            ],
-            'preview' => $preview,
-            'print_payload' => [
-                // Bluetooth SPP cannot render the agent's logo marker. Keep
-                // the server-generated text layout without printing the
-                // marker as visible characters on thermal paper.
-                'text' => implode("\n", (array)($preview['lines'] ?? [])),
-                'paper_width_mm' => (int)($preview['paper_width_mm'] ?? 80),
-                'chars_per_line' => (int)($preview['chars_per_line'] ?? 48),
-            ],
-        ]);
     }
 
     public function orders(): void
@@ -432,7 +490,7 @@ class Pos_mobile extends CI_Controller
             $this->json_error((string)($result['message'] ?? 'Gagal menyiapkan cetak void.'), 422);
             return;
         }
-        $this->json_ok(['id' => (int)$id, 'direct_print_targets' => (array)($result['targets'] ?? [])]);
+        $this->json_ok(['id' => (int)$id, 'direct_print_targets' => $this->mobile_print_targets((array)($result['targets'] ?? []))]);
     }
 
     public function order_refund_print_targets($id): void
@@ -445,7 +503,7 @@ class Pos_mobile extends CI_Controller
             $this->json_error((string)($result['message'] ?? 'Gagal menyiapkan cetak refund.'), 422);
             return;
         }
-        $this->json_ok(['id' => (int)$id, 'direct_print_targets' => (array)($result['targets'] ?? [])]);
+        $this->json_ok(['id' => (int)$id, 'direct_print_targets' => $this->mobile_print_targets((array)($result['targets'] ?? []))]);
     }
 
     public function order_reprint_targets($id): void
@@ -465,7 +523,7 @@ class Pos_mobile extends CI_Controller
         }
         $this->json_ok([
             'id' => (int)$id,
-            'direct_print_targets' => (array)($result['targets'] ?? []),
+            'direct_print_targets' => $this->mobile_print_targets((array)($result['targets'] ?? [])),
         ]);
     }
 
@@ -481,7 +539,7 @@ class Pos_mobile extends CI_Controller
         }
         $this->json_ok([
             'id' => (int)$id,
-            'direct_print_targets' => (array)($result['targets'] ?? []),
+            'direct_print_targets' => $this->mobile_print_targets((array)($result['targets'] ?? [])),
         ]);
     }
 
@@ -672,7 +730,7 @@ class Pos_mobile extends CI_Controller
         }
         $this->json_ok([
             'id' => (int)$id,
-            'direct_print_targets' => (array)($result['targets'] ?? []),
+            'direct_print_targets' => $this->mobile_print_targets((array)($result['targets'] ?? [])),
         ]);
     }
 
@@ -757,7 +815,7 @@ class Pos_mobile extends CI_Controller
             'shift_id' => $shiftId,
             'summary' => (array)($result['summary'] ?? []),
             'report' => (array)($result['report'] ?? []),
-            'direct_print_targets' => (array)($print['targets'] ?? []),
+            'direct_print_targets' => $this->mobile_print_targets((array)($print['targets'] ?? [])),
         ]);
     }
 
@@ -1081,6 +1139,38 @@ class Pos_mobile extends CI_Controller
         }
         $post = $this->input->post(null, false);
         return is_array($post) ? $post : [];
+    }
+
+    /**
+     * The print agent understands media markers, while Bluetooth SPP receives
+     * plain thermal text. Mobile must keep the Finance layout but remove only
+     * markers that cannot be rendered by the local printer.
+     */
+    private function mobile_print_text(string $text): string
+    {
+        $lines = preg_split('/\r?\n/', $text) ?: [];
+        $lines = array_values(array_filter($lines, static function ($line): bool {
+            return !preg_match('/^\s*\[\[(?:LOGO_URL|BARCODE|QRCODE):.*\]\]\s*$/i', (string)$line);
+        }));
+        return rtrim(implode("\n", $lines)) . "\n";
+    }
+
+    private function mobile_print_targets(array $targets): array
+    {
+        $result = [];
+        foreach ($targets as $target) {
+            if (!is_array($target)) {
+                continue;
+            }
+            $target['text'] = $this->mobile_print_text((string)($target['text'] ?? ''));
+            $target['copies'] = max(1, min(10, (int)($target['copies'] ?? 1)));
+            $target['cut_mode'] = in_array(strtoupper((string)($target['cut_mode'] ?? 'PARTIAL')), ['NONE', 'PARTIAL', 'FULL'], true)
+                ? strtoupper((string)($target['cut_mode'] ?? 'PARTIAL'))
+                : 'PARTIAL';
+            $target['open_drawer'] = !empty($target['open_drawer']) ? 1 : 0;
+            $result[] = $target;
+        }
+        return $result;
     }
 
     private function json_ok(array $data = [], int $status = 200): void

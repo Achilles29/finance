@@ -2253,6 +2253,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }));
     divisionFilters.querySelectorAll('[data-search-bundle]').forEach((btn) => btn.addEventListener('click', () => {
       searchMode = 'BUNDLE';
+      // Bundles can contain products from several divisions. Clear a previous
+      // food/bar filter so all active bundles remain visible.
+      catalogState.division_id = 0;
       renderDivisionFilters();
       loadCatalog().catch((e) => {
         catalogResult.innerHTML = `<div class="cashier-empty text-danger">${escapeHtml(e.message)}</div>`;
@@ -4414,7 +4417,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const params = new URLSearchParams();
     params.set('q', q);
     params.set('outlet_id', order.outlet_id);
-    params.set('division_id', String(catalogState.division_id || 0));
+    // Bundle mode is cross-division by design. Do not inherit the last product
+    // division selected by the cashier.
+    params.set('division_id', String(searchMode === 'BUNDLE' ? 0 : (catalogState.division_id || 0)));
     params.set('limit', String(catalogState.limit || 32));
     const json = await getJson(endpoint + '?' + params.toString());
     renderCatalogRows(json.rows || []);

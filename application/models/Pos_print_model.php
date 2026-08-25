@@ -61,6 +61,37 @@ class Pos_print_model extends CI_Model
         return true;
     }
 
+    /**
+     * The local printer agent only needs a physical connection. Do not make
+     * its bootstrap depend on layouts, routes, or the print-attempt history.
+     */
+    public function agent_connection_ready(): bool
+    {
+        if (!$this->db->table_exists('pos_print_connection')) {
+            return false;
+        }
+
+        foreach ([
+            'connection_name',
+            'connection_type',
+            'agent_host',
+            'agent_printer_code',
+            'mac_address',
+            'python_port',
+            'paper_width_mm',
+            'chars_per_line',
+            'default_copy_count',
+            'open_drawer',
+            'is_active',
+        ] as $field) {
+            if (!$this->db->field_exists($field, 'pos_print_connection')) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public function routes_enabled(): bool
     {
         return $this->ready()
@@ -837,7 +868,7 @@ class Pos_print_model extends CI_Model
 
     public function agent_devices(string $agentHost = ''): array
     {
-        if (!$this->ready()) {
+        if (!$this->agent_connection_ready()) {
             return [];
         }
         $agentHost = strtoupper(trim($agentHost));

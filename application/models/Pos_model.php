@@ -24,17 +24,18 @@ class Pos_model extends CI_Model
         return $this->load->database('default', true);
     }
 
-    /**
-     * The new printer tables are optional during a staggered deployment.
-     * Falling back keeps an older database functional until its migration runs.
-     */
+    /** Resolve the single printer configuration source used by POS runtime. */
     private function printer_config_model(): ?Pos_print_model
     {
-        if (!isset($this->Pos_print_model) || !($this->Pos_print_model instanceof Pos_print_model)) {
-            $this->load->model('Pos_print_model');
+        // CI3 loads models on the controller super-object. Accessing it with
+        // isset() from another model always returns false because CI_Model
+        // proxies properties through __get() only.
+        $ci =& get_instance();
+        if (!isset($ci->Pos_print_model) || !($ci->Pos_print_model instanceof Pos_print_model)) {
+            $ci->load->model('Pos_print_model');
         }
-        return isset($this->Pos_print_model) && $this->Pos_print_model instanceof Pos_print_model
-            ? $this->Pos_print_model
+        return isset($ci->Pos_print_model) && $ci->Pos_print_model instanceof Pos_print_model
+            ? $ci->Pos_print_model
             : null;
     }
 
@@ -44,12 +45,41 @@ class Pos_model extends CI_Model
         if (!$this->db->table_exists('pos_customer_review')) {
             return null;
         }
-        if (!isset($this->Pos_customer_review_model) || !($this->Pos_customer_review_model instanceof Pos_customer_review_model)) {
-            $this->load->model('Pos_customer_review_model');
+        // See printer_config_model(): models loaded from a model must be read
+        // from CI's controller super-object rather than $this.
+        $ci =& get_instance();
+        if (!isset($ci->Pos_customer_review_model) || !($ci->Pos_customer_review_model instanceof Pos_customer_review_model)) {
+            $ci->load->model('Pos_customer_review_model');
         }
-        return isset($this->Pos_customer_review_model) && $this->Pos_customer_review_model instanceof Pos_customer_review_model
-            ? $this->Pos_customer_review_model
+        return isset($ci->Pos_customer_review_model) && $ci->Pos_customer_review_model instanceof Pos_customer_review_model
+            ? $ci->Pos_customer_review_model
             : null;
+    }
+
+    private function empty_printer_rows(array $filters = []): array
+    {
+        $limit = max(1, min(100, (int)($filters['limit'] ?? 25)));
+        return [
+            'rows' => [],
+            'meta' => ['total' => 0, 'page' => 1, 'limit' => $limit, 'total_pages' => 1],
+        ];
+    }
+
+    private function retired_printer_configuration_response(string $destination = ''): array
+    {
+        $message = 'Pengaturan printer lama sudah dihentikan.';
+        if ($destination !== '') {
+            $message .= ' Gunakan halaman ' . $destination . '.';
+        }
+        return ['ok' => false, 'message' => $message];
+    }
+
+    private function printer_runtime_not_ready(string $action): array
+    {
+        return [
+            'ok' => false,
+            'message' => 'Konfigurasi printer belum siap untuk ' . $action . '. Periksa Koneksi Printer, Layout Dokumen, dan Aturan Cetak.',
+        ];
     }
 
     public function member_filter_options(): array
@@ -5040,817 +5070,133 @@ class Pos_model extends CI_Model
             ->result_array();
     }
 
+    /**
+     * Compatibility shape for retired routes. Runtime and active screens use
+     * Pos_print_model directly; this method never reads legacy printer tables.
+     */
     public function printer_filter_options(): array
     {
+        $printerConfig = $this->printer_config_model();
+        $options = $printerConfig ? $printerConfig->options() : [];
         return [
-            'template_masters' => $this->core_printer_template_master_options(),
-            'templates' => $this->core_printer_template_options(),
-            'outlets' => $this->active_outlet_options(),
-            'terminals' => $this->active_terminal_options(),
-            'printers' => $this->core_printer_options(),
+            'template_masters' => [],
+            'templates' => (array)($options['layouts'] ?? []),
+            'outlets' => (array)($options['outlets'] ?? []),
+            'terminals' => (array)($options['terminals'] ?? []),
+            'printers' => (array)($options['connections'] ?? []),
         ];
     }
 
     public function printer_general_settings(): array
     {
         $printerConfig = $this->printer_config_model();
-        if ($printerConfig && $printerConfig->ready()) {
-            return $printerConfig->general_settings();
-        }
-
-        $defaults = [
-            'title' => 'NAMUA COFFEE N EATERY',
-            'subtitle' => 'Jl. Magnolia, Desa Kabongan Kidul, Rembang',
-            'logo_url' => base_url('assets/img/logo.png'),
-            'wifi_name' => '',
-            'wifi_password' => '',
-            'show_customer_point_info' => 0,
-            'show_customer_stamp_info' => 0,
-            'show_customer_voucher' => 0,
-            'customer_voucher_limit' => 1,
-            'customer_voucher_message_template' => 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.',
-            'customer_voucher_align' => 'CENTER',
-            'header_lines' => ['ORDER CEPAT, SAJI HANGAT.'],
-            'footer_lines' => ['TERIMA KASIH SUDAH BERKUNJUNG'],
-        ];
-
-        if (!$this->coredb->table_exists('pos_printer_template_master')) {
-            return ['row' => null, 'payload' => $defaults];
-        }
-
-        $row = $this->coredb
-            ->from('pos_printer_template_master')
-            ->where('master_code', 'POS-GLOBAL')
-            ->limit(1)
-            ->get()
-            ->row_array();
-
-        $payload = [];
-        if ($row && !empty($row['master_payload'])) {
-            $decoded = json_decode((string)$row['master_payload'], true);
-            if (is_array($decoded)) {
-                $payload = $decoded;
-            }
-        }
-
-        $merged = array_merge($defaults, $payload);
-        if (!empty($merged['logo_url']) && stripos((string)$merged['logo_url'], 'core.namuacoffee.com/assets/img/logo') !== false) {
-            $merged['logo_url'] = base_url('assets/img/logo.png');
-        }
-
-        return ['row' => $row ?: null, 'payload' => $merged];
+        return $printerConfig ? $printerConfig->general_settings() : ['row' => null, 'payload' => []];
     }
 
     public function save_printer_general_settings(array $data): array
     {
         $printerConfig = $this->printer_config_model();
-        if ($printerConfig && $printerConfig->ready()) {
-            return $printerConfig->save_general_settings($data);
-        }
-
-        $payload = [
-            'title' => trim((string)($data['title'] ?? 'NAMUA COFFEE N EATERY')),
-            'subtitle' => trim((string)($data['subtitle'] ?? '')),
-            'logo_url' => trim((string)($data['logo_url'] ?? base_url('assets/img/logo.png'))),
-            'wifi_name' => trim((string)($data['wifi_name'] ?? '')),
-            'wifi_password' => trim((string)($data['wifi_password'] ?? '')),
-            'show_customer_point_info' => !empty($data['show_customer_point_info']) ? 1 : 0,
-            'show_customer_stamp_info' => !empty($data['show_customer_stamp_info']) ? 1 : 0,
-            'show_customer_voucher' => !empty($data['show_customer_voucher']) ? 1 : 0,
-            'customer_voucher_limit' => max(1, min(5, (int)($data['customer_voucher_limit'] ?? 1))),
-            'customer_voucher_message_template' => trim((string)($data['customer_voucher_message_template'] ?? '')),
-            'customer_voucher_align' => strtoupper(trim((string)($data['customer_voucher_align'] ?? 'CENTER'))),
-            'header_lines' => $data['header_lines'] ?? [],
-            'footer_lines' => $data['footer_lines'] ?? [],
-        ];
-
-        if ($payload['logo_url'] === '' || stripos($payload['logo_url'], 'core.namuacoffee.com/assets/img/logo') !== false) {
-            $payload['logo_url'] = base_url('assets/img/logo.png');
-        }
-
-        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($json === false) {
-            return ['ok' => false, 'message' => 'Payload pengaturan umum printer tidak valid.'];
-        }
-
-        $row = $this->coredb
-            ->from('pos_printer_template_master')
-            ->where('master_code', 'POS-GLOBAL')
-            ->limit(1)
-            ->get()
-            ->row_array();
-
-        $record = [
-            'master_code' => 'POS-GLOBAL',
-            'master_name' => 'Pengaturan Umum POS',
-            'master_payload' => $json,
-            'document_type' => 'OTHER',
-            'description' => 'Pengaturan global printer POS: branding, Wi-Fi, dan info loyalty.',
-            'is_default' => 0,
-            'is_active' => 1,
-        ];
-
-        $this->coredb->trans_begin();
-        try {
-            if ($row) {
-                $this->coredb->where('id', (int)$row['id'])->update('pos_printer_template_master', $record);
-                $id = (int)$row['id'];
-            } else {
-                $this->coredb->insert('pos_printer_template_master', $record);
-                $id = (int)$this->coredb->insert_id();
-            }
-            if ($this->coredb->trans_status() === false) {
-                throw new RuntimeException('Gagal menyimpan pengaturan umum printer.');
-            }
-            $this->coredb->trans_commit();
-            return ['ok' => true, 'id' => $id];
-        } catch (Throwable $e) {
-            $this->coredb->trans_rollback();
-            return ['ok' => false, 'message' => $e->getMessage()];
-        }
+        return $printerConfig
+            ? $printerConfig->save_general_settings($data)
+            : $this->retired_printer_configuration_response();
     }
 
     public function printer_template_rows(array $filters): array
     {
-        $q = trim((string)($filters['q'] ?? ''));
-        $status = strtoupper(trim((string)($filters['status'] ?? 'ACTIVE')));
-        $documentType = strtoupper(trim((string)($filters['document_type'] ?? 'ALL')));
-        $page = max(1, (int)($filters['page'] ?? 1));
-        $limit = max(1, min(100, (int)($filters['limit'] ?? 10)));
-
-        $db = $this->coredb;
-        $db->from('pos_printer_template t');
-        if ($q !== '') {
-            $db->group_start()
-                ->like('t.template_code', $q)
-                ->or_like('t.template_name', $q)
-                ->or_like('t.document_type', $q)
-                ->group_end();
-        }
-        if ($status === 'ACTIVE') {
-            $db->where('t.is_active', 1);
-        } elseif ($status === 'INACTIVE') {
-            $db->where('t.is_active', 0);
-        }
-        if (in_array($documentType, ['RECEIPT', 'KITCHEN_TICKET', 'VOID_SLIP', 'REFUND_SLIP', 'DEPOSIT_RECEIPT'], true)) {
-            $db->where('t.document_type', $documentType);
-        }
-
-        $total = (int)$db->count_all_results('', false);
-        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
-        $rows = $db->select('t.*, NULL AS master_name', false)
-            ->order_by('t.document_type', 'ASC')
-            ->order_by('t.template_name', 'ASC')
-            ->limit($limit, $offset)
-            ->get()
-            ->result_array();
-
-        return ['rows' => $rows, 'meta' => ['total' => $total, 'page' => $page, 'limit' => $limit, 'total_pages' => $totalPages]];
+        $printerConfig = $this->printer_config_model();
+        return $printerConfig
+            ? $printerConfig->layout_rows($filters)
+            : $this->empty_printer_rows($filters);
     }
 
     public function find_printer_template(int $id): ?array
     {
-        return $this->coredb->from('pos_printer_template')->where('id', $id)->limit(1)->get()->row_array() ?: null;
+        $printerConfig = $this->printer_config_model();
+        return $printerConfig ? $printerConfig->find_layout($id) : null;
     }
 
     public function active_printer_template_options(): array
     {
-        return $this->core_printer_template_options();
+        $printerConfig = $this->printer_config_model();
+        $options = $printerConfig ? $printerConfig->options() : [];
+        return (array)($options['layouts'] ?? []);
     }
 
     public function save_printer_template(array $data): array
     {
-        $id = (int)($data['id'] ?? 0);
-        $name = trim((string)($data['template_name'] ?? ''));
-        if ($name === '') {
-            return ['ok' => false, 'message' => 'Nama template printer wajib diisi.'];
-        }
-
-        $documentType = strtoupper(trim((string)($data['document_type'] ?? 'RECEIPT')));
-        if (!in_array($documentType, ['RECEIPT', 'KITCHEN_TICKET', 'VOID_SLIP', 'REFUND_SLIP', 'DEPOSIT_RECEIPT'], true)) {
-            $documentType = 'RECEIPT';
-        }
-
-        $code = strtoupper(trim((string)($data['template_code'] ?? '')));
-        if ($code === '') {
-            $code = $this->generate_named_code($this->coredb, 'pos_printer_template', 'template_code', $name, 'TPL-', $id, 40);
-        } elseif ($this->code_exists($this->coredb, 'pos_printer_template', 'template_code', $code, $id)) {
-            return ['ok' => false, 'message' => 'Kode template printer sudah dipakai.'];
-        }
-
-        $payloadText = trim((string)($data['template_payload'] ?? ''));
-        if ($payloadText === '') {
-            $payloadText = '{}';
-        } else {
-            $decoded = json_decode($payloadText, true);
-            if (!is_array($decoded)) {
-                return ['ok' => false, 'message' => 'Template payload harus berupa JSON yang valid.'];
-            }
-            $payloadText = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        }
-
-        $payload = [
-            'template_code' => $code,
-            'template_name' => $name,
-            'document_type' => $documentType,
-            'template_payload' => $payloadText,
-            'is_default' => (int)($data['is_default'] ?? 0) === 1 ? 1 : 0,
-            'is_active' => (int)($data['is_active'] ?? 1) === 1 ? 1 : 0,
-        ];
-
-        $this->coredb->trans_begin();
-        try {
-            if ($payload['is_default'] === 1) {
-                $this->coredb->set('is_default', 0);
-                $this->coredb->where('document_type', $documentType);
-                if ($id > 0) {
-                    $this->coredb->where('id !=', $id);
-                }
-                $this->coredb->update('pos_printer_template');
-            }
-
-            if ($id > 0) {
-                if (!$this->find_printer_template($id)) {
-                    throw new RuntimeException('Template printer tidak ditemukan.');
-                }
-                $this->coredb->where('id', $id)->update('pos_printer_template', $payload);
-            } else {
-                $this->coredb->insert('pos_printer_template', $payload);
-                $id = (int)$this->coredb->insert_id();
-            }
-            if ($this->coredb->trans_status() === false) {
-                throw new RuntimeException('Gagal menyimpan template printer.');
-            }
-            $this->coredb->trans_commit();
-            return ['ok' => true, 'id' => $id];
-        } catch (Throwable $e) {
-            $this->coredb->trans_rollback();
-            return ['ok' => false, 'message' => $e->getMessage()];
-        }
+        return $this->retired_printer_configuration_response('Layout Dokumen');
     }
 
     public function toggle_printer_template(int $id): array
     {
-        $row = $this->find_printer_template($id);
-        if (!$row) {
-            return ['ok' => false, 'message' => 'Template printer tidak ditemukan.'];
-        }
-        $newValue = ((int)($row['is_active'] ?? 0) === 1) ? 0 : 1;
-        $this->coredb->where('id', $id)->update('pos_printer_template', ['is_active' => $newValue]);
-        return ['ok' => true, 'id' => $id, 'is_active' => $newValue];
+        return $this->retired_printer_configuration_response('Layout Dokumen');
     }
 
     public function printer_profile_rows(array $filters): array
     {
-        $q = trim((string)($filters['q'] ?? ''));
-        $status = strtoupper(trim((string)($filters['status'] ?? 'ACTIVE')));
-        $page = max(1, (int)($filters['page'] ?? 1));
-        $limit = max(1, min(100, (int)($filters['limit'] ?? 10)));
-
-        $db = $this->coredb;
-        $hasPrinterRole = $this->core_field_exists('pos_printer', 'printer_role');
-        $hasPrintScope = $this->core_field_exists('pos_printer', 'print_scope');
-        $db->from('pos_printer p')
-            ->join('pos_outlet o', 'o.id = p.outlet_id', 'left')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->join('pos_printer_template t', 't.id = pf.template_id', 'left');
-        $hasContentSetting = $this->coredb->table_exists('pos_printer_content_setting');
-        if ($hasContentSetting) {
-            $db->join('pos_printer_content_setting cs', 'cs.printer_id = p.id', 'left');
-        }
-        if ($q !== '') {
-            $db->group_start()
-                ->like('p.printer_code', $q)
-                ->or_like('p.printer_name', $q)
-                ->or_like('o.outlet_name', $q);
-            if ($hasPrinterRole) {
-                $db->or_like('p.printer_role', $q);
-            }
-            $db->group_end();
-        }
-        if ($status === 'ACTIVE') {
-            $db->where('p.is_active', 1);
-        } elseif ($status === 'INACTIVE') {
-            $db->where('p.is_active', 0);
-        }
-        $total = (int)$db->count_all_results('', false);
-        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
-        $contentSelect = $hasContentSetting
-            ? "COALESCE(cs.show_logo, 1) AS show_logo,\n            COALESCE(cs.price_visibility, 'always') AS price_visibility,\n            COALESCE(cs.show_footer, 1) AS show_footer,"
-            : "1 AS show_logo,\n            'always' AS price_visibility,\n            1 AS show_footer,";
-        $roleSelect = $hasPrinterRole ? 'p.printer_role' : "'CUSTOM'";
-        $scopeSelect = $hasPrintScope ? 'p.print_scope' : "'DIVISION'";
-        $rows = $db->select(" 
-            p.id, 
-            p.printer_code AS profile_code, 
-            p.printer_name AS profile_name, 
-            {$roleSelect} AS printer_role, 
-            {$scopeSelect} AS print_scope, 
-            p.outlet_id, 
-            o.outlet_name, 
-            COALESCE(pf.paper_width_mm, 80) AS paper_width_mm,
-            COALESCE(pf.chars_per_line, 48) AS chars_per_line,
-            COALESCE(pf.copies, 1) AS copy_count,
-            pf.template_id,
-            t.template_name,
-            t.document_type AS template_document_type,
-            COALESCE(pf.cut_mode, 'PARTIAL') AS cut_mode,
-            COALESCE(pf.open_drawer, 0) AS open_drawer,
-            {$contentSelect}
-            p.is_active
-        ", false)
-            ->order_by('o.outlet_name', 'ASC')
-            ->order_by('p.printer_name', 'ASC')
-            ->limit($limit, $offset)
-            ->get()
-            ->result_array();
-        return ['rows' => $rows, 'meta' => ['total' => $total, 'page' => $page, 'limit' => $limit, 'total_pages' => $totalPages]];
+        $printerConfig = $this->printer_config_model();
+        return $printerConfig
+            ? $printerConfig->route_rows($filters)
+            : $this->empty_printer_rows($filters);
     }
 
-    public function find_printer_profile(int $id): ?array 
-    { 
-        $hasPrinterRole = $this->core_field_exists('pos_printer', 'printer_role');
-        $hasPrintScope = $this->core_field_exists('pos_printer', 'print_scope');
-        $hasContentSetting = $this->coredb->table_exists('pos_printer_content_setting'); 
-        $contentSelect = $hasContentSetting 
-            ? "COALESCE(cs.show_logo, 1) AS show_logo,\n                COALESCE(cs.price_visibility, 'always') AS price_visibility,\n                COALESCE(cs.show_footer, 1) AS show_footer," 
-            : "1 AS show_logo,\n                'always' AS price_visibility,\n                1 AS show_footer,"; 
-        $roleSelect = $hasPrinterRole ? 'p.printer_role' : "'CUSTOM'";
-        $scopeSelect = $hasPrintScope ? 'p.print_scope' : "'DIVISION'";
-        $db = $this->coredb->select(" 
-                p.id, 
-                p.printer_code AS profile_code, 
-                p.printer_name AS profile_name, 
-                {$roleSelect} AS printer_role, 
-                {$scopeSelect} AS print_scope, 
-                p.outlet_id, 
-                COALESCE(pf.paper_width_mm, 80) AS paper_width_mm,
-                COALESCE(pf.chars_per_line, 48) AS chars_per_line,
-                COALESCE(pf.copies, 1) AS copy_count,
-                pf.template_id,
-                t.template_name,
-                t.document_type AS template_document_type,
-                COALESCE(pf.cut_mode, 'PARTIAL') AS cut_mode,
-                COALESCE(pf.open_drawer, 0) AS open_drawer,
-                {$contentSelect}
-                p.is_active
-            ", false)
-            ->from('pos_printer p')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->join('pos_printer_template t', 't.id = pf.template_id', 'left');
-        if ($hasContentSetting) {
-            $db->join('pos_printer_content_setting cs', 'cs.printer_id = p.id', 'left');
-        }
-        return $db->where('p.id', $id)
-            ->limit(1)
-            ->get()
-            ->row_array() ?: null;
+    public function find_printer_profile(int $id): ?array
+    {
+        $printerConfig = $this->printer_config_model();
+        return $printerConfig ? $printerConfig->find_route($id) : null;
     }
 
     public function save_printer_profile(array $data): array
     {
-        $printerId = (int)($data['printer_id'] ?? $data['id'] ?? 0);
-        if ($printerId <= 0 || !$this->core_record_exists('pos_printer', $printerId)) {
-            return ['ok' => false, 'message' => 'Printer untuk pengaturan output tidak ditemukan.'];
-        }
-
-        $templateId = !empty($data['template_id']) ? (int)$data['template_id'] : 0;
-        if ($templateId > 0 && !$this->core_record_exists('pos_printer_template', $templateId)) {
-            return ['ok' => false, 'message' => 'Template printer untuk output ini tidak ditemukan.'];
-        }
-
-        $profilePayload = [
-            'paper_width_mm' => ((int)($data['paper_width_mm'] ?? 80) === 58) ? 58 : 80,
-            'chars_per_line' => max(24, min(64, (int)($data['chars_per_line'] ?? 48))),
-            'copies' => max(1, min(10, (int)($data['copy_count'] ?? 1))),
-            'template_id' => $templateId > 0 ? $templateId : null,
-            'encoding' => 'UTF-8',
-            'cut_mode' => in_array(strtoupper(trim((string)($data['cut_mode'] ?? 'PARTIAL'))), ['NONE', 'PARTIAL', 'FULL'], true) ? strtoupper(trim((string)($data['cut_mode'] ?? 'PARTIAL'))) : 'PARTIAL',
-            'open_drawer' => (int)($data['open_drawer'] ?? 0) === 1 ? 1 : 0,
-        ];
-        $contentPayload = [
-            'show_logo' => (int)($data['show_logo'] ?? 1) === 1 ? 1 : 0,
-            'price_visibility' => (int)($data['show_price'] ?? 1) === 1 ? 'always' : 'never',
-            'show_footer' => (int)($data['show_footer'] ?? 1) === 1 ? 1 : 0,
-        ];
-        $printerPayload = [
-            'is_active' => (int)($data['is_active'] ?? 1) === 1 ? 1 : 0,
-        ];
-
-        $this->coredb->trans_begin();
-        try {
-            $profileExists = (int)$this->coredb->from('pos_printer_profile')->where('printer_id', $printerId)->count_all_results() > 0;
-            if ($profileExists) {
-                $this->coredb->where('printer_id', $printerId)->update('pos_printer_profile', $profilePayload);
-            } else {
-                $profilePayload['printer_id'] = $printerId;
-                $this->coredb->insert('pos_printer_profile', $profilePayload);
-            }
-
-            if ($this->coredb->table_exists('pos_printer_content_setting')) {
-                $contentExists = (int)$this->coredb->from('pos_printer_content_setting')->where('printer_id', $printerId)->count_all_results() > 0;
-                if ($contentExists) {
-                    $this->coredb->where('printer_id', $printerId)->update('pos_printer_content_setting', $contentPayload);
-                } else {
-                    $contentPayload['printer_id'] = $printerId;
-                    $this->coredb->insert('pos_printer_content_setting', $contentPayload);
-                }
-            }
-
-            $this->coredb->where('id', $printerId)->update('pos_printer', $printerPayload);
-            if ($this->coredb->trans_status() === false) {
-                throw new RuntimeException('Gagal menyimpan pengaturan printer.');
-            }
-            $this->coredb->trans_commit();
-            return ['ok' => true, 'id' => $printerId];
-        } catch (Throwable $e) {
-            $this->coredb->trans_rollback();
-            return ['ok' => false, 'message' => $e->getMessage()];
-        }
+        return $this->retired_printer_configuration_response('Aturan Cetak');
     }
 
     public function toggle_printer_profile(int $id): array
     {
-        $row = $this->find_printer_profile($id);
-        if (!$row) {
-            return ['ok' => false, 'message' => 'Profile printer tidak ditemukan.'];
-        }
-        $newValue = ((int)($row['is_active'] ?? 0) === 1) ? 0 : 1;
-        $this->coredb->where('id', $id)->update('pos_printer', ['is_active' => $newValue]);
-        return ['ok' => true, 'id' => $id, 'is_active' => $newValue];
+        return $this->retired_printer_configuration_response('Aturan Cetak');
     }
 
     public function printer_device_rows(array $filters): array
     {
-        $q = trim((string)($filters['q'] ?? ''));
-        $status = strtoupper(trim((string)($filters['status'] ?? 'ACTIVE')));
-        $outletId = (int)($filters['outlet_id'] ?? 0);
-        $page = max(1, (int)($filters['page'] ?? 1));
-        $limit = max(1, min(100, (int)($filters['limit'] ?? 10)));
-
-        $db = $this->coredb; 
-        $hasPrinterRole = $this->core_field_exists('pos_printer', 'printer_role');
-        $hasPrintScope = $this->core_field_exists('pos_printer', 'print_scope');
-        $hasMacAddress = $this->core_field_exists('pos_printer', 'mac_address');
-        $hasPythonPort = $this->core_field_exists('pos_printer', 'python_port');
-        $db->from('pos_printer p') 
-            ->join('pos_outlet o', 'o.id = p.outlet_id', 'left') 
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->join('pos_printer_template t', 't.id = pf.template_id', 'left'); 
-        if ($q !== '') { 
-            $db->group_start() 
-                ->like('p.printer_code', $q) 
-                ->or_like('p.printer_name', $q) 
-                ->or_like('p.agent_host', $q) 
-                ->or_like('p.device_name', $q) 
-                ->or_like('p.ip_address', $q) 
-                ->or_like('o.outlet_name', $q);
-            if ($hasPrinterRole) {
-                $db->or_like('p.printer_role', $q);
-            }
-            if ($hasMacAddress) {
-                $db->or_like('p.mac_address', $q);
-            }
-            if ($hasPythonPort) {
-                $db->or_like('p.python_port', $q);
-            }
-            $db->group_end(); 
-        } 
-        if ($status === 'ACTIVE') {
-            $db->where('p.is_active', 1);
-        } elseif ($status === 'INACTIVE') {
-            $db->where('p.is_active', 0);
-        }
-        if ($outletId > 0) {
-            $db->where('p.outlet_id', $outletId);
-        }
-
-        $total = (int)$db->count_all_results('', false);
-        [$page, $offset, $totalPages] = $this->paginate($total, $page, $limit);
-        $roleSelect = $hasPrinterRole ? 'p.printer_role' : "'CUSTOM'";
-        $scopeSelect = $hasPrintScope ? 'p.print_scope' : "'DIVISION'";
-        $macSelect = $hasMacAddress ? 'p.mac_address' : "NULL";
-        $pythonSelect = $hasPythonPort ? 'p.python_port' : "NULL";
-        $rows = $db->select(" 
-              p.id, 
-              p.printer_code AS device_code, 
-              p.printer_name AS device_name, 
-              p.outlet_id, 
-              o.outlet_name, 
-              {$roleSelect} AS printer_role, 
-              {$scopeSelect} AS print_scope, 
-              p.connection_type, 
-              p.agent_os,
-              p.agent_os AS os_name,
-              p.agent_host, 
-              p.device_name AS system_device_name,
-              p.device_name AS os_device_name,
-              p.ip_address, 
-              p.port, 
-              {$macSelect} AS mac_address, 
-              {$pythonSelect} AS python_port, 
-              COALESCE(pf.paper_width_mm, 80) AS paper_width_mm, 
-                            COALESCE(pf.copies, 1) AS copies,
-                            COALESCE(pf.chars_per_line, CASE WHEN COALESCE(pf.paper_width_mm, 80) = 58 THEN 32 ELSE 48 END) AS chars_per_line,
-                            t.template_name,
-                            t.document_type AS template_document_type,
-            p.is_active 
-        ", false) 
-            ->order_by('o.outlet_name', 'ASC')
-            ->order_by('p.printer_name', 'ASC')
-            ->limit($limit, $offset)
-            ->get()
-            ->result_array();
-        return ['rows' => $rows, 'meta' => ['total' => $total, 'page' => $page, 'limit' => $limit, 'total_pages' => $totalPages]];
+        $printerConfig = $this->printer_config_model();
+        return $printerConfig
+            ? $printerConfig->connection_rows($filters)
+            : $this->empty_printer_rows($filters);
     }
 
-    public function find_printer_device(int $id): ?array 
-    { 
-        $hasPrinterRole = $this->core_field_exists('pos_printer', 'printer_role');
-        $hasPrintScope = $this->core_field_exists('pos_printer', 'print_scope');
-        $hasMacAddress = $this->core_field_exists('pos_printer', 'mac_address');
-        $hasPythonPort = $this->core_field_exists('pos_printer', 'python_port');
-        $roleSelect = $hasPrinterRole ? 'p.printer_role' : "'CUSTOM'";
-        $scopeSelect = $hasPrintScope ? 'p.print_scope' : "'DIVISION'";
-        $macSelect = $hasMacAddress ? 'p.mac_address' : "NULL";
-        $pythonSelect = $hasPythonPort ? 'p.python_port' : "NULL";
-        return $this->coredb->select(" 
-                  p.id, 
-                  p.printer_code AS device_code, 
-                  p.printer_name AS device_name, 
-                  p.outlet_id, 
-                  {$roleSelect} AS printer_role, 
-                  {$scopeSelect} AS print_scope, 
-                  p.connection_type, 
-                  p.agent_os,
-                  p.agent_os AS os_name,
-                  p.agent_host, 
-                  p.device_name AS system_device_name,
-                  p.device_name AS os_device_name,
-                  p.ip_address, 
-                  p.port, 
-                  {$macSelect} AS mac_address, 
-                  {$pythonSelect} AS python_port, 
-                  COALESCE(pf.paper_width_mm, 80) AS paper_width_mm, 
-                COALESCE(pf.copies, 1) AS copies,
-                COALESCE(pf.chars_per_line, CASE WHEN COALESCE(pf.paper_width_mm, 80) = 58 THEN 32 ELSE 48 END) AS chars_per_line,
-                pf.template_id,
-                t.template_name,
-                t.document_type AS template_document_type,
-                p.is_active 
-            ", false) 
-            ->from('pos_printer p')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->join('pos_printer_template t', 't.id = pf.template_id', 'left')
-            ->where('p.id', $id)
-            ->limit(1)
-            ->get()
-            ->row_array() ?: null;
+    public function find_printer_device(int $id): ?array
+    {
+        $printerConfig = $this->printer_config_model();
+        return $printerConfig ? $printerConfig->find_connection($id) : null;
     }
 
     public function active_printer_preview_options(): array
     {
-        $db = $this->coredb;
-        $hasPrinterRole = $this->core_field_exists('pos_printer', 'printer_role');
-        $hasPrintScope = $this->core_field_exists('pos_printer', 'print_scope');
-        $hasMacAddress = $this->core_field_exists('pos_printer', 'mac_address');
-        $hasPythonPort = $this->core_field_exists('pos_printer', 'python_port');
-        $roleSelect = $hasPrinterRole ? 'p.printer_role' : "'CUSTOM'";
-        $scopeSelect = $hasPrintScope ? 'p.print_scope' : "'DIVISION'";
-        $macSelect = $hasMacAddress ? 'p.mac_address' : "NULL";
-        $pythonSelect = $hasPythonPort ? 'p.python_port' : "NULL";
-
-        return $db->select("
-                p.id,
-                p.printer_code,
-                p.printer_name,
-                {$roleSelect} AS printer_role,
-                {$scopeSelect} AS print_scope,
-                p.connection_type,
-                p.agent_host,
-                p.device_name AS system_device_name,
-                {$macSelect} AS mac_address,
-                {$pythonSelect} AS python_port,
-                o.outlet_name,
-                COALESCE(pf.paper_width_mm, 80) AS paper_width_mm,
-                COALESCE(pf.chars_per_line, CASE WHEN COALESCE(pf.paper_width_mm, 80) = 58 THEN 32 ELSE 48 END) AS chars_per_line,
-                COALESCE(pf.copies, 1) AS copies
-            ", false)
-            ->from('pos_printer p')
-            ->join('pos_outlet o', 'o.id = p.outlet_id', 'left')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->where('p.is_active', 1)
-            ->order_by('o.outlet_name', 'ASC')
-            ->order_by('p.printer_name', 'ASC')
-            ->get()
-            ->result_array();
+        $printerConfig = $this->printer_config_model();
+        $options = $printerConfig ? $printerConfig->options() : [];
+        return array_values(array_filter((array)($options['connections'] ?? []), static function (array $row): bool {
+            return !empty($row['is_active']);
+        }));
     }
 
     public function save_printer_device(array $data): array
     {
-        $id = (int)($data['id'] ?? 0);
-        $name = trim((string)($data['device_name'] ?? ''));
-        if ($name === '') {
-            return ['ok' => false, 'message' => 'Nama device printer wajib diisi.'];
-        }
-        $outletId = !empty($data['outlet_id']) ? (int)$data['outlet_id'] : null;
-        if ($outletId !== null && !$this->core_record_exists('pos_outlet', $outletId)) {
-            return ['ok' => false, 'message' => 'Outlet printer tidak ditemukan di database core.'];
-        }
-
-        $printerRole = strtoupper(trim((string)($data['printer_role'] ?? 'CUSTOM')));
-        if (!in_array($printerRole, ['KASIR', 'BAR', 'KITCHEN', 'CHECKER', 'CUSTOM'], true)) {
-            $printerRole = 'CUSTOM';
-        }
-        $printScope = strtoupper(trim((string)($data['print_scope'] ?? 'DIVISION')));
-        if (!in_array($printScope, ['ALL', 'DIVISION'], true)) {
-            $printScope = 'DIVISION';
-        }
-        $connectionType = strtoupper(trim((string)($data['connection_type'] ?? 'USB')));
-        if (!in_array($connectionType, ['LOCAL_AGENT', 'LAN', 'USB'], true)) {
-            $connectionType = 'USB';
-        }
-        $agentOs = strtoupper(trim((string)($data['agent_os'] ?? ($data['os_name'] ?? 'WINDOWS'))));
-        if (!in_array($agentOs, ['WINDOWS', 'UBUNTU', 'OTHER'], true)) {
-            $agentOs = 'WINDOWS';
-        }
-        $code = strtoupper(trim((string)($data['device_code'] ?? '')));
-        if ($code === '') {
-            $code = $this->generate_named_code($this->coredb, 'pos_printer', 'printer_code', $name, 'PRN-', $id, 40);
-        } elseif ($this->code_exists($this->coredb, 'pos_printer', 'printer_code', $code, $id)) {
-            return ['ok' => false, 'message' => 'Kode device printer sudah dipakai.'];
-        }
-        $agentHost = strtoupper(trim((string)($data['agent_host'] ?? '')));
-        $macAddress = $this->normalize_printer_mac_address((string)($data['mac_address'] ?? ''));
-        $pythonPort = !empty($data['python_port']) ? (int)$data['python_port'] : null;
-        if ($pythonPort !== null && ($pythonPort < 1 || $pythonPort > 65535)) {
-            return ['ok' => false, 'message' => 'Python port harus di antara 1 sampai 65535.'];
-        }
-        $hasMacAddress = $this->core_field_exists('pos_printer', 'mac_address');
-        $hasPythonPort = $this->core_field_exists('pos_printer', 'python_port');
-        $hasPrinterRole = $this->core_field_exists('pos_printer', 'printer_role');
-        $hasPrintScope = $this->core_field_exists('pos_printer', 'print_scope');
-        if ($connectionType === 'LOCAL_AGENT' && $hasMacAddress && $macAddress === '') { 
-            return ['ok' => false, 'message' => 'MAC Address wajib diisi untuk printer LOCAL_AGENT Bluetooth.']; 
-        } 
-        if ($connectionType === 'LOCAL_AGENT' && $hasPythonPort && $pythonPort === null) { 
-            return ['ok' => false, 'message' => 'Python port wajib diisi untuk printer LOCAL_AGENT Bluetooth.']; 
-        } 
-        if ($connectionType === 'LOCAL_AGENT' && $agentHost === '') {
-            return ['ok' => false, 'message' => 'Agent host wajib diisi untuk printer LOCAL_AGENT Bluetooth.'];
-        }
-        if ($hasPythonPort && $pythonPort !== null && $this->printer_python_port_exists($agentHost, $pythonPort, $id)) { 
-            return ['ok' => false, 'message' => 'Python port untuk agent host ini sudah dipakai device lain.']; 
-        } 
- 
-        $payload = [ 
-            'printer_code' => $code, 
-            'printer_name' => $name, 
-            'outlet_id' => $outletId, 
-            'agent_os' => $agentOs, 
-            'agent_host' => $this->nullable_text($agentHost), 
-            'connection_type' => $connectionType, 
-            'device_name' => $this->nullable_text($data['system_device_name'] ?? ''), 
-            'ip_address' => $this->nullable_text($data['ip_address'] ?? ''), 
-            'port' => !empty($data['port']) ? (int)$data['port'] : null, 
-            'is_active' => (int)($data['is_active'] ?? 1) === 1 ? 1 : 0, 
-        ]; 
-        if ($hasPrinterRole) {
-            $payload['printer_role'] = $printerRole;
-        }
-        if ($hasPrintScope) {
-            $payload['print_scope'] = $printScope;
-        }
-        if ($hasMacAddress) {
-            $payload['mac_address'] = $this->nullable_text($macAddress);
-        }
-        if ($hasPythonPort) {
-            $payload['python_port'] = $pythonPort;
-        }
-        $this->coredb->trans_begin();
-        try {
-            if ($id > 0) {
-                if (!$this->find_printer_device($id)) {
-                    throw new RuntimeException('Device printer tidak ditemukan.');
-                }
-                $this->coredb->where('id', $id)->update('pos_printer', $payload);
-            } else {
-                $this->coredb->insert('pos_printer', $payload);
-                $id = (int)$this->coredb->insert_id();
-            }
-
-            $profileExists = (int)$this->coredb->from('pos_printer_profile')->where('printer_id', $id)->count_all_results() > 0;
-            if (!$profileExists) {
-                $profilePayload = [ 
-                    'printer_id' => $id,
-                    'paper_width_mm' => 80,
-                    'chars_per_line' => 48,
-                    'copies' => 1,
-                    'template_id' => null,
-                    'encoding' => 'UTF-8',
-                    'cut_mode' => 'PARTIAL',
-                    'open_drawer' => 0,
-                ];
-                $this->coredb->insert('pos_printer_profile', $profilePayload);
-            }
-
-            if ($this->coredb->table_exists('pos_printer_content_setting')) {
-                $contentExists = (int)$this->coredb->from('pos_printer_content_setting')->where('printer_id', $id)->count_all_results() > 0;
-                if (!$contentExists) {
-                    $this->coredb->insert('pos_printer_content_setting', [
-                        'printer_id' => $id,
-                        'show_logo' => 1,
-                        'price_visibility' => 'always',
-                        'show_footer' => 1,
-                    ]);
-                }
-            }
-
-            if ($profileExists) {
-                // Device save must not overwrite output/profile settings. Those belong to printer profile management.
-            } else {
-                // Default profile already created above for brand new device.
-            }
-
-            if ($this->coredb->trans_status() === false) {
-                throw new RuntimeException('Gagal menyimpan device printer.');
-            }
-            $this->coredb->trans_commit();
-            return ['ok' => true, 'id' => $id];
-        } catch (Throwable $e) {
-            $this->coredb->trans_rollback();
-            return ['ok' => false, 'message' => $e->getMessage()];
-        }
+        return $this->retired_printer_configuration_response('Koneksi Printer');
     }
 
     public function toggle_printer_device(int $id): array
     {
-        $row = $this->find_printer_device($id);
-        if (!$row) {
-            return ['ok' => false, 'message' => 'Device printer tidak ditemukan.'];
-        }
-        $newValue = ((int)($row['is_active'] ?? 0) === 1) ? 0 : 1;
-        $this->coredb->where('id', $id)->update('pos_printer', ['is_active' => $newValue]);
-        return ['ok' => true, 'id' => $id, 'is_active' => $newValue];
+        return $this->retired_printer_configuration_response('Koneksi Printer');
     }
 
-    public function active_printer_devices_for_agent_config(string $agentHost = ''): array 
-    { 
+    public function active_printer_devices_for_agent_config(string $agentHost = ''): array
+    {
         $printerConfig = $this->printer_config_model();
-        if ($printerConfig && $printerConfig->ready()) {
-            return $printerConfig->agent_devices($agentHost);
-        }
-
-        $agentHost = strtoupper(trim($agentHost)); 
-        $hasPrinterRole = $this->core_field_exists('pos_printer', 'printer_role');
-        $hasPrintScope = $this->core_field_exists('pos_printer', 'print_scope');
-        $hasMacAddress = $this->core_field_exists('pos_printer', 'mac_address');
-        $hasPythonPort = $this->core_field_exists('pos_printer', 'python_port');
-        if (!$hasMacAddress || !$hasPythonPort) {
+        if (!$printerConfig || !$printerConfig->agent_connection_ready()) {
             return [];
         }
-        $db = $this->coredb 
-            ->from('pos_printer p') 
-            ->join('pos_outlet o', 'o.id = p.outlet_id', 'left')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->where('p.is_active', 1)
-            ->where('p.connection_type', 'LOCAL_AGENT')
-            ->where('p.mac_address IS NOT NULL', null, false)
-            ->where("TRIM(COALESCE(p.mac_address, '')) <> ''", null, false)
-            ->where('p.python_port IS NOT NULL', null, false);
-
-        if ($agentHost !== '') {
-            $agentHostEscaped = $this->coredb->escape($agentHost);
-            $db->group_start()
-                ->where("UPPER(COALESCE(p.agent_host, '')) = {$agentHostEscaped}", null, false)
-                ->or_where("TRIM(COALESCE(p.agent_host, '')) = ''", null, false)
-                ->group_end();
-        }
-
-        $roleSelect = $hasPrinterRole ? 'p.printer_role' : "'CUSTOM'";
-        $scopeSelect = $hasPrintScope ? 'p.print_scope' : "'DIVISION'";
-        return $db->select(" 
-            p.id, 
-            p.printer_code, 
-            p.printer_name, 
-            {$roleSelect} AS printer_role, 
-            {$scopeSelect} AS print_scope, 
-            p.agent_host, 
-            p.mac_address, 
-            p.python_port, 
-            COALESCE(pf.paper_width_mm, 80) AS paper_width_mm, 
-            COALESCE(pf.chars_per_line, CASE WHEN COALESCE(pf.paper_width_mm, 80) = 58 THEN 32 ELSE 48 END) AS chars_per_line, 
-            COALESCE(pf.copies, 1) AS copies, 
-            COALESCE(pf.open_drawer, 0) AS open_drawer, 
-            o.outlet_name 
-        ", false) 
-            ->order_by('o.outlet_name', 'ASC') 
-            ->order_by('p.python_port', 'ASC') 
-            ->order_by('p.printer_name', 'ASC') 
-            ->get() 
-            ->result_array(); 
-    } 
-
+        return $printerConfig->agent_devices($agentHost);
+    }
     public function order_draft_filter_options(): array
     {
         return [
@@ -5935,21 +5281,51 @@ class Pos_model extends CI_Model
 
     public function cashier_order_reprint_printer_options(int $outletId = 0): array
     {
+        $printerConfig = $this->printer_config_model();
+        if (!$printerConfig || !$printerConfig->ready()) {
+            return [];
+        }
+
+        $connections = (array)($printerConfig->connection_rows([
+            'status' => 'ACTIVE',
+            'limit' => 100,
+        ])['rows'] ?? []);
+        $routes = (array)($printerConfig->route_rows([
+            'status' => 'ACTIVE',
+            'limit' => 100,
+        ])['rows'] ?? []);
         $options = [];
-        $allowManualPreBill = $this->printer_manual_reprint_event_enabled('ORDER_PRE_BILL');
-        foreach ($this->local_agent_kot_printers_for_outlet($outletId) as $printer) {
-            $printerId = (int)($printer['printer_id'] ?? 0);
+        foreach ($connections as $connection) {
+            $connectionId = (int)($connection['id'] ?? 0);
+            $connectionOutletId = (int)($connection['outlet_id'] ?? 0);
+            if ($connectionId <= 0 || ($outletId > 0 && $connectionOutletId > 0 && $connectionOutletId !== $outletId)) {
+                continue;
+            }
+
+            $connectionRoutes = array_values(array_filter($routes, static function (array $route) use ($connectionId): bool {
+                return (int)($route['connection_id'] ?? 0) === $connectionId;
+            }));
+            $hasPreBill = false;
+            $hasKot = false;
+            foreach ($connectionRoutes as $route) {
+                $eventCode = strtoupper(trim((string)($route['event_code'] ?? '')));
+                $hasPreBill = $hasPreBill || $eventCode === 'ORDER_PRE_BILL';
+                $hasKot = $hasKot || $eventCode === 'ORDER_CONFIRM_KOT';
+            }
+
+            $printerId = $connectionId;
             if ($printerId <= 0) {
                 continue;
             }
-            $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
-            if ($role === 'KASIR') {
-                if (!$allowManualPreBill) {
-                    continue;
-                }
+            $role = strtoupper(trim((string)($connection['location_label'] ?? 'CUSTOM')));
+            if ($role === 'KASIR' && !$hasPreBill) {
+                continue;
             }
-            $printerName = trim((string)($printer['printer_name'] ?? ''));
-            $printerCode = trim((string)($printer['printer_code'] ?? ''));
+            if ($role !== 'KASIR' && !$hasKot) {
+                continue;
+            }
+            $printerName = trim((string)($connection['connection_name'] ?? ''));
+            $printerCode = trim((string)($connection['connection_code'] ?? ''));
             $labelParts = [
                 $printerName !== '' ? $printerName : ($printerCode !== '' ? $printerCode : 'Printer POS'),
             ];
@@ -5967,7 +5343,7 @@ class Pos_model extends CI_Model
                 'printer_name' => $printerName,
                 'printer_code' => $printerCode,
                 'printer_role' => $role,
-                'print_scope' => strtoupper(trim((string)($printer['print_scope'] ?? 'DIVISION'))),
+                'print_scope' => $role === 'KASIR' ? 'ALL' : 'DIVISION',
                 'print_mode' => $role === 'KASIR' ? 'PRE_BILL' : 'KOT',
                 'label' => implode(' | ', array_values(array_filter($labelParts, static function ($value): bool {
                     return trim((string)$value) !== '';
@@ -7419,7 +6795,6 @@ class Pos_model extends CI_Model
                     }
                 }
                 if ($sourceRow === null) {
-                            $workspaceMode = strtoupper(trim((string)($filters['workspace_mode'] ?? 'MIXED')));
                     continue;
                 }
                 $availability = $availabilityMap[$productId] ?? [];
@@ -8291,147 +7666,25 @@ class Pos_model extends CI_Model
     public function direct_print_targets_for_order_confirm(int $orderId, int $snapshotId = 0): array
     {
         if ($orderId <= 0) {
-            return ['ok' => false, 'message' => 'Order POS tidak valid untuk direct print.'];
+            return ['ok' => false, 'message' => 'Order POS tidak valid untuk cetak pesanan.'];
         }
         $printerConfig = $this->printer_config_model();
-        if ($printerConfig && $printerConfig->routes_enabled()) {
-            return $this->direct_print_targets_from_config_for_order_confirm($orderId, $snapshotId);
+        if (!$printerConfig || !$printerConfig->routes_enabled()) {
+            return $this->printer_runtime_not_ready('cetak pesanan');
         }
-        if (
-            !$this->db->table_exists('pos_printer')
-            || !$this->db->table_exists('pos_printer_profile')
-            || !$this->db->table_exists('pos_printer_event_setting')
-        ) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $eventRow = $this->db->from('pos_printer_event_setting')
-            ->where('event_code', 'ORDER_CONFIRM_KOT')
-            ->where('is_active', 1)
-            ->limit(1)
-            ->get()
-            ->row_array();
-        if (!$eventRow || (int)($eventRow['auto_print'] ?? 0) !== 1) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $order = $this->find_order_draft($orderId);
-        if (!$order) {
-            return ['ok' => false, 'message' => 'Order POS tidak ditemukan untuk direct print.'];
-        }
-
-        $snapshotLineIds = $this->resolve_direct_print_line_ids_for_snapshot($orderId, $snapshotId);
-        $lines = (array)($order['lines'] ?? []);
-        if (is_array($snapshotLineIds)) {
-            if (empty($snapshotLineIds)) {
-                return ['ok' => true, 'targets' => []];
-            }
-            $lineIdMap = array_fill_keys($snapshotLineIds, true);
-            $lines = array_values(array_filter($lines, static function ($line) use ($lineIdMap) {
-                $lineId = (int)($line['id'] ?? 0);
-                return $lineId > 0 && isset($lineIdMap[$lineId]);
-            }));
-        }
-        if (empty($lines)) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $outletId = (int)($order['header']['outlet_id'] ?? 0);
-        $printers = $this->local_agent_kot_printers_for_outlet($outletId);
-        if (empty($printers)) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        return [
-            'ok' => true,
-            'targets' => $this->build_direct_order_kot_targets($order, $lines, $printers),
-        ];
+        return $this->direct_print_targets_from_config_for_order_confirm($orderId, $snapshotId);
     }
-
     public function direct_print_targets_for_order_reprint(int $orderId, array $options = []): array
     {
         if ($orderId <= 0) {
             return ['ok' => false, 'message' => 'Order POS tidak valid untuk cetak ulang.'];
         }
         $printerConfig = $this->printer_config_model();
-        if ($printerConfig && $printerConfig->routes_enabled()) {
-            return $this->direct_print_targets_from_config_for_order_reprint($orderId, $options);
+        if (!$printerConfig || !$printerConfig->routes_enabled()) {
+            return $this->printer_runtime_not_ready('cetak ulang pesanan');
         }
-        if (
-            !$this->db->table_exists('pos_printer')
-            || !$this->db->table_exists('pos_printer_profile')
-        ) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $order = $this->find_order_draft($orderId);
-        if (!$order) {
-            return ['ok' => false, 'message' => 'Order POS tidak ditemukan untuk cetak ulang.'];
-        }
-
-        $outletId = (int)($order['header']['outlet_id'] ?? 0);
-        $printers = $this->local_agent_kot_printers_for_outlet($outletId);
-        if (empty($printers)) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $printerId = max(0, (int)($options['printer_id'] ?? 0));
-        $selectedPrinter = null;
-        if ($printerId > 0) {
-            foreach ($printers as $printer) {
-                if ((int)($printer['printer_id'] ?? 0) === $printerId) {
-                    $selectedPrinter = $printer;
-                    break;
-                }
-            }
-            if (!$selectedPrinter) {
-                return ['ok' => false, 'message' => 'Printer tujuan tidak ditemukan atau tidak aktif untuk outlet order ini.'];
-            }
-        }
-
-        $selectedRole = strtoupper(trim((string)($selectedPrinter['printer_role'] ?? '')));
-        if ($selectedRole === 'KASIR') {
-            if (!$this->printer_manual_reprint_event_enabled('ORDER_PRE_BILL')) {
-                return ['ok' => false, 'message' => 'Manual reprint bill kasir belum aktif pada setting event printer.'];
-            }
-            if ($this->order_remaining_due_amount((array)($order['header'] ?? [])) <= 0.009) {
-                return ['ok' => false, 'message' => 'Order ini sudah lunas. Bill sementara hanya untuk order yang belum terbayar.'];
-            }
-            return [
-                'ok' => true,
-                'targets' => $this->build_direct_order_prebill_targets($order, [$selectedPrinter]),
-            ];
-        }
-
-        $lines = (array)($order['lines'] ?? []);
-        $lineScope = strtoupper(trim((string)($options['line_scope'] ?? 'ALL')));
-        if ($lineScope === 'LATEST') {
-            $snapshotLineIds = $this->resolve_direct_print_line_ids_for_snapshot($orderId, 0);
-            if (!is_array($snapshotLineIds) || empty($snapshotLineIds)) {
-                return ['ok' => false, 'message' => 'Belum ada snapshot item terbaru untuk order ini. Pilih "Semua pesanan" bila ingin mencetak seluruh line order.'];
-            }
-            $lineIdMap = array_fill_keys($snapshotLineIds, true);
-            $lines = array_values(array_filter($lines, static function ($line) use ($lineIdMap) {
-                $lineId = (int)($line['id'] ?? 0);
-                return $lineId > 0 && isset($lineIdMap[$lineId]);
-            }));
-        }
-        if (empty($lines)) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        return [
-            'ok' => true,
-            'targets' => $this->build_direct_order_kot_targets($order, $lines, $printers, [
-                'printer_id' => $printerId,
-            ]),
-        ];
+        return $this->direct_print_targets_from_config_for_order_reprint($orderId, $options);
     }
-
-    /**
-     * Runtime baru: route di database menentukan koneksi dan layout, sedangkan
-     * event lama hanya dipakai sebagai fallback untuk database yang belum dimigrasi.
-     */
     private function direct_print_targets_from_config_for_order_confirm(int $orderId, int $snapshotId = 0): array
     {
         $order = $this->find_order_draft($orderId);
@@ -8756,233 +8009,17 @@ class Pos_model extends CI_Model
         ]);
     }
 
-    private function local_agent_kot_printers_for_outlet(int $outletId = 0): array
-    {
-        if (
-            !$this->db->table_exists('pos_printer')
-            || !$this->db->table_exists('pos_printer_profile')
-        ) {
-            return [];
-        }
-
-        return $this->coredb
-            ->select("
-                p.id AS printer_id,
-                p.printer_code,
-                p.printer_name,
-                COALESCE(p.printer_role, 'CUSTOM') AS printer_role,
-                COALESCE(p.print_scope, 'DIVISION') AS print_scope,
-                p.outlet_id,
-                p.agent_host,
-                p.python_port,
-                pf.template_id,
-                COALESCE(pf.paper_width_mm, 80) AS paper_width_mm,
-                COALESCE(pf.chars_per_line, CASE WHEN COALESCE(pf.paper_width_mm, 80) = 58 THEN 32 ELSE 48 END) AS chars_per_line,
-                COALESCE(pf.copies, pf.copy_count, 1) AS copies
-            ", false)
-            ->from('pos_printer p')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->where('p.is_active', 1)
-            ->where('p.connection_type', 'LOCAL_AGENT')
-            ->where('p.python_port IS NOT NULL', null, false)
-            ->group_start()
-                ->where('p.outlet_id', $outletId)
-                ->or_where('p.outlet_id IS NULL', null, false)
-            ->group_end()
-            ->order_by('p.outlet_id', 'DESC')
-            ->order_by('p.id', 'ASC')
-            ->get()
-            ->result_array();
-    }
-
-    private function build_direct_order_kot_targets(array $order, array $lines, array $printers, array $filters = []): array
-    {
-        $selectedPrinterId = max(0, (int)($filters['printer_id'] ?? 0));
-
-        $lineBuckets = [
-            'BAR' => [],
-            'KITCHEN' => [],
-            'ALL' => [],
-        ];
-        foreach ($lines as $line) {
-            $linePayload = $this->build_direct_print_order_line($line);
-            $lineBuckets['ALL'][] = $linePayload;
-            $role = $this->preferred_print_role_for_order_line($line);
-            if (!isset($lineBuckets[$role])) {
-                $role = 'KITCHEN';
-            }
-            $lineBuckets[$role][] = $linePayload;
-        }
-
-        $targets = [];
-        foreach ($printers as $printer) {
-            $printerId = (int)($printer['printer_id'] ?? 0);
-            $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
-            if ($role === 'KASIR') {
-                continue;
-            }
-            if ($selectedPrinterId > 0 && $printerId !== $selectedPrinterId) {
-                continue;
-            }
-
-            $scope = strtoupper(trim((string)($printer['print_scope'] ?? 'DIVISION')));
-            $selectedLines = $scope === 'ALL'
-                ? $lineBuckets['ALL']
-                : ($role === 'BAR'
-                    ? $lineBuckets['BAR']
-                    : ($role === 'KITCHEN' ? $lineBuckets['KITCHEN'] : $lineBuckets['ALL']));
-            if (empty($selectedLines)) {
-                continue;
-            }
-
-            $template = $this->resolve_direct_print_template($printer, 'ORDER_CONFIRM_KOT');
-            $printWidth = $this->normalize_printer_chars_per_line(
-                (int)($printer['paper_width_mm'] ?? 80),
-                (int)($printer['chars_per_line'] ?? 48)
-            );
-            $targets[] = [
-                'printer_id' => $printerId,
-                'printer_code' => (string)($printer['printer_code'] ?? ''),
-                'printer_name' => (string)($printer['printer_name'] ?? ''),
-                'printer_role' => $role,
-                'print_scope' => $scope,
-                'agent_host' => (string)($printer['agent_host'] ?? ''),
-                'python_port' => (int)($printer['python_port'] ?? 0),
-                'paper_width_mm' => (int)($printer['paper_width_mm'] ?? 80),
-                'chars_per_line' => $printWidth,
-                'copies' => max(1, (int)($printer['copies'] ?? 1)),
-                'text' => $this->build_direct_kot_text((array)($order['header'] ?? []), $selectedLines, $printer, $template),
-            ];
-        }
-
-        return $targets;
-    }
-
-    private function build_direct_order_prebill_targets(array $order, array $printers): array
-    {
-        $targets = [];
-        foreach ($printers as $printer) {
-            $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
-            if ($role !== 'KASIR') {
-                continue;
-            }
-            $template = $this->resolve_direct_print_template($printer, 'ORDER_PRE_BILL');
-            $printWidth = $this->normalize_printer_chars_per_line(
-                (int)($printer['paper_width_mm'] ?? 80),
-                (int)($printer['chars_per_line'] ?? 48)
-            );
-            $targets[] = [
-                'printer_id' => (int)($printer['printer_id'] ?? 0),
-                'printer_code' => (string)($printer['printer_code'] ?? ''),
-                'printer_name' => (string)($printer['printer_name'] ?? ''),
-                'printer_role' => $role,
-                'print_scope' => strtoupper(trim((string)($printer['print_scope'] ?? 'ALL'))),
-                'agent_host' => (string)($printer['agent_host'] ?? ''),
-                'python_port' => (int)($printer['python_port'] ?? 0),
-                'paper_width_mm' => (int)($printer['paper_width_mm'] ?? 80),
-                'chars_per_line' => $printWidth,
-                'copies' => max(1, (int)($printer['copies'] ?? 1)),
-                'text' => $this->build_direct_order_prebill_text($order, $printer, $template),
-            ];
-        }
-
-        return $targets;
-    }
-
     public function direct_print_targets_for_payment(int $paymentId, bool $respectAutoPrint = true): array
     {
         if ($paymentId <= 0) {
-            return ['ok' => false, 'message' => 'Pembayaran POS tidak valid untuk direct print.'];
+            return ['ok' => false, 'message' => 'Pembayaran POS tidak valid untuk cetak struk.'];
         }
         $printerConfig = $this->printer_config_model();
-        if ($printerConfig && $printerConfig->routes_enabled()) {
-            return $this->direct_print_targets_from_config_for_payment($paymentId, $respectAutoPrint);
+        if (!$printerConfig || !$printerConfig->routes_enabled()) {
+            return $this->printer_runtime_not_ready('cetak struk pembayaran');
         }
-        if (
-            !$this->db->table_exists('pos_printer')
-            || !$this->db->table_exists('pos_printer_profile')
-            || !$this->db->table_exists('pos_printer_event_setting')
-        ) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $eventRow = $this->db->from('pos_printer_event_setting')
-            ->where('event_code', 'ORDER_PAID_RECEIPT')
-            ->where('is_active', 1)
-            ->limit(1)
-            ->get()
-            ->row_array();
-        if ($respectAutoPrint && (!$eventRow || (int)($eventRow['auto_print'] ?? 0) !== 1)) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $document = $this->find_payment_print_document($paymentId);
-        if (!$document) {
-            return ['ok' => false, 'message' => 'Dokumen payment POS tidak ditemukan untuk direct print.'];
-        }
-
-        $outletId = (int)($document['header']['outlet_id'] ?? 0);
-        $printers = $this->coredb
-            ->select(" 
-                p.id AS printer_id,
-                p.printer_code,
-                p.printer_name,
-                COALESCE(p.printer_role, 'CUSTOM') AS printer_role,
-                COALESCE(p.print_scope, 'ALL') AS print_scope,
-                p.outlet_id,
-                p.agent_host,
-                p.python_port,
-                pf.template_id,
-                COALESCE(pf.paper_width_mm, 80) AS paper_width_mm,
-                COALESCE(pf.chars_per_line, CASE WHEN COALESCE(pf.paper_width_mm, 80) = 58 THEN 32 ELSE 48 END) AS chars_per_line,
-                COALESCE(pf.copies, pf.copy_count, 1) AS copies
-            ", false)
-            ->from('pos_printer p')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->where('p.is_active', 1)
-            ->where('p.connection_type', 'LOCAL_AGENT')
-            ->where('p.python_port IS NOT NULL', null, false)
-            ->group_start()
-                ->where('p.outlet_id', $outletId)
-                ->or_where('p.outlet_id IS NULL', null, false)
-            ->group_end()
-            ->order_by('p.outlet_id', 'DESC')
-            ->order_by('p.id', 'ASC')
-            ->get()
-            ->result_array();
-        if (empty($printers)) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $targets = [];
-        foreach ($printers as $printer) {
-            $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
-            if ($role !== 'KASIR') {
-                continue;
-            }
-            $template = $this->resolve_direct_print_template($printer, 'ORDER_PAID_RECEIPT');
-            $printWidth = $this->normalize_printer_chars_per_line(
-                (int)($printer['paper_width_mm'] ?? 80),
-                (int)($printer['chars_per_line'] ?? 48)
-            );
-            $targets[] = [
-                'printer_id' => (int)($printer['printer_id'] ?? 0),
-                'printer_code' => (string)($printer['printer_code'] ?? ''),
-                'printer_name' => (string)($printer['printer_name'] ?? ''),
-                'printer_role' => $role,
-                'print_scope' => strtoupper(trim((string)($printer['print_scope'] ?? 'ALL'))),
-                'agent_host' => (string)($printer['agent_host'] ?? ''),
-                'python_port' => (int)($printer['python_port'] ?? 0),
-                'paper_width_mm' => (int)($printer['paper_width_mm'] ?? 80),
-                'chars_per_line' => $printWidth,
-                'copies' => max(1, (int)($printer['copies'] ?? 1)),
-                'text' => $this->build_direct_payment_receipt_text($document, $printer, $template),
-            ];
-        }
-
-        return ['ok' => true, 'targets' => $targets];
+        return $this->direct_print_targets_from_config_for_payment($paymentId, $respectAutoPrint);
     }
-
     public function direct_print_targets_for_void(int $voidId): array
     {
         return $this->direct_print_targets_for_reversal_document('VOID_SLIP', $voidId);
@@ -8996,226 +8033,29 @@ class Pos_model extends CI_Model
     public function direct_print_targets_for_shift_close(int $shiftId, array $report = []): array
     {
         if ($shiftId <= 0) {
-            return ['ok' => false, 'message' => 'Shift POS tidak valid untuk direct print.'];
+            return ['ok' => false, 'message' => 'Shift POS tidak valid untuk cetak penutupan kasir.'];
         }
         $printerConfig = $this->printer_config_model();
-        if ($printerConfig && $printerConfig->routes_enabled()) {
-            return $this->direct_print_targets_from_config_for_shift_close($shiftId, $report);
+        if (!$printerConfig || !$printerConfig->routes_enabled()) {
+            return $this->printer_runtime_not_ready('cetak penutupan kasir');
         }
-        if (
-            !$this->db->table_exists('pos_printer')
-            || !$this->db->table_exists('pos_printer_profile')
-            || !$this->db->table_exists('pos_printer_event_setting')
-        ) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $eventRow = $this->db->from('pos_printer_event_setting')
-            ->where('event_code', 'SHIFT_CLOSE_SUMMARY')
-            ->where('is_active', 1)
-            ->limit(1)
-            ->get()
-            ->row_array();
-        if (!$eventRow || (int)($eventRow['auto_print'] ?? 0) !== 1) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        if (empty($report)) {
-            $report = (array)$this->shift_close_report($shiftId);
-        }
-        $shift = (array)($report['shift'] ?? []);
-        if (empty($shift)) {
-            return ['ok' => false, 'message' => 'Laporan tutup kasir tidak tersedia untuk direct print.'];
-        }
-
-        $outletId = (int)($shift['outlet_id'] ?? 0);
-        $printers = $this->coredb
-            ->select(" 
-                p.id AS printer_id,
-                p.printer_code,
-                p.printer_name,
-                COALESCE(p.printer_role, 'CUSTOM') AS printer_role,
-                COALESCE(p.print_scope, 'ALL') AS print_scope,
-                p.outlet_id,
-                p.agent_host,
-                p.python_port,
-                pf.template_id,
-                COALESCE(pf.paper_width_mm, 80) AS paper_width_mm,
-                COALESCE(pf.chars_per_line, CASE WHEN COALESCE(pf.paper_width_mm, 80) = 58 THEN 32 ELSE 48 END) AS chars_per_line,
-                COALESCE(pf.copies, pf.copy_count, 1) AS copies
-            ", false)
-            ->from('pos_printer p')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->where('p.is_active', 1)
-            ->where('p.connection_type', 'LOCAL_AGENT')
-            ->where('p.python_port IS NOT NULL', null, false)
-            ->group_start()
-                ->where('p.outlet_id', $outletId)
-                ->or_where('p.outlet_id IS NULL', null, false)
-            ->group_end()
-            ->order_by('p.outlet_id', 'DESC')
-            ->order_by('p.id', 'ASC')
-            ->get()
-            ->result_array();
-        if (empty($printers)) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $targets = [];
-        foreach ($printers as $printer) {
-            $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
-            if ($role !== 'KASIR') {
-                continue;
-            }
-            $template = $this->resolve_direct_print_template($printer, 'SHIFT_CLOSE_SUMMARY');
-            $printWidth = $this->normalize_printer_chars_per_line(
-                (int)($printer['paper_width_mm'] ?? 80),
-                (int)($printer['chars_per_line'] ?? 48)
-            );
-            $targets[] = [
-                'printer_id' => (int)($printer['printer_id'] ?? 0),
-                'printer_code' => (string)($printer['printer_code'] ?? ''),
-                'printer_name' => (string)($printer['printer_name'] ?? ''),
-                'printer_role' => $role,
-                'print_scope' => strtoupper(trim((string)($printer['print_scope'] ?? 'ALL'))),
-                'agent_host' => (string)($printer['agent_host'] ?? ''),
-                'python_port' => (int)($printer['python_port'] ?? 0),
-                'paper_width_mm' => (int)($printer['paper_width_mm'] ?? 80),
-                'chars_per_line' => $printWidth,
-                'copies' => max(1, (int)($printer['copies'] ?? 1)),
-                'text' => $this->build_direct_shift_close_receipt_text($report, $printer, $template),
-            ];
-        }
-
-        return ['ok' => true, 'targets' => $targets];
+        return $this->direct_print_targets_from_config_for_shift_close($shiftId, $report);
     }
-
     private function direct_print_targets_for_reversal_document(string $documentType, int $documentId): array
     {
         $documentType = strtoupper(trim($documentType));
         if ($documentId <= 0) {
-            return ['ok' => false, 'message' => 'Dokumen reversal POS tidak valid untuk direct print.'];
+            return ['ok' => false, 'message' => 'Dokumen pembatalan POS tidak valid untuk dicetak.'];
+        }
+        if (!in_array($documentType, ['VOID_SLIP', 'REFUND_SLIP'], true)) {
+            return ['ok' => false, 'message' => 'Jenis dokumen pembatalan tidak dikenali.'];
         }
         $printerConfig = $this->printer_config_model();
-        if ($printerConfig && $printerConfig->routes_enabled()) {
-            return $this->direct_print_targets_from_config_for_reversal($documentType, $documentId);
+        if (!$printerConfig || !$printerConfig->routes_enabled()) {
+            return $this->printer_runtime_not_ready('cetak dokumen pembatalan');
         }
-        if (
-            !$this->db->table_exists('pos_printer')
-            || !$this->db->table_exists('pos_printer_profile')
-            || !$this->db->table_exists('pos_printer_event_setting')
-        ) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $eventRow = $this->db->from('pos_printer_event_setting')
-            ->where('event_code', $documentType)
-            ->where('is_active', 1)
-            ->limit(1)
-            ->get()
-            ->row_array();
-        if (!$eventRow || (int)($eventRow['auto_print'] ?? 0) !== 1) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $document = $documentType === 'VOID_SLIP'
-            ? $this->find_void_print_document($documentId)
-            : $this->find_refund_print_document($documentId);
-        if (!$document) {
-            return ['ok' => false, 'message' => 'Dokumen reversal POS tidak ditemukan untuk direct print.'];
-        }
-
-        $outletId = (int)($document['header']['outlet_id'] ?? 0);
-        $printers = $this->coredb
-            ->select(" 
-                p.id AS printer_id,
-                p.printer_code,
-                p.printer_name,
-                COALESCE(p.printer_role, 'CUSTOM') AS printer_role,
-                COALESCE(p.print_scope, 'ALL') AS print_scope,
-                p.outlet_id,
-                p.agent_host,
-                p.python_port,
-                pf.template_id,
-                COALESCE(pf.paper_width_mm, 80) AS paper_width_mm,
-                COALESCE(pf.chars_per_line, CASE WHEN COALESCE(pf.paper_width_mm, 80) = 58 THEN 32 ELSE 48 END) AS chars_per_line,
-                COALESCE(pf.copies, pf.copy_count, 1) AS copies
-            ", false)
-            ->from('pos_printer p')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'left')
-            ->where('p.is_active', 1)
-            ->where('p.connection_type', 'LOCAL_AGENT')
-            ->where('p.python_port IS NOT NULL', null, false)
-            ->group_start()
-                ->where('p.outlet_id', $outletId)
-                ->or_where('p.outlet_id IS NULL', null, false)
-            ->group_end()
-            ->order_by('p.outlet_id', 'DESC')
-            ->order_by('p.id', 'ASC')
-            ->get()
-            ->result_array();
-        if (empty($printers)) {
-            return ['ok' => true, 'targets' => []];
-        }
-
-        $lineBuckets = [
-            'BAR' => [],
-            'KITCHEN' => [],
-            'ALL' => [],
-        ];
-        foreach ((array)($document['lines'] ?? []) as $line) {
-            if (!is_array($line)) {
-                continue;
-            }
-            $lineBuckets['ALL'][] = $line;
-            $role = $this->preferred_print_role_for_order_line($line);
-            if (!isset($lineBuckets[$role])) {
-                $role = 'KITCHEN';
-            }
-            $lineBuckets[$role][] = $line;
-        }
-
-        $targets = [];
-        foreach ($printers as $printer) {
-            $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
-            if ($role === 'CHECKER') {
-                continue;
-            }
-            $scope = strtoupper(trim((string)($printer['print_scope'] ?? 'ALL')));
-            $selectedLines = $scope === 'ALL'
-                ? $lineBuckets['ALL']
-                : ($role === 'BAR'
-                    ? $lineBuckets['BAR']
-                    : ($role === 'KITCHEN' ? $lineBuckets['KITCHEN'] : $lineBuckets['ALL']));
-            if (empty($selectedLines)) {
-                continue;
-            }
-            $template = $this->resolve_direct_print_template($printer, $documentType);
-            $printWidth = $this->normalize_printer_chars_per_line(
-                (int)($printer['paper_width_mm'] ?? 80),
-                (int)($printer['chars_per_line'] ?? 48)
-            );
-            $targets[] = [
-                'printer_id' => (int)($printer['printer_id'] ?? 0),
-                'printer_code' => (string)($printer['printer_code'] ?? ''),
-                'printer_name' => (string)($printer['printer_name'] ?? ''),
-                'printer_role' => $role,
-                'print_scope' => $scope,
-                'agent_host' => (string)($printer['agent_host'] ?? ''),
-                'python_port' => (int)($printer['python_port'] ?? 0),
-                'paper_width_mm' => (int)($printer['paper_width_mm'] ?? 80),
-                'chars_per_line' => $printWidth,
-                'copies' => max(1, (int)($printer['copies'] ?? 1)),
-                'text' => $this->build_direct_reversal_slip_text($documentType, [
-                    'header' => (array)($document['header'] ?? []),
-                    'lines' => $selectedLines,
-                ], $printer, $template),
-            ];
-        }
-
-        return ['ok' => true, 'targets' => $targets];
+        return $this->direct_print_targets_from_config_for_reversal($documentType, $documentId);
     }
-
     public function order_reversal_preview(int $orderId): array
     {
         if ($orderId <= 0) {
@@ -9738,128 +8578,6 @@ class Pos_model extends CI_Model
         return 'Rp ' . number_format($amount, 2, ',', '.');
     }
 
-    public function queue_order_confirm_print_jobs(int $orderId): array
-    {
-        if ($orderId <= 0 || !$this->db->table_exists('pos_printer_job') || !$this->db->table_exists('pos_printer') || !$this->db->table_exists('pos_printer_profile')) {
-            return ['ok' => true, 'job_count' => 0];
-        }
-
-        $eventRow = $this->db->from('pos_printer_event_setting')
-            ->where('event_code', 'ORDER_CONFIRM_KOT')
-            ->where('is_active', 1)
-            ->limit(1)
-            ->get()
-            ->row_array();
-        if (!$eventRow || (int)($eventRow['auto_print'] ?? 0) !== 1) {
-            return ['ok' => true, 'job_count' => 0];
-        }
-
-        $order = $this->find_order_draft($orderId);
-        if (!$order) {
-            return ['ok' => false, 'message' => 'Order POS tidak ditemukan untuk membuat job printer.'];
-        }
-
-        $printers = $this->db
-            ->select("
-                p.id AS printer_id,
-                p.printer_code,
-                p.printer_name,
-                COALESCE(p.printer_role, 'CUSTOM') AS printer_role,
-                pf.id AS profile_id,
-                COALESCE(pf.copies, pf.copy_count, 1) AS copies
-            ", false)
-            ->from('pos_printer p')
-            ->join('pos_printer_profile pf', 'pf.printer_id = p.id', 'inner')
-            ->where('p.is_active', 1)
-            ->get()
-            ->result_array();
-        if (empty($printers)) {
-            return ['ok' => true, 'job_count' => 0];
-        }
-
-        $payload = $this->build_order_kot_print_payload($order);
-        $jobCount = 0;
-
-        $this->db->trans_begin();
-        try {
-            foreach ($printers as $printer) {
-                $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
-                if (!in_array($role, ['KITCHEN', 'BAR', 'CHECKER', 'CUSTOM'], true)) {
-                    continue;
-                }
-
-                $jobNo = $this->generate_job_no();
-                $this->db->insert('pos_printer_job', [
-                    'job_no' => $jobNo,
-                    'route_rule_id' => null,
-                    'profile_id' => (int)$printer['profile_id'],
-                    'desktop_device_id' => null,
-                    'order_id' => $orderId,
-                    'payment_id' => null,
-                    'refund_id' => null,
-                    'void_id' => null,
-                    'document_type' => 'KOT',
-                    'event_code' => 'ORDER_CONFIRM_KOT',
-                    'print_payload' => json_encode($payload + [
-                        'printer_id' => (int)$printer['printer_id'],
-                        'printer_code' => (string)($printer['printer_code'] ?? ''),
-                        'printer_name' => (string)($printer['printer_name'] ?? ''),
-                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                    'copy_count' => max(1, (int)($printer['copies'] ?? 1)),
-                    'status' => 'PENDING',
-                    'requested_at' => date('Y-m-d H:i:s'),
-                ]);
-                $jobId = (int)$this->db->insert_id();
-                if ($this->db->table_exists('pos_printer_job_log')) {
-                    $this->db->insert('pos_printer_job_log', [
-                        'job_id' => $jobId,
-                        'log_level' => 'INFO',
-                        'message' => 'Job KOT dibuat otomatis dari confirm order POS.',
-                    ]);
-                }
-                $jobCount++;
-            }
-
-            if ($this->db->trans_status() === false) {
-                throw new RuntimeException('Gagal membuat antrean print job order confirm.');
-            }
-            $this->db->trans_commit();
-            return ['ok' => true, 'job_count' => $jobCount];
-        } catch (Throwable $e) {
-            $this->db->trans_rollback();
-            return ['ok' => false, 'message' => $e->getMessage(), 'job_count' => 0];
-        }
-    }
-
-    private function local_template_master_options(): array
-    {
-        if (!$this->db->table_exists('pos_printer_template_master')) {
-            return [];
-        }
-        return $this->db->select('id, master_code, master_name, document_type')
-            ->from('pos_printer_template_master')
-            ->where('is_active', 1)
-            ->order_by('document_type', 'ASC')
-            ->order_by('master_name', 'ASC')
-            ->get()
-            ->result_array();
-    }
-
-    private function local_template_options(): array
-    {
-        if (!$this->db->table_exists('pos_printer_template')) {
-            return [];
-        }
-        return $this->db->select('t.id, t.template_code, t.template_name, tm.document_type')
-            ->from('pos_printer_template t')
-            ->join('pos_printer_template_master tm', 'tm.id = t.template_master_id', 'left')
-            ->where('t.is_active', 1)
-            ->order_by('tm.document_type', 'ASC')
-            ->order_by('t.template_name', 'ASC')
-            ->get()
-            ->result_array();
-    }
-
     private function local_record_exists(string $table, int $id): bool
     {
         if ($id <= 0 || !$this->db->table_exists($table)) {
@@ -10335,11 +9053,215 @@ class Pos_model extends CI_Model
             'order_line_id' => (int)($line['id'] ?? 0),
             'operational_division_id' => (int)($line['operational_division_id'] ?? 0),
             'product_division_id' => (int)($line['product_division_id_snapshot'] ?? 0),
+            'bundle_id' => (int)($line['bundle_id'] ?? 0),
+            'bundle_code' => (string)($line['bundle_code'] ?? ''),
+            'bundle_name' => (string)($line['bundle_name'] ?? ''),
+            'line_type' => (string)($line['line_type'] ?? 'PRODUCT'),
             'product_name' => (string)($line['product_name'] ?? ''),
             'qty' => (float)($line['qty'] ?? 0),
+            'amount' => (float)($line['net_amount'] ?? 0),
             'notes' => trim((string)($line['notes'] ?? '')),
             'extras' => $extras,
         ];
+    }
+
+    /**
+     * Bundle is persisted through bundle_id on every component line. Older
+     * transactions can also contain a BUNDLE_HEADER line, therefore it is
+     * ignored as an item but still contributes its bundle label.
+     */
+    private function direct_print_bundle_groups(array $lines): array
+    {
+        $groups = [];
+        $bundleIndexes = [];
+
+        foreach ($lines as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+
+            $bundleId = max(0, (int)($line['bundle_id'] ?? 0));
+            $lineType = strtoupper(trim((string)($line['line_type'] ?? 'PRODUCT')));
+            if ($bundleId <= 0) {
+                if ($lineType !== 'BUNDLE_HEADER') {
+                    $groups[] = ['type' => 'LINE', 'line' => $line];
+                }
+                continue;
+            }
+
+            $key = 'BUNDLE:' . $bundleId;
+            if (!isset($bundleIndexes[$key])) {
+                $bundleIndexes[$key] = count($groups);
+                $groups[] = [
+                    'type' => 'BUNDLE',
+                    'bundle_id' => $bundleId,
+                    'bundle_name' => trim((string)($line['bundle_name'] ?? '')),
+                    'bundle_code' => trim((string)($line['bundle_code'] ?? '')),
+                    'lines' => [],
+                ];
+            }
+
+            $groupIndex = $bundleIndexes[$key];
+            if ($groups[$groupIndex]['bundle_name'] === '') {
+                $groups[$groupIndex]['bundle_name'] = trim((string)($line['bundle_name'] ?? ''));
+            }
+            if ($groups[$groupIndex]['bundle_code'] === '') {
+                $groups[$groupIndex]['bundle_code'] = trim((string)($line['bundle_code'] ?? ''));
+            }
+            if ($lineType !== 'BUNDLE_HEADER') {
+                $groups[$groupIndex]['lines'][] = $line;
+            }
+        }
+
+        return array_values(array_filter($groups, static function (array $group): bool {
+            return $group['type'] !== 'BUNDLE' || !empty($group['lines']);
+        }));
+    }
+
+    private function direct_print_line_name(array $line): string
+    {
+        return trim((string)($line['product_name'] ?? $line['item_name'] ?? '-')) ?: '-';
+    }
+
+    private function direct_print_qty_label($qty): string
+    {
+        return rtrim(rtrim(number_format((float)$qty, 2, '.', ''), '0'), '.');
+    }
+
+    /**
+     * Bundle labels are stored in older order-line notes as an internal marker.
+     * The bundle-aware renderer already prints that label once as a group title,
+     * so keep any real customer note but drop the duplicate marker per item.
+     */
+    private function direct_print_without_bundle_marker(string $notes): string
+    {
+        $notes = trim($notes);
+        if ($notes === '') {
+            return '';
+        }
+
+        $keptLines = [];
+        foreach (preg_split('/\r\n|\r|\n/', $notes) ?: [] as $noteLine) {
+            $noteLine = trim((string)$noteLine);
+            if ($noteLine === '' || preg_match('/^\[BUNDLE\](?:\s|$)/i', $noteLine)) {
+                continue;
+            }
+            $keptLines[] = $noteLine;
+        }
+
+        return trim(implode("\n", $keptLines));
+    }
+
+    private function append_direct_print_item_block(
+        array &$chunks,
+        array $line,
+        int $width,
+        bool $showQty,
+        bool $showExtra,
+        bool $showNotes,
+        bool $showPrice,
+        int $labelWidth,
+        int $amountWidth,
+        string $indent = ''
+    ): void {
+        $qtyLabel = $this->direct_print_qty_label($line['qty'] ?? 0);
+        $prefix = $showQty ? ($qtyLabel . ' x ') : '';
+        $itemLine = $indent . $prefix . $this->direct_print_line_name($line);
+        if ($showPrice) {
+            $wrapped = $this->wrap_print_text($itemLine, $labelWidth);
+            $lastIndex = max(0, count($wrapped) - 1);
+            foreach ($wrapped as $index => $wrappedLine) {
+                if ($index === $lastIndex) {
+                    $chunks[] = $this->pad_right_print($wrappedLine, $labelWidth)
+                        . $this->pad_left_print($this->format_number_print($line['amount'] ?? $line['net_amount'] ?? 0), $amountWidth);
+                } else {
+                    $chunks[] = $wrappedLine;
+                }
+            }
+        } else {
+            foreach ($this->wrap_print_text($itemLine, $width) as $wrappedLine) {
+                $chunks[] = $wrappedLine;
+            }
+        }
+
+        if ($showExtra) {
+            foreach ((array)($line['extras'] ?? []) as $extra) {
+                $extraName = trim((string)($extra['name'] ?? $extra['extra_name'] ?? ''));
+                if ($extraName === '') {
+                    continue;
+                }
+                $extraQty = $this->direct_print_qty_label($extra['qty'] ?? 0);
+                $extraSuffix = $showQty && $extraQty !== '' ? ' x' . $extraQty : '';
+                $extraLine = $indent . '  + ' . $extraName . $extraSuffix;
+                if ($showPrice) {
+                    $wrapped = $this->wrap_print_text($extraLine, $labelWidth);
+                    $lastIndex = max(0, count($wrapped) - 1);
+                    foreach ($wrapped as $index => $wrappedLine) {
+                        if ($index === $lastIndex) {
+                            $chunks[] = $this->pad_right_print($wrappedLine, $labelWidth)
+                                . $this->pad_left_print($this->format_number_print($extra['amount'] ?? $extra['net_amount'] ?? 0), $amountWidth);
+                        } else {
+                            $chunks[] = $wrappedLine;
+                        }
+                    }
+                } else {
+                    foreach ($this->wrap_print_text($extraLine, $width) as $wrappedLine) {
+                        $chunks[] = $wrappedLine;
+                    }
+                }
+            }
+        }
+
+        $notes = trim((string)($line['notes'] ?? ''));
+        if ($showNotes && $notes !== '') {
+            foreach ($this->wrap_print_text($indent . '  NOTE: ' . $notes, $width) as $noteLine) {
+                $chunks[] = $noteLine;
+            }
+        }
+    }
+
+    private function append_direct_print_bundle_aware_lines(
+        array &$chunks,
+        array $lines,
+        int $width,
+        bool $showProductName,
+        bool $showQty,
+        bool $showExtra,
+        bool $showNotes,
+        bool $showPrice = false,
+        int $labelWidth = 0,
+        int $amountWidth = 0,
+        string $entryDivider = ''
+    ): void {
+        if (!$showProductName) {
+            return;
+        }
+
+        $labelWidth = $labelWidth > 0 ? $labelWidth : $width;
+        $amountWidth = $amountWidth > 0 ? $amountWidth : 0;
+        foreach ($this->direct_print_bundle_groups($lines) as $group) {
+            if ($group['type'] === 'BUNDLE') {
+                $bundleName = trim((string)($group['bundle_name'] ?? ''));
+                if ($bundleName === '') {
+                    $bundleName = trim((string)($group['bundle_code'] ?? 'PAKET'));
+                }
+                foreach ($this->wrap_print_text(strtoupper(rtrim($bundleName, ':')) . ':', $width) as $bundleLine) {
+                    $chunks[] = $bundleLine;
+                }
+                foreach ((array)$group['lines'] as $line) {
+                    // Existing bundle component rows can carry an internal
+                    // [BUNDLE] marker in notes. The group heading above is
+                    // the single source of that information on paper.
+                    $line['notes'] = $this->direct_print_without_bundle_marker((string)($line['notes'] ?? ''));
+                    $this->append_direct_print_item_block($chunks, $line, $width, $showQty, $showExtra, $showNotes, $showPrice, $labelWidth, $amountWidth, '  ');
+                }
+            } else {
+                $this->append_direct_print_item_block($chunks, (array)$group['line'], $width, $showQty, $showExtra, $showNotes, $showPrice, $labelWidth, $amountWidth);
+            }
+            if ($entryDivider !== '') {
+                $chunks[] = $entryDivider;
+            }
+        }
     }
 
     private function find_payment_print_document(int $paymentId): ?array
@@ -10365,22 +9287,28 @@ class Pos_model extends CI_Model
 
         $lines = [];
         foreach ((array)($order['lines'] ?? []) as $line) {
+            $extras = [];
+            foreach ((array)($line['extras'] ?? []) as $extra) {
+                $extras[] = [
+                    'extra_name' => (string)($extra['extra_name'] ?? '-'),
+                    'qty' => (float)($extra['qty'] ?? 0),
+                    'net_amount' => (float)($extra['net_amount'] ?? 0),
+                    'notes' => (string)($extra['notes'] ?? ''),
+                ];
+            }
             $lines[] = [
                 'item_name' => (string)($line['product_name'] ?? '-'),
+                'product_name' => (string)($line['product_name'] ?? '-'),
+                'bundle_id' => (int)($line['bundle_id'] ?? 0),
+                'bundle_code' => (string)($line['bundle_code'] ?? ''),
+                'bundle_name' => (string)($line['bundle_name'] ?? ''),
+                'line_type' => (string)($line['line_type'] ?? 'PRODUCT'),
                 'qty' => (float)($line['qty'] ?? 0),
                 'amount' => (float)($line['net_amount'] ?? 0),
                 'notes' => (string)($line['notes'] ?? ''),
                 'is_extra' => 0,
+                'extras' => $extras,
             ];
-            foreach ((array)($line['extras'] ?? []) as $extra) {
-                $lines[] = [
-                    'item_name' => '+ ' . (string)($extra['extra_name'] ?? '-'),
-                    'qty' => (float)($extra['qty'] ?? 0),
-                    'amount' => (float)($extra['net_amount'] ?? 0),
-                    'notes' => (string)($extra['notes'] ?? ''),
-                    'is_extra' => 1,
-                ];
-            }
         }
 
         $paymentLines = $this->db->select('pl.amount, pl.reference_no, pm.method_name, pm.method_type')
@@ -10448,7 +9376,7 @@ class Pos_model extends CI_Model
 
     private function find_void_print_document(int $voidId): ?array
     {
-        $header = $this->db->select('v.*, o.order_no, o.table_no, o.service_type, o.guest_count, o.customer_name, m.member_name, COALESCE(au.username, e.employee_name) AS actor_name')
+        $header = $this->db->select('v.*, o.outlet_id, o.terminal_id, o.order_no, o.table_no, o.service_type, o.guest_count, o.customer_name, m.member_name, COALESCE(au.username, e.employee_name) AS actor_name')
             ->from('pos_void v')
             ->join('pos_order o', 'o.id = v.order_id', 'left')
             ->join('crm_member m', 'm.id = v.member_id', 'left')
@@ -10462,27 +9390,47 @@ class Pos_model extends CI_Model
             return null;
         }
 
-        $lines = $this->db->select('vl.item_name_snapshot AS item_name, vl.qty_void AS qty, vl.subtotal_void AS amount, vl.notes, 0 AS is_extra, pd.name AS product_division_name')
+        $lines = $this->db->select('vl.order_line_id, vl.item_name_snapshot AS item_name, vl.qty_void AS qty, vl.subtotal_void AS amount, vl.notes, 0 AS is_extra, ol.bundle_id, ol.line_type, ol.operational_division_id, ol.product_division_id_snapshot, b.bundle_code, b.bundle_name, pd.name AS product_division_name')
             ->from('pos_void_line vl')
             ->join('pos_order_line ol', 'ol.id = vl.order_line_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = ol.bundle_id', 'left')
             ->join('mst_product_division pd', 'pd.id = ol.product_division_id_snapshot', 'left')
             ->where('vl.void_id', $voidId)
             ->order_by('line_no_snapshot', 'ASC')
             ->order_by('vl.id', 'ASC')
             ->get()
             ->result_array();
-        $extras = $this->db->select("CONCAT('+ ', vx.extra_name_snapshot) AS item_name, vx.line_qty_affected AS qty, vx.subtotal_void AS amount, '' AS notes, 1 AS is_extra, pd.name AS product_division_name", false)
+        $extras = $this->db->select("vx.order_line_id, vx.extra_name_snapshot AS extra_name, vx.line_qty_affected AS qty, vx.subtotal_void AS amount, '' AS notes, ol.bundle_id, ol.line_type, ol.operational_division_id, ol.product_division_id_snapshot, b.bundle_code, b.bundle_name, pd.name AS product_division_name", false)
             ->from('pos_void_line_extra vx')
             ->join('pos_order_line ol', 'ol.id = vx.order_line_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = ol.bundle_id', 'left')
             ->join('mst_product_division pd', 'pd.id = ol.product_division_id_snapshot', 'left')
             ->where('vx.void_id', $voidId)
             ->order_by('vx.id', 'ASC')
             ->get()
             ->result_array();
 
+        $extrasByOrderLine = [];
+        foreach ($extras as $extra) {
+            $orderLineId = (int)($extra['order_line_id'] ?? 0);
+            if ($orderLineId <= 0) {
+                continue;
+            }
+            $extrasByOrderLine[$orderLineId][] = [
+                'extra_name' => (string)($extra['extra_name'] ?? '-'),
+                'qty' => (float)($extra['qty'] ?? 0),
+                'amount' => (float)($extra['amount'] ?? 0),
+                'notes' => (string)($extra['notes'] ?? ''),
+            ];
+        }
+        foreach ($lines as &$line) {
+            $line['extras'] = $extrasByOrderLine[(int)($line['order_line_id'] ?? 0)] ?? [];
+        }
+        unset($line);
+
         return [
             'header' => $header,
-            'lines' => array_merge($lines, $extras),
+            'lines' => $lines,
         ];
     }
 
@@ -10503,9 +9451,10 @@ class Pos_model extends CI_Model
             return null;
         }
 
-        $lines = $this->db->select("COALESCE(p.product_name, ex.extra_name, CASE WHEN rl.line_type = 'EXTRA' THEN 'Extra Refund' ELSE 'Item Refund' END) AS item_name, rl.qty_refunded AS qty, rl.amount_refunded AS amount, rl.notes, CASE WHEN rl.line_type = 'EXTRA' THEN 1 ELSE 0 END AS is_extra, pd.name AS product_division_name", false)
+        $rawLines = $this->db->select("rl.order_line_id, COALESCE(p.product_name, ex.extra_name, CASE WHEN rl.line_type = 'EXTRA' THEN 'Extra Refund' ELSE 'Item Refund' END) AS item_name, rl.qty_refunded AS qty, rl.amount_refunded AS amount, rl.notes, CASE WHEN rl.line_type = 'EXTRA' THEN 1 ELSE 0 END AS is_extra, ol.bundle_id, ol.line_type AS order_line_type, ol.operational_division_id, ol.product_division_id_snapshot, b.bundle_code, b.bundle_name, pd.name AS product_division_name", false)
             ->from('pos_refund_line rl')
             ->join('pos_order_line ol', 'ol.id = rl.order_line_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = ol.bundle_id', 'left')
             ->join('mst_product p', 'p.id = rl.product_id', 'left')
             ->join('mst_extra ex', 'ex.id = rl.extra_id', 'left')
             ->join('mst_product_division pd', 'pd.id = ol.product_division_id_snapshot', 'left')
@@ -10514,6 +9463,35 @@ class Pos_model extends CI_Model
             ->order_by('rl.id', 'ASC')
             ->get()
             ->result_array();
+
+        $lines = [];
+        $lineIndexes = [];
+        foreach ($rawLines as $line) {
+            $orderLineId = (int)($line['order_line_id'] ?? 0);
+            if (!empty($line['is_extra'])) {
+                if (isset($lineIndexes[$orderLineId])) {
+                    $lines[$lineIndexes[$orderLineId]]['extras'][] = [
+                        'extra_name' => (string)($line['item_name'] ?? '-'),
+                        'qty' => (float)($line['qty'] ?? 0),
+                        'amount' => (float)($line['amount'] ?? 0),
+                        'notes' => (string)($line['notes'] ?? ''),
+                    ];
+                } else {
+                    // An extra can be refunded on its own. Keep it as a
+                    // printable line so the matching production division is
+                    // still told to stop work even without its parent item.
+                    $line['line_type'] = 'EXTRA';
+                    $line['extras'] = [];
+                    $lineIndexes[$orderLineId] = count($lines);
+                    $lines[] = $line;
+                }
+                continue;
+            }
+            $line['line_type'] = (string)($line['order_line_type'] ?? 'PRODUCT');
+            $line['extras'] = [];
+            $lineIndexes[$orderLineId] = count($lines);
+            $lines[] = $line;
+        }
 
         return [
             'header' => $header,
@@ -10537,121 +9515,6 @@ class Pos_model extends CI_Model
         return 'KITCHEN';
     }
 
-    private function resolve_direct_print_template(array $printer, string $eventCode): array
-    {
-        $generalSettings = (array)($this->printer_general_settings()['payload'] ?? []);
-        $normalizedEvent = strtoupper(trim($eventCode));
-        if (in_array($normalizedEvent, ['RECEIPT', 'KITCHEN_TICKET', 'VOID_SLIP', 'REFUND_SLIP', 'DEPOSIT_RECEIPT', 'SHIFT_CLOSE'], true)) {
-            $desiredDocumentType = $normalizedEvent;
-        } else {
-            $desiredDocumentType = $normalizedEvent === 'ORDER_CONFIRM_KOT'
-                ? 'KITCHEN_TICKET'
-                : ($normalizedEvent === 'SHIFT_CLOSE_SUMMARY' ? 'SHIFT_CLOSE' : 'RECEIPT');
-        }
-        $role = strtoupper(trim((string)($printer['printer_role'] ?? 'CUSTOM')));
-        $templateRow = null;
-        if (!$this->coredb->table_exists('pos_printer_template')) {
-            $templateRow = null;
-        }
-
-        $profileTemplateId = (int)($printer['template_id'] ?? 0);
-        if ($profileTemplateId > 0 && $this->coredb->table_exists('pos_printer_template')) {
-            $candidate = $this->coredb
-                ->from('pos_printer_template')
-                ->where('id', $profileTemplateId)
-                ->where('is_active', 1)
-                ->limit(1)
-                ->get()
-                ->row_array();
-            if ($candidate && strtoupper((string)($candidate['document_type'] ?? '')) === $desiredDocumentType) {
-                $templateRow = $candidate;
-            }
-        }
-
-        if (!$templateRow && $this->coredb->table_exists('pos_printer_template')) {
-            $preferredCodes = $this->preferred_direct_template_codes($role, $desiredDocumentType);
-            $templateQuery = $this->coredb
-                ->group_start();
-            if (!empty($preferredCodes)) {
-                $templateQuery->where_in('template_code', $preferredCodes);
-            }
-            $templateQuery
-                    ->or_where('template_name', $role)
-                ->group_end()
-                ->where('document_type', $desiredDocumentType)
-                ->where('is_active', 1)
-                ->order_by('is_default', 'DESC')
-                ->order_by('id', 'ASC')
-                ->limit(1);
-            $templateRow = $templateQuery
-                ->get('pos_printer_template')
-                ->row_array();
-        }
-
-        if (!$templateRow && $this->coredb->table_exists('pos_printer_template')) {
-            $templateRow = $this->coredb
-                ->from('pos_printer_template')
-                ->where('document_type', $desiredDocumentType)
-                ->where('is_active', 1)
-                ->order_by('is_default', 'DESC')
-                ->order_by('id', 'ASC')
-                ->limit(1)
-                ->get()
-                ->row_array();
-        }
-
-        $payload = [];
-        if (!empty($templateRow['template_payload'])) {
-            $decoded = json_decode((string)$templateRow['template_payload'], true);
-            if (is_array($decoded)) {
-                $payload = $decoded;
-            }
-        }
-
-        $ci = &get_instance();
-        if (!isset($ci->posprinterpreviewservice)) {
-            $ci->load->library('PosPrinterPreviewService');
-        }
-        $payload = $ci->posprinterpreviewservice->decodePayload($payload, $desiredDocumentType, $generalSettings);
-
-        return [
-            'document_type' => $desiredDocumentType,
-            'row' => $templateRow ?: null,
-            'payload' => $payload,
-        ];
-    }
-
-    private function preferred_direct_template_codes(string $role, string $documentType): array
-    {
-        $role = strtoupper(trim($role));
-        $documentType = strtoupper(trim($documentType));
-        if ($role === '') {
-            return [];
-        }
-
-        $codes = ['TPL-' . $role];
-        $documentPrefixMap = [
-            'VOID_SLIP' => 'VOID',
-            'REFUND_SLIP' => 'REFUND',
-            'DEPOSIT_RECEIPT' => 'DEPOSIT',
-            'SHIFT_CLOSE' => 'SHIFT',
-            'RECEIPT' => 'RECEIPT',
-            'KITCHEN_TICKET' => 'KITCHEN',
-        ];
-        $documentPrefix = $documentPrefixMap[$documentType] ?? '';
-        if ($documentPrefix !== '') {
-            $codes[] = $documentPrefix . '_' . $role;
-            $codes[] = $role . '_' . $documentPrefix;
-        }
-
-        return array_values(array_unique(array_filter($codes)));
-    }
-
-    /**
-     * Header dan footer cetak langsung harus memakai payload hasil resolver
-     * konfigurasi baru. Dengan begitu nilai di database, bukan fallback kode,
-     * menjadi penentu tampilan kertas.
-     */
     private function append_direct_print_header(array &$chunks, array $payload, int $width, string $align, string $dash, string $fallbackTitle = ''): void
     {
         $logoUrl = trim((string)($payload['logo_url'] ?? ''));
@@ -10810,12 +9673,9 @@ class Pos_model extends CI_Model
                     $footerLines[] = $this->align_text_line($line, $width, $align);
                 }
             }
-            // Local Agent menggambar marker ini sebagai QR dan tetap mencetak URL
-            // sebagai fallback bila driver printer belum mendukung gambar raster.
+            // Local Agent menerjemahkan marker ini menjadi QR. URL tidak dicetak
+            // ulang agar footer struk tetap ringkas dan mudah dibaca.
             $footerLines[] = '[[QRCODE:' . $reviewUrl . ']]';
-            foreach ($this->wrap_print_text($reviewUrl, $width) as $line) {
-                $footerLines[] = $this->align_text_line($line, $width, $align);
-            }
         }
         if (!empty($footerLines)) {
             $chunks[] = $dash;
@@ -10896,25 +9756,19 @@ class Pos_model extends CI_Model
         }
         $chunks[] = $dash;
 
-        foreach ($lines as $line) {
-            if (!$showProductName) {
-                continue;
-            }
-            $qtyLabel = rtrim(rtrim(number_format((float)($line['qty'] ?? 0), 2, '.', ''), '0'), '.');
-            $prefix = $showQty ? ($qtyLabel . ' x ') : '';
-            $chunks[] = $prefix . (string)($line['product_name'] ?? '-');
-            if ($showExtra) {
-                foreach ((array)($line['extras'] ?? []) as $extra) {
-                    $extraQty = rtrim(rtrim(number_format((float)($extra['qty'] ?? 0), 2, '.', ''), '0'), '.');
-                    $extraPrefix = $showQty && $extraQty !== '' ? ' x' . $extraQty : '';
-                    $chunks[] = '  + ' . (string)($extra['name'] ?? '-') . $extraPrefix;
-                }
-            }
-            if ($showNotes && !empty($line['notes'])) {
-                $chunks[] = '  NOTE: ' . (string)$line['notes'];
-            }
-            $chunks[] = $dash;
-        }
+        $this->append_direct_print_bundle_aware_lines(
+            $chunks,
+            $lines,
+            $width,
+            $showProductName,
+            $showQty,
+            $showExtra,
+            $showNotes,
+            false,
+            0,
+            0,
+            $dash
+        );
 
         $this->append_direct_print_footer($chunks, $payload, $width, $footerAlign, $dash, [
             'order_no' => (string)($header['order_no'] ?? ''),
@@ -10976,28 +9830,34 @@ class Pos_model extends CI_Model
         }
         $chunks[] = $dash;
 
-        foreach ($lines as $line) {
-            if (empty($payload['show_product_name'])) {
-                continue;
-            }
-            $itemName = trim((string)($line['item_name'] ?? '-'));
-            if ($itemName === '') {
-                continue;
-            }
-            $qtyLabel = rtrim(rtrim(number_format((float)($line['qty'] ?? 0), 2, '.', ''), '0'), '.');
-            $prefix = !empty($payload['show_qty']) ? ($qtyLabel . ' x ') : '';
-            if (!empty($payload['show_price'])) {
-                $priceWidth = min(12, max(9, (int)round($width * 0.28)));
-                $nameWidth = max(10, $width - $priceWidth);
-                $chunks[] = $this->pad_right_print($prefix . $itemName, $nameWidth) . $this->pad_left_print($this->format_number_print($line['amount'] ?? 0), $priceWidth);
-            } else {
-                $chunks[] = $prefix . $itemName;
-            }
-            $notes = trim((string)($line['notes'] ?? ''));
-            if (!empty($payload['show_notes']) && $notes !== '') {
-                $chunks[] = '  NOTE: ' . $notes;
-            }
+        // A matched-division reversal is a production notification, not a
+        // financial slip. Make the instruction explicit so BAR/KITCHEN can
+        // stop work before the affected item is prepared.
+        $isDivisionNotice = strtoupper((string)($printer['print_scope'] ?? 'ALL_ITEMS')) === 'MATCHED_DIVISION';
+        if ($isDivisionNotice) {
+            $this->append_wrapped_aligned_print_text(
+                $chunks,
+                $isVoid ? 'JANGAN DIPROSES' : 'JANGAN DIPROSES BILA BELUM DIBUAT',
+                $width,
+                'CENTER'
+            );
+            $chunks[] = $dash;
         }
+
+        $priceWidth = min(12, max(9, (int)round($width * 0.28)));
+        $nameWidth = max(10, $width - $priceWidth);
+        $this->append_direct_print_bundle_aware_lines(
+            $chunks,
+            $lines,
+            $width,
+            !empty($payload['show_product_name']),
+            !empty($payload['show_qty']),
+            !empty($payload['show_extra']),
+            !empty($payload['show_notes']),
+            !empty($payload['show_price']),
+            $nameWidth,
+            $priceWidth
+        );
 
         if (!empty($payload['show_grand_total'])) {
             $chunks[] = $dash;
@@ -11035,26 +9895,6 @@ class Pos_model extends CI_Model
         $showProductName = !empty($payload['show_product_name']);
         $amountWidth = min(14, max(11, (int)round($width * 0.3)));
         $labelWidth = max(10, $width - $amountWidth);
-        $printLines = [];
-        foreach ($orderLines as $line) {
-            $printLines[] = [
-                'item_name' => (string)($line['product_name'] ?? '-'),
-                'qty' => (float)($line['qty'] ?? 0),
-                'amount' => (float)($line['net_amount'] ?? 0),
-                'notes' => (string)($line['notes'] ?? ''),
-                'is_extra' => 0,
-            ];
-            foreach ((array)($line['extras'] ?? []) as $extra) {
-                $printLines[] = [
-                    'item_name' => '+ ' . (string)($extra['extra_name'] ?? '-'),
-                    'qty' => (float)($extra['qty'] ?? 0),
-                    'amount' => (float)($extra['net_amount'] ?? 0),
-                    'notes' => (string)($extra['notes'] ?? ''),
-                    'is_extra' => 1,
-                ];
-            }
-        }
-
         $chunks = [$divider];
         $this->append_direct_print_header($chunks, $payload, $width, $headerAlign, $dash, 'BILL SEMENTARA');
         $roleBanner = $this->printer_role_banner_label((string)($printer['printer_role'] ?? ''));
@@ -11085,26 +9925,18 @@ class Pos_model extends CI_Model
         }
         $chunks[] = $dash;
 
-        foreach ($printLines as $line) {
-            if (!$showProductName || (!empty($line['is_extra']) && empty($payload['show_extra']))) {
-                continue;
-            }
-            $itemName = trim((string)($line['item_name'] ?? '-'));
-            if ($itemName === '') {
-                continue;
-            }
-            $qtyLabel = rtrim(rtrim(number_format((float)($line['qty'] ?? 0), 2, '.', ''), '0'), '.');
-            $prefix = !empty($payload['show_qty']) ? ($qtyLabel . ' x ') : '';
-            if ($showPrice) {
-                $chunks[] = $this->pad_right_print($prefix . $itemName, $labelWidth) . $this->pad_left_print($this->format_number_print($line['amount'] ?? 0), $amountWidth);
-            } else {
-                $chunks[] = $prefix . $itemName;
-            }
-            $notes = trim((string)($line['notes'] ?? ''));
-            if (!empty($payload['show_notes']) && $notes !== '') {
-                $chunks[] = '  NOTE: ' . $notes;
-            }
-        }
+        $this->append_direct_print_bundle_aware_lines(
+            $chunks,
+            $orderLines,
+            $width,
+            $showProductName,
+            !empty($payload['show_qty']),
+            !empty($payload['show_extra']),
+            !empty($payload['show_notes']),
+            $showPrice,
+            $labelWidth,
+            $amountWidth
+        );
 
         $summaryRows = [];
         if (!empty($payload['show_subtotal'])) {
@@ -11319,26 +10151,18 @@ class Pos_model extends CI_Model
         }
         $chunks[] = $dash;
 
-        foreach ($lines as $line) {
-            if (!$showProductName || (!empty($line['is_extra']) && empty($payload['show_extra']))) {
-                continue;
-            }
-            $itemName = trim((string)($line['item_name'] ?? '-'));
-            if ($itemName === '') {
-                continue;
-            }
-            $qtyLabel = rtrim(rtrim(number_format((float)($line['qty'] ?? 0), 2, '.', ''), '0'), '.');
-            $prefix = !empty($payload['show_qty']) ? ($qtyLabel . ' x ') : '';
-            if ($showPrice) {
-                $chunks[] = $this->pad_right_print($prefix . $itemName, $labelWidth) . $this->pad_left_print($this->format_number_print($line['amount'] ?? 0), $amountWidth);
-            } else {
-                $chunks[] = $prefix . $itemName;
-            }
-            $notes = trim((string)($line['notes'] ?? ''));
-            if (!empty($payload['show_notes']) && $notes !== '') {
-                $chunks[] = '  NOTE: ' . $notes;
-            }
-        }
+        $this->append_direct_print_bundle_aware_lines(
+            $chunks,
+            $lines,
+            $width,
+            $showProductName,
+            !empty($payload['show_qty']),
+            !empty($payload['show_extra']),
+            !empty($payload['show_notes']),
+            $showPrice,
+            $labelWidth,
+            $amountWidth
+        );
 
         $summaryRows = [];
         if (!empty($payload['show_subtotal'])) {
@@ -11418,22 +10242,6 @@ class Pos_model extends CI_Model
         ], $issuedVouchers);
 
         return $this->finalize_direct_print_text($chunks, $width);
-    }
-
-    private function printer_manual_reprint_event_enabled(string $eventCode): bool
-    {
-        if (!$this->db->table_exists('pos_printer_event_setting')) {
-            return false;
-        }
-
-        $row = $this->db->from('pos_printer_event_setting')
-            ->where('event_code', strtoupper(trim($eventCode)))
-            ->where('is_active', 1)
-            ->limit(1)
-            ->get()
-            ->row_array();
-
-        return $row && (int)($row['allow_manual_reprint'] ?? 0) === 1;
     }
 
     private function order_remaining_due_amount(array $header): float
@@ -13729,25 +12537,6 @@ class Pos_model extends CI_Model
         return $no;
     }
 
-    private function generate_job_no(?string $requestedAt = null): string
-    {
-        $requestedAt = $requestedAt ?: date('Y-m-d H:i:s');
-        $dateKey = date('Ymd', strtotime($requestedAt));
-        $prefix = 'PJOB-' . $dateKey;
-        $row = $this->db->query(
-            "SELECT job_no FROM pos_printer_job WHERE job_no LIKE ? ORDER BY job_no DESC LIMIT 1",
-            [$prefix . '-%']
-        )->row_array();
-
-        $next = 1;
-        if (!empty($row['job_no'])) {
-            $parts = explode('-', (string)$row['job_no']);
-            $next = ((int)end($parts)) + 1;
-        }
-
-        return sprintf('%s-%04d', $prefix, $next);
-    }
-
     public function local_outlet_options(): array
     {
         if (!$this->db->table_exists('pos_outlet')) {
@@ -13830,92 +12619,6 @@ class Pos_model extends CI_Model
         return array_values(array_filter(array_map(static function (array $row) use ($column): string {
             return trim((string)($row[$column] ?? ''));
         }, $rows)));
-    }
-
-    private function core_record_exists(string $table, int $id): bool
-    {
-        if ($id <= 0 || !$this->coredb->table_exists($table)) {
-            return false;
-        }
-        return (int)$this->coredb->from($table)->where('id', $id)->count_all_results() > 0;
-    }
-
-    private function core_field_exists(string $table, string $field): bool
-    {
-        return $this->coredb->table_exists($table) && $this->coredb->field_exists($field, $table);
-    }
-
-    private function core_printer_template_master_options(): array
-    {
-        if (!$this->coredb->table_exists('pos_printer_template_master')) {
-            return [];
-        }
-        $db = $this->coredb->select('id, master_code, master_name')
-            ->from('pos_printer_template_master')
-            ->where('is_active', 1);
-        if ($this->core_field_exists('pos_printer_template_master', 'is_default')) {
-            $db->order_by('is_default', 'DESC');
-        }
-        return $db
-            ->order_by('master_name', 'ASC')
-            ->get()
-            ->result_array();
-    }
-
-    private function core_printer_template_options(): array
-    {
-        if (!$this->coredb->table_exists('pos_printer_template')) {
-            return [];
-        }
-        return $this->coredb->select('id, template_code, template_name, document_type, is_default, is_active')
-            ->from('pos_printer_template')
-            ->where('is_active', 1)
-            ->order_by('document_type', 'ASC')
-            ->order_by('is_default', 'DESC')
-            ->order_by('template_name', 'ASC')
-            ->get()
-            ->result_array();
-    }
-
-    private function active_outlet_options(): array
-    {
-        if (!$this->coredb->table_exists('pos_outlet')) {
-            return [];
-        }
-        return $this->coredb->select('id, outlet_code, outlet_name')
-            ->from('pos_outlet')
-            ->where('is_active', 1)
-            ->order_by('outlet_name', 'ASC')
-            ->get()
-            ->result_array();
-    }
-
-    private function active_terminal_options(): array
-    {
-        if (!$this->coredb->table_exists('pos_terminal')) {
-            return [];
-        }
-        return $this->coredb->select('id, outlet_id, terminal_code, terminal_name')
-            ->from('pos_terminal')
-            ->where('is_active', 1)
-            ->order_by('terminal_name', 'ASC')
-            ->get()
-            ->result_array();
-    }
-
-    private function core_printer_options(): array 
-    { 
-        if (!$this->coredb->table_exists('pos_printer')) { 
-            return []; 
-        } 
-        $roleSelect = $this->core_field_exists('pos_printer', 'printer_role') ? 'printer_role' : "'CUSTOM'";
-        $scopeSelect = $this->core_field_exists('pos_printer', 'print_scope') ? 'print_scope' : "'DIVISION'";
-        return $this->coredb->select("id, printer_code, printer_name, {$roleSelect} AS printer_role, {$scopeSelect} AS print_scope, outlet_id", false) 
-            ->from('pos_printer') 
-            ->where('is_active', 1) 
-            ->order_by('printer_name', 'ASC') 
-            ->get() 
-            ->result_array(); 
     }
 
     private function company_account_exists(int $id): bool
@@ -14111,27 +12814,5 @@ class Pos_model extends CI_Model
         return date('Y-m-d H:i:s', $ts);
     }
 
-    private function normalize_printer_mac_address(string $value): string
-    {
-        $value = strtoupper(trim($value));
-        $value = preg_replace('/[^A-F0-9]/', '', $value);
-        return is_string($value) ? substr($value, 0, 32) : '';
-    }
 
-    private function printer_python_port_exists(string $agentHost, int $pythonPort, int $excludeId = 0): bool 
-    { 
-        if ($pythonPort <= 0) { 
-            return false; 
-        } 
-        if (!$this->core_field_exists('pos_printer', 'python_port')) {
-            return false;
-        }
-        $this->coredb->from('pos_printer') 
-            ->where('python_port', $pythonPort) 
-            ->where("UPPER(COALESCE(agent_host, '')) =", strtoupper(trim($agentHost))); 
-        if ($excludeId > 0) {
-            $this->coredb->where('id !=', $excludeId);
-        }
-        return (bool)$this->coredb->count_all_results();
-    }
 }

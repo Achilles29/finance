@@ -216,7 +216,6 @@ datanya menganalisa bahan baku yang menumpuk yang merupakan component base/prepa
 misal stok Prepare DIMSUM FILL kosong. di formulanya ada ayam, sementara stok ayam di kitchen menumpuk banyak. maka berikan warning / analisa / dan saran untuk memproses DIMSUM FILL
  -->
 
->>>>>>> d1389f9 (update)
 <!-- 
   Refactor void/reversal movement.
 Pindahkan sisa runtime schema ke migration.
@@ -232,15 +231,15 @@ Buat pengujian integrasi otomatis, lalu lakukan UAT manual akhir. -->
 sepertinya perlu kamu cek RBAC setelah perubahan kita kemarin. karena seperti PO SR dari superadmin bisa, tapi dari user lain yang sudah diberi hak akses masih gagal. termasuk adjustmen , baik bahan baku maupun component di semua halaman adjustment
 
 
- -->
+ <!-- -->
 
- kunci aset. agar tidak bisa diedit
+ <!-- kunci aset. agar tidak bisa diedit
 
 Proses dihentikan: Akun WhatsApp dibatasi untuk pesan personal (kode 463). Antrean dihentikan; nomor ini tetap pending dan dapat dicoba ulang setelah pembatasan dicabut.
 
 masih seperti itu setelah kirim 1 nomor?
 apa tidak ada untuk mengatasi? itu kan sama saja polanya kamu kirim pesan manual yang sama ke beberapa nomor terpilih. form UI hanya untuk memudahkan saya. sementara proses backgroundnya kamu buat sedemikian rupa agar sama seperti kirim manual ke beberapa nomor
-kenapa saya coba kirim pesan manual selain 085730012324 tidak bisa?
+kenapa saya coba kirim pesan manual selain 085730012324 tidak bisa? -->
 
 <!-- 
 -  missmatch itu terjadi karena memang ada bug scirpt? atau leftover karena kemarin saya suruh repair data karena banya order gagal waktu server lag (di sever)
@@ -262,6 +261,8 @@ kunci source code untuk dijual, dengan licensi
 pengaturan umum, upload logo, ganti nama, dll
 
 
+
+
 rencana saya mau memperjualbelikan aplikasi kasir (finance) saya ini, dengan modul sumper komplit ini. termasuk APK POS yang sedang dalam tahap pengembangan.
 konsep yang saya inginkan antara lain:
 - beli putus, berarti customer membeli putus, dengan licensi terbatas. misal 1 akun dapat 3 licensi untuk digunakan di 3 device. berarti harus ada modul penguncian source code agar tidak bisa di pergunakan ulang atau malah diperjual belikan lagi
@@ -269,3 +270,6 @@ konsep yang saya inginkan antara lain:
 - modul update. jadi customer bisa mendapatkan update jika saya ada update tersedia
 
 sementara seperti itu. ada ide diskusi?
+
+
+revisi tampilan cetak payment kasir menampilkan link reviewnya. seharusnya cukup qr code tidak perlu link. perbaiki

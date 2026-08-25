@@ -980,26 +980,44 @@ class Pos_report_model extends CI_Model
     private function sales_detail_rows(array $filters, int $limit, int $offset): array
     {
         $this->sales_detail_base_query($filters);
-
-        $rows = $this->db->select("\n                p.id AS product_id,\n                p.product_code,\n                p.product_name,\n                pd.name AS division_name,\n                pc.name AS category_name,\n                COUNT(DISTINCT o.id) AS order_count,\n                COALESCE(SUM(l.qty), 0) AS qty_total,\n                COALESCE(SUM(l.net_amount), 0) AS product_amount,\n                COALESCE(SUM(xs.extra_amount), 0) AS extra_amount,\n                COALESCE(SUM(l.net_amount), 0) + COALESCE(SUM(xs.extra_amount), 0) AS gross_sales,\n                COALESCE(SUM(\n                    CASE\n                        WHEN COALESCE(o.subtotal_amount, 0) > 0 THEN\n                            (COALESCE(l.net_amount, 0) + COALESCE(xs.extra_amount, 0))\n                            / o.subtotal_amount\n                            * (COALESCE(o.discount_amount, 0)\n                                + COALESCE(o.promo_amount, 0)\n                                + COALESCE(o.voucher_amount, 0)\n                                + COALESCE(o.point_redeem_amount, 0)\n                                + COALESCE(o.compliment_amount, 0))\n                        ELSE 0\n                    END\n                ), 0) AS sales_discount_amount,\n                COALESCE(SUM(l.cogs_amount), 0) + COALESCE(SUM(xs.extra_hpp_sale_amount), 0) AS hpp_sale_amount\n            ", false)
-            ->group_by(['p.id', 'p.product_code', 'p.product_name', 'pd.name', 'pc.name'])
+        $groupRows = $this->db->select("\n                CASE WHEN COALESCE(l.bundle_id, 0) > 0 THEN CONCAT('B:', l.bundle_id) ELSE CONCAT('P:', l.product_id) END AS group_key,\n                MAX(COALESCE(l.bundle_id, 0)) AS bundle_id,\n                MAX(b.bundle_code) AS bundle_code,\n                MAX(b.bundle_name) AS bundle_name,\n                MAX(p.id) AS product_id,\n                COUNT(DISTINCT o.id) AS order_count,\n                COALESCE(SUM(l.net_amount), 0) + COALESCE(SUM(xs.extra_amount), 0) AS gross_sales\n            ", false)
+            ->group_by("CASE WHEN COALESCE(l.bundle_id, 0) > 0 THEN CONCAT('B:', l.bundle_id) ELSE CONCAT('P:', l.product_id) END", false)
             ->order_by('gross_sales', 'DESC', false)
-            ->order_by('p.product_name', 'ASC')
+            ->order_by('bundle_name', 'ASC')
             ->limit($limit, $offset)
             ->get()
             ->result_array();
 
+        if (empty($groupRows)) {
+            return [];
+        }
+
+        $bundleIds = [];
+        $regularProductIds = [];
+        foreach ($groupRows as $groupRow) {
+            $bundleId = (int)($groupRow['bundle_id'] ?? 0);
+            if ($bundleId > 0) {
+                $bundleIds[] = $bundleId;
+            } else {
+                $regularProductIds[] = (int)($groupRow['product_id'] ?? 0);
+            }
+        }
+        $bundleIds = array_values(array_unique(array_filter($bundleIds)));
+        $regularProductIds = array_values(array_unique(array_filter($regularProductIds)));
+        $rows = $this->sales_detail_component_rows($filters, $bundleIds, $regularProductIds);
         if (empty($rows)) {
             return [];
         }
 
-        $productIds = array_map('intval', array_column($rows, 'product_id'));
+        $productIds = array_values(array_unique(array_filter(array_map('intval', array_column($rows, 'product_id')))));
         $refundMap = $this->sales_detail_refund_rows($filters, $productIds);
         $correctionMap = $this->sales_detail_hpp_correction_rows($filters, $productIds);
         foreach ($rows as &$row) {
             $productId = (int)($row['product_id'] ?? 0);
-            $refund = $refundMap[$productId] ?? ['refund_qty' => 0, 'refund_amount' => 0, 'refund_gross_amount' => 0, 'hpp_refund_reversed_amount' => 0];
-            $correction = $correctionMap[$productId] ?? ['hpp_deficit_correction_amount' => 0];
+            $bundleId = (int)($row['bundle_id'] ?? 0);
+            $itemKey = $this->sales_detail_item_key($bundleId, $productId);
+            $refund = $refundMap[$itemKey] ?? ['refund_qty' => 0, 'refund_amount' => 0, 'refund_gross_amount' => 0, 'hpp_refund_reversed_amount' => 0];
+            $correction = $correctionMap[$itemKey] ?? ['hpp_deficit_correction_amount' => 0];
             $refundAmount = (float)($refund['refund_amount'] ?? 0);
             $refundGrossAmount = (float)($refund['refund_gross_amount'] ?? $refundAmount);
             $hppRefund = (float)($refund['hpp_refund_reversed_amount'] ?? 0);
@@ -1024,29 +1042,126 @@ class Pos_report_model extends CI_Model
             $row['margin_percent'] = abs((float)$row['net_sales']) > 0.00001
                 ? round(((float)$row['gross_profit'] / (float)$row['net_sales']) * 100, 2)
                 : 0.0;
+            $row['row_type'] = $bundleId > 0 ? 'BUNDLE_ITEM' : 'PRODUCT';
         }
         unset($row);
 
-        usort($rows, static function (array $left, array $right): int {
-            $netCompare = (float)($right['net_sales'] ?? 0) <=> (float)($left['net_sales'] ?? 0);
-            if ($netCompare !== 0) {
-                return $netCompare;
+        $childrenByGroup = [];
+        foreach ($rows as $row) {
+            $groupKey = $this->sales_detail_top_key((int)($row['bundle_id'] ?? 0), (int)($row['product_id'] ?? 0));
+            $childrenByGroup[$groupKey][] = $row;
+        }
+
+        $result = [];
+        foreach ($groupRows as $groupRow) {
+            $bundleId = (int)($groupRow['bundle_id'] ?? 0);
+            $productId = (int)($groupRow['product_id'] ?? 0);
+            $groupKey = $this->sales_detail_top_key($bundleId, $productId);
+            $children = $childrenByGroup[$groupKey] ?? [];
+            if (empty($children)) {
+                continue;
             }
 
-            return strcasecmp((string)($left['product_name'] ?? ''), (string)($right['product_name'] ?? ''));
-        });
+            if ($bundleId <= 0) {
+                $result[] = $children[0];
+                continue;
+            }
 
-        return $rows;
+            $result[] = $this->sales_detail_bundle_row($groupRow, $children);
+        }
+
+        return $result;
     }
 
     private function count_sales_detail(array $filters): int
     {
         $this->sales_detail_base_query($filters);
-        $row = $this->db->select('COUNT(DISTINCT p.id) AS total', false)
+        $row = $this->db->select("COUNT(DISTINCT CASE WHEN COALESCE(l.bundle_id, 0) > 0 THEN CONCAT('B:', l.bundle_id) ELSE CONCAT('P:', l.product_id) END) AS total", false)
             ->get()
             ->row_array();
 
         return (int)($row['total'] ?? 0);
+    }
+
+    private function sales_detail_component_rows(array $filters, array $bundleIds, array $regularProductIds): array
+    {
+        $conditions = [];
+        if (!empty($bundleIds)) {
+            $conditions[] = 'l.bundle_id IN (' . implode(',', array_map('intval', $bundleIds)) . ')';
+        }
+        if (!empty($regularProductIds)) {
+            $conditions[] = '(COALESCE(l.bundle_id, 0) = 0 AND l.product_id IN (' . implode(',', array_map('intval', $regularProductIds)) . '))';
+        }
+        if (empty($conditions)) {
+            return [];
+        }
+
+        $this->sales_detail_base_query($filters);
+        return $this->db->select("\n                COALESCE(l.bundle_id, 0) AS bundle_id,\n                b.bundle_code,\n                b.bundle_name,\n                p.id AS product_id,\n                p.product_code,\n                p.product_name,\n                pd.name AS division_name,\n                pc.name AS category_name,\n                COUNT(DISTINCT o.id) AS order_count,\n                COALESCE(SUM(l.qty), 0) AS qty_total,\n                COALESCE(SUM(l.net_amount), 0) AS product_amount,\n                COALESCE(SUM(xs.extra_amount), 0) AS extra_amount,\n                COALESCE(SUM(l.net_amount), 0) + COALESCE(SUM(xs.extra_amount), 0) AS gross_sales,\n                COALESCE(SUM(\n                    CASE\n                        WHEN COALESCE(o.subtotal_amount, 0) > 0 THEN\n                            (COALESCE(l.net_amount, 0) + COALESCE(xs.extra_amount, 0))\n                            / o.subtotal_amount\n                            * (COALESCE(o.discount_amount, 0)\n                                + COALESCE(o.promo_amount, 0)\n                                + COALESCE(o.voucher_amount, 0)\n                                + COALESCE(o.point_redeem_amount, 0)\n                                + COALESCE(o.compliment_amount, 0))\n                        ELSE 0\n                    END\n                ), 0) AS sales_discount_amount,\n                COALESCE(SUM(l.cogs_amount), 0) + COALESCE(SUM(xs.extra_hpp_sale_amount), 0) AS hpp_sale_amount\n            ", false)
+            ->where('(' . implode(' OR ', $conditions) . ')', null, false)
+            ->group_by(['l.bundle_id', 'b.bundle_code', 'b.bundle_name', 'p.id', 'p.product_code', 'p.product_name', 'pd.name', 'pc.name'])
+            ->order_by('b.bundle_name', 'ASC')
+            ->order_by('p.product_name', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    private function sales_detail_top_key(int $bundleId, int $productId): string
+    {
+        return $bundleId > 0 ? 'B:' . $bundleId : 'P:' . $productId;
+    }
+
+    private function sales_detail_item_key(int $bundleId, int $productId): string
+    {
+        return $bundleId > 0 ? 'B:' . $bundleId . ':P:' . $productId : 'P:' . $productId;
+    }
+
+    private function sales_detail_bundle_row(array $groupRow, array $children): array
+    {
+        $bundleName = trim((string)($groupRow['bundle_name'] ?? ''));
+        if ($bundleName === '') {
+            $bundleName = trim((string)($groupRow['bundle_code'] ?? 'Paket bundle'));
+        }
+        $row = [
+            'row_type' => 'BUNDLE',
+            'bundle_id' => (int)($groupRow['bundle_id'] ?? 0),
+            'bundle_code' => (string)($groupRow['bundle_code'] ?? ''),
+            'bundle_name' => $bundleName,
+            'product_id' => 0,
+            'product_code' => (string)($groupRow['bundle_code'] ?? ''),
+            'product_name' => $bundleName,
+            'category_name' => 'Bundle',
+            'division_name' => '',
+            'order_count' => (int)($groupRow['order_count'] ?? 0),
+            'children' => $children,
+        ];
+        $metrics = [
+            'qty_total', 'product_amount', 'extra_amount', 'gross_sales', 'sales_discount_amount',
+            'refund_qty', 'refund_amount', 'net_sales', 'hpp_sale_amount',
+            'hpp_refund_reversed_amount', 'hpp_deficit_correction_amount', 'hpp_final_amount', 'gross_profit',
+        ];
+        foreach ($metrics as $metric) {
+            $row[$metric] = 0.0;
+        }
+        $divisionNames = [];
+        foreach ($children as $child) {
+            foreach ($metrics as $metric) {
+                $row[$metric] += (float)($child[$metric] ?? 0);
+            }
+            $divisionName = trim((string)($child['division_name'] ?? ''));
+            if ($divisionName !== '') {
+                $divisionNames[$divisionName] = true;
+            }
+        }
+        foreach ($metrics as $metric) {
+            $row[$metric] = round((float)$row[$metric], 2);
+        }
+        $row['division_name'] = count($divisionNames) === 1 ? (string)array_key_first($divisionNames) : 'Lintas divisi';
+        $row['margin_percent'] = abs((float)$row['net_sales']) > 0.00001
+            ? round(((float)$row['gross_profit'] / (float)$row['net_sales']) * 100, 2)
+            : 0.0;
+
+        return $row;
     }
 
     private function sales_detail_overview(array $filters): array
@@ -1088,6 +1203,7 @@ class Pos_report_model extends CI_Model
             ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
             ->join('crm_member m', 'm.id = o.member_id', 'left')
             ->join('mst_product p', 'p.id = l.product_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = l.bundle_id', 'left')
             ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
             ->join('mst_product_category pc', 'pc.id = p.product_category_id', 'left')
             ->join($this->order_line_extra_summary_subquery() . ' xs', 'xs.order_line_id = l.id', 'left', false)
@@ -1095,7 +1211,7 @@ class Pos_report_model extends CI_Model
             ->where('l.line_type', 'PRODUCT')
             ->where('l.line_status <>', 'VOID');
 
-        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'pd.name', 'pc.name', 'l.notes']);
+        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'b.bundle_name', 'b.bundle_code', 'pd.name', 'pc.name', 'l.notes']);
     }
 
     private function sales_detail_refund_rows(array $filters, array $productIds): array
@@ -1115,22 +1231,23 @@ class Pos_report_model extends CI_Model
             ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
             ->join('crm_member m', 'm.id = o.member_id', 'left')
             ->join('mst_product p', 'p.id = l.product_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = l.bundle_id', 'left')
             ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
             ->join('mst_product_category pc', 'pc.id = p.product_category_id', 'left')
             ->where('r.refund_status', 'POSTED')
             ->where('rl.order_line_id IS NOT NULL', null, false)
             ->where_in('l.product_id', $productIds);
 
-        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'pd.name', 'pc.name']);
+        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'b.bundle_name', 'b.bundle_code', 'pd.name', 'pc.name']);
 
-        $rows = $this->db->select("\n                l.product_id,\n                COALESCE(SUM(CASE WHEN rl.line_type = 'PRODUCT' THEN rl.qty_refunded ELSE 0 END), 0) AS refund_qty,\n                COALESCE(SUM(rl.amount_refunded), 0) AS refund_amount,\n                COALESCE(SUM({$grossRefundExpression}), 0) AS refund_gross_amount,\n                COALESCE(SUM(rl.cost_reversed), 0) AS hpp_refund_reversed_amount\n            ", false)
-            ->group_by('l.product_id')
+        $rows = $this->db->select("\n                COALESCE(l.bundle_id, 0) AS bundle_id,\n                l.product_id,\n                COALESCE(SUM(CASE WHEN rl.line_type = 'PRODUCT' THEN rl.qty_refunded ELSE 0 END), 0) AS refund_qty,\n                COALESCE(SUM(rl.amount_refunded), 0) AS refund_amount,\n                COALESCE(SUM({$grossRefundExpression}), 0) AS refund_gross_amount,\n                COALESCE(SUM(rl.cost_reversed), 0) AS hpp_refund_reversed_amount\n            ", false)
+            ->group_by(['l.bundle_id', 'l.product_id'])
             ->get()
             ->result_array();
 
         $map = [];
         foreach ($rows as $row) {
-            $map[(int)($row['product_id'] ?? 0)] = $row;
+            $map[$this->sales_detail_item_key((int)($row['bundle_id'] ?? 0), (int)($row['product_id'] ?? 0))] = $row;
         }
 
         return $map;
@@ -1146,12 +1263,13 @@ class Pos_report_model extends CI_Model
             ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
             ->join('crm_member m', 'm.id = o.member_id', 'left')
             ->join('mst_product p', 'p.id = l.product_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = l.bundle_id', 'left')
             ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
             ->join('mst_product_category pc', 'pc.id = p.product_category_id', 'left')
             ->where('r.refund_status', 'POSTED')
             ->where('rl.order_line_id IS NOT NULL', null, false);
 
-        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'pd.name', 'pc.name']);
+        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'b.bundle_name', 'b.bundle_code', 'pd.name', 'pc.name']);
 
         return $this->db->select("\n                COALESCE(SUM(CASE WHEN rl.line_type = 'PRODUCT' THEN rl.qty_refunded ELSE 0 END), 0) AS refund_qty,\n                COALESCE(SUM(rl.amount_refunded), 0) AS refund_amount,\n                COALESCE(SUM({$grossRefundExpression}), 0) AS refund_gross_amount,\n                COALESCE(SUM(rl.cost_reversed), 0) AS hpp_refund_reversed_amount\n            ", false)
             ->get()
@@ -1185,6 +1303,7 @@ class Pos_report_model extends CI_Model
             ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
             ->join('crm_member m', 'm.id = o.member_id', 'left')
             ->join('mst_product p', 'p.id = l.product_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = l.bundle_id', 'left')
             ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
             ->join('mst_product_category pc', 'pc.id = p.product_category_id', 'left')
             ->where('a.status', 'POSTED')
@@ -1193,15 +1312,15 @@ class Pos_report_model extends CI_Model
             $this->db->join($reversalSubquery, 'rv.cogs_adjustment_id = a.id', 'left', false);
         }
 
-        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'pd.name', 'pc.name']);
-        $rows = $this->db->select('l.product_id, COALESCE(SUM(COALESCE(a.variance_amount, 0) - ' . $reversalAmountExpr . '), 0) AS hpp_deficit_correction_amount', false)
-            ->group_by('l.product_id')
+        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'b.bundle_name', 'b.bundle_code', 'pd.name', 'pc.name']);
+        $rows = $this->db->select('COALESCE(l.bundle_id, 0) AS bundle_id, l.product_id, COALESCE(SUM(COALESCE(a.variance_amount, 0) - ' . $reversalAmountExpr . '), 0) AS hpp_deficit_correction_amount', false)
+            ->group_by(['l.bundle_id', 'l.product_id'])
             ->get()
             ->result_array();
 
         $map = [];
         foreach ($rows as $row) {
-            $map[(int)($row['product_id'] ?? 0)] = $row;
+            $map[$this->sales_detail_item_key((int)($row['bundle_id'] ?? 0), (int)($row['product_id'] ?? 0))] = $row;
         }
 
         return $map;
@@ -1230,6 +1349,7 @@ class Pos_report_model extends CI_Model
             ->join('pos_outlet po', 'po.id = o.outlet_id', 'left')
             ->join('crm_member m', 'm.id = o.member_id', 'left')
             ->join('mst_product p', 'p.id = l.product_id', 'left')
+            ->join('pos_product_bundle b', 'b.id = l.bundle_id', 'left')
             ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
             ->join('mst_product_category pc', 'pc.id = p.product_category_id', 'left')
             ->where('a.status', 'POSTED');
@@ -1237,7 +1357,7 @@ class Pos_report_model extends CI_Model
             $this->db->join($reversalSubquery, 'rv.cogs_adjustment_id = a.id', 'left', false);
         }
 
-        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'pd.name', 'pc.name']);
+        $this->apply_order_filters($filters, 'o', ['p.product_name', 'p.product_code', 'b.bundle_name', 'b.bundle_code', 'pd.name', 'pc.name']);
         return $this->db->select('COALESCE(SUM(COALESCE(a.variance_amount, 0) - ' . $reversalAmountExpr . '), 0) AS hpp_deficit_correction_amount', false)
             ->get()
             ->row_array() ?: ['hpp_deficit_correction_amount' => 0.0];

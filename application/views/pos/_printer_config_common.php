@@ -82,10 +82,14 @@ window.PrinterConfigUI = window.PrinterConfigUI || (function () {
   async function agentPrint(target, timeoutMs) {
     const port = Number((target || {}).python_port || 0);
     if (!port) throw new Error('Port Local Agent belum valid.');
+    // Test cetak memakai jalur agent yang sama dengan transaksi. Waktu tunggu
+    // perlu mengakomodasi antrean bila beberapa role memakai printer fisik sama.
+    const requestedTimeoutMs = Number((target || {}).response_timeout_ms || timeoutMs || 30000);
+    const responseTimeoutMs = Math.max(10000, Math.min(60000, requestedTimeoutMs));
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timeout = window.setTimeout(function () {
       if (controller) controller.abort();
-    }, Math.max(3000, Number(timeoutMs || 8000)));
+    }, responseTimeoutMs);
     try {
       const response = await fetch('http://127.0.0.1:' + port + '/cetak', {
         method: 'POST',
@@ -113,7 +117,7 @@ window.PrinterConfigUI = window.PrinterConfigUI || (function () {
       return result;
     } catch (error) {
       if (error && error.name === 'AbortError') {
-        throw new Error('Local Agent tidak memberi jawaban dalam 8 detik. Pastikan aplikasi agent dan printer sedang menyala.');
+        throw new Error('Local Agent belum memberi jawaban dalam ' + Math.ceil(responseTimeoutMs / 1000) + ' detik. Cetak mungkin masih diproses; cek Monitor Cetak sebelum mengirim ulang.');
       }
       if (error && /failed to fetch|networkerror/i.test(String(error.message || ''))) {
         throw new Error('Tidak dapat menghubungi Local Agent. Pastikan aplikasi agent sedang berjalan di komputer ini dan port printer sudah sesuai.');
