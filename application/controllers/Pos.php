@@ -11,6 +11,8 @@ class Pos extends MY_Controller
         $this->load->model('Cost_control_model');
         $this->load->model('Pos_order_monitor_model');
         $this->load->model('Pos_availability_queue_model');
+        $this->load->model('Pos_print_model');
+        $this->load->model('Pos_customer_review_model');
         $this->load->model('Purchase_model');
         $this->load->model('Production_model');
         $this->load->library('PosPrinterPreviewService', null, 'posprinterpreviewservice');
@@ -1296,6 +1298,27 @@ public function self_order_tables_print()
     public function printers()
     {
         $this->require_permission('pos.printer.index', 'view');
+        if ($this->Pos_print_model->ready()) {
+            $connections = $this->Pos_print_model->connection_rows(['status' => 'ALL', 'limit' => 100]);
+            $layouts = $this->Pos_print_model->layout_rows(['status' => 'ALL', 'limit' => 100]);
+            $routes = $this->Pos_print_model->route_rows(['status' => 'ALL', 'limit' => 100]);
+            $attempts = $this->Pos_print_model->attempt_rows(['status' => 'ALL', 'limit' => 5]);
+            $this->render('pos/printer_config_index', [
+                'page_title' => 'Printer POS',
+                'active_menu' => 'pos.printer.index',
+                'config_ready' => true,
+                'connection_total' => (int)($connections['meta']['total'] ?? 0),
+                'layout_total' => (int)($layouts['meta']['total'] ?? 0),
+                'route_total' => (int)($routes['meta']['total'] ?? 0),
+                'route_active_total' => count(array_filter((array)($routes['rows'] ?? []), static function ($route): bool {
+                    return !empty($route['is_active']);
+                })),
+                'recent_attempts' => (array)($attempts['rows'] ?? []),
+                'event_type_labels' => $this->Pos_print_model->event_type_labels(),
+                'document_type_labels' => $this->Pos_print_model->document_type_labels(),
+            ]);
+            return;
+        }
         $this->render('pos/printer_index', [
             'page_title' => 'Printer POS',
             'active_menu' => 'pos.printer.index',
@@ -1309,6 +1332,10 @@ public function self_order_tables_print()
     public function printer_templates()
     {
         $this->require_permission('pos.printer.index', 'view');
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers/layouts');
+            return;
+        }
         $this->render('pos/printer_templates_index', [
             'page_title' => 'Template Printer POS',
             'active_menu' => 'pos.printer.index',
@@ -1319,6 +1346,10 @@ public function self_order_tables_print()
     public function printer_profiles()
     {
         $this->require_permission('pos.printer.index', 'view');
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers/rules');
+            return;
+        }
         $this->render('pos/printer_profiles_index', [
             'page_title' => 'Pengaturan Output Printer POS',
             'active_menu' => 'pos.printer.index',
@@ -1330,6 +1361,10 @@ public function self_order_tables_print()
     public function printer_devices()
     {
         $this->require_permission('pos.printer.index', 'view');
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers/connections');
+            return;
+        }
         $this->render('pos/printer_devices_index', [
             'page_title' => 'Device Printer POS',
             'active_menu' => 'pos.printer.index',
@@ -1340,6 +1375,10 @@ public function self_order_tables_print()
 
     public function printer_workspace_legacy()
     {
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers');
+            return;
+        }
         $this->require_permission('pos.printer.index', 'view');
         $this->render('pos/printer_index', [
             'page_title' => 'Printer POS',
@@ -1353,6 +1392,10 @@ public function self_order_tables_print()
 
     public function printer_settings()
     {
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers/general');
+            return;
+        }
         $this->require_permission('pos.printer.index', 'edit');
         $general = $this->Pos_model->printer_general_settings();
         $payload = is_array($general['payload'] ?? null) ? $general['payload'] : [];
@@ -1405,12 +1448,525 @@ public function self_order_tables_print()
 
     public function printer_templates_data()
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan halaman Layout Dokumen. Daftar template lama sudah tidak dipakai.', 410);
+            return;
+        }
         $this->require_permission('pos.printer.index', 'view');
         $this->json_ok($this->Pos_model->printer_template_rows($this->printer_template_filters()));
     }
 
+    public function printer_connections()
+    {
+        $this->require_printer_config_permission('pos.printer.connection', 'view');
+        $this->render('pos/printer_connections_index', [
+            'page_title' => 'Koneksi Printer POS',
+            'active_menu' => 'pos.printer.index',
+            'printer_options' => $this->Pos_print_model->options(),
+            'can_create' => $this->printer_config_can('pos.printer.connection', 'create'),
+            'can_edit' => $this->printer_config_can('pos.printer.connection', 'edit'),
+        ]);
+    }
+
+    public function printer_connections_data()
+    {
+        $this->require_printer_config_permission('pos.printer.connection', 'view');
+        $this->json_ok($this->Pos_print_model->connection_rows($this->printer_config_filters('connection')));
+    }
+
+    public function printer_connection_save()
+    {
+        $payload = $this->request_payload();
+        $id = max(0, (int)($payload['id'] ?? 0));
+        $this->require_printer_config_permission('pos.printer.connection', $id > 0 ? 'edit' : 'create');
+        $result = $this->Pos_print_model->save_connection($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan koneksi printer.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id']]);
+    }
+
+    public function printer_connection_toggle($id)
+    {
+        $this->require_printer_config_permission('pos.printer.connection', 'edit');
+        $result = $this->Pos_print_model->toggle_connection((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal mengubah status koneksi printer.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active']]);
+    }
+
+    public function printer_connection_test($id)
+    {
+        $this->require_printer_config_permission('pos.printer.connection', 'edit');
+        $connection = $this->Pos_print_model->find_connection((int)$id);
+        if (!$connection) {
+            $this->json_error('Koneksi printer tidak ditemukan.', 404);
+            return;
+        }
+        if (empty($connection['is_active'])) {
+            $this->json_error('Aktifkan koneksi printer sebelum melakukan test.', 422);
+            return;
+        }
+        if (strtoupper((string)($connection['connection_type'] ?? '')) !== 'LOCAL_AGENT'
+            || trim((string)($connection['agent_printer_code'] ?? '')) === ''
+            || (int)($connection['python_port'] ?? 0) <= 0) {
+            $this->json_error('Koneksi ini belum memiliki Local Agent, kode printer, atau port yang valid.', 422);
+            return;
+        }
+        $attemptId = $this->Pos_print_model->create_attempt([
+            'event_code' => 'TEST',
+            'document_type' => 'RECEIPT',
+            'attempt_kind' => 'TEST',
+            'connection_id' => (int)$connection['id'],
+            'connection_name' => (string)($connection['connection_name'] ?? ''),
+            'route_name' => 'Test koneksi manual',
+            'outlet_id' => (int)($connection['outlet_id'] ?? 0),
+            'line_count' => 0,
+        ]);
+        $width = $this->posprinterpreviewservice->normalizePaperWidthMm($connection['paper_width_mm'] ?? 80);
+        $chars = $this->posprinterpreviewservice->normalizeCharsPerLine($width, (int)($connection['chars_per_line'] ?? 0));
+        $this->json_ok(['target' => [
+            'print_attempt_id' => $attemptId,
+            'printer_code' => (string)$connection['agent_printer_code'],
+            'printer_name' => (string)$connection['connection_name'],
+            'python_port' => (int)$connection['python_port'],
+            'paper_width_mm' => $width,
+            'chars_per_line' => $chars,
+            'copies' => max(1, (int)($connection['default_copy_count'] ?? 1)),
+            'cut_mode' => in_array(strtoupper((string)($connection['cut_mode'] ?? 'PARTIAL')), ['NONE', 'PARTIAL', 'FULL'], true)
+                ? strtoupper((string)($connection['cut_mode'] ?? 'PARTIAL'))
+                : 'PARTIAL',
+            'open_drawer' => !empty($connection['open_drawer']) ? 1 : 0,
+            'text' => str_repeat('=', $chars) . "\nTEST PRINTER POS\n" . (string)$connection['connection_name'] . "\n" . date('d-m-Y H:i:s') . "\nJika ini terbaca, koneksi siap.\n" . str_repeat('=', $chars),
+        ]]);
+    }
+
+    public function printer_general()
+    {
+        $this->require_printer_config_permission('pos.printer.general', 'view');
+        $outletId = 0;
+        if ($this->input->method() === 'post') {
+            $this->require_printer_config_permission('pos.printer.general', 'edit');
+            $result = $this->Pos_print_model->save_general_settings([
+                'title' => $this->input->post('title', false),
+                'subtitle' => $this->input->post('subtitle', false),
+                'logo_url' => $this->input->post('logo_url', false),
+                'wifi_name' => $this->input->post('wifi_name', false),
+                'wifi_password' => $this->input->post('wifi_password', false),
+                'customer_voucher_limit' => $this->input->post('customer_voucher_limit', false),
+                'customer_voucher_message_template' => $this->input->post('customer_voucher_message_template', false),
+                'customer_voucher_align' => $this->input->post('customer_voucher_align', false),
+                'customer_review_qr_enabled' => $this->input->post('customer_review_qr_enabled', false),
+                'customer_review_message' => $this->input->post('customer_review_message', false),
+                'header_lines' => preg_split('/\r?\n/', trim((string)$this->input->post('header_lines', false))),
+                'footer_lines' => preg_split('/\r?\n/', trim((string)$this->input->post('footer_lines', false))),
+            ]);
+            if ($result['ok'] ?? false) {
+                $this->session->set_flashdata('success', 'Tampilan umum cetak berhasil disimpan dan akan dipakai semua cetakan yang relevan.');
+            } else {
+                $this->session->set_flashdata('error', (string)($result['message'] ?? 'Gagal menyimpan tampilan umum cetak.'));
+            }
+            redirect('pos/printers/general');
+            return;
+        }
+        $this->render('pos/printer_general_index', [
+            'page_title' => 'Tampilan Umum Cetak POS',
+            'active_menu' => 'pos.printer.index',
+            'outlet_id' => $outletId,
+            'general' => $this->Pos_print_model->general_settings($outletId),
+            'printer_options' => $this->Pos_print_model->options(),
+            'can_edit' => $this->printer_config_can('pos.printer.general', 'edit'),
+        ]);
+    }
+
+    public function printer_layouts()
+    {
+        $this->require_printer_config_permission('pos.printer.layout', 'view');
+        $this->render('pos/printer_layouts_index', [
+            'page_title' => 'Layout Cetak POS',
+            'active_menu' => 'pos.printer.index',
+            'document_types' => $this->Pos_print_model->document_types(),
+            'document_type_labels' => $this->Pos_print_model->document_type_labels(),
+            'can_create' => $this->printer_config_can('pos.printer.layout', 'create'),
+            'can_edit' => $this->printer_config_can('pos.printer.layout', 'edit'),
+        ]);
+    }
+
+    public function printer_layout_editor($id = 0)
+    {
+        $this->require_printer_config_permission('pos.printer.layout', 'view');
+        $id = max(0, (int)$id);
+        if ($id === 0) {
+            $this->require_printer_config_permission('pos.printer.layout', 'create');
+        }
+        $layout = $id > 0 ? $this->Pos_print_model->find_layout($id) : null;
+        if ($id > 0 && !$layout) {
+            show_404();
+            return;
+        }
+        $this->render('pos/printer_layout_editor', [
+            'page_title' => $layout ? 'Edit Layout Cetak POS' : 'Tambah Layout Cetak POS',
+            'active_menu' => 'pos.printer.index',
+            'layout_row' => $layout,
+            'layout_routes' => $layout ? $this->Pos_print_model->routes_for_layout($id) : [],
+            'layout_test_routes' => $layout ? $this->Pos_print_model->routes_for_layout($id, true) : [],
+            'printer_options' => $this->Pos_print_model->options(),
+            'general_settings' => $this->Pos_print_model->general_settings(),
+            'document_types' => $this->Pos_print_model->document_types(),
+            'document_type_labels' => $this->Pos_print_model->document_type_labels(),
+            'can_create' => $this->printer_config_can('pos.printer.layout', 'create'),
+            'can_edit' => $this->printer_config_can('pos.printer.layout', 'edit'),
+        ]);
+    }
+
+    public function printer_layouts_data()
+    {
+        $this->require_printer_config_permission('pos.printer.layout', 'view');
+        $this->json_ok($this->Pos_print_model->layout_rows($this->printer_config_filters('layout')));
+    }
+
+    public function printer_layout_save()
+    {
+        $payload = $this->request_payload();
+        $id = max(0, (int)($payload['id'] ?? 0));
+        $this->require_printer_config_permission('pos.printer.layout', $id > 0 ? 'edit' : 'create');
+        $result = $this->Pos_print_model->save_layout($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan layout cetak.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id']]);
+    }
+
+    public function printer_layout_preview()
+    {
+        $this->require_printer_config_permission('pos.printer.layout', 'view');
+        $input = $this->request_payload();
+        $documentType = strtoupper(trim((string)($input['document_type'] ?? 'RECEIPT')));
+        $payload = $this->Pos_print_model->preview_layout_payload($input);
+        $connection = $this->Pos_print_model->find_connection(max(0, (int)($input['connection_id'] ?? 0)));
+        $printer = [
+            'printer_name' => (string)($connection['connection_name'] ?? 'Preview tanpa printer'),
+            'printer_role' => (string)($connection['location_label'] ?? 'CUSTOM'),
+            'connection_type' => (string)($connection['connection_type'] ?? 'LOCAL_AGENT'),
+            'paper_width_mm' => (int)($connection['paper_width_mm'] ?? 80),
+            'chars_per_line' => (int)($connection['chars_per_line'] ?? 48),
+            'python_port' => (int)($connection['python_port'] ?? 0),
+            'agent_host' => (string)($connection['agent_host'] ?? ''),
+        ];
+        $preview = $this->posprinterpreviewservice->buildPreviewPackage($payload, $printer, $documentType);
+        $this->attach_customer_review_preview_url($preview);
+        $this->json_ok(['preview' => $preview, 'connection' => $connection ?: null]);
+    }
+
+    public function printer_layout_test($id)
+    {
+        $this->require_printer_config_permission('pos.printer.layout', 'edit');
+        $layout = $this->Pos_print_model->find_layout((int)$id);
+        if (!$layout) {
+            $this->json_error('Layout cetak tidak ditemukan.', 404);
+            return;
+        }
+        $usableRoutes = $this->Pos_print_model->routes_for_layout((int)$layout['id'], true);
+        $requestedRouteId = max(0, (int)($this->request_payload()['route_id'] ?? 0));
+        $route = null;
+        foreach ($usableRoutes as $candidate) {
+            if ($requestedRouteId <= 0 || (int)$candidate['id'] === $requestedRouteId) {
+                $route = $candidate;
+                break;
+            }
+        }
+        if (!$route) {
+            $this->json_error('Layout belum dipakai oleh aturan cetak aktif dengan koneksi Local Agent yang siap. Simpan layout, lalu hubungkan ke Aturan Cetak terlebih dahulu.', 422);
+            return;
+        }
+        $template = $this->Pos_print_model->runtime_template($route);
+        $preview = $this->posprinterpreviewservice->buildPreviewPackage((array)($template['payload'] ?? []), [
+            'printer_name' => (string)($route['connection_name'] ?? ''),
+            'printer_role' => (string)($route['location_label'] ?? 'CUSTOM'),
+            'connection_type' => (string)($route['connection_type'] ?? 'LOCAL_AGENT'),
+            'paper_width_mm' => (int)($route['paper_width_mm'] ?? 80),
+            'chars_per_line' => (int)($route['chars_per_line'] ?? 48),
+            'python_port' => (int)($route['python_port'] ?? 0),
+            'agent_host' => (string)($route['agent_host'] ?? ''),
+        ], (string)($template['document_type'] ?? 'RECEIPT'));
+        $textLines = (array)($preview['lines'] ?? []);
+        if (!empty($preview['logo_url'])) {
+            array_unshift($textLines, '[[LOGO_URL:' . (string)$preview['logo_url'] . ']]');
+        }
+        if (!empty($preview['payload']['show_customer_review_qr']) && !empty($preview['payload']['customer_review_qr_enabled'])) {
+            $reviewUrl = $this->Pos_customer_review_model->station_url();
+            if ($reviewUrl !== '') {
+                $textLines[] = '[[QRCODE:' . $reviewUrl . ']]';
+            }
+        }
+        $attemptId = $this->Pos_print_model->create_attempt([
+            'event_code' => 'TEST',
+            'document_type' => (string)($template['document_type'] ?? 'RECEIPT'),
+            'attempt_kind' => 'TEST',
+            'route_id' => (int)$route['id'],
+            'connection_id' => (int)$route['connection_id'],
+            'layout_id' => (int)$layout['id'],
+            'connection_name' => (string)($route['connection_name'] ?? ''),
+            'connection_code' => (string)($route['connection_code'] ?? ''),
+            'route_name' => (string)($route['route_name'] ?? ''),
+            'route_code' => (string)($route['route_code'] ?? ''),
+            'layout_name' => (string)($layout['layout_name'] ?? ''),
+            'layout_code' => (string)($layout['layout_code'] ?? ''),
+            'outlet_id' => (int)($route['outlet_id'] ?? 0),
+            'terminal_id' => (int)($route['terminal_id'] ?? 0),
+            'line_count' => count($textLines),
+            'copy_count' => max(1, (int)($route['copy_count'] ?? 0) ?: (int)($route['default_copy_count'] ?? 1)),
+        ]);
+        $this->json_ok(['target' => [
+            'print_attempt_id' => $attemptId,
+            'printer_code' => (string)($route['agent_printer_code'] ?? ''),
+            'printer_name' => (string)($route['connection_name'] ?? ''),
+            'python_port' => (int)($route['python_port'] ?? 0),
+            'paper_width_mm' => (int)($preview['paper_width_mm'] ?? 80),
+            'chars_per_line' => (int)($preview['chars_per_line'] ?? 48),
+            'copies' => max(1, (int)($route['copy_count'] ?? 0) ?: (int)($route['default_copy_count'] ?? 1)),
+            'cut_mode' => in_array(strtoupper((string)($route['cut_mode'] ?? 'PARTIAL')), ['NONE', 'PARTIAL', 'FULL'], true)
+                ? strtoupper((string)($route['cut_mode'] ?? 'PARTIAL'))
+                : 'PARTIAL',
+            'open_drawer' => !empty($route['open_drawer']) ? 1 : 0,
+            'text' => implode("\n", $textLines) . "\n",
+        ]]);
+    }
+
+    public function printer_layout_toggle($id)
+    {
+        $this->require_printer_config_permission('pos.printer.layout', 'edit');
+        $result = $this->Pos_print_model->toggle_layout((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal mengubah status layout.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active']]);
+    }
+
+    public function printer_rules()
+    {
+        $this->require_printer_config_permission('pos.printer.rule', 'view');
+        $this->render('pos/printer_rules_index', [
+            'page_title' => 'Aturan Cetak POS',
+            'active_menu' => 'pos.printer.index',
+            'printer_options' => $this->Pos_print_model->options(),
+            'event_types' => $this->Pos_print_model->event_types(),
+            'document_types' => $this->Pos_print_model->document_types(),
+            'event_type_labels' => $this->Pos_print_model->event_type_labels(),
+            'document_type_labels' => $this->Pos_print_model->document_type_labels(),
+            'print_mode_labels' => $this->Pos_print_model->print_mode_labels(),
+            'can_create' => $this->printer_config_can('pos.printer.rule', 'create'),
+            'can_edit' => $this->printer_config_can('pos.printer.rule', 'edit'),
+        ]);
+    }
+
+    public function printer_rules_data()
+    {
+        $this->require_printer_config_permission('pos.printer.rule', 'view');
+        $this->json_ok($this->Pos_print_model->route_rows($this->printer_config_filters('rule')));
+    }
+
+    public function printer_rule_save()
+    {
+        $payload = $this->request_payload();
+        $id = max(0, (int)($payload['id'] ?? 0));
+        $this->require_printer_config_permission('pos.printer.rule', $id > 0 ? 'edit' : 'create');
+        $result = $this->Pos_print_model->save_route($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan aturan cetak.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id']]);
+    }
+
+    public function printer_rule_toggle($id)
+    {
+        $this->require_printer_config_permission('pos.printer.rule', 'edit');
+        $result = $this->Pos_print_model->toggle_route((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal mengubah status aturan cetak.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active'], 'print_mode' => (string)($result['print_mode'] ?? '')]);
+    }
+
+    public function customer_reviews()
+    {
+        $this->require_permission($this->customer_review_permission_page(), 'view');
+        $options = $this->Pos_print_model->options();
+        $this->render('pos/customer_reviews_index', [
+            'page_title' => 'Ulasan Pelanggan POS',
+            'active_menu' => 'pos.customer_review',
+            'can_edit' => $this->can($this->customer_review_permission_page(), 'edit'),
+            'general' => $this->Pos_print_model->general_settings(),
+            'stations' => $this->Pos_customer_review_model->station_rows(),
+            'station_ready' => $this->Pos_customer_review_model->station_ready(),
+            'outlets' => (array)($options['outlets'] ?? []),
+        ]);
+    }
+
+    public function customer_reviews_data()
+    {
+        $this->require_permission($this->customer_review_permission_page(), 'view');
+        $this->json_ok($this->Pos_customer_review_model->rows($this->customer_review_filters()));
+    }
+
+    public function customer_review_visibility($id)
+    {
+        $this->require_permission($this->customer_review_permission_page(), 'edit');
+        $payload = $this->request_payload();
+        $result = $this->Pos_customer_review_model->set_visibility(
+            (int)$id,
+            !empty($payload['hidden']),
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            trim((string)($payload['reason'] ?? ''))
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal memperbarui status ulasan.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id'], 'review_status' => (string)$result['review_status']]);
+    }
+
+    public function customer_review_settings()
+    {
+        $this->require_permission($this->customer_review_permission_page(), 'edit');
+        $payload = $this->request_payload();
+        $result = $this->Pos_print_model->save_customer_review_settings($payload);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Pengaturan QR ulasan belum dapat disimpan.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)($result['id'] ?? 0)]);
+    }
+
+    public function customer_review_station_save()
+    {
+        $this->require_permission($this->customer_review_permission_page(), 'edit');
+        $result = $this->Pos_customer_review_model->save_station($this->request_payload());
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'QR area belum dapat disimpan.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)($result['id'] ?? 0)]);
+    }
+
+    public function customer_review_station_toggle($id)
+    {
+        $this->require_permission($this->customer_review_permission_page(), 'edit');
+        $result = $this->Pos_customer_review_model->toggle_station((int)$id);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Status QR area belum dapat diubah.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id'], 'is_active' => (int)$result['is_active']]);
+    }
+
+    public function customer_review_station_print($id)
+    {
+        $this->require_permission($this->customer_review_permission_page(), 'view');
+        $station = $this->Pos_customer_review_model->find_station((int)$id);
+        if (!$station) {
+            show_404();
+            return;
+        }
+        $this->load->view('pos/customer_review_station_print', [
+            'station' => $station,
+            'station_url' => $this->Pos_customer_review_model->station_url($station),
+        ]);
+    }
+
+    public function printer_preview_live()
+    {
+        $this->require_printer_config_permission('pos.printer.layout', 'view');
+        $this->render('pos/printer_preview_live', [
+            'page_title' => 'Preview Aturan Cetak',
+            'active_menu' => 'pos.printer.index',
+            'routes' => (array)($this->Pos_print_model->route_rows(['status' => 'ACTIVE', 'limit' => 100])['rows'] ?? []),
+            'event_type_labels' => $this->Pos_print_model->event_type_labels(),
+            'document_type_labels' => $this->Pos_print_model->document_type_labels(),
+        ]);
+    }
+
+    public function printer_preview_live_data($routeId = 0)
+    {
+        $this->require_printer_config_permission('pos.printer.layout', 'view');
+        $route = $this->Pos_print_model->find_route((int)$routeId);
+        if (!$route) {
+            $this->json_error('Aturan cetak tidak ditemukan.', 404);
+            return;
+        }
+        $template = $this->Pos_print_model->runtime_template($route);
+        $preview = $this->posprinterpreviewservice->buildPreviewPackage((array)($template['payload'] ?? []), [
+            'printer_name' => (string)($route['connection_name'] ?? ''),
+            'printer_role' => (string)($route['location_label'] ?? 'CUSTOM'),
+            'connection_type' => (string)($route['connection_type'] ?? 'LOCAL_AGENT'),
+            'paper_width_mm' => (int)($route['paper_width_mm'] ?? 80),
+            'chars_per_line' => (int)($route['chars_per_line'] ?? 48),
+            'python_port' => (int)($route['python_port'] ?? 0),
+            'agent_host' => (string)($route['agent_host'] ?? ''),
+        ], (string)($template['document_type'] ?? 'RECEIPT'));
+        $this->attach_customer_review_preview_url($preview);
+        $this->json_ok(['route' => $route, 'template' => $template, 'preview' => $preview]);
+    }
+
+    public function printer_monitor()
+    {
+        $this->require_printer_config_permission('pos.printer.monitor', 'view');
+        $this->render('pos/printer_monitor_index', [
+            'page_title' => 'Monitor Cetak POS',
+            'active_menu' => 'pos.printer.index',
+            'event_type_labels' => $this->Pos_print_model->event_type_labels(),
+            'document_type_labels' => $this->Pos_print_model->document_type_labels(),
+        ]);
+    }
+
+    public function printer_monitor_data()
+    {
+        $this->require_printer_config_permission('pos.printer.monitor', 'view');
+        $this->json_ok($this->Pos_print_model->attempt_rows($this->printer_config_filters('monitor')));
+    }
+
+    public function printer_attempt_ack()
+    {
+        // Cashier must be able to acknowledge its own browser-to-agent request,
+        // even though the configuration pages remain admin-only.
+        $this->require_permission('pos.printer.index', 'view');
+        $payload = $this->request_payload();
+        $result = $this->Pos_print_model->acknowledge_attempt(
+            max(0, (int)($payload['attempt_id'] ?? 0)),
+            (string)($payload['status'] ?? 'FAILED'),
+            (string)($payload['message'] ?? ''),
+            $this->current_actor_employee_id()
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal memperbarui riwayat cetak.'), 422);
+            return;
+        }
+        $this->json_ok(['id' => (int)$result['id'], 'status' => (string)$result['status']]);
+    }
+
+    public function printer_guide_config()
+    {
+        $this->require_printer_config_permission('pos.printer.guide', 'view');
+        $this->render('pos/printer_guide_config', [
+            'page_title' => 'Panduan Printer POS',
+            'active_menu' => 'pos.printer.index',
+            'download_files' => $this->printer_download_files(),
+        ]);
+    }
+
     public function printer_template_create()
     {
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers/layouts/create');
+            return;
+        }
         $this->require_permission('pos.printer.index', 'create');
         $documentType = strtoupper(trim((string)$this->input->get('document_type', true)));
         if (!in_array($documentType, ['RECEIPT', 'KITCHEN_TICKET', 'VOID_SLIP', 'REFUND_SLIP', 'DEPOSIT_RECEIPT'], true)) {
@@ -1441,6 +1997,10 @@ public function self_order_tables_print()
 
     public function printer_template_edit($id)
     {
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers/layouts');
+            return;
+        }
         $this->require_permission('pos.printer.index', 'edit');
         $row = $this->Pos_model->find_printer_template((int)$id);
         if (!$row) {
@@ -1473,6 +2033,10 @@ public function self_order_tables_print()
 
     public function printer_template_preview($id)
     {
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers/preview-live');
+            return;
+        }
         $this->require_permission('pos.printer.index', 'view');
         $row = $this->Pos_model->find_printer_template((int)$id);
         if (!$row) {
@@ -1511,6 +2075,10 @@ public function self_order_tables_print()
 
     public function printer_template_live_preview()
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan preview pada editor Layout Dokumen. Preview template lama sudah tidak dipakai.', 410);
+            return;
+        }
         $this->require_permission('pos.printer.index', 'view');
         $payload = $this->request_payload();
         $documentType = strtoupper(trim((string)($payload['document_type'] ?? 'RECEIPT')));
@@ -1527,6 +2095,10 @@ public function self_order_tables_print()
 
     public function printer_template_save()
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan simpan pada editor Layout Dokumen. Template lama sudah tidak dipakai.', 410);
+            return;
+        }
         $payload = $this->request_payload();
         $id = (int)($payload['id'] ?? 0);
         $this->require_permission('pos.printer.index', $id > 0 ? 'edit' : 'create');
@@ -1540,6 +2112,10 @@ public function self_order_tables_print()
 
     public function printer_template_toggle($id)
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan status pada halaman Layout Dokumen. Template lama sudah tidak dipakai.', 410);
+            return;
+        }
         $this->require_permission('pos.printer.index', 'edit');
         $result = $this->Pos_model->toggle_printer_template((int)$id);
         if (!($result['ok'] ?? false)) {
@@ -1551,12 +2127,20 @@ public function self_order_tables_print()
 
     public function printer_profiles_data()
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan halaman Aturan Cetak. Profile output lama sudah tidak dipakai.', 410);
+            return;
+        }
         $this->require_permission('pos.printer.index', 'view');
         $this->json_ok($this->Pos_model->printer_profile_rows($this->printer_profile_filters()));
     }
 
     public function printer_profile_save()
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan halaman Aturan Cetak. Profile output lama sudah tidak dipakai.', 410);
+            return;
+        }
         $payload = $this->request_payload();
         $id = (int)($payload['id'] ?? 0);
         $this->require_permission('pos.printer.index', $id > 0 ? 'edit' : 'create');
@@ -1570,6 +2154,10 @@ public function self_order_tables_print()
 
     public function printer_profile_toggle($id)
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan halaman Aturan Cetak. Profile output lama sudah tidak dipakai.', 410);
+            return;
+        }
         $this->require_permission('pos.printer.index', 'edit');
         $result = $this->Pos_model->toggle_printer_profile((int)$id);
         if (!($result['ok'] ?? false)) {
@@ -1581,12 +2169,20 @@ public function self_order_tables_print()
 
     public function printer_devices_data()
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan halaman Koneksi Printer. Device lama sudah tidak dipakai.', 410);
+            return;
+        }
         $this->require_permission('pos.printer.index', 'view');
         $this->json_ok($this->Pos_model->printer_device_rows($this->printer_device_filters()));
     }
 
     public function printer_device_save()
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan halaman Koneksi Printer. Device lama sudah tidak dipakai.', 410);
+            return;
+        }
         $payload = $this->request_payload();
         $id = (int)($payload['id'] ?? 0);
         $this->require_permission('pos.printer.index', $id > 0 ? 'edit' : 'create');
@@ -1600,6 +2196,10 @@ public function self_order_tables_print()
 
     public function printer_device_toggle($id)
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan halaman Koneksi Printer. Device lama sudah tidak dipakai.', 410);
+            return;
+        }
         $this->require_permission('pos.printer.index', 'edit');
         $result = $this->Pos_model->toggle_printer_device((int)$id);
         if (!($result['ok'] ?? false)) {
@@ -1611,6 +2211,10 @@ public function self_order_tables_print()
 
     public function printer_preview($id)
     {
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers/preview-live');
+            return;
+        }
         $this->require_permission('pos.printer.index', 'view');
         $row = $this->Pos_model->find_printer_device((int)$id);
         if (!$row) {
@@ -1664,6 +2268,10 @@ public function self_order_tables_print()
 
     public function printer_test($id)
     {
+        if ($this->Pos_print_model->ready()) {
+            $this->json_error('Gunakan tombol Test pada Koneksi Printer atau editor Layout Dokumen. Test perangkat lama sudah tidak dipakai.', 410);
+            return;
+        }
         $this->require_permission('pos.printer.index', 'view');
         $row = $this->Pos_model->find_printer_device((int)$id);
         if (!$row) {
@@ -1735,6 +2343,10 @@ public function self_order_tables_print()
 
     public function printer_guide()
     {
+        if ($this->Pos_print_model->ready()) {
+            redirect('pos/printers/guide');
+            return;
+        }
         $this->require_permission('pos.printer.index', 'view');
         $this->render('pos/printer_guide', [
             'page_title' => 'Panduan Printer POS',
@@ -4486,6 +5098,84 @@ public function self_order_tables_print()
             'page' => max(1, (int)$this->input->get('device_page', true)),
             'limit' => max(1, min(100, (int)$this->input->get('device_limit', true) ?: 10)),
         ];
+    }
+
+    private function printer_config_filters(string $prefix): array
+    {
+        $status = strtoupper(trim((string)$this->input->get($prefix . '_status', true)));
+        if (!in_array($status, ['ACTIVE', 'INACTIVE', 'ALL'], true)) {
+            $status = 'ACTIVE';
+        }
+        $filters = [
+            'q' => trim((string)$this->input->get($prefix . '_q', true)),
+            'status' => $status,
+            'page' => max(1, (int)$this->input->get($prefix . '_page', true)),
+            'limit' => max(5, min(100, (int)$this->input->get($prefix . '_limit', true) ?: 25)),
+        ];
+        if ($prefix === 'layout') {
+            $filters['document_type'] = strtoupper(trim((string)$this->input->get('layout_document_type', true) ?: 'ALL'));
+        }
+        if ($prefix === 'rule') {
+            $filters['event_code'] = strtoupper(trim((string)$this->input->get('rule_event_code', true) ?: 'ALL'));
+        }
+        if ($prefix === 'monitor') {
+            $filters['status'] = strtoupper(trim((string)$this->input->get('monitor_status', true) ?: 'ALL'));
+        }
+        return $filters;
+    }
+
+    private function customer_review_filters(): array
+    {
+        $status = strtoupper(trim((string)$this->input->get('review_status', true)));
+        if (!in_array($status, ['ALL', 'OPEN', 'SUBMITTED', 'HIDDEN'], true)) {
+            $status = 'ALL';
+        }
+        $from = trim((string)$this->input->get('review_date_from', true));
+        $to = trim((string)$this->input->get('review_date_to', true));
+        return [
+            'q' => trim((string)$this->input->get('review_q', true)),
+            'status' => $status,
+            'date_from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) ? $from : '',
+            'date_to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) ? $to : '',
+            'page' => max(1, (int)$this->input->get('review_page', true)),
+            'limit' => max(10, min(100, (int)($this->input->get('review_limit', true) ?: 25))),
+        ];
+    }
+
+    private function customer_review_permission_page(): string
+    {
+        $hasPage = $this->db->table_exists('sys_page')
+            && (int)$this->db->from('sys_page')->where('page_code', 'pos.customer_review.index')->count_all_results() > 0;
+        return $hasPage ? 'pos.customer_review.index' : 'pos.printer.index';
+    }
+
+    /** Keep preview QR targets valid without creating a fake receipt review. */
+    private function attach_customer_review_preview_url(array &$preview): void
+    {
+        if (empty($preview['customer_review_qr']['enabled'])) {
+            return;
+        }
+        $url = $this->Pos_customer_review_model->station_url();
+        if ($url !== '') {
+            $preview['customer_review_qr']['url'] = $url;
+        }
+    }
+
+    private function printer_config_permission_page(string $pageCode): string
+    {
+        $hasPage = $this->db->table_exists('sys_page')
+            && (int)$this->db->from('sys_page')->where('page_code', $pageCode)->count_all_results() > 0;
+        return $hasPage ? $pageCode : 'pos.printer.index';
+    }
+
+    private function printer_config_can(string $pageCode, string $action = 'view'): bool
+    {
+        return $this->can($this->printer_config_permission_page($pageCode), $action);
+    }
+
+    private function require_printer_config_permission(string $pageCode, string $action = 'view'): void
+    {
+        $this->require_permission($this->printer_config_permission_page($pageCode), $action);
     }
 
     private function stock_live_filters(): array

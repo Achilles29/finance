@@ -9,7 +9,7 @@ class PosPrinterPreviewService
         'show_qty','show_extra','show_notes','show_order_notes','show_subtotal','show_payment_breakdown','show_discount',
         'show_compliment','show_deposit_applied','show_grand_total','show_paid_amount','show_balance_due',
         'show_void_reason','show_refund_reason','show_footer','show_price','show_footer_barcode','show_wifi_info',
-        'show_customer_point_info','show_customer_stamp_info','show_customer_voucher'
+        'show_customer_point_info','show_customer_stamp_info','show_customer_voucher','show_customer_review_qr'
     ];
 
     public function defaultGeneralSettings(): array
@@ -24,8 +24,10 @@ class PosPrinterPreviewService
             'show_customer_stamp_info' => false,
             'show_customer_voucher' => false,
             'customer_voucher_limit' => 1,
-            'customer_voucher_message_template' => 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.',
+            'customer_voucher_message_template' => "Selamat, Anda mendapat voucher {voucher_benefit}.\nKode: {voucher_code}\nGunakan sebelum {voucher_expiry}.",
             'customer_voucher_align' => 'CENTER',
+            'customer_review_qr_enabled' => false,
+            'customer_review_message' => 'Bagikan ulasan Anda dengan scan QR berikut.',
             'header_lines' => ['ORDER CEPAT, SAJI HANGAT.'],
             'footer_lines' => ['TERIMA KASIH SUDAH BERKUNJUNG'],
         ];
@@ -39,6 +41,7 @@ class PosPrinterPreviewService
             'VOID_SLIP' => 'Slip Void',
             'REFUND_SLIP' => 'Slip Refund',
             'DEPOSIT_RECEIPT' => 'Struk Deposit',
+            'SHIFT_CLOSE' => 'Ringkasan Tutup Kasir',
         ];
         $documentType = strtoupper(trim($documentType));
         return $map[$documentType] ?? $documentType;
@@ -91,12 +94,17 @@ class PosPrinterPreviewService
             'show_wifi_info' => false,
             'wifi_name' => (string)($general['wifi_name'] ?? ''),
             'wifi_password' => (string)($general['wifi_password'] ?? ''),
-            'show_customer_point_info' => !empty($general['show_customer_point_info']),
-            'show_customer_stamp_info' => !empty($general['show_customer_stamp_info']),
-            'show_customer_voucher' => !empty($general['show_customer_voucher']),
+            // Data loyalty berasal dari master, tetapi tiap layout memutuskan
+            // sendiri apakah data tersebut pantas tercetak pada dokumen ini.
+            'show_customer_point_info' => false,
+            'show_customer_stamp_info' => false,
+            'show_customer_voucher' => false,
+            'show_customer_review_qr' => $documentType === 'RECEIPT',
             'customer_voucher_limit' => max(1, min(5, (int)($general['customer_voucher_limit'] ?? 1))),
-            'customer_voucher_message_template' => (string)($general['customer_voucher_message_template'] ?? 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.'),
+            'customer_voucher_message_template' => (string)($general['customer_voucher_message_template'] ?? "Selamat, Anda mendapat voucher {voucher_benefit}.\nKode: {voucher_code}\nGunakan sebelum {voucher_expiry}."),
             'customer_voucher_align' => strtoupper((string)($general['customer_voucher_align'] ?? 'CENTER')),
+            'customer_review_qr_enabled' => !empty($general['customer_review_qr_enabled']),
+            'customer_review_message' => (string)($general['customer_review_message'] ?? 'Bagikan ulasan Anda dengan scan QR berikut.'),
         ];
     }
 
@@ -125,6 +133,8 @@ class PosPrinterPreviewService
         $result['customer_voucher_align'] = $this->enumValue($result['customer_voucher_align'] ?? 'CENTER', ['LEFT','CENTER','RIGHT','JUSTIFY'], 'CENTER');
         $result['footer_barcode_source'] = $this->enumValue($result['footer_barcode_source'] ?? 'ORDER_NO', ['ORDER_NO','PAYMENT_NO','VOID_NO','REFUND_NO','VOUCHER_CODE','CUSTOM'], 'ORDER_NO');
         $result['customer_voucher_limit'] = max(1, min(5, (int)($result['customer_voucher_limit'] ?? 1)));
+        $result['customer_review_qr_enabled'] = !empty($result['customer_review_qr_enabled']);
+        $result['customer_review_message'] = trim((string)($result['customer_review_message'] ?? ''));
         return $result;
     }
 
@@ -157,18 +167,32 @@ class PosPrinterPreviewService
     public function buildPreviewPackage(array $payload, array $printer = [], string $documentType = 'RECEIPT'): array
     {
         $payload = $this->decodePayload($payload, $documentType);
-        $paperWidthMm = ((int)($printer['paper_width_mm'] ?? 80) === 58) ? 58 : 80;
-        $charsPerLine = max(24, min(64, (int)($printer['chars_per_line'] ?? ($paperWidthMm === 58 ? 32 : 48))));
+        $documentType = strtoupper(trim($documentType));
+        $paperWidthMm = $this->normalizePaperWidthMm($printer['paper_width_mm'] ?? 80);
+        $charsPerLine = $this->normalizeCharsPerLine($paperWidthMm, (int)($printer['chars_per_line'] ?? 0));
         $lines = $this->buildPreviewLines($documentType, $payload, $charsPerLine);
+        $reviewLayoutEnabled = $documentType === 'RECEIPT'
+            && !empty($payload['show_customer_review_qr']);
+        $reviewGeneralEnabled = !empty($payload['customer_review_qr_enabled']);
+        $showReviewQr = $reviewLayoutEnabled && $reviewGeneralEnabled;
 
         return [
             'payload' => $payload,
-            'document_type' => strtoupper(trim($documentType)),
+            'document_type' => $documentType,
             'document_type_label' => $this->documentTypeLabel($documentType),
             'logo_url' => ($payload['show_logo'] && $payload['logo_url'] !== '') ? $payload['logo_url'] : '',
             'lines' => $lines,
             'paper_width_mm' => $paperWidthMm,
             'chars_per_line' => $charsPerLine,
+            'customer_review_qr' => [
+                'enabled' => $showReviewQr,
+                // Expose both switches so the editor can explain why a QR
+                // is not visible instead of silently hiding it.
+                'layout_enabled' => $reviewLayoutEnabled,
+                'general_enabled' => $reviewGeneralEnabled,
+                'message' => trim((string)($payload['customer_review_message'] ?? 'Bagikan ulasan Anda dengan scan QR berikut.')),
+                'url' => trim((string)($payload['customer_review_preview_url'] ?? '')),
+            ],
             'summary' => [
                 'printer_name' => (string)($printer['printer_name'] ?? '-'),
                 'printer_role' => (string)($printer['printer_role'] ?? 'CUSTOM'),
@@ -180,6 +204,21 @@ class PosPrinterPreviewService
                 'device_name' => (string)($printer['system_device_name'] ?? $printer['device_name'] ?? ''),
             ],
         ];
+    }
+
+    /**
+     * The POS uses one supported density for each physical paper width.
+     * Keeping this fixed prevents a 58 mm printer from receiving 48-column text.
+     */
+    public function normalizePaperWidthMm($value): int
+    {
+        return (int)$value === 58 ? 58 : 80;
+    }
+
+    public function normalizeCharsPerLine(int $paperWidthMm, int $charsPerLine = 0): int
+    {
+        $paperWidthMm = $this->normalizePaperWidthMm($paperWidthMm);
+        return $paperWidthMm === 58 ? 32 : 48;
     }
 
     private function buildPreviewLines(string $documentType, array $payload, int $width): array
@@ -194,12 +233,12 @@ class PosPrinterPreviewService
 
         $lines[] = $divider;
         if ($payload['show_header']) {
-            $lines[] = $this->alignLine(strtoupper((string)$payload['title']), $width, (string)$payload['header_align']);
+            $this->appendWrappedText($lines, strtoupper((string)$payload['title']), $width, (string)$payload['header_align']);
             if ($payload['subtitle'] !== '') {
-                $lines[] = $this->alignLine((string)$payload['subtitle'], $width, (string)$payload['header_align']);
+                $this->appendWrappedText($lines, (string)$payload['subtitle'], $width, (string)$payload['header_align']);
             }
             foreach ($payload['header_lines'] as $line) {
-                $lines[] = $this->alignLine($line, $width, (string)$payload['header_align']);
+                $this->appendWrappedText($lines, $line, $width, (string)$payload['header_align']);
             }
             $lines[] = $dash;
         }
@@ -260,23 +299,22 @@ class PosPrinterPreviewService
                 }
                 if ($payload['show_order_notes']) {
                     $lines[] = 'CATATAN';
-                    $lines[] = 'Meja dekat jendela, request sambal terpisah.';
+                    $this->appendWrappedText($lines, 'Meja dekat jendela, request sambal terpisah.', $width);
                 }
                 foreach ($items as $item) {
                     if ($payload['show_product_name']) {
                         $label = $payload['show_qty'] ? ($item['qty'] . ' x ' . $item['name']) : $item['name'];
                         if ($payload['show_price']) {
-                            $priceWidth = min(12, max(9, (int)round($width * 0.28)));
-                            $nameWidth = max(10, $width - $priceWidth);
-                            $label = $this->padRight($label, $nameWidth) . $this->padLeft($this->formatNumber($item['price']), $priceWidth);
+                            $this->appendPreviewPricedItem($lines, $label, $this->formatNumber($item['price']), $width);
+                        } else {
+                            $this->appendWrappedText($lines, $label, $width);
                         }
-                        $lines[] = $label;
                     }
                     if ($payload['show_extra']) {
-                        $lines[] = '+ EXTRA SHOT x1';
+                        $this->appendWrappedText($lines, '+ EXTRA SHOT x1', $width);
                     }
                     if ($payload['show_notes'] && $item['note'] !== '') {
-                        $lines[] = '  NOTE: ' . $item['note'];
+                        $this->appendWrappedText($lines, 'NOTE: ' . $item['note'], $width);
                     }
                 }
                 if ($documentType === 'RECEIPT') {
@@ -322,14 +360,14 @@ class PosPrinterPreviewService
         if ($payload['show_footer']) {
             $lines[] = $dash;
             foreach ($payload['footer_lines'] as $line) {
-                $lines[] = $this->alignLine($line, $width, (string)$payload['footer_align']);
+                $this->appendWrappedText($lines, $line, $width, (string)$payload['footer_align']);
             }
             if ($payload['show_wifi_info']) {
                 if ($payload['wifi_name'] !== '') {
-                    $lines[] = 'WIFI: ' . $payload['wifi_name'];
+                    $this->appendWrappedText($lines, 'WIFI: ' . $payload['wifi_name'], $width);
                 }
                 if ($payload['wifi_password'] !== '') {
-                    $lines[] = 'PASS: ' . $payload['wifi_password'];
+                    $this->appendWrappedText($lines, 'PASS: ' . $payload['wifi_password'], $width);
                 }
             }
             if ($payload['show_customer_point_info']) {
@@ -343,7 +381,14 @@ class PosPrinterPreviewService
             if ($payload['show_customer_voucher']) {
                 $voucherMessage = $payload['customer_voucher_message_template'] !== ''
                     ? $payload['customer_voucher_message_template']
-                    : 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.';
+                    : "Selamat, Anda mendapat voucher {voucher_benefit}.\nKode: {voucher_code}\nGunakan sebelum {voucher_expiry}.";
+                // Kode adalah informasi yang dipakai customer saat redeem.
+                // Layout lama mungkin menyimpan template sebelum placeholder
+                // kode tersedia, sehingga kita tambahkan tanpa menghapus teks
+                // pesan yang sudah dibuat admin.
+                if (strpos($voucherMessage, '{voucher_code}') === false) {
+                    $voucherMessage = rtrim($voucherMessage) . "\nKode voucher: {voucher_code}";
+                }
                 $voucherMessage = str_replace(
                     ['{voucher_benefit}', '{voucher_code}', '{voucher_expiry}', '{voucher_type}', '{voucher_value}', '{voucher_max_discount}'],
                     ['Rp 20.000', 'VCH-ABC123', '31-05-2026 23:59', 'FIX', 'Rp 20.000', 'Rp 20.000'],
@@ -352,7 +397,7 @@ class PosPrinterPreviewService
                 foreach (preg_split('/\r?\n/', $voucherMessage) as $line) {
                     $line = trim((string)$line);
                     if ($line !== '') {
-                        $lines[] = $this->alignLine($line, $width, (string)$payload['customer_voucher_align']);
+                        $this->appendWrappedText($lines, $line, $width, (string)$payload['customer_voucher_align']);
                     }
                 }
             }
@@ -369,8 +414,100 @@ class PosPrinterPreviewService
             }
         }
 
+        // QR ulasan adalah bagian dari struk pembayaran. Ia sengaja tetap
+        // terlihat walaupun footer biasa dimatikan, karena pengaturannya
+        // dikendalikan terpisah dari Tampilan Umum dan layout.
+        if ($documentType === 'RECEIPT'
+            && !empty($payload['show_customer_review_qr'])
+            && !empty($payload['customer_review_qr_enabled'])) {
+            if (empty($payload['show_footer'])) {
+                $lines[] = $dash;
+            }
+            $message = trim((string)($payload['customer_review_message'] ?? 'Bagikan ulasan Anda dengan scan QR berikut.'));
+            foreach (preg_split('/\r?\n/', $message) as $line) {
+                $line = trim((string)$line);
+                if ($line !== '') {
+                    $this->appendWrappedText($lines, $line, $width, (string)$payload['footer_align']);
+                }
+            }
+            $lines[] = $this->alignLine('[ QR ULASAN PELANGGAN ]', $width, (string)$payload['footer_align']);
+        }
+
         $lines[] = $divider;
-        return $lines;
+        return $this->normalizePreviewLines($lines, $width);
+    }
+
+    private function appendPreviewPricedItem(array &$lines, string $label, string $amount, int $width): void
+    {
+        $priceWidth = min(12, max(9, (int)round($width * 0.28)));
+        $nameWidth = max(10, $width - $priceWidth);
+        $parts = $this->wrapText($label, $nameWidth);
+        $lastIndex = max(0, count($parts) - 1);
+        foreach ($parts as $index => $part) {
+            $price = $index === $lastIndex ? $this->padLeft($amount, $priceWidth) : str_repeat(' ', $priceWidth);
+            $lines[] = $this->padRight($part, $nameWidth) . $price;
+        }
+    }
+
+    private function appendWrappedText(array &$lines, string $text, int $width, string $align = 'LEFT'): void
+    {
+        foreach ($this->wrapText($text, $width) as $line) {
+            $lines[] = $this->alignLine($line, $width, $align);
+        }
+    }
+
+    private function normalizePreviewLines(array $lines, int $width): array
+    {
+        $result = [];
+        foreach ($lines as $line) {
+            $line = rtrim((string)$line);
+            if ($line === '' || mb_strlen($line) <= $width) {
+                $result[] = $line;
+                continue;
+            }
+            foreach ($this->wrapText($line, $width) as $part) {
+                $result[] = $part;
+            }
+        }
+        return $result;
+    }
+
+    private function wrapText(string $text, int $width): array
+    {
+        $width = max(1, $width);
+        $result = [];
+        foreach (preg_split('/\r?\n/', $text) as $sourceLine) {
+            $sourceLine = trim(preg_replace('/\s+/u', ' ', (string)$sourceLine));
+            if ($sourceLine === '') {
+                $result[] = '';
+                continue;
+            }
+            $line = '';
+            $words = preg_split('/\s+/u', $sourceLine, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            foreach ($words as $word) {
+                while (mb_strlen($word) > $width) {
+                    if ($line !== '') {
+                        $result[] = $line;
+                        $line = '';
+                    }
+                    $result[] = mb_substr($word, 0, $width);
+                    $word = mb_substr($word, $width);
+                }
+                $candidate = $line === '' ? $word : $line . ' ' . $word;
+                if (mb_strlen($candidate) <= $width) {
+                    $line = $candidate;
+                } else {
+                    if ($line !== '') {
+                        $result[] = $line;
+                    }
+                    $line = $word;
+                }
+            }
+            if ($line !== '') {
+                $result[] = $line;
+            }
+        }
+        return $result;
     }
 
     private function sampleItems(): array
@@ -442,7 +579,7 @@ class PosPrinterPreviewService
             return '';
         }
         if (mb_strlen($text) >= $width) {
-            return mb_substr($text, 0, $width);
+            return $text;
         }
         $align = strtoupper(trim($align));
         if ($align === 'RIGHT') {

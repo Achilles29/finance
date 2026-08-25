@@ -259,3 +259,13 @@ nah coba lakukan analisa detail, dan buatkan saran perbaikian!
 
 
 kunci source code untuk dijual, dengan licensi
+pengaturan umum, upload logo, ganti nama, dll
+
+
+rencana saya mau memperjualbelikan aplikasi kasir (finance) saya ini, dengan modul sumper komplit ini. termasuk APK POS yang sedang dalam tahap pengembangan.
+konsep yang saya inginkan antara lain:
+- beli putus, berarti customer membeli putus, dengan licensi terbatas. misal 1 akun dapat 3 licensi untuk digunakan di 3 device. berarti harus ada modul penguncian source code agar tidak bisa di pergunakan ulang atau malah diperjual belikan lagi
+- leveling fitur, dengan fitur yang sudah ada sekarang, saya ingin membedakan harga di beberapa level, dengan pembatasan fitur fitur tertentu
+- modul update. jadi customer bisa mendapatkan update jika saya ada update tersedia
+
+sementara seperti itu. ada ide diskusi?

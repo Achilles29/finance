@@ -33,6 +33,11 @@ try:
 except Exception:
     Image = None
 
+try:
+    import qrcode
+except Exception:
+    qrcode = None
+
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG = BASE_DIR / "config.json"
 DEFAULT_LOG = BASE_DIR / "agent.log"
@@ -294,16 +299,29 @@ class PrinterService:
             if text.strip() == "":
                 return jsonify({"status": "error", "message": "Struk kosong."}), 400
             paper = 58 if int(payload.get("paper_width_mm") or printer["paper_width_mm"] or 80) == 58 else 80
+            copies = max(1, min(10, int(payload.get("copies") or 1)))
+            cut_mode = str(payload.get("cut_mode") or "PARTIAL").strip().upper()
+            if cut_mode not in ("NONE", "PARTIAL", "FULL"):
+                cut_mode = "PARTIAL"
+            open_drawer = str(payload.get("open_drawer") or "").strip().lower() in ("1", "true", "yes", "on")
             try:
-                self.safe_print(printer["mac"], text, paper)
-                return jsonify({"status": "success", "message": "Berhasil dicetak."})
+                self.safe_print(printer["mac"], text, paper, copies, open_drawer, cut_mode)
+                return jsonify({"status": "success", "message": f"Berhasil dicetak ({copies} salinan)."})
             except Exception as exc:
                 logging.exception("Gagal cetak %s: %s", printer["lokasi"], exc)
                 return jsonify({"status": "error", "message": str(exc)}), 500
 
         app.run(host="127.0.0.1", port=int(printer["python_port"]), debug=False, use_reloader=False)
 
-    def safe_print(self, mac: str, text: str, paper_width_mm: int = 80) -> None:
+    def safe_print(
+        self,
+        mac: str,
+        text: str,
+        paper_width_mm: int = 80,
+        copies: int = 1,
+        open_drawer: bool = False,
+        cut_mode: str = "PARTIAL",
+    ) -> None:
         if serial is None:
             raise AgentError("pyserial belum terpasang.")
         max_retry = max(1, int(self.config.get("print_retry_count", 2) or 2))
@@ -315,42 +333,67 @@ class PrinterService:
                 if not com_port:
                     raise AgentError(f"COM port printer dari MAC {mac} tidak ditemukan.")
                 ser = serial.Serial(com_port, 9600, timeout=3, write_timeout=5)
-                ser.write(b"\x1b\x40")
-                ser.write(b"\x1b\x32")
-                ser.write(b"\x1b\x74\x00")
                 logo_sources, clean_text = self.extract_logo_sources(text)
                 barcode_values, clean_text = self.extract_barcode_values(clean_text)
-                for logo_source in logo_sources:
-                    try:
-                        if logo_source.get("type") == "base64":
-                            raw = self.load_image_from_base64(str(logo_source.get("value") or ""))
-                        else:
-                            raw = self.load_image_from_url(str(logo_source.get("value") or ""))
-                        mode = str(self.logo.get("mode", "esc_star")).strip().lower()
-                        if mode == "raster":
-                            logo_bytes = self.image_to_escpos_raster(raw, self.logo_max_width_dots(paper_width_mm), self.paper_canvas_width_dots(paper_width_mm))
-                        else:
-                            logo_bytes = self.image_to_escpos_esc_star(raw, self.logo_max_width_dots(paper_width_mm))
-                        ser.write(b"\x1b\x61\x01")
-                        self.write_bytes(ser, logo_bytes, 512, 0.008)
-                        ser.write(b"\x1b\x61\x00")
-                        ser.flush()
-                    except Exception as exc:
-                        logging.warning("Logo gagal dicetak %s: %s", logo_source.get("type") or "unknown", exc)
-                text_bytes = self.encode_text_with_feed_markers(clean_text)
-                self.write_bytes(ser, text_bytes, 512, 0.005)
-                for barcode in barcode_values:
-                    try:
-                        barcode_bytes = self.code128_barcode_payload(barcode)
-                        if barcode_bytes:
+                qr_values, clean_text = self.extract_qrcode_values(clean_text)
+                safe_copies = max(1, min(10, int(copies or 1)))
+                safe_cut_mode = str(cut_mode or "PARTIAL").strip().upper()
+                for copy_index in range(safe_copies):
+                    ser.write(b"\x1b\x40")
+                    ser.write(b"\x1b\x32")
+                    ser.write(b"\x1b\x74\x00")
+                    if open_drawer and copy_index == 0:
+                        ser.write(b"\x1b\x70\x00\x19\xfa")
+                    for logo_source in logo_sources:
+                        try:
+                            if logo_source.get("type") == "base64":
+                                raw = self.load_image_from_base64(str(logo_source.get("value") or ""))
+                            else:
+                                raw = self.load_image_from_url(str(logo_source.get("value") or ""))
+                            mode = str(self.logo.get("mode", "esc_star")).strip().lower()
+                            if mode == "raster":
+                                logo_bytes = self.image_to_escpos_raster(raw, self.logo_max_width_dots(paper_width_mm), self.paper_canvas_width_dots(paper_width_mm))
+                            else:
+                                logo_bytes = self.image_to_escpos_esc_star(raw, self.logo_max_width_dots(paper_width_mm))
+                            ser.write(b"\x1b\x61\x01")
+                            self.write_bytes(ser, logo_bytes, 512, 0.008)
+                            ser.write(b"\x1b\x61\x00")
+                            ser.flush()
+                        except Exception as exc:
+                            logging.warning("Logo gagal dicetak %s: %s", logo_source.get("type") or "unknown", exc)
+                    text_bytes = self.encode_text_with_feed_markers(clean_text)
+                    self.write_bytes(ser, text_bytes, 512, 0.005)
+                    for barcode in barcode_values:
+                        try:
+                            barcode_bytes = self.code128_barcode_payload(barcode)
+                            if barcode_bytes:
+                                ser.write(b"\n")
+                                ser.write(b"\x1b\x61\x01")
+                                self.write_bytes(ser, barcode_bytes, 256, 0.008)
+                                ser.write(b"\x1b\x61\x00")
+                                ser.write(b"\n")
+                        except Exception as exc:
+                            logging.warning("Barcode gagal dicetak %s: %s", barcode, exc)
+                    for qr_value in qr_values:
+                        try:
+                            qr_raw = self.qrcode_image_bytes(qr_value)
+                            mode = str(self.logo.get("mode", "esc_star")).strip().lower()
+                            if mode == "raster":
+                                qr_bytes = self.image_to_escpos_raster(qr_raw, self.qrcode_max_width_dots(paper_width_mm), self.paper_canvas_width_dots(paper_width_mm))
+                            else:
+                                qr_bytes = self.image_to_escpos_esc_star(qr_raw, self.qrcode_max_width_dots(paper_width_mm))
                             ser.write(b"\n")
                             ser.write(b"\x1b\x61\x01")
-                            self.write_bytes(ser, barcode_bytes, 256, 0.008)
+                            self.write_bytes(ser, qr_bytes, 512, 0.008)
                             ser.write(b"\x1b\x61\x00")
                             ser.write(b"\n")
-                    except Exception as exc:
-                        logging.warning("Barcode gagal dicetak %s: %s", barcode, exc)
-                ser.write(b"\n\n\n\x1d\x56\x00")
+                        except Exception as exc:
+                            logging.warning("QR ulasan gagal dicetak: %s", exc)
+                    ser.write(b"\n\n\n")
+                    if safe_cut_mode == "FULL":
+                        ser.write(b"\x1d\x56\x00")
+                    elif safe_cut_mode == "PARTIAL":
+                        ser.write(b"\x1d\x56\x01")
                 ser.flush()
                 ser.close()
                 return
@@ -545,6 +588,17 @@ class PrinterService:
         clean_text = pattern.sub("", clean_text).rstrip() + "\n"
         return values, clean_text
 
+    def extract_qrcode_values(self, text: str) -> tuple[list[str], str]:
+        values = []
+        clean_text = text or ""
+        pattern = re.compile(r"\[\[QRCODE:(.*?)\]\]")
+        for match in pattern.findall(clean_text):
+            value = (match or "").strip()
+            if value.startswith(("http://", "https://")):
+                values.append(value[:500])
+        clean_text = pattern.sub("", clean_text).rstrip() + "\n"
+        return values, clean_text
+
     def encode_text_with_feed_markers(self, text: str) -> bytes:
         clean_text = self.normalize_text_for_printer(text)
         pattern = re.compile(r"\[\[FEED:(\d{1,3})\]\]\n?")
@@ -579,6 +633,17 @@ class PrinterService:
         if int(paper_width_mm or 80) >= 76:
             return min(576, int(256 * scale))
         return min(384, int(192 * scale))
+
+    def qrcode_max_width_dots(self, paper_width_mm: int) -> int:
+        return 260 if int(paper_width_mm or 80) >= 76 else 184
+
+    def qrcode_image_bytes(self, value: str) -> bytes:
+        if qrcode is None or Image is None:
+            raise AgentError("Library qrcode atau Pillow belum terpasang. Jalankan pip install -r requirements.txt.")
+        image = qrcode.make(value, border=2)
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
 
     def paper_canvas_width_dots(self, paper_width_mm: int) -> int:
         return 256 if int(paper_width_mm or 80) >= 76 else 192

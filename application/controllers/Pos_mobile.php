@@ -132,6 +132,7 @@ class Pos_mobile extends CI_Controller
             'sync_cursor' => date('c'),
             'server_time' => date('c'),
             'cashier_bootstrap' => $cashierBootstrap,
+            'active_sessions' => $this->Pos_model->active_cashier_sessions(),
             'filter_options' => $this->Pos_model->order_draft_filter_options(),
             'catalog_filters' => $this->Pos_model->cashier_catalog_filter_options(),
             'payment_methods' => $this->Pos_model->deposit_payment_method_options(),
@@ -684,6 +685,7 @@ class Pos_mobile extends CI_Controller
         $this->json_ok([
             'server_time' => date('c'),
             'session' => $this->Pos_model->find_active_cashier_session($this->current_actor_employee_id()),
+            'active_sessions' => $this->Pos_model->active_cashier_sessions(),
         ]);
     }
 
@@ -701,7 +703,10 @@ class Pos_mobile extends CI_Controller
         }
         $result = $this->Pos_model->open_cashier_session($this->request_payload(), $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
-            $this->json_error((string)($result['message'] ?? 'Gagal membuka kasir POS.'), 422);
+            $this->json_error((string)($result['message'] ?? 'Gagal membuka kasir POS.'), 422, [
+                'code' => (string)($result['code'] ?? ''),
+                'active_session' => (array)($result['active_session'] ?? []),
+            ]);
             return;
         }
         $this->json_ok([
