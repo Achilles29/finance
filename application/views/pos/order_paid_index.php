@@ -570,20 +570,41 @@ document.addEventListener('DOMContentLoaded', function () {
     return { name: 'Printer', reason: formatPrintFailureReason(raw) };
   }
 
+  async function acknowledgeDirectPrintTarget(target, status, message) {
+    const attemptId = Number(target && target.print_attempt_id || 0);
+    if (!attemptId) return;
+    try {
+      await fetch('<?= site_url('pos/printers/attempts/ack') ?>', { method: 'POST', headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}, body: JSON.stringify({attempt_id: attemptId, status, message: message || ''}) });
+    } catch (error) { /* Monitor tidak boleh menghambat pembayaran. */ }
+  }
+
   async function directPrintTargets(rows) {
     if (!Array.isArray(rows) || !rows.length) return { successCount: 0, failed: [] };
     const failed = []; let successCount = 0; const jobs = [];
     for (const target of rows) {
+      const printMode = String(target.print_mode || 'AUTO').toUpperCase();
+      if (printMode === 'OFF') {
+        void acknowledgeDirectPrintTarget(target, 'SKIPPED', 'Aturan cetak sedang tidak aktif.');
+        continue;
+      }
+      if (printMode === 'ASK') {
+        const approved = await window.PosDirectPrintPrompt.ask(target);
+        if (!approved) {
+          void acknowledgeDirectPrintTarget(target, 'SKIPPED', 'Cetak dilewati oleh kasir.');
+          continue;
+        }
+      }
       const copies = Math.max(1, Number(target.copies || 1));
       const pythonPort = Number(target.python_port || 0);
-      if (!pythonPort) { failed.push(`${target.printer_name || target.printer_code || 'Printer'}: python port belum valid`); continue; }
-      for (let i = 0; i < copies; i++) {
-        jobs.push(fetch('http://127.0.0.1:' + pythonPort + '/cetak', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: String(target.text || ''), printer_code: String(target.printer_code || ''), printer_name: String(target.printer_name || ''), paper_width_mm: Number(target.paper_width_mm || 80), chars_per_line: Number(target.chars_per_line || 48) })
-        }).then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); successCount++; })
-          .catch((e) => { failed.push(`${target.printer_name || target.printer_code || 'Printer'}: ${e && e.message ? e.message : 'gagal cetak'}`); }));
-      }
+      if (!pythonPort) { const message = 'python port belum valid'; failed.push(`${target.printer_name || target.printer_code || 'Printer'}: ${message}`); void acknowledgeDirectPrintTarget(target, 'FAILED', message); continue; }
+      jobs.push(window.PosDirectAgentPrint.send(target).then((body) => {
+        successCount += copies;
+        void acknowledgeDirectPrintTarget(target, 'SENT', body.message || 'Perintah diterima Local Agent.');
+      }).catch((e) => {
+        const message = e && e.message ? e.message : 'gagal cetak';
+        failed.push(`${target.printer_name || target.printer_code || 'Printer'}: ${message}`);
+        void acknowledgeDirectPrintTarget(target, 'FAILED', message);
+      }));
     }
     await Promise.all(jobs);
     return { successCount, failed };
@@ -1293,3 +1314,4 @@ document.addEventListener('DOMContentLoaded', function () {
   loadRecents().catch((e) => alert(e.message));
 });
 </script>
+<?php $this->load->view('pos/_direct_print_prompt'); ?>

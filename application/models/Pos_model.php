@@ -24,6 +24,34 @@ class Pos_model extends CI_Model
         return $this->load->database('default', true);
     }
 
+    /**
+     * The new printer tables are optional during a staggered deployment.
+     * Falling back keeps an older database functional until its migration runs.
+     */
+    private function printer_config_model(): ?Pos_print_model
+    {
+        if (!isset($this->Pos_print_model) || !($this->Pos_print_model instanceof Pos_print_model)) {
+            $this->load->model('Pos_print_model');
+        }
+        return isset($this->Pos_print_model) && $this->Pos_print_model instanceof Pos_print_model
+            ? $this->Pos_print_model
+            : null;
+    }
+
+    /** Customer-review table is optional until the printer/review migration runs. */
+    private function customer_review_model(): ?Pos_customer_review_model
+    {
+        if (!$this->db->table_exists('pos_customer_review')) {
+            return null;
+        }
+        if (!isset($this->Pos_customer_review_model) || !($this->Pos_customer_review_model instanceof Pos_customer_review_model)) {
+            $this->load->model('Pos_customer_review_model');
+        }
+        return isset($this->Pos_customer_review_model) && $this->Pos_customer_review_model instanceof Pos_customer_review_model
+            ? $this->Pos_customer_review_model
+            : null;
+    }
+
     public function member_filter_options(): array
     {
         return [
@@ -5025,6 +5053,11 @@ class Pos_model extends CI_Model
 
     public function printer_general_settings(): array
     {
+        $printerConfig = $this->printer_config_model();
+        if ($printerConfig && $printerConfig->ready()) {
+            return $printerConfig->general_settings();
+        }
+
         $defaults = [
             'title' => 'NAMUA COFFEE N EATERY',
             'subtitle' => 'Jl. Magnolia, Desa Kabongan Kidul, Rembang',
@@ -5070,6 +5103,11 @@ class Pos_model extends CI_Model
 
     public function save_printer_general_settings(array $data): array
     {
+        $printerConfig = $this->printer_config_model();
+        if ($printerConfig && $printerConfig->ready()) {
+            return $printerConfig->save_general_settings($data);
+        }
+
         $payload = [
             'title' => trim((string)($data['title'] ?? 'NAMUA COFFEE N EATERY')),
             'subtitle' => trim((string)($data['subtitle'] ?? '')),
@@ -5758,6 +5796,11 @@ class Pos_model extends CI_Model
 
     public function active_printer_devices_for_agent_config(string $agentHost = ''): array 
     { 
+        $printerConfig = $this->printer_config_model();
+        if ($printerConfig && $printerConfig->ready()) {
+            return $printerConfig->agent_devices($agentHost);
+        }
+
         $agentHost = strtoupper(trim($agentHost)); 
         $hasPrinterRole = $this->core_field_exists('pos_printer', 'printer_role');
         $hasPrintScope = $this->core_field_exists('pos_printer', 'print_scope');
@@ -5886,6 +5929,7 @@ class Pos_model extends CI_Model
             'default_opening_cash' => 300000,
             'order_reprint_printers' => $this->cashier_order_reprint_printer_options($printerOutletId),
             'active_session' => $activeSession,
+            'active_sessions' => $this->active_cashier_sessions(),
         ];
     }
 
@@ -6640,6 +6684,7 @@ class Pos_model extends CI_Model
                 s.*,
                 o.outlet_name,
                 t.terminal_name,
+                e.employee_name AS cashier_name,
                 sh.shift_no,
                 sh.opening_cash,
                 sh.opened_at
@@ -6647,6 +6692,7 @@ class Pos_model extends CI_Model
             ->from('pos_cashier_session s')
             ->join('pos_outlet o', 'o.id = s.outlet_id', 'left')
             ->join('pos_terminal t', 't.id = s.terminal_id', 'left')
+            ->join('org_employee e', 'e.id = s.employee_id', 'left')
             ->join('pos_shift sh', 'sh.id = s.shift_id', 'left')
             ->where('s.employee_id', $employeeId)
             ->where('s.session_status', 'OPEN')
@@ -6654,6 +6700,32 @@ class Pos_model extends CI_Model
             ->limit(1)
             ->get()
             ->row_array() ?: null;
+    }
+
+    public function active_cashier_sessions(): array
+    {
+        if (!$this->db->table_exists('pos_cashier_session')) {
+            return [];
+        }
+
+        return $this->db->select('
+                s.*,
+                o.outlet_name,
+                t.terminal_name,
+                e.employee_name AS cashier_name,
+                sh.shift_no,
+                sh.opening_cash,
+                sh.opened_at
+            ')
+            ->from('pos_cashier_session s')
+            ->join('pos_outlet o', 'o.id = s.outlet_id', 'left')
+            ->join('pos_terminal t', 't.id = s.terminal_id', 'left')
+            ->join('org_employee e', 'e.id = s.employee_id', 'left')
+            ->join('pos_shift sh', 'sh.id = s.shift_id', 'left')
+            ->where('s.session_status', 'OPEN')
+            ->order_by('s.id', 'DESC')
+            ->get()
+            ->result_array();
     }
 
     public function open_cashier_session(array $payload, int $actorEmployeeId): array
@@ -6683,12 +6755,17 @@ class Pos_model extends CI_Model
             return ['ok' => false, 'message' => 'Modal awal tidak boleh minus.'];
         }
 
-        $terminalBusy = $this->db->from('pos_cashier_session')
-            ->where('terminal_id', $terminalId)
-            ->where('session_status', 'OPEN')
-            ->count_all_results();
-        if ($terminalBusy > 0) {
-            return ['ok' => false, 'message' => 'Terminal ini masih dipakai sesi kasir lain. Tutup dulu sesi yang aktif atau pilih device lain.'];
+        foreach ($this->active_cashier_sessions() as $activeSession) {
+            if ((int)($activeSession['terminal_id'] ?? 0) !== $terminalId) {
+                continue;
+            }
+            $cashierName = trim((string)($activeSession['cashier_name'] ?? '')) ?: 'kasir lain';
+            return [
+                'ok' => false,
+                'code' => 'TERMINAL_BUSY',
+                'active_session' => $activeSession,
+                'message' => 'Terminal ini masih dipakai oleh kasir ' . $cashierName . '. Tutup sesi tersebut atau pilih device lain.',
+            ];
         }
 
         $now = date('Y-m-d H:i:s');
@@ -8216,6 +8293,10 @@ class Pos_model extends CI_Model
         if ($orderId <= 0) {
             return ['ok' => false, 'message' => 'Order POS tidak valid untuk direct print.'];
         }
+        $printerConfig = $this->printer_config_model();
+        if ($printerConfig && $printerConfig->routes_enabled()) {
+            return $this->direct_print_targets_from_config_for_order_confirm($orderId, $snapshotId);
+        }
         if (
             !$this->db->table_exists('pos_printer')
             || !$this->db->table_exists('pos_printer_profile')
@@ -8271,6 +8352,10 @@ class Pos_model extends CI_Model
     {
         if ($orderId <= 0) {
             return ['ok' => false, 'message' => 'Order POS tidak valid untuk cetak ulang.'];
+        }
+        $printerConfig = $this->printer_config_model();
+        if ($printerConfig && $printerConfig->routes_enabled()) {
+            return $this->direct_print_targets_from_config_for_order_reprint($orderId, $options);
         }
         if (
             !$this->db->table_exists('pos_printer')
@@ -8341,6 +8426,334 @@ class Pos_model extends CI_Model
                 'printer_id' => $printerId,
             ]),
         ];
+    }
+
+    /**
+     * Runtime baru: route di database menentukan koneksi dan layout, sedangkan
+     * event lama hanya dipakai sebagai fallback untuk database yang belum dimigrasi.
+     */
+    private function direct_print_targets_from_config_for_order_confirm(int $orderId, int $snapshotId = 0): array
+    {
+        $order = $this->find_order_draft($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order POS tidak ditemukan untuk direct print.'];
+        }
+        $lines = (array)($order['lines'] ?? []);
+        $snapshotLineIds = $this->resolve_direct_print_line_ids_for_snapshot($orderId, $snapshotId);
+        if (is_array($snapshotLineIds)) {
+            if (empty($snapshotLineIds)) {
+                return ['ok' => true, 'targets' => []];
+            }
+            $lineIdMap = array_fill_keys($snapshotLineIds, true);
+            $lines = array_values(array_filter($lines, static function ($line) use ($lineIdMap) {
+                $lineId = (int)($line['id'] ?? 0);
+                return $lineId > 0 && isset($lineIdMap[$lineId]);
+            }));
+        }
+        if (empty($lines)) {
+            return ['ok' => true, 'targets' => []];
+        }
+        return [
+            'ok' => true,
+            'targets' => $this->configured_order_kot_targets($order, $lines, 'AUTO'),
+        ];
+    }
+
+    private function direct_print_targets_from_config_for_order_reprint(int $orderId, array $options = []): array
+    {
+        $order = $this->find_order_draft($orderId);
+        if (!$order) {
+            return ['ok' => false, 'message' => 'Order POS tidak ditemukan untuk cetak ulang.'];
+        }
+        $outletId = (int)($order['header']['outlet_id'] ?? 0);
+        $terminalId = (int)($order['header']['terminal_id'] ?? 0);
+        $selectedPrinterId = max(0, (int)($options['printer_id'] ?? 0));
+        $routes = $this->configured_print_routes('ORDER_CONFIRM_KOT', $outletId, $terminalId);
+        $routes = $this->filter_configured_routes_by_printer($routes, $selectedPrinterId);
+        if ($selectedPrinterId > 0 && empty($routes)) {
+            $prebillRoutes = $this->filter_configured_routes_by_printer(
+                $this->configured_print_routes('ORDER_PRE_BILL', $outletId, $terminalId),
+                $selectedPrinterId
+            );
+            if (!empty($prebillRoutes)) {
+                if ($this->order_remaining_due_amount((array)($order['header'] ?? [])) <= 0.009) {
+                    return ['ok' => false, 'message' => 'Order ini sudah lunas. Bill sementara hanya dapat dicetak untuk order yang belum terbayar.'];
+                }
+                return ['ok' => true, 'targets' => $this->configured_prebill_targets($order, $prebillRoutes, 'REPRINT')];
+            }
+            return ['ok' => false, 'message' => 'Koneksi printer tujuan tidak memiliki aturan cetak aktif untuk order ini.'];
+        }
+        $lines = (array)($order['lines'] ?? []);
+        if (strtoupper(trim((string)($options['line_scope'] ?? 'ALL'))) === 'LATEST') {
+            $snapshotLineIds = $this->resolve_direct_print_line_ids_for_snapshot($orderId, 0);
+            if (!is_array($snapshotLineIds) || empty($snapshotLineIds)) {
+                return ['ok' => false, 'message' => 'Belum ada snapshot item terbaru untuk order ini. Pilih semua item untuk mencetak ulang seluruh pesanan.'];
+            }
+            $lineIdMap = array_fill_keys($snapshotLineIds, true);
+            $lines = array_values(array_filter($lines, static function ($line) use ($lineIdMap) {
+                return isset($lineIdMap[(int)($line['id'] ?? 0)]);
+            }));
+        }
+        return ['ok' => true, 'targets' => $this->configured_order_kot_targets($order, $lines, 'REPRINT', $routes)];
+    }
+
+    private function direct_print_targets_from_config_for_payment(int $paymentId, bool $respectAutoPrint): array
+    {
+        $document = $this->find_payment_print_document($paymentId);
+        if (!$document) {
+            return ['ok' => false, 'message' => 'Dokumen payment POS tidak ditemukan untuk direct print.'];
+        }
+        $header = (array)($document['header'] ?? []);
+        $routes = $this->configured_print_routes(
+            'ORDER_PAID_RECEIPT',
+            (int)($header['outlet_id'] ?? 0),
+            (int)($header['terminal_id'] ?? 0)
+        );
+        $targets = [];
+        foreach ($routes as $route) {
+            $template = $this->configured_print_template($route);
+            $printer = $this->configured_printer_payload($route);
+            $text = $this->build_direct_payment_receipt_text($document, $printer, $template);
+            $target = $this->configured_print_target($route, $template, $text, [
+                'event_code' => 'ORDER_PAID_RECEIPT',
+                'document_type' => 'RECEIPT',
+                'order_id' => (int)($header['order_id'] ?? 0),
+                'payment_id' => $paymentId,
+                'outlet_id' => (int)($header['outlet_id'] ?? 0),
+                'terminal_id' => (int)($header['terminal_id'] ?? 0),
+                'line_count' => count((array)($document['lines'] ?? [])),
+                'attempt_kind' => $respectAutoPrint ? 'AUTO' : 'REPRINT',
+            ]);
+            if ($target) {
+                $targets[] = $target;
+            }
+        }
+        return ['ok' => true, 'targets' => $targets];
+    }
+
+    private function direct_print_targets_from_config_for_shift_close(int $shiftId, array $report = []): array
+    {
+        if (empty($report)) {
+            $report = (array)$this->shift_close_report($shiftId);
+        }
+        $shift = (array)($report['shift'] ?? []);
+        if (empty($shift)) {
+            return ['ok' => false, 'message' => 'Laporan tutup kasir tidak tersedia untuk direct print.'];
+        }
+        $routes = $this->configured_print_routes('SHIFT_CLOSE_SUMMARY', (int)($shift['outlet_id'] ?? 0), (int)($shift['terminal_id'] ?? 0));
+        $targets = [];
+        foreach ($routes as $route) {
+            $template = $this->configured_print_template($route);
+            $printer = $this->configured_printer_payload($route);
+            $text = $this->build_direct_shift_close_receipt_text($report, $printer, $template);
+            $target = $this->configured_print_target($route, $template, $text, [
+                'event_code' => 'SHIFT_CLOSE_SUMMARY',
+                'document_type' => 'SHIFT_CLOSE',
+                'outlet_id' => (int)($shift['outlet_id'] ?? 0),
+                'terminal_id' => (int)($shift['terminal_id'] ?? 0),
+                'attempt_kind' => 'AUTO',
+            ]);
+            if ($target) {
+                $targets[] = $target;
+            }
+        }
+        return ['ok' => true, 'targets' => $targets];
+    }
+
+    private function direct_print_targets_from_config_for_reversal(string $documentType, int $documentId): array
+    {
+        $documentType = strtoupper(trim($documentType));
+        $document = $documentType === 'VOID_SLIP'
+            ? $this->find_void_print_document($documentId)
+            : $this->find_refund_print_document($documentId);
+        if (!$document) {
+            return ['ok' => false, 'message' => 'Dokumen reversal POS tidak ditemukan untuk direct print.'];
+        }
+        $header = (array)($document['header'] ?? []);
+        $routes = $this->configured_print_routes($documentType, (int)($header['outlet_id'] ?? 0), (int)($header['terminal_id'] ?? 0));
+        $targets = [];
+        foreach ($routes as $route) {
+            $selectedLines = $this->configured_route_lines((array)($document['lines'] ?? []), $route);
+            if (empty($selectedLines)) {
+                continue;
+            }
+            $template = $this->configured_print_template($route);
+            $printer = $this->configured_printer_payload($route);
+            $text = $this->build_direct_reversal_slip_text($documentType, [
+                'header' => $header,
+                'lines' => $selectedLines,
+            ], $printer, $template);
+            $target = $this->configured_print_target($route, $template, $text, [
+                'event_code' => $documentType,
+                'document_type' => $documentType,
+                'order_id' => (int)($header['order_id'] ?? 0),
+                'void_id' => $documentType === 'VOID_SLIP' ? $documentId : 0,
+                'refund_id' => $documentType === 'REFUND_SLIP' ? $documentId : 0,
+                'outlet_id' => (int)($header['outlet_id'] ?? 0),
+                'terminal_id' => (int)($header['terminal_id'] ?? 0),
+                'line_count' => count($selectedLines),
+                'attempt_kind' => 'AUTO',
+            ]);
+            if ($target) {
+                $targets[] = $target;
+            }
+        }
+        return ['ok' => true, 'targets' => $targets];
+    }
+
+    private function configured_order_kot_targets(array $order, array $lines, string $attemptKind = 'AUTO', array $routes = []): array
+    {
+        $header = (array)($order['header'] ?? []);
+        if (empty($routes)) {
+            $routes = $this->configured_print_routes('ORDER_CONFIRM_KOT', (int)($header['outlet_id'] ?? 0), (int)($header['terminal_id'] ?? 0));
+        }
+        $targets = [];
+        foreach ($routes as $route) {
+            $selectedLines = $this->configured_route_lines($lines, $route);
+            if (empty($selectedLines)) {
+                continue;
+            }
+            $printLines = array_map(function ($line) {
+                return $this->build_direct_print_order_line((array)$line);
+            }, $selectedLines);
+            $template = $this->configured_print_template($route);
+            $printer = $this->configured_printer_payload($route);
+            $text = $this->build_direct_kot_text($header, $printLines, $printer, $template);
+            $target = $this->configured_print_target($route, $template, $text, [
+                'event_code' => 'ORDER_CONFIRM_KOT',
+                'document_type' => 'KITCHEN_TICKET',
+                'order_id' => (int)($header['id'] ?? 0),
+                'outlet_id' => (int)($header['outlet_id'] ?? 0),
+                'terminal_id' => (int)($header['terminal_id'] ?? 0),
+                'line_count' => count($printLines),
+                'attempt_kind' => $attemptKind,
+            ]);
+            if ($target) {
+                $targets[] = $target;
+            }
+        }
+        return $targets;
+    }
+
+    private function configured_prebill_targets(array $order, array $routes, string $attemptKind = 'REPRINT'): array
+    {
+        $header = (array)($order['header'] ?? []);
+        $targets = [];
+        foreach ($routes as $route) {
+            $template = $this->configured_print_template($route);
+            $printer = $this->configured_printer_payload($route);
+            $text = $this->build_direct_order_prebill_text($order, $printer, $template);
+            $target = $this->configured_print_target($route, $template, $text, [
+                'event_code' => 'ORDER_PRE_BILL',
+                'document_type' => 'RECEIPT',
+                'order_id' => (int)($header['id'] ?? 0),
+                'outlet_id' => (int)($header['outlet_id'] ?? 0),
+                'terminal_id' => (int)($header['terminal_id'] ?? 0),
+                'line_count' => count((array)($order['lines'] ?? [])),
+                'attempt_kind' => $attemptKind,
+            ]);
+            if ($target) {
+                $targets[] = $target;
+            }
+        }
+        return $targets;
+    }
+
+    private function configured_print_routes(string $eventCode, int $outletId, int $terminalId): array
+    {
+        $printerConfig = $this->printer_config_model();
+        return $printerConfig ? $printerConfig->active_routes($eventCode, $outletId, $terminalId) : [];
+    }
+
+    private function filter_configured_routes_by_printer(array $routes, int $printerId): array
+    {
+        if ($printerId <= 0) {
+            return $routes;
+        }
+        return array_values(array_filter($routes, static function (array $route) use ($printerId): bool {
+            return (int)($route['connection_id'] ?? 0) === $printerId
+                || (int)($route['legacy_printer_id'] ?? 0) === $printerId;
+        }));
+    }
+
+    private function configured_route_lines(array $lines, array $route): array
+    {
+        if (strtoupper((string)($route['content_scope'] ?? 'ALL_ITEMS')) === 'ALL_ITEMS') {
+            return array_values(array_filter($lines, 'is_array'));
+        }
+        $operationalDivisionId = (int)($route['operational_division_id'] ?? 0);
+        $productDivisionId = (int)($route['product_division_id'] ?? 0);
+        return array_values(array_filter($lines, static function ($line) use ($operationalDivisionId, $productDivisionId): bool {
+            if (!is_array($line)) {
+                return false;
+            }
+            if ($operationalDivisionId > 0 && (int)($line['operational_division_id'] ?? 0) !== $operationalDivisionId) {
+                return false;
+            }
+            if ($productDivisionId > 0 && (int)($line['product_division_id_snapshot'] ?? $line['product_division_id'] ?? 0) !== $productDivisionId) {
+                return false;
+            }
+            return true;
+        }));
+    }
+
+    private function configured_print_template(array $route): array
+    {
+        $printerConfig = $this->printer_config_model();
+        return $printerConfig ? $printerConfig->runtime_template($route) : ['document_type' => 'RECEIPT', 'payload' => []];
+    }
+
+    private function configured_printer_payload(array $route): array
+    {
+        $paperWidth = (int)($route['paper_width_mm'] ?? 80) === 58 ? 58 : 80;
+        return [
+            'printer_id' => (int)($route['connection_id'] ?? 0),
+            'printer_code' => (string)($route['agent_printer_code'] ?? ''),
+            'printer_name' => (string)($route['connection_name'] ?? ''),
+            'printer_role' => (string)($route['location_label'] ?? 'CUSTOM'),
+            'print_scope' => (string)($route['content_scope'] ?? 'ALL_ITEMS'),
+            'agent_host' => (string)($route['agent_host'] ?? ''),
+            'python_port' => (int)($route['python_port'] ?? 0),
+            'paper_width_mm' => $paperWidth,
+            'chars_per_line' => $this->normalize_printer_chars_per_line($paperWidth, (int)($route['chars_per_line'] ?? 48)),
+            'copies' => max(1, (int)($route['copy_count'] ?? 0) ?: (int)($route['default_copy_count'] ?? 1)),
+            'cut_mode' => in_array(strtoupper((string)($route['cut_mode'] ?? 'PARTIAL')), ['NONE', 'PARTIAL', 'FULL'], true)
+                ? strtoupper((string)($route['cut_mode'] ?? 'PARTIAL'))
+                : 'PARTIAL',
+            'open_drawer' => !empty($route['open_drawer']) ? 1 : 0,
+        ];
+    }
+
+    private function configured_print_target(array $route, array $template, string $text, array $meta): ?array
+    {
+        $printer = $this->configured_printer_payload($route);
+        if (trim((string)($printer['printer_code'] ?? '')) === '' || (int)($printer['python_port'] ?? 0) <= 0) {
+            return null;
+        }
+        $printerConfig = $this->printer_config_model();
+        $attemptId = $printerConfig ? $printerConfig->create_attempt(array_merge($meta, [
+            'route_id' => (int)($route['id'] ?? 0),
+            'connection_id' => (int)($route['connection_id'] ?? 0),
+            'layout_id' => (int)($route['layout_id'] ?? 0),
+            'connection_name' => (string)($route['connection_name'] ?? ''),
+            'connection_code' => (string)($route['connection_code'] ?? ''),
+            'route_name' => (string)($route['route_name'] ?? ''),
+            'route_code' => (string)($route['route_code'] ?? ''),
+            'layout_name' => (string)($route['layout_name'] ?? ''),
+            'layout_code' => (string)($route['layout_code'] ?? ''),
+            'document_type' => (string)($template['document_type'] ?? $meta['document_type'] ?? 'RECEIPT'),
+            'copy_count' => max(1, (int)($printer['copies'] ?? 1)),
+        ])) : 0;
+        return array_merge($printer, [
+            'route_id' => (int)($route['id'] ?? 0),
+            'route_code' => (string)($route['route_code'] ?? ''),
+            'layout_id' => (int)($route['layout_id'] ?? 0),
+            'layout_code' => (string)($route['layout_code'] ?? ''),
+            'document_type' => (string)($template['document_type'] ?? $meta['document_type'] ?? 'RECEIPT'),
+            'print_mode' => strtoupper((string)($route['print_mode'] ?? 'AUTO')),
+            'print_attempt_id' => $attemptId,
+            'text' => $text,
+        ]);
     }
 
     private function local_agent_kot_printers_for_outlet(int $outletId = 0): array
@@ -8481,6 +8894,10 @@ class Pos_model extends CI_Model
         if ($paymentId <= 0) {
             return ['ok' => false, 'message' => 'Pembayaran POS tidak valid untuk direct print.'];
         }
+        $printerConfig = $this->printer_config_model();
+        if ($printerConfig && $printerConfig->routes_enabled()) {
+            return $this->direct_print_targets_from_config_for_payment($paymentId, $respectAutoPrint);
+        }
         if (
             !$this->db->table_exists('pos_printer')
             || !$this->db->table_exists('pos_printer_profile')
@@ -8581,6 +8998,10 @@ class Pos_model extends CI_Model
         if ($shiftId <= 0) {
             return ['ok' => false, 'message' => 'Shift POS tidak valid untuk direct print.'];
         }
+        $printerConfig = $this->printer_config_model();
+        if ($printerConfig && $printerConfig->routes_enabled()) {
+            return $this->direct_print_targets_from_config_for_shift_close($shiftId, $report);
+        }
         if (
             !$this->db->table_exists('pos_printer')
             || !$this->db->table_exists('pos_printer_profile')
@@ -8674,6 +9095,10 @@ class Pos_model extends CI_Model
         $documentType = strtoupper(trim($documentType));
         if ($documentId <= 0) {
             return ['ok' => false, 'message' => 'Dokumen reversal POS tidak valid untuk direct print.'];
+        }
+        $printerConfig = $this->printer_config_model();
+        if ($printerConfig && $printerConfig->routes_enabled()) {
+            return $this->direct_print_targets_from_config_for_reversal($documentType, $documentId);
         }
         if (
             !$this->db->table_exists('pos_printer')
@@ -9907,6 +10332,9 @@ class Pos_model extends CI_Model
         }
 
         return [
+            'order_line_id' => (int)($line['id'] ?? 0),
+            'operational_division_id' => (int)($line['operational_division_id'] ?? 0),
+            'product_division_id' => (int)($line['product_division_id_snapshot'] ?? 0),
             'product_name' => (string)($line['product_name'] ?? ''),
             'qty' => (float)($line['qty'] ?? 0),
             'notes' => trim((string)($line['notes'] ?? '')),
@@ -9992,8 +10420,17 @@ class Pos_model extends CI_Model
 
         $header['customer_name'] = $order['header']['customer_name'] ?? $header['customer_name'] ?? '';
         $header['member_name'] = $order['header']['member_name'] ?? $header['member_name'] ?? '';
+        $header['ordered_at'] = $order['header']['ordered_at'] ?? $order['header']['created_at'] ?? $header['ordered_at'] ?? '';
         $header['cashier_username'] = $order['header']['cashier_username'] ?? '';
         $header['cashier_employee_name'] = $order['header']['cashier_employee_name'] ?? '';
+        $memberId = max(0, (int)($header['member_id'] ?? $order['header']['member_id'] ?? 0));
+        $header['member_id'] = $memberId;
+        if ($memberId > 0 && $this->db->table_exists('pos_point_ledger')) {
+            $header['member_point_balance'] = $this->current_member_point_balance($memberId);
+        }
+        if ($memberId > 0 && $this->db->table_exists('pos_stamp_ledger')) {
+            $header['member_stamp_balance'] = $this->current_member_stamp_balance($memberId);
+        }
         $header['paid_now'] = $cashPaidNow;
         $header['deposit_applied_now'] = $depositAppliedNow;
         $header['settled_now'] = round($cashPaidNow + $depositAppliedNow, 2);
@@ -10210,6 +10647,198 @@ class Pos_model extends CI_Model
         return array_values(array_unique(array_filter($codes)));
     }
 
+    /**
+     * Header dan footer cetak langsung harus memakai payload hasil resolver
+     * konfigurasi baru. Dengan begitu nilai di database, bukan fallback kode,
+     * menjadi penentu tampilan kertas.
+     */
+    private function append_direct_print_header(array &$chunks, array $payload, int $width, string $align, string $dash, string $fallbackTitle = ''): void
+    {
+        $logoUrl = trim((string)($payload['logo_url'] ?? ''));
+        if (!empty($payload['show_logo']) && $logoUrl !== '') {
+            // Marker ini diterjemahkan Local Agent menjadi gambar ESC/POS.
+            $chunks[] = '[[LOGO_URL:' . $logoUrl . ']]';
+        }
+        if (empty($payload['show_header'])) {
+            return;
+        }
+        $hasHeaderContent = false;
+        $title = trim((string)($payload['title'] ?? ''));
+        if ($title === '') {
+            $title = $fallbackTitle;
+        }
+        if ($title !== '') {
+            $this->append_wrapped_aligned_print_text($chunks, $title, $width, $align);
+            $hasHeaderContent = true;
+        }
+        $subtitle = trim((string)($payload['subtitle'] ?? ''));
+        if ($subtitle !== '') {
+            $this->append_wrapped_aligned_print_text($chunks, $subtitle, $width, $align);
+            $hasHeaderContent = true;
+        }
+        foreach ((array)($payload['header_lines'] ?? []) as $line) {
+            $line = trim((string)$line);
+            if ($line !== '') {
+                $this->append_wrapped_aligned_print_text($chunks, $line, $width, $align);
+                $hasHeaderContent = true;
+            }
+        }
+        if ($hasHeaderContent) {
+            $chunks[] = $dash;
+        }
+    }
+
+    private function direct_print_footer_barcode_value(array $payload, array $values): string
+    {
+        $source = strtoupper(trim((string)($payload['footer_barcode_source'] ?? 'ORDER_NO')));
+        $map = [
+            'ORDER_NO' => 'order_no',
+            'PAYMENT_NO' => 'payment_no',
+            'VOID_NO' => 'void_no',
+            'REFUND_NO' => 'refund_no',
+            'VOUCHER_CODE' => 'voucher_code',
+            'CUSTOM' => 'custom',
+        ];
+        $key = $map[$source] ?? 'order_no';
+        $value = $key === 'custom'
+            ? (string)($payload['footer_barcode_custom'] ?? '')
+            : (string)($values[$key] ?? '');
+        return trim((string)preg_replace('/[\r\n\[\]]+/', '', $value));
+    }
+
+    private function direct_print_voucher_footer_lines(array $payload, array $issuedVouchers, int $width): array
+    {
+        if (empty($payload['show_customer_voucher']) || empty($issuedVouchers)) {
+            return [];
+        }
+        $voucherLimit = max(1, min(5, (int)($payload['customer_voucher_limit'] ?? count($issuedVouchers))));
+        $voucherAlign = strtoupper((string)($payload['customer_voucher_align'] ?? 'CENTER'));
+        $voucherTemplate = trim((string)($payload['customer_voucher_message_template'] ?? ''));
+        if ($voucherTemplate === '') {
+            $voucherTemplate = "Selamat, Anda mendapat voucher {voucher_benefit}.\nKode: {voucher_code}\nGunakan sebelum {voucher_expiry}.";
+        }
+        if (strpos($voucherTemplate, '{voucher_code}') === false) {
+            $voucherTemplate = rtrim($voucherTemplate) . "\nKode voucher: {voucher_code}";
+        }
+        $lines = [];
+        foreach (array_slice($issuedVouchers, 0, $voucherLimit) as $index => $voucher) {
+            $voucherCode = trim((string)($voucher['voucher_code'] ?? $voucher['voucher_issue_no'] ?? ''));
+            if ($voucherCode === '') {
+                continue;
+            }
+            if ($index === 0) {
+                $lines[] = $this->align_text_line('VOUCHER BARU', $width, $voucherAlign ?: 'CENTER');
+            }
+            $voucherType = strtoupper(trim((string)($voucher['voucher_type'] ?? '')));
+            if ($voucherType === 'PERCENT') {
+                $benefit = rtrim(rtrim(number_format((float)($voucher['percent_snapshot'] ?? $voucher['discount_value'] ?? 0), 2, ',', '.'), '0'), ',') . '%';
+                $maxDiscount = (float)($voucher['max_discount_amount'] ?? 0);
+                if ($maxDiscount > 0) {
+                    $benefit .= ' maks ' . $this->format_number_print($maxDiscount);
+                }
+            } elseif ($voucherType === 'FREE_PRODUCT') {
+                $benefit = 'produk gratis';
+            } else {
+                $benefit = $this->format_number_print((float)($voucher['amount_snapshot'] ?? $voucher['discount_value'] ?? 0));
+            }
+            $expiry = !empty($voucher['expired_at']) ? date('d-m-Y', strtotime((string)$voucher['expired_at'])) : 'tanpa batas';
+            $message = strtr($voucherTemplate, [
+                '{voucher_code}' => $voucherCode,
+                '{voucher_benefit}' => $benefit,
+                '{voucher_expiry}' => $expiry,
+                '{campaign_name}' => (string)($voucher['campaign_name'] ?? 'Voucher'),
+            ]);
+            $lines[] = $this->align_text_line('KODE: ' . $voucherCode, $width, $voucherAlign ?: 'CENTER');
+            foreach ($this->wrap_print_text($message, $width) as $messageLine) {
+                $lines[] = $this->align_text_line($messageLine, $width, $voucherAlign ?: 'CENTER');
+            }
+        }
+        return $lines;
+    }
+
+    private function append_direct_print_footer(array &$chunks, array $payload, int $width, string $align, string $dash, array $barcodeValues = [], array $loyalty = [], array $issuedVouchers = []): void
+    {
+        $reviewUrl = trim((string)($loyalty['customer_review_url'] ?? ''));
+        $showReviewQr = !empty($payload['show_customer_review_qr'])
+            && !empty($payload['customer_review_qr_enabled'])
+            && $reviewUrl !== '';
+        if (empty($payload['show_footer']) && !$showReviewQr) {
+            return;
+        }
+        $footerLines = [];
+        if (!empty($payload['show_footer'])) {
+            foreach ((array)($payload['footer_lines'] ?? []) as $line) {
+                $line = trim((string)$line);
+                if ($line !== '') {
+                    $this->append_wrapped_aligned_print_text($footerLines, $line, $width, $align);
+                }
+            }
+        }
+        if (!empty($payload['show_footer']) && !empty($payload['show_wifi_info'])) {
+            $wifiName = trim((string)($payload['wifi_name'] ?? ''));
+            $wifiPassword = trim((string)($payload['wifi_password'] ?? ''));
+            if ($wifiName !== '') {
+                $footerLines[] = 'WIFI: ' . $wifiName;
+            }
+            if ($wifiPassword !== '') {
+                $footerLines[] = 'PASS: ' . $wifiPassword;
+            }
+        }
+        if (!empty($payload['show_footer']) && !empty($loyalty['has_member']) && !empty($payload['show_customer_point_info'])) {
+            $footerLines[] = 'POIN ANDA  ' . $this->format_number_print($loyalty['point_balance'] ?? 0);
+        }
+        if (!empty($payload['show_footer']) && !empty($loyalty['has_member']) && !empty($payload['show_customer_stamp_info'])) {
+            $footerLines[] = 'STAMP ANDA ' . $this->format_number_print($loyalty['stamp_balance'] ?? 0);
+        }
+        if (!empty($payload['show_footer'])) {
+            foreach ($this->direct_print_voucher_footer_lines($payload, $issuedVouchers, $width) as $line) {
+                $footerLines[] = $line;
+            }
+        }
+        if (!empty($payload['show_footer']) && !empty($payload['show_footer_barcode'])) {
+            $barcode = $this->direct_print_footer_barcode_value($payload, $barcodeValues);
+            if ($barcode !== '') {
+                // Local Agent menerjemahkan marker menjadi barcode Code128.
+                $footerLines[] = '[[BARCODE:' . $barcode . ']]';
+                $footerLines[] = $this->align_text_line($barcode, $width, $align);
+            }
+        }
+        if ($showReviewQr) {
+            $message = trim((string)($payload['customer_review_message'] ?? 'Bagikan ulasan Anda dengan scan QR berikut.'));
+            if ($message !== '') {
+                foreach ($this->wrap_print_text($message, $width) as $line) {
+                    $footerLines[] = $this->align_text_line($line, $width, $align);
+                }
+            }
+            // Local Agent menggambar marker ini sebagai QR dan tetap mencetak URL
+            // sebagai fallback bila driver printer belum mendukung gambar raster.
+            $footerLines[] = '[[QRCODE:' . $reviewUrl . ']]';
+            foreach ($this->wrap_print_text($reviewUrl, $width) as $line) {
+                $footerLines[] = $this->align_text_line($line, $width, $align);
+            }
+        }
+        if (!empty($footerLines)) {
+            $chunks[] = $dash;
+            foreach ($footerLines as $line) {
+                $chunks[] = $line;
+            }
+        }
+    }
+
+    private function customer_review_url_for_payment(array $header, array $payload): string
+    {
+        if (empty($payload['show_customer_review_qr']) || empty($payload['customer_review_qr_enabled'])) {
+            return '';
+        }
+        $reviewModel = $this->customer_review_model();
+        if (!$reviewModel) {
+            return '';
+        }
+        $review = $reviewModel->ensure_for_order($header);
+        $token = trim((string)($review['review_token'] ?? ''));
+        return preg_match('/^[a-f0-9]{64}$/i', $token) ? site_url('review/' . $token) : '';
+    }
+
     private function build_direct_kot_text(array $header, array $lines, array $printer, array $template = []): string
     {
         $width = $this->normalize_printer_chars_per_line(
@@ -10221,41 +10850,26 @@ class Pos_model extends CI_Model
         $payload = (array)($template['payload'] ?? []);
         $headerAlign = strtoupper((string)($payload['header_align'] ?? 'CENTER'));
         $footerAlign = strtoupper((string)($payload['footer_align'] ?? 'CENTER'));
-        $showHeader = !empty($payload['show_header']);
-        $showFooter = !empty($payload['show_footer']);
+        $showInvoiceNo = !empty($payload['show_invoice_no']);
         $showCustomer = !empty($payload['show_customer']);
         $showTableNo = !empty($payload['show_table_no']);
         $showOrderTime = !empty($payload['show_order_time']);
         $showCashier = !empty($payload['show_cashier_order']);
+        $showProductName = !empty($payload['show_product_name']);
         $showQty = !empty($payload['show_qty']);
         $showExtra = !empty($payload['show_extra']);
         $showNotes = !empty($payload['show_notes']);
         $customerName = $this->resolve_order_customer_name($header['customer_name'] ?? '', $header['member_name'] ?? '');
-        $chunks = [];
-        $chunks[] = $divider;
-        if ($showHeader) {
-            $title = trim((string)($payload['title'] ?? ''));
-            $subtitle = trim((string)($payload['subtitle'] ?? ''));
-            if ($title !== '') {
-                $chunks[] = $this->align_text_line($title, $width, $headerAlign);
-            }
-            if ($subtitle !== '') {
-                $chunks[] = $this->align_text_line($subtitle, $width, $headerAlign);
-            }
-            foreach ((array)($payload['header_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $headerAlign);
-                }
-            }
-            $chunks[] = $dash;
-        }
+        $chunks = [$divider];
+        $this->append_direct_print_header($chunks, $payload, $width, $headerAlign, $dash, 'KOT');
         $roleBanner = $this->printer_role_banner_label((string)($printer['printer_role'] ?? ''));
         if ($roleBanner !== '') {
             $chunks[] = $this->align_text_line($roleBanner, $width, 'CENTER');
             $chunks[] = $dash;
         }
-        $chunks[] = 'ORDER  ' . (string)($header['order_no'] ?? '-');
+        if ($showInvoiceNo && !empty($header['order_no'])) {
+            $chunks[] = 'ORDER  ' . (string)$header['order_no'];
+        }
         if ($showTableNo && !empty($header['table_no'])) {
             $chunks[] = 'MEJA   ' . (string)$header['table_no'];
         }
@@ -10283,6 +10897,9 @@ class Pos_model extends CI_Model
         $chunks[] = $dash;
 
         foreach ($lines as $line) {
+            if (!$showProductName) {
+                continue;
+            }
             $qtyLabel = rtrim(rtrim(number_format((float)($line['qty'] ?? 0), 2, '.', ''), '0'), '.');
             $prefix = $showQty ? ($qtyLabel . ' x ') : '';
             $chunks[] = $prefix . (string)($line['product_name'] ?? '-');
@@ -10299,16 +10916,10 @@ class Pos_model extends CI_Model
             $chunks[] = $dash;
         }
 
-        if ($showFooter) {
-            foreach ((array)($payload['footer_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $footerAlign);
-                }
-            }
-        }
-        $chunks[] = "\n\n";
-        return implode("\n", $chunks);
+        $this->append_direct_print_footer($chunks, $payload, $width, $footerAlign, $dash, [
+            'order_no' => (string)($header['order_no'] ?? ''),
+        ]);
+        return $this->finalize_direct_print_text($chunks, $width);
     }
 
     private function build_direct_reversal_slip_text(string $documentType, array $document, array $printer, array $template = []): string
@@ -10334,23 +10945,7 @@ class Pos_model extends CI_Model
         $timeValue = $isVoid ? (string)($header['created_at'] ?? '') : (string)($header['refunded_at'] ?? '');
 
         $chunks = [$divider];
-        if (!empty($payload['show_header'])) {
-            $title = trim((string)($payload['title'] ?? ''));
-            $subtitle = trim((string)($payload['subtitle'] ?? ''));
-            if ($title !== '') {
-                $chunks[] = $this->align_text_line($title, $width, $headerAlign);
-            }
-            if ($subtitle !== '') {
-                $chunks[] = $this->align_text_line($subtitle, $width, $headerAlign);
-            }
-            foreach ((array)($payload['header_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $headerAlign);
-                }
-            }
-            $chunks[] = $dash;
-        }
+        $this->append_direct_print_header($chunks, $payload, $width, $headerAlign, $dash, $isVoid ? 'SLIP VOID' : 'SLIP REFUND');
         $roleBanner = $this->printer_role_banner_label((string)($printer['printer_role'] ?? ''));
         if ($roleBanner !== '') {
             $chunks[] = $this->align_text_line($roleBanner, $width, 'CENTER');
@@ -10367,13 +10962,13 @@ class Pos_model extends CI_Model
         if (!empty($payload['show_table_no']) && !empty($header['table_no'])) {
             $chunks[] = 'MEJA       ' . (string)$header['table_no'];
         }
-        if ($timeValue !== '') {
+        if ($timeValue !== '' && (!empty($payload['show_order_time']) || !empty($payload['show_payment_time']))) {
             $chunks[] = ($isVoid ? 'WAKTU      ' : 'REFUND AT  ') . date('d-m-Y H:i', strtotime($timeValue));
         }
         if ((!empty($payload['show_cashier_order']) || !empty($payload['show_cashier_payment'])) && $actorName !== '') {
             $chunks[] = 'PETUGAS    ' . strtoupper($actorName);
         }
-        if (!$isVoid && !empty($header['method_name'])) {
+        if (!$isVoid && !empty($payload['show_payment_breakdown']) && !empty($header['method_name'])) {
             $chunks[] = 'METODE     ' . (string)$header['method_name'];
         }
         if ((!empty($payload['show_void_reason']) || !empty($payload['show_refund_reason'])) && $reason !== '') {
@@ -10382,6 +10977,9 @@ class Pos_model extends CI_Model
         $chunks[] = $dash;
 
         foreach ($lines as $line) {
+            if (empty($payload['show_product_name'])) {
+                continue;
+            }
             $itemName = trim((string)($line['item_name'] ?? '-'));
             if ($itemName === '') {
                 continue;
@@ -10401,20 +10999,18 @@ class Pos_model extends CI_Model
             }
         }
 
-        $chunks[] = $dash;
-        $chunks[] = 'NILAI      ' . $this->format_number_print($documentAmount);
-
-        if (!empty($payload['show_footer'])) {
+        if (!empty($payload['show_grand_total'])) {
             $chunks[] = $dash;
-            foreach ((array)($payload['footer_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $footerAlign);
-                }
-            }
+            $chunks[] = 'NILAI      ' . $this->format_number_print($documentAmount);
         }
 
-        return implode("\n", $chunks) . "\n\n\n";
+        $this->append_direct_print_footer($chunks, $payload, $width, $footerAlign, $dash, [
+            'order_no' => (string)($header['order_no'] ?? ''),
+            'void_no' => (string)($header['void_no'] ?? ''),
+            'refund_no' => (string)($header['refund_no'] ?? ''),
+        ]);
+
+        return $this->finalize_direct_print_text($chunks, $width);
     }
 
     private function build_direct_order_prebill_text(array $order, array $printer, array $template = []): string
@@ -10436,6 +11032,7 @@ class Pos_model extends CI_Model
             $cashierLabel = trim((string)($header['cashier_employee_name'] ?? ''));
         }
         $showPrice = !empty($payload['show_price']);
+        $showProductName = !empty($payload['show_product_name']);
         $amountWidth = min(14, max(11, (int)round($width * 0.3)));
         $labelWidth = max(10, $width - $amountWidth);
         $printLines = [];
@@ -10445,6 +11042,7 @@ class Pos_model extends CI_Model
                 'qty' => (float)($line['qty'] ?? 0),
                 'amount' => (float)($line['net_amount'] ?? 0),
                 'notes' => (string)($line['notes'] ?? ''),
+                'is_extra' => 0,
             ];
             foreach ((array)($line['extras'] ?? []) as $extra) {
                 $printLines[] = [
@@ -10452,36 +11050,20 @@ class Pos_model extends CI_Model
                     'qty' => (float)($extra['qty'] ?? 0),
                     'amount' => (float)($extra['net_amount'] ?? 0),
                     'notes' => (string)($extra['notes'] ?? ''),
+                    'is_extra' => 1,
                 ];
             }
         }
 
         $chunks = [$divider];
-        if (!empty($payload['show_header'])) {
-            $title = trim((string)($payload['title'] ?? ''));
-            if ($title === '' || strtoupper($title) === 'RECEIPT') {
-                $title = 'BILL SEMENTARA';
-            }
-            $subtitle = trim((string)($payload['subtitle'] ?? 'Belum terbayar'));
-            $chunks[] = $this->align_text_line($title, $width, $headerAlign);
-            if ($subtitle !== '') {
-                $chunks[] = $this->align_text_line($subtitle, $width, $headerAlign);
-            }
-            foreach ((array)($payload['header_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $headerAlign);
-                }
-            }
-            $chunks[] = $dash;
-        }
+        $this->append_direct_print_header($chunks, $payload, $width, $headerAlign, $dash, 'BILL SEMENTARA');
         $roleBanner = $this->printer_role_banner_label((string)($printer['printer_role'] ?? ''));
         if ($roleBanner !== '') {
             $chunks[] = $this->align_text_line($roleBanner, $width, 'CENTER');
             $chunks[] = $dash;
         }
 
-        if (!empty($header['order_no'])) {
+        if (!empty($payload['show_invoice_no']) && !empty($header['order_no'])) {
             $chunks[] = 'ORDER      ' . (string)$header['order_no'];
         }
         if (!empty($payload['show_customer']) && $customerName !== '') {
@@ -10495,15 +11077,18 @@ class Pos_model extends CI_Model
         }
         $chunks[] = 'GUEST      ' . (int)($header['guest_count'] ?? 1);
         $timeSource = (string)($header['ordered_at'] ?? $header['created_at'] ?? '');
-        if ($timeSource !== '') {
+        if (!empty($payload['show_order_time']) && $timeSource !== '') {
             $chunks[] = 'WAKTU      ' . date('d-m-Y H:i', strtotime($timeSource));
         }
-        if (!empty($payload['show_cashier_payment']) && $cashierLabel !== '') {
+        if (!empty($payload['show_cashier_order']) && $cashierLabel !== '') {
             $chunks[] = 'KASIR      ' . strtoupper($cashierLabel);
         }
         $chunks[] = $dash;
 
         foreach ($printLines as $line) {
+            if (!$showProductName || (!empty($line['is_extra']) && empty($payload['show_extra']))) {
+                continue;
+            }
             $itemName = trim((string)($line['item_name'] ?? '-'));
             if ($itemName === '') {
                 continue;
@@ -10521,8 +11106,10 @@ class Pos_model extends CI_Model
             }
         }
 
-        $chunks[] = $dash;
-        $chunks[] = $this->pad_right_print('SUBTOTAL', $labelWidth) . $this->pad_left_print($this->format_number_print($header['subtotal_amount'] ?? 0), $amountWidth);
+        $summaryRows = [];
+        if (!empty($payload['show_subtotal'])) {
+            $summaryRows[] = $this->pad_right_print('SUBTOTAL', $labelWidth) . $this->pad_left_print($this->format_number_print($header['subtotal_amount'] ?? 0), $amountWidth);
+        }
         foreach ([
             'discount_amount' => 'DISKON',
             'promo_amount' => 'PROMO',
@@ -10531,17 +11118,28 @@ class Pos_model extends CI_Model
             'compliment_amount' => 'COMPLIMENT',
         ] as $key => $label) {
             $value = round((float)($header[$key] ?? 0), 2);
-            if ($value > 0.009) {
-                $chunks[] = $this->pad_right_print($label, $labelWidth) . $this->pad_left_print('-' . $this->format_number_print($value), $amountWidth);
+            $enabled = $key === 'compliment_amount' ? !empty($payload['show_compliment']) : !empty($payload['show_discount']);
+            if ($enabled && $value > 0.009) {
+                $summaryRows[] = $this->pad_right_print($label, $labelWidth) . $this->pad_left_print('-' . $this->format_number_print($value), $amountWidth);
             }
         }
-        $chunks[] = $this->pad_right_print('TOTAL', $labelWidth) . $this->pad_left_print($this->format_number_print($header['grand_total'] ?? 0), $amountWidth);
+        if (!empty($payload['show_grand_total'])) {
+            $summaryRows[] = $this->pad_right_print('TOTAL', $labelWidth) . $this->pad_left_print($this->format_number_print($header['grand_total'] ?? 0), $amountWidth);
+        }
         $paidTotal = round((float)($header['paid_total'] ?? 0), 2);
         $remainingDue = $this->order_remaining_due_amount($header);
-        if ($paidTotal > 0.009) {
-            $chunks[] = $this->pad_right_print('SUDAH BAYAR', $labelWidth) . $this->pad_left_print($this->format_number_print($paidTotal), $amountWidth);
+        if (!empty($payload['show_paid_amount']) && $paidTotal > 0.009) {
+            $summaryRows[] = $this->pad_right_print('SUDAH BAYAR', $labelWidth) . $this->pad_left_print($this->format_number_print($paidTotal), $amountWidth);
         }
-        $chunks[] = $this->pad_right_print('SISA', $labelWidth) . $this->pad_left_print($this->format_number_print($remainingDue), $amountWidth);
+        if (!empty($payload['show_balance_due'])) {
+            $summaryRows[] = $this->pad_right_print('SISA', $labelWidth) . $this->pad_left_print($this->format_number_print($remainingDue), $amountWidth);
+        }
+        if (!empty($summaryRows)) {
+            $chunks[] = $dash;
+            foreach ($summaryRows as $summaryRow) {
+                $chunks[] = $summaryRow;
+            }
+        }
 
         if (!empty($payload['show_order_notes']) && !empty($header['notes'])) {
             $chunks[] = $dash;
@@ -10551,17 +11149,11 @@ class Pos_model extends CI_Model
             }
         }
 
-        if (!empty($payload['show_footer'])) {
-            $chunks[] = $dash;
-            foreach ((array)($payload['footer_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $footerAlign);
-                }
-            }
-        }
+        $this->append_direct_print_footer($chunks, $payload, $width, $footerAlign, $dash, [
+            'order_no' => (string)($header['order_no'] ?? ''),
+        ]);
 
-        return implode("\n", $chunks) . "\n\n\n";
+        return $this->finalize_direct_print_text($chunks, $width);
     }
 
     private function build_direct_shift_close_receipt_text(array $report, array $printer, array $template = []): string
@@ -10582,23 +11174,7 @@ class Pos_model extends CI_Model
         $cashBreakdown = (array)($report['cash_breakdown'] ?? []);
 
         $chunks = [$divider];
-        if (!empty($payload['show_header'])) {
-            $title = trim((string)($payload['title'] ?? 'LAPORAN TUTUP KASIR'));
-            $subtitle = trim((string)($payload['subtitle'] ?? ''));
-            if ($title !== '') {
-                $chunks[] = $this->align_text_line($title, $width, $headerAlign);
-            }
-            if ($subtitle !== '') {
-                $chunks[] = $this->align_text_line($subtitle, $width, $headerAlign);
-            }
-            foreach ((array)($payload['header_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $headerAlign);
-                }
-            }
-            $chunks[] = $dash;
-        }
+        $this->append_direct_print_header($chunks, $payload, $width, $headerAlign, $dash, 'LAPORAN TUTUP KASIR');
         $roleBanner = $this->printer_role_banner_label((string)($printer['printer_role'] ?? ''));
         if ($roleBanner !== '') {
             $chunks[] = $this->align_text_line($roleBanner, $width, 'CENTER');
@@ -10676,17 +11252,11 @@ class Pos_model extends CI_Model
             }
         }
 
-        if (!empty($payload['show_footer'])) {
-            $chunks[] = $dash;
-            foreach ((array)($payload['footer_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $footerAlign);
-                }
-            }
-        }
+        $this->append_direct_print_footer($chunks, $payload, $width, $footerAlign, $dash, [
+            'custom' => (string)($shift['shift_no'] ?? ''),
+        ]);
 
-        return implode("\n", $chunks) . "\n\n\n";
+        return $this->finalize_direct_print_text($chunks, $width);
     }
 
     private function build_direct_payment_receipt_text(array $document, array $printer, array $template = []): string
@@ -10710,27 +11280,12 @@ class Pos_model extends CI_Model
             $cashierLabel = trim((string)($header['actor_name'] ?? ($header['cashier_employee_name'] ?? '')));
         }
         $showPrice = !empty($payload['show_price']);
+        $showProductName = !empty($payload['show_product_name']);
         $amountWidth = min(14, max(11, (int)round($width * 0.3)));
         $labelWidth = max(10, $width - $amountWidth);
 
         $chunks = [$divider];
-        if (!empty($payload['show_header'])) {
-            $title = trim((string)($payload['title'] ?? ''));
-            $subtitle = trim((string)($payload['subtitle'] ?? ''));
-            if ($title !== '') {
-                $chunks[] = $this->align_text_line($title, $width, $headerAlign);
-            }
-            if ($subtitle !== '') {
-                $chunks[] = $this->align_text_line($subtitle, $width, $headerAlign);
-            }
-            foreach ((array)($payload['header_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $headerAlign);
-                }
-            }
-            $chunks[] = $dash;
-        }
+        $this->append_direct_print_header($chunks, $payload, $width, $headerAlign, $dash, 'STRUK PEMBAYARAN');
         $roleBanner = $this->printer_role_banner_label((string)($printer['printer_role'] ?? ''));
         if ($roleBanner !== '') {
             $chunks[] = $this->align_text_line($roleBanner, $width, 'CENTER');
@@ -10740,7 +11295,9 @@ class Pos_model extends CI_Model
         if (!empty($payload['show_invoice_no']) && !empty($header['order_no'])) {
             $chunks[] = 'ORDER      ' . (string)$header['order_no'];
         }
-        $chunks[] = 'PAYMENT    ' . (string)($header['payment_no'] ?? '-');
+        if (!empty($payload['show_payment_no']) && !empty($header['payment_no'])) {
+            $chunks[] = 'PAYMENT    ' . (string)$header['payment_no'];
+        }
         if (!empty($payload['show_customer']) && $customerName !== '') {
             $chunks[] = 'CUSTOMER   ' . $customerName;
         }
@@ -10751,15 +11308,21 @@ class Pos_model extends CI_Model
             $chunks[] = 'LAYANAN    ' . (string)$header['service_type'];
         }
         $chunks[] = 'GUEST      ' . (int)($header['guest_count'] ?? 1);
-        if (!empty($header['paid_at'])) {
+        if (!empty($payload['show_order_time']) && !empty($header['ordered_at'])) {
+            $chunks[] = 'ORDER AT   ' . date('d-m-Y H:i', strtotime((string)$header['ordered_at']));
+        }
+        if (!empty($payload['show_payment_time']) && !empty($header['paid_at'])) {
             $chunks[] = 'WAKTU      ' . date('d-m-Y H:i', strtotime((string)$header['paid_at']));
         }
-        if (!empty($payload['show_cashier_payment']) && $cashierLabel !== '') {
+        if ((!empty($payload['show_cashier_order']) || !empty($payload['show_cashier_payment'])) && $cashierLabel !== '') {
             $chunks[] = 'KASIR      ' . strtoupper($cashierLabel);
         }
         $chunks[] = $dash;
 
         foreach ($lines as $line) {
+            if (!$showProductName || (!empty($line['is_extra']) && empty($payload['show_extra']))) {
+                continue;
+            }
             $itemName = trim((string)($line['item_name'] ?? '-'));
             if ($itemName === '') {
                 continue;
@@ -10777,8 +11340,10 @@ class Pos_model extends CI_Model
             }
         }
 
-        $chunks[] = $dash;
-        $chunks[] = $this->pad_right_print('SUBTOTAL', $labelWidth) . $this->pad_left_print($this->format_number_print($header['gross_amount'] ?? $header['subtotal_amount'] ?? 0), $amountWidth);
+        $summaryRows = [];
+        if (!empty($payload['show_subtotal'])) {
+            $summaryRows[] = $this->pad_right_print('SUBTOTAL', $labelWidth) . $this->pad_left_print($this->format_number_print($header['gross_amount'] ?? $header['subtotal_amount'] ?? 0), $amountWidth);
+        }
         foreach ([
             'discount_amount' => 'DISKON',
             'promo_amount' => 'PROMO',
@@ -10787,29 +11352,38 @@ class Pos_model extends CI_Model
             'compliment_amount' => 'COMPLIMENT',
         ] as $key => $label) {
             $value = round((float)($header[$key] ?? 0), 2);
-            if ($value > 0.009) {
-                $chunks[] = $this->pad_right_print($label, $labelWidth) . $this->pad_left_print('-' . $this->format_number_print($value), $amountWidth);
+            $enabled = $key === 'compliment_amount' ? !empty($payload['show_compliment']) : !empty($payload['show_discount']);
+            if ($enabled && $value > 0.009) {
+                $summaryRows[] = $this->pad_right_print($label, $labelWidth) . $this->pad_left_print('-' . $this->format_number_print($value), $amountWidth);
             }
         }
-        $chunks[] = $this->pad_right_print('TOTAL', $labelWidth) . $this->pad_left_print($this->format_number_print($header['net_amount'] ?? $header['order_grand_total'] ?? 0), $amountWidth);
+        if (!empty($payload['show_grand_total'])) {
+            $summaryRows[] = $this->pad_right_print('TOTAL', $labelWidth) . $this->pad_left_print($this->format_number_print($header['net_amount'] ?? $header['order_grand_total'] ?? 0), $amountWidth);
+        }
         $previousPaid = round((float)($header['previous_paid'] ?? 0), 2);
-        if ($previousPaid > 0.009) {
-            $chunks[] = $this->pad_right_print('BAYAR LALU', $labelWidth) . $this->pad_left_print($this->format_number_print($previousPaid), $amountWidth);
+        if (!empty($payload['show_paid_amount']) && $previousPaid > 0.009) {
+            $summaryRows[] = $this->pad_right_print('BAYAR LALU', $labelWidth) . $this->pad_left_print($this->format_number_print($previousPaid), $amountWidth);
         }
-        if ((float)($header['deposit_applied_now'] ?? 0) > 0.009) {
-            $chunks[] = $this->pad_right_print('PAKAI DP', $labelWidth) . $this->pad_left_print($this->format_number_print($header['deposit_applied_now'] ?? 0), $amountWidth);
+        if (!empty($payload['show_deposit_applied']) && (float)($header['deposit_applied_now'] ?? 0) > 0.009) {
+            $summaryRows[] = $this->pad_right_print('PAKAI DP', $labelWidth) . $this->pad_left_print($this->format_number_print($header['deposit_applied_now'] ?? 0), $amountWidth);
         }
-        if ((float)($header['paid_now'] ?? 0) > 0.009 || (float)($header['deposit_applied_now'] ?? 0) <= 0.009) {
-            $chunks[] = $this->pad_right_print('BAYAR NOW', $labelWidth) . $this->pad_left_print($this->format_number_print($header['paid_now'] ?? 0), $amountWidth);
+        if (!empty($payload['show_paid_amount']) && ((float)($header['paid_now'] ?? 0) > 0.009 || (float)($header['deposit_applied_now'] ?? 0) <= 0.009)) {
+            $summaryRows[] = $this->pad_right_print('BAYAR NOW', $labelWidth) . $this->pad_left_print($this->format_number_print($header['paid_now'] ?? 0), $amountWidth);
         }
-        if ((float)($header['change_amount'] ?? 0) > 0.009) {
-            $chunks[] = $this->pad_right_print('KEMBALI', $labelWidth) . $this->pad_left_print($this->format_number_print($header['change_amount'] ?? 0), $amountWidth);
+        if (!empty($payload['show_paid_amount']) && (float)($header['change_amount'] ?? 0) > 0.009) {
+            $summaryRows[] = $this->pad_right_print('KEMBALI', $labelWidth) . $this->pad_left_print($this->format_number_print($header['change_amount'] ?? 0), $amountWidth);
         }
-        if ((float)($header['remaining_due'] ?? 0) > 0.009) {
-            $chunks[] = $this->pad_right_print('SISA', $labelWidth) . $this->pad_left_print($this->format_number_print($header['remaining_due'] ?? 0), $amountWidth);
+        if (!empty($payload['show_balance_due']) && (float)($header['remaining_due'] ?? 0) > 0.009) {
+            $summaryRows[] = $this->pad_right_print('SISA', $labelWidth) . $this->pad_left_print($this->format_number_print($header['remaining_due'] ?? 0), $amountWidth);
+        }
+        if (!empty($summaryRows)) {
+            $chunks[] = $dash;
+            foreach ($summaryRows as $summaryRow) {
+                $chunks[] = $summaryRow;
+            }
         }
 
-        if (!empty($paymentLines)) {
+        if (!empty($payload['show_payment_breakdown']) && !empty($paymentLines)) {
             $chunks[] = $dash;
             $chunks[] = 'METODE BAYAR';
             foreach ($paymentLines as $paymentLine) {
@@ -10822,46 +11396,6 @@ class Pos_model extends CI_Model
             }
         }
 
-        if (!empty($issuedVouchers)) {
-            $voucherLimit = max(1, min(5, (int)($payload['customer_voucher_limit'] ?? count($issuedVouchers))));
-            $voucherAlign = strtoupper((string)($payload['customer_voucher_align'] ?? 'CENTER'));
-            $voucherTemplate = trim((string)($payload['customer_voucher_message_template'] ?? ''));
-            if ($voucherTemplate === '') {
-                $voucherTemplate = 'Selamat, Anda mendapat voucher {voucher_benefit}. Gunakan sebelum {voucher_expiry}.';
-            }
-            $chunks[] = $dash;
-            $chunks[] = $this->align_text_line('VOUCHER BARU', $width, $voucherAlign ?: 'CENTER');
-            foreach (array_slice($issuedVouchers, 0, $voucherLimit) as $voucher) {
-                $voucherCode = trim((string)($voucher['voucher_code'] ?? $voucher['voucher_issue_no'] ?? ''));
-                if ($voucherCode === '') {
-                    continue;
-                }
-                $voucherType = strtoupper(trim((string)($voucher['voucher_type'] ?? '')));
-                if ($voucherType === 'PERCENT') {
-                    $benefit = rtrim(rtrim(number_format((float)($voucher['percent_snapshot'] ?? $voucher['discount_value'] ?? 0), 2, ',', '.'), '0'), ',') . '%';
-                    $maxDiscount = (float)($voucher['max_discount_amount'] ?? 0);
-                    if ($maxDiscount > 0) {
-                        $benefit .= ' maks ' . $this->format_number_print($maxDiscount);
-                    }
-                } elseif ($voucherType === 'FREE_PRODUCT') {
-                    $benefit = 'produk gratis';
-                } else {
-                    $benefit = $this->format_number_print((float)($voucher['amount_snapshot'] ?? $voucher['discount_value'] ?? 0));
-                }
-                $expiry = !empty($voucher['expired_at']) ? date('d-m-Y', strtotime((string)$voucher['expired_at'])) : 'tanpa batas';
-                $message = strtr($voucherTemplate, [
-                    '{voucher_code}' => $voucherCode,
-                    '{voucher_benefit}' => $benefit,
-                    '{voucher_expiry}' => $expiry,
-                    '{campaign_name}' => (string)($voucher['campaign_name'] ?? 'Voucher'),
-                ]);
-                $chunks[] = $this->align_text_line($voucherCode, $width, $voucherAlign ?: 'CENTER');
-                foreach ($this->wrap_print_text($message, $width) as $messageLine) {
-                    $chunks[] = $this->align_text_line($messageLine, $width, $voucherAlign ?: 'CENTER');
-                }
-            }
-        }
-
         if (!empty($payload['show_order_notes']) && !empty($header['notes'])) {
             $chunks[] = $dash;
             $chunks[] = 'CATATAN';
@@ -10870,17 +11404,20 @@ class Pos_model extends CI_Model
             }
         }
 
-        if (!empty($payload['show_footer'])) {
-            $chunks[] = $dash;
-            foreach ((array)($payload['footer_lines'] ?? []) as $line) {
-                $line = trim((string)$line);
-                if ($line !== '') {
-                    $chunks[] = $this->align_text_line($line, $width, $footerAlign);
-                }
-            }
-        }
+        $firstVoucher = (array)reset($issuedVouchers);
+        $customerReviewUrl = $this->customer_review_url_for_payment($header, $payload);
+        $this->append_direct_print_footer($chunks, $payload, $width, $footerAlign, $dash, [
+            'order_no' => (string)($header['order_no'] ?? ''),
+            'payment_no' => (string)($header['payment_no'] ?? ''),
+            'voucher_code' => (string)($firstVoucher['voucher_code'] ?? $firstVoucher['voucher_issue_no'] ?? ''),
+        ], [
+            'has_member' => (int)($header['member_id'] ?? 0) > 0,
+            'point_balance' => (float)($header['member_point_balance'] ?? 0),
+            'stamp_balance' => (float)($header['member_stamp_balance'] ?? 0),
+            'customer_review_url' => $customerReviewUrl,
+        ], $issuedVouchers);
 
-        return implode("\n", $chunks) . "\n\n\n";
+        return $this->finalize_direct_print_text($chunks, $width);
     }
 
     private function printer_manual_reprint_event_enabled(string $eventCode): bool
@@ -10909,12 +11446,9 @@ class Pos_model extends CI_Model
     private function normalize_printer_chars_per_line(int $paperWidthMm, int $charsPerLine): int
     {
         $paperWidthMm = $paperWidthMm === 58 ? 58 : 80;
-        $recommended = $paperWidthMm === 58 ? 32 : 48;
-        $max = $paperWidthMm === 58 ? 32 : 48;
-        if ($charsPerLine <= 0) {
-            $charsPerLine = $recommended;
-        }
-        return max(24, min($max, $charsPerLine));
+        // Font density is fixed by the printer agent. Keeping one value per
+        // paper width prevents output from overflowing on 58 mm printers.
+        return $paperWidthMm === 58 ? 32 : 48;
     }
 
     private function printer_role_banner_label(string $role): string
@@ -10962,31 +11496,105 @@ class Pos_model extends CI_Model
         return $this->center_text_line($text, $width);
     }
 
+    private function append_wrapped_aligned_print_text(array &$lines, string $text, int $width, string $align): void
+    {
+        foreach ($this->wrap_print_text($text, $width) as $line) {
+            $lines[] = $this->align_text_line($line, $width, $align);
+        }
+    }
+
+    private function finalize_direct_print_text(array $chunks, int $width): string
+    {
+        $lines = [];
+        foreach ($chunks as $chunk) {
+            foreach (preg_split('/\r?\n/', (string)$chunk) ?: [] as $line) {
+                $line = rtrim((string)$line);
+                if ($line === '' || preg_match('/^\[\[(?:LOGO_URL|QRCODE|BARCODE):/', $line)) {
+                    $lines[] = $line;
+                    continue;
+                }
+                if ($this->print_text_width($line) <= $width) {
+                    $lines[] = $line;
+                    continue;
+                }
+                foreach ($this->wrap_print_text($line, $width) as $wrappedLine) {
+                    $lines[] = $wrappedLine;
+                }
+            }
+        }
+        return rtrim(implode("\n", $lines), "\n") . "\n\n\n";
+    }
+
+    private function print_text_width(string $text): int
+    {
+        return function_exists('mb_strwidth') ? mb_strwidth($text, 'UTF-8') : strlen($text);
+    }
+
+    private function split_print_word(string $word, int $width): array
+    {
+        $width = max(1, $width);
+        $parts = [];
+        $current = '';
+        $length = function_exists('mb_strlen') ? mb_strlen($word, 'UTF-8') : strlen($word);
+        for ($index = 0; $index < $length; $index++) {
+            $character = function_exists('mb_substr')
+                ? mb_substr($word, $index, 1, 'UTF-8')
+                : substr($word, $index, 1);
+            if ($current !== '' && $this->print_text_width($current . $character) > $width) {
+                $parts[] = $current;
+                $current = $character;
+                continue;
+            }
+            $current .= $character;
+        }
+        if ($current !== '') {
+            $parts[] = $current;
+        }
+        return $parts ?: [''];
+    }
+
     private function wrap_print_text(string $text, int $width): array
     {
-        $text = trim(preg_replace('/\s+/', ' ', $text));
-        if ($text === '') {
-            return [];
-        }
-
+        $width = max(1, $width);
         $rows = [];
-        $current = '';
-        foreach (explode(' ', $text) as $word) {
-            $candidate = $current === '' ? $word : ($current . ' ' . $word);
-            $candidateLength = function_exists('mb_strwidth') ? mb_strwidth($candidate, 'UTF-8') : strlen($candidate);
-            if ($candidateLength <= $width) {
-                $current = $candidate;
+        foreach (preg_split('/\r?\n/', (string)$text) ?: [] as $sourceLine) {
+            $sourceLine = trim((string)preg_replace('/[ \t]+/u', ' ', (string)$sourceLine));
+            if ($sourceLine === '') {
                 continue;
+            }
+            $current = '';
+            foreach (preg_split('/\s+/u', $sourceLine, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $word) {
+                $parts = $this->split_print_word($word, $width);
+                if (count($parts) > 1) {
+                    if ($current !== '') {
+                        $rows[] = $current;
+                        $current = '';
+                    }
+                    $lastIndex = count($parts) - 1;
+                    foreach ($parts as $index => $part) {
+                        if ($index === $lastIndex) {
+                            $current = $part;
+                        } else {
+                            $rows[] = $part;
+                        }
+                    }
+                    continue;
+                }
+                $part = (string)$parts[0];
+                $candidate = $current === '' ? $part : ($current . ' ' . $part);
+                if ($this->print_text_width($candidate) <= $width) {
+                    $current = $candidate;
+                    continue;
+                }
+                if ($current !== '') {
+                    $rows[] = $current;
+                }
+                $current = $part;
             }
             if ($current !== '') {
                 $rows[] = $current;
             }
-            $current = $word;
         }
-        if ($current !== '') {
-            $rows[] = $current;
-        }
-
         return $rows;
     }
 
@@ -12085,7 +12693,8 @@ class Pos_model extends CI_Model
             $requestedExtras = (array)($requestedExtraMap[$orderLineId] ?? []);
             // An entry may intentionally contain only extras. Presence of order_line_id
             // alone must not promote that selection to a full product reversal.
-            $hasRequestedProduct = !empty($requestedLine) && array_key_exists('qty', $requestedLine);
+            $hasRequestedProduct = !empty($requestedLine)
+                && round((float)($requestedLine['qty'] ?? 0), 4) > 0;
             $hasRequestedExtras = !empty($requestedExtras);
             if (!$hasRequestedProduct && !$hasRequestedExtras) {
                 continue;
