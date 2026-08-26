@@ -411,14 +411,9 @@ class PrinterService:
                             logging.warning("Barcode gagal dicetak %s: %s", barcode, exc)
                     for qr_value in qr_values:
                         try:
-                            qr_raw = self.qrcode_image_bytes(qr_value)
-                            mode = str(self.logo.get("mode", "esc_star")).strip().lower()
-                            if mode == "raster":
-                                qr_bytes = self.image_to_escpos_raster(qr_raw, self.qrcode_max_width_dots(paper_width_mm), self.paper_canvas_width_dots(paper_width_mm))
-                            else:
-                                qr_bytes = self.image_to_escpos_esc_star(qr_raw, self.qrcode_max_width_dots(paper_width_mm))
                             ser.write(b"\n")
                             ser.write(b"\x1b\x61\x01")
+                            qr_bytes = self.qrcode_print_bytes(qr_value, paper_width_mm)
                             self.write_bytes(ser, qr_bytes, 512, 0.008)
                             ser.write(b"\x1b\x61\x00")
                             ser.write(b"\n")
@@ -672,6 +667,31 @@ class PrinterService:
     def qrcode_max_width_dots(self, paper_width_mm: int) -> int:
         return 260 if int(paper_width_mm or 80) >= 76 else 184
 
+    def qrcode_module_size(self, paper_width_mm: int) -> int:
+        return 8 if int(paper_width_mm or 80) >= 76 else 6
+
+    def qrcode_print_bytes(self, value: str, paper_width_mm: int) -> bytes:
+        errors: List[str] = []
+        try:
+            qr_raw = self.qrcode_image_bytes(value)
+            mode = str(self.logo.get("mode", "esc_star")).strip().lower()
+            if mode == "raster":
+                return self.image_to_escpos_raster(
+                    qr_raw,
+                    self.qrcode_max_width_dots(paper_width_mm),
+                    self.paper_canvas_width_dots(paper_width_mm),
+                )
+            return self.image_to_escpos_esc_star(qr_raw, self.qrcode_max_width_dots(paper_width_mm))
+        except Exception as exc:
+            errors.append(str(exc))
+
+        try:
+            return self.native_escpos_qrcode_bytes(value, paper_width_mm)
+        except Exception as exc:
+            errors.append(str(exc))
+
+        raise AgentError(" ; ".join(error for error in errors if error) or "QR tidak dapat diproses.")
+
     def qrcode_image_bytes(self, value: str) -> bytes:
         if qrcode is None or Image is None:
             raise AgentError("Library qrcode atau Pillow belum terpasang. Jalankan pip install -r requirements.txt.")
@@ -679,6 +699,28 @@ class PrinterService:
         output = io.BytesIO()
         image.save(output, format="PNG")
         return output.getvalue()
+
+    def native_escpos_qrcode_bytes(self, value: str, paper_width_mm: int) -> bytes:
+        data = str(value or "").strip().encode("utf-8")
+        if not data:
+            raise AgentError("Nilai QR kosong.")
+        if len(data) > 7089:
+            raise AgentError("Nilai QR terlalu panjang untuk ESC/POS native.")
+
+        size = max(3, min(12, self.qrcode_module_size(paper_width_mm)))
+        # Error correction M menjaga QR tetap padat dan kompatibel untuk kertas termal.
+        error_level = 49
+        payload_len = len(data) + 3
+        pL = payload_len % 256
+        pH = payload_len // 256
+
+        return b"".join([
+            b"\x1d\x28\x6b\x04\x00\x31\x41\x32\x00",
+            b"\x1d\x28\x6b\x03\x00\x31\x43" + bytes([size]),
+            b"\x1d\x28\x6b\x03\x00\x31\x45" + bytes([error_level]),
+            b"\x1d\x28\x6b" + bytes([pL, pH]) + b"\x31\x50\x30" + data,
+            b"\x1d\x28\x6b\x03\x00\x31\x51\x30",
+        ])
 
     def paper_canvas_width_dots(self, paper_width_mm: int) -> int:
         return 256 if int(paper_width_mm or 80) >= 76 else 192

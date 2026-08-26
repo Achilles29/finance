@@ -34,7 +34,7 @@ Pillow>=10.0.0
 qrcode[pil]>=7.4.2
 ```
 
-`qrcode[pil]` dan `Pillow` wajib agar QR ulasan dapat tercetak sebagai gambar pada kertas.
+`qrcode[pil]` dan `Pillow` dipakai untuk mode QR berbasis gambar. Bila keduanya belum terpasang, agent sekarang mencoba fallback QR native ESC/POS pada printer yang mendukungnya.
 
 ## Windows
 
@@ -142,7 +142,7 @@ Logo dan QR ditulis ke payload sebagai marker, kemudian diubah agent menjadi gam
 
 ## Pemeriksaan masalah
 
-- QR tidak tercetak: jalankan kembali `python -m pip install -r requirements.txt`, lalu restart agent.
+- QR tidak tercetak: restart agent lebih dulu. Bila printer tidak mendukung QR native ESC/POS, jalankan kembali `python -m pip install -r requirements.txt` agar agent kembali memakai mode gambar.
 - Test gagal: buka `http://127.0.0.1:<port>/health` pada komputer kasir dan periksa `agent.log`.
 - Teks terlalu sempit: cocokkan `paper_width_mm` dan `chars_per_line` pada Koneksi Printer dengan printer fisik.
 - Routing salah: periksa Aturan Cetak di Finance. Jangan mengubah routing di `config.json`.
