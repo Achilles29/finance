@@ -226,7 +226,7 @@ class Inventory_control extends MY_Controller
                 ]);
                 $checks = (array)($audit['checks'] ?? []);
                 usort($checks, static function (array $left, array $right): int {
-                    $rank = ['ERROR' => 0, 'WARNING' => 1, 'PASS' => 2];
+                    $rank = ['ERROR' => 0, 'WARNING' => 1, 'INFO' => 2, 'PASS' => 3];
                     $leftRank = $rank[strtoupper((string)($left['status'] ?? 'PASS'))] ?? 3;
                     $rightRank = $rank[strtoupper((string)($right['status'] ?? 'PASS'))] ?? 3;
                     if ($leftRank !== $rightRank) {

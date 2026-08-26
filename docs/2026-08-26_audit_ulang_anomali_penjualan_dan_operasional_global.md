@@ -350,6 +350,9 @@ Pengujian manual:
 
 ### Fase B - Perbaiki Kejujuran Audit
 
+**Status 26 Agustus 2026: selesai di kode lokal.** Rincian perubahan dan hasil
+uji dicatat pada `2026-08-26_fase_b_audit_jujur_terminal_dan_writeoff.md`.
+
 1. Sesuaikan POS_COMMIT_LINE_TRACE untuk commit yang dibatalkan sebelum posting.
 2. Sesuaikan aritmatika defisit untuk WRITTEN_OFF.
 3. Pisahkan hasil audit menjadi Error, Perlu Tindakan, dan Informasi Terminal

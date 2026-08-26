@@ -43,6 +43,7 @@ class InventoryActiveMonthIntegrityAudit
             $checks[] = $this->checkPostedComponentBatches($month, $nextMonth, $limit);
             $checks[] = $this->checkPostedTransfers($month, $nextMonth, $limit);
             $checks[] = $this->checkPosCommitLines($month, $nextMonth, $limit);
+            $checks[] = $this->checkPosCancelledBeforePosting($month, $nextMonth, $limit);
             $checks[] = $this->checkPosFullDeficitProvisionalHpp($month, $nextMonth, $limit);
             $checks[] = $this->checkPosPartialDeficitProvisionalHpp($month, $nextMonth, $limit);
             $checks[] = $this->checkPosFullDeficitReferenceLabel($month, $nextMonth, $limit);
@@ -59,6 +60,7 @@ class InventoryActiveMonthIntegrityAudit
 
         $errorCount = 0;
         $warningCount = 0;
+        $infoCount = 0;
         $issueCount = 0;
         foreach ($checks as $check) {
             $count = (int)($check['issue_count'] ?? 0);
@@ -66,10 +68,13 @@ class InventoryActiveMonthIntegrityAudit
             if ($count <= 0) {
                 continue;
             }
-            if (($check['severity'] ?? 'WARNING') === 'ERROR') {
+            $severity = strtoupper((string)($check['severity'] ?? 'WARNING'));
+            if ($severity === 'ERROR') {
                 $errorCount += $count;
-            } else {
+            } elseif ($severity === 'WARNING') {
                 $warningCount += $count;
+            } elseif ($severity === 'INFO') {
+                $infoCount += $count;
             }
         }
 
@@ -82,11 +87,14 @@ class InventoryActiveMonthIntegrityAudit
                 ? 'Audit menemukan kegagalan integritas yang perlu ditelusuri. Tidak ada data yang diubah.'
                 : ($warningCount > 0
                     ? 'Audit selesai. Ada antrean pemeriksaan operator, tetapi tidak ada jejak transaksi yang putus.'
-                    : 'Audit selesai. Tidak ditemukan masalah integritas pada pemeriksaan ini.'),
+                    : ($infoCount > 0
+                        ? 'Audit selesai. Commit terminal sebelum posting ditampilkan sebagai informasi dan tidak memerlukan repair stok.'
+                        : 'Audit selesai. Tidak ditemukan masalah integritas pada pemeriksaan ini.')),
             'summary' => [
                 'check_count' => count($checks),
                 'error_count' => $errorCount,
                 'warning_count' => $warningCount,
+                'info_count' => $infoCount,
                 'issue_count' => $issueCount,
             ],
             'checks' => $checks,
@@ -406,7 +414,11 @@ class InventoryActiveMonthIntegrityAudit
                                       AND COALESCE(d.deficit_count, 0) = 0
                                 THEN 1 ELSE 0 END) AS orphaned_deficit_ref_count,
                        SUM(CASE WHEN COALESCE(l.reversed_qty, 0) > COALESCE(l.committed_qty, 0) + 0.0001
-                                THEN 1 ELSE 0 END) AS reverse_exceeds_commit_count
+                                THEN 1 ELSE 0 END) AS reverse_exceeds_commit_count,
+                       SUM(CASE WHEN COALESCE(l.movement_ref_id, 0) > 0
+                                      OR COALESCE(l.movement_ref_type, 'NONE') NOT IN ('', 'NONE')
+                                      OR COALESCE(d.deficit_count, 0) > 0
+                                THEN 1 ELSE 0 END) AS persisted_trace_count
                 FROM pos_stock_commit c
                 INNER JOIN pos_stock_commit_line l ON l.commit_id = c.id
                 LEFT JOIN (
@@ -419,9 +431,16 @@ class InventoryActiveMonthIntegrityAudit
                   AND COALESCE(c.committed_at, c.created_at) >= ?
                   AND COALESCE(c.committed_at, c.created_at) < ?
                 GROUP BY c.id, c.commit_no, c.order_id, c.commit_status, c.commit_reason, c.committed_at
-                HAVING missing_movement_ref_count > 0
+                HAVING (
+                    missing_movement_ref_count > 0
                     OR orphaned_deficit_ref_count > 0
-                    OR reverse_exceeds_commit_count > 0";
+                    OR reverse_exceeds_commit_count > 0
+                )
+                AND NOT (
+                    c.commit_status IN ('REVERSED', 'VOID')
+                    AND c.committed_at IS NULL
+                    AND persisted_trace_count = 0
+                )";
         return $this->queryCheck(
             'POS_COMMIT_LINE_TRACE',
             'Commit POS dengan line tanpa jejak movement atau defisit',
@@ -430,6 +449,44 @@ class InventoryActiveMonthIntegrityAudit
             [$month . ' 00:00:00', $nextMonth . ' 00:00:00'],
             $limit,
             'Line POS yang benar-benar mengurangi stok harus memiliki movement atau defisit yang terhubung; qty reversal tidak boleh melebihi qty yang pernah dikomit.'
+        );
+    }
+
+    /**
+     * A cancelled order can retain a stock-commit snapshot even when the
+     * worker never posted stock. It is terminal bookkeeping, not a broken
+     * movement trace, so keep it visible without treating it as an error.
+     */
+    private function checkPosCancelledBeforePosting(string $month, string $nextMonth, int $limit): array
+    {
+        $sql = "SELECT c.id, c.commit_no, c.order_id, c.commit_status, c.commit_reason, c.created_at,
+                       COUNT(l.id) AS line_count,
+                       SUM(CASE WHEN COALESCE(l.movement_ref_id, 0) > 0
+                                      OR COALESCE(l.movement_ref_type, 'NONE') NOT IN ('', 'NONE')
+                                      OR COALESCE(d.deficit_count, 0) > 0
+                                THEN 1 ELSE 0 END) AS persisted_trace_count
+                FROM pos_stock_commit c
+                INNER JOIN pos_stock_commit_line l ON l.commit_id = c.id
+                LEFT JOIN (
+                    SELECT source_id, source_line_id, COUNT(*) AS deficit_count
+                    FROM inv_stock_deficit
+                    WHERE source_table = 'pos_stock_commit'
+                    GROUP BY source_id, source_line_id
+                ) d ON d.source_id = c.id AND d.source_line_id = l.id
+                WHERE c.commit_status IN ('REVERSED', 'VOID')
+                  AND c.committed_at IS NULL
+                  AND c.created_at >= ?
+                  AND c.created_at < ?
+                GROUP BY c.id, c.commit_no, c.order_id, c.commit_status, c.commit_reason, c.created_at
+                HAVING persisted_trace_count = 0";
+        return $this->queryCheck(
+            'POS_COMMIT_CANCELLED_BEFORE_POSTING',
+            'Commit POS dibatalkan sebelum stok diposting',
+            'INFO',
+            $sql,
+            [$month . ' 00:00:00', $nextMonth . ' 00:00:00'],
+            $limit,
+            'Commit ini sudah terminal sebelum membuat movement, lot, atau defisit. Tidak perlu repair stok maupun HPP.'
         );
     }
 
@@ -546,16 +603,17 @@ class InventoryActiveMonthIntegrityAudit
 
     private function checkActiveDeficitArithmetic(string $month, int $limit): array
     {
+        $writtenOffQtySql = $this->deficitWrittenOffQtySql();
         $sql = "SELECT id, deficit_date, stock_domain, location_scope, division_id, destination_type,
                        item_id, material_id, component_id, profile_key, requested_qty, issued_qty,
-                       settled_qty, reversed_qty, qty_remaining, status,
-                       ROUND(requested_qty - issued_qty - settled_qty - reversed_qty, 4) AS expected_remaining
+                       settled_qty, reversed_qty, {$writtenOffQtySql} AS written_off_qty, qty_remaining, status,
+                       ROUND(requested_qty - issued_qty - settled_qty - reversed_qty - {$writtenOffQtySql}, 4) AS expected_remaining
                 FROM inv_stock_deficit
                 WHERE deficit_date >= ?
                   AND (
-                    ABS(COALESCE(qty_remaining, 0) - GREATEST(0, requested_qty - issued_qty - settled_qty - reversed_qty)) > 0.0001
+                    ABS(COALESCE(qty_remaining, 0) - GREATEST(0, requested_qty - issued_qty - settled_qty - reversed_qty - {$writtenOffQtySql})) > 0.0001
                     OR (status = 'OPEN' AND COALESCE(qty_remaining, 0) <= 0.0001)
-                    OR (status IN ('SETTLED', 'VOID') AND COALESCE(qty_remaining, 0) > 0.0001)
+                    OR (status IN ('SETTLED', 'VOID', 'WRITTEN_OFF') AND COALESCE(qty_remaining, 0) > 0.0001)
                   )";
         return $this->queryCheck(
             'ACTIVE_DEFICIT_ARITHMETIC',
@@ -564,7 +622,7 @@ class InventoryActiveMonthIntegrityAudit
             $sql,
             [$month],
             $limit,
-            'Sisa defisit harus selalu sama dengan kebutuhan dikurangi lot terbit, penyelesaian, dan pembalikan.'
+            'Sisa defisit harus selalu sama dengan kebutuhan dikurangi lot terbit, penyelesaian, pembalikan, dan penutupan administratif bila ada.'
         );
     }
 
@@ -798,6 +856,18 @@ class InventoryActiveMonthIntegrityAudit
             'message' => $message,
             'sample_rows' => $rows,
         ];
+    }
+
+    /**
+     * Older installations may not yet have the administrative write-off
+     * migration. Keep the audit read-only and compatible while still using
+     * the field whenever it is available.
+     */
+    private function deficitWrittenOffQtySql(): string
+    {
+        return $this->ci->db->field_exists('written_off_qty', 'inv_stock_deficit')
+            ? 'COALESCE(written_off_qty, 0)'
+            : '0';
     }
 
     private function normalizeMonth(string $value): ?string

@@ -23,11 +23,21 @@ foreach ($lines as $line) {
 			'type' => 'BUNDLE',
 			'bundle_name' => trim((string)($line['bundle_name'] ?? '')),
 			'bundle_code' => trim((string)($line['bundle_code'] ?? '')),
+			'header_line' => null,
 			'lines' => [],
 		];
 	}
-	if ($lineType !== 'BUNDLE_HEADER') {
-		$displayLineEntries[$bundleIndexes[$bundleKey]]['lines'][] = $line;
+	$bundleIndex = $bundleIndexes[$bundleKey];
+	if ($displayLineEntries[$bundleIndex]['bundle_name'] === '') {
+		$displayLineEntries[$bundleIndex]['bundle_name'] = trim((string)($line['bundle_name'] ?? ''));
+	}
+	if ($displayLineEntries[$bundleIndex]['bundle_code'] === '') {
+		$displayLineEntries[$bundleIndex]['bundle_code'] = trim((string)($line['bundle_code'] ?? ''));
+	}
+	if ($lineType === 'BUNDLE_HEADER') {
+		$displayLineEntries[$bundleIndex]['header_line'] = $line;
+	} else {
+		$displayLineEntries[$bundleIndex]['lines'][] = $line;
 	}
 }
 $displayLineEntries = array_values(array_filter($displayLineEntries, static function (array $entry): bool {
@@ -72,6 +82,48 @@ $statusTone = static function ($status): string {
 		return 'danger';
 	}
 	return 'secondary';
+};
+$lineFinancials = static function (array $line) use ($marginLineMap, $marginAudit): array {
+	$lineId = (int)($line['id'] ?? 0);
+	$lineAudit = is_array($marginLineMap[$lineId] ?? null) ? $marginLineMap[$lineId] : [];
+	$lineExtras = is_array($line['extras'] ?? null) ? $line['extras'] : [];
+	$extraSales = 0.0;
+	foreach ($lineExtras as $extra) {
+		$extraSales += (float)($extra['net_amount'] ?? 0);
+	}
+	$lineSalesCurrent = (float)($line['net_amount'] ?? 0) + $extraSales;
+	$lineSalesBase = (float)($lineAudit['gross_sales'] ?? $lineSalesCurrent);
+	$lineDiscount = abs((float)($marginAudit['gross_sales'] ?? 0)) > 0.00001
+		? $lineSalesBase / (float)$marginAudit['gross_sales'] * (float)($marginAudit['sales_discount_amount'] ?? 0)
+		: 0.0;
+	$lineRefund = (float)($lineAudit['refund_amount'] ?? 0);
+	$lineHppSale = (float)($lineAudit['hpp_sale_amount'] ?? 0);
+	$lineHppRefund = (float)($lineAudit['hpp_refund_reversed_amount'] ?? 0);
+	$lineHppCorrection = (float)($lineAudit['hpp_deficit_correction_amount'] ?? 0);
+
+	return [
+		'line_extras' => $lineExtras,
+		'sales_base' => $lineSalesBase,
+		'discount' => $lineDiscount,
+		'refund' => $lineRefund,
+		'net_sales' => $lineSalesBase - $lineDiscount - $lineRefund,
+		'hpp_sale' => $lineHppSale,
+		'hpp_refund' => $lineHppRefund,
+		'hpp_correction' => $lineHppCorrection,
+		'hpp_final' => (float)($lineAudit['hpp_final_amount'] ?? ($lineHppSale - $lineHppRefund + $lineHppCorrection)),
+	];
+};
+$withoutBundleMarker = static function ($notes): string {
+	$keptLines = [];
+	foreach (preg_split('/\r\n|\r|\n/', trim((string)$notes)) ?: [] as $noteLine) {
+		$noteLine = trim((string)$noteLine);
+		if ($noteLine === '' || preg_match('/^\[BUNDLE\](?:\s|$)/i', $noteLine)) {
+			continue;
+		}
+		$keptLines[] = $noteLine;
+	}
+
+	return implode("\n", $keptLines);
 };
 $accountText = static function (array $row): string {
 	$parts = [];
@@ -212,6 +264,47 @@ $this->load->view('pos/_report_styles');
 		border-radius: 16px;
 		background: #fffaf6;
 		padding: .75rem .85rem;
+	}
+	.pos-tx-bundle-row > td {
+		background: #fff6e9 !important;
+		border-top: 1px solid #eccbab;
+		border-bottom: 1px solid #eccbab;
+	}
+	.pos-tx-bundle-kind {
+		display: inline-flex;
+		align-items: center;
+		padding: .22rem .48rem;
+		border-radius: 999px;
+		background: #f4d7ae;
+		color: #754114;
+		font-size: .72rem;
+		font-weight: 800;
+		text-transform: uppercase;
+	}
+	.pos-tx-bundle-child > td {
+		background: #fffdfb;
+	}
+	.pos-tx-bundle-child > td:nth-child(2) {
+		position: relative;
+		padding-left: 2.35rem !important;
+	}
+	.pos-tx-bundle-child > td:nth-child(2)::before {
+		content: '';
+		position: absolute;
+		left: 1.15rem;
+		top: -.1rem;
+		bottom: -.1rem;
+		border-left: 2px solid #f0cbb5;
+	}
+	.pos-tx-bundle-child-name::before {
+		content: '';
+		display: inline-block;
+		width: .55rem;
+		height: .55rem;
+		margin-right: .45rem;
+		border-left: 2px solid #d98b60;
+		border-bottom: 2px solid #d98b60;
+		vertical-align: .18rem;
 	}
 	.pos-tx-line-head {
 		display: flex;
@@ -482,39 +575,91 @@ $this->load->view('pos/_report_styles');
 								<tr><td colspan="9" class="text-center pos-report-empty">Belum ada line order.</td></tr>
 							<?php else: ?>
 								<?php foreach ($displayLineEntries as $entry): ?>
-									<?php if ($entry['type'] === 'BUNDLE'): ?>
-										<?php $bundleLabel = trim((string)($entry['bundle_name'] ?? '')) ?: (trim((string)($entry['bundle_code'] ?? '')) ?: 'Paket bundle'); ?>
-										<tr class="table-warning"><td colspan="9"><div class="fw-semibold text-uppercase">Paket: <?php echo html_escape($bundleLabel); ?></div><div class="pos-report-meta"><?php echo html_escape((string)($entry['bundle_code'] ?? '')); ?> | <?php echo number_format(count((array)($entry['lines'] ?? []))); ?> produk di dalam bundle</div></td></tr>
-										<?php $entryLines = (array)($entry['lines'] ?? []); $isBundleItem = true; ?>
-									<?php else: ?>
-										<?php $entryLines = [(array)($entry['line'] ?? [])]; $isBundleItem = false; ?>
+									<?php
+									$isBundleEntry = $entry['type'] === 'BUNDLE';
+									$entryLines = $isBundleEntry
+										? (array)($entry['lines'] ?? [])
+										: [(array)($entry['line'] ?? [])];
+									?>
+									<?php if ($isBundleEntry): ?>
+										<?php
+										$bundleLabel = trim((string)($entry['bundle_name'] ?? ''))
+											?: (trim((string)($entry['bundle_code'] ?? '')) ?: 'Paket bundle');
+										$bundleHeader = is_array($entry['header_line'] ?? null) ? $entry['header_line'] : [];
+										$bundleSummary = [
+											'sales_base' => 0.0,
+											'discount' => 0.0,
+											'refund' => 0.0,
+											'net_sales' => 0.0,
+											'hpp_sale' => 0.0,
+											'hpp_refund' => 0.0,
+											'hpp_correction' => 0.0,
+											'hpp_final' => 0.0,
+										];
+										$bundleStatuses = [];
+										foreach ($entryLines as $bundleLine) {
+											$bundleLineFinancials = $lineFinancials($bundleLine);
+											foreach (array_keys($bundleSummary) as $metric) {
+												$bundleSummary[$metric] += (float)($bundleLineFinancials[$metric] ?? 0);
+											}
+											$bundleLineStatus = strtoupper(trim((string)($bundleLine['line_status'] ?? '')));
+											$bundleStatuses[$bundleLineStatus !== '' ? $bundleLineStatus : 'UNKNOWN'] = true;
+										}
+										$bundleQty = (float)($bundleHeader['qty'] ?? 0);
+										if ($bundleQty <= 0) {
+											foreach ($entryLines as $bundleLine) {
+												$componentQty = (float)($bundleLine['bundle_component_qty'] ?? 0);
+												if ($componentQty > 0 && (float)($bundleLine['qty'] ?? 0) > 0) {
+													$bundleQty = (float)$bundleLine['qty'] / $componentQty;
+													break;
+												}
+											}
+										}
+										if ($bundleQty <= 0 && !empty($entryLines)) {
+											$bundleQty = (float)($entryLines[0]['qty'] ?? 0);
+										}
+										$bundleLineNo = (int)($bundleHeader['line_no'] ?? ($entryLines[0]['line_no'] ?? 0));
+										$bundleStatus = count($bundleStatuses) === 1 ? (string)array_key_first($bundleStatuses) : 'CAMPURAN';
+										?>
+										<tr class="pos-tx-bundle-row">
+											<td>
+												<span class="pos-tx-bundle-kind">Paket</span>
+												<?php if ($bundleLineNo > 0): ?><div class="pos-report-meta mt-1">Line <?php echo $bundleLineNo; ?></div><?php endif; ?>
+											</td>
+											<td>
+												<div class="fw-semibold text-uppercase">Paket: <?php echo html_escape($bundleLabel); ?></div>
+												<div class="pos-report-meta"><?php echo html_escape((string)($entry['bundle_code'] ?? '')); ?> | <?php echo number_format(count($entryLines)); ?> rincian produk</div>
+											</td>
+											<td class="text-end"><?php echo $bundleQty > 0 ? $qty($bundleQty, 0) : '-'; ?></td>
+											<td class="text-end">
+												<div class="fw-semibold"><?php echo $money($bundleSummary['net_sales']); ?></div>
+												<div class="pos-report-meta">Dasar <?php echo $money($bundleSummary['sales_base']); ?> | Potongan <?php echo $money($bundleSummary['discount']); ?> | Refund <?php echo $money($bundleSummary['refund']); ?></div>
+											</td>
+											<td class="text-end"><?php echo $money($bundleSummary['hpp_sale']); ?></td>
+											<td class="text-end text-success"><?php echo $money($bundleSummary['hpp_refund']); ?></td>
+											<td class="text-end <?php echo $bundleSummary['hpp_correction'] < 0 ? 'text-success' : ''; ?>"><?php echo $money($bundleSummary['hpp_correction']); ?></td>
+											<td class="text-end fw-semibold"><?php echo $money($bundleSummary['hpp_final']); ?></td>
+											<td><span class="pos-report-badge <?php echo html_escape($statusTone($bundleStatus)); ?>"><?php echo html_escape($bundleStatus); ?></span></td>
+										</tr>
 									<?php endif; ?>
 									<?php foreach ($entryLines as $line): ?>
 									<?php
-									$lineId = (int)($line['id'] ?? 0);
-									$lineAudit = is_array($marginLineMap[$lineId] ?? null) ? $marginLineMap[$lineId] : [];
-									$lineExtras = is_array($line['extras'] ?? null) ? $line['extras'] : [];
-									$extraSales = 0.0;
-									foreach ($lineExtras as $extra) {
-										$extraSales += (float)($extra['net_amount'] ?? 0);
-									}
-									$lineSalesCurrent = (float)($line['net_amount'] ?? 0) + $extraSales;
-									$lineSalesBase = (float)($lineAudit['gross_sales'] ?? $lineSalesCurrent);
-									$lineDiscount = abs((float)($marginAudit['gross_sales'] ?? 0)) > 0.00001
-										? $lineSalesBase / (float)$marginAudit['gross_sales'] * (float)($marginAudit['sales_discount_amount'] ?? 0)
-										: 0.0;
-									$lineRefund = (float)($lineAudit['refund_amount'] ?? 0);
-									$lineNetSales = $lineSalesBase - $lineDiscount - $lineRefund;
-									$lineHppSale = (float)($lineAudit['hpp_sale_amount'] ?? 0);
-									$lineHppRefund = (float)($lineAudit['hpp_refund_reversed_amount'] ?? 0);
-									$lineHppCorrection = (float)($lineAudit['hpp_deficit_correction_amount'] ?? 0);
-									$lineHppFinal = (float)($lineAudit['hpp_final_amount'] ?? ($lineHppSale - $lineHppRefund + $lineHppCorrection));
+									$lineFinancial = $lineFinancials($line);
+									$lineExtras = (array)($lineFinancial['line_extras'] ?? []);
+									$lineSalesBase = (float)($lineFinancial['sales_base'] ?? 0);
+									$lineDiscount = (float)($lineFinancial['discount'] ?? 0);
+									$lineRefund = (float)($lineFinancial['refund'] ?? 0);
+									$lineNetSales = (float)($lineFinancial['net_sales'] ?? 0);
+									$lineHppSale = (float)($lineFinancial['hpp_sale'] ?? 0);
+									$lineHppRefund = (float)($lineFinancial['hpp_refund'] ?? 0);
+									$lineHppCorrection = (float)($lineFinancial['hpp_correction'] ?? 0);
+									$lineHppFinal = (float)($lineFinancial['hpp_final'] ?? 0);
 									?>
-									<tr>
-										<td><?php echo $isBundleItem ? '-' : (int)($line['line_no'] ?? 0); ?></td>
+									<tr<?php echo $isBundleEntry ? ' class="pos-tx-bundle-child"' : ''; ?>>
+										<td><?php echo $isBundleEntry ? '-' : (int)($line['line_no'] ?? 0); ?></td>
 										<td>
-											<div class="<?php echo $isBundleItem ? 'ps-3 fw-semibold' : 'fw-semibold'; ?>"><?php echo $isBundleItem ? '-> ' : ''; ?><?php echo html_escape((string)($line['product_name'] ?? $line['bundle_name'] ?? '-')); ?></div>
-											<div class="pos-report-meta<?php echo $isBundleItem ? ' ps-3' : ''; ?>"><?php echo html_escape((string)($line['product_code'] ?? $line['bundle_code'] ?? '-')); ?> | <?php echo html_escape((string)($line['uom_code'] ?? '-')); ?></div>
+											<div class="<?php echo $isBundleEntry ? 'pos-tx-bundle-child-name fw-semibold' : 'fw-semibold'; ?>"><?php echo html_escape((string)($line['product_name'] ?? $line['bundle_name'] ?? '-')); ?></div>
+											<div class="pos-report-meta"><?php echo html_escape((string)($line['product_code'] ?? $line['bundle_code'] ?? '-')); ?> | <?php echo html_escape((string)($line['uom_code'] ?? '-')); ?></div>
 											<?php if (!empty($lineExtras)): ?>
 												<div class="mt-2 pos-report-inline-list">
 													<?php foreach ($lineExtras as $extra): ?>
@@ -523,7 +668,8 @@ $this->load->view('pos/_report_styles');
 													<?php endforeach; ?>
 												</div>
 											<?php endif; ?>
-											<?php if (trim((string)($line['notes'] ?? '')) !== ''): ?><div class="pos-report-meta mt-1"><?php echo html_escape((string)$line['notes']); ?></div><?php endif; ?>
+											<?php $lineNotes = $withoutBundleMarker($line['notes'] ?? ''); ?>
+											<?php if ($lineNotes !== ''): ?><div class="pos-report-meta mt-1"><?php echo html_escape($lineNotes); ?></div><?php endif; ?>
 										</td>
 										<td class="text-end"><?php echo $qty($line['qty'] ?? 0, 0); ?></td>
 										<td class="text-end">
