@@ -115,6 +115,16 @@ class PosStockCommitService
         $db = $this->CI->db;
         $db->trans_begin();
         try {
+            $lockedHeader = $this->commit_context_for_update($commitId);
+            if (!$lockedHeader) {
+                throw new RuntimeException('Stock commit snapshot tidak ditemukan saat akan direfresh.');
+            }
+            $terminalReason = $this->terminal_commit_context_reason($lockedHeader);
+            if ($terminalReason !== '') {
+                throw new RuntimeException($terminalReason);
+            }
+            $header = $lockedHeader;
+
             $headerUpdate = [
                 'outlet_id' => !empty($newHeader['outlet_id']) ? (int)$newHeader['outlet_id'] : null,
                 'terminal_id' => !empty($newHeader['terminal_id']) ? (int)$newHeader['terminal_id'] : null,
@@ -343,13 +353,81 @@ class PosStockCommitService
         if ($commitId <= 0 || !$this->required_tables_ready()) {
             return ['ok' => false, 'message' => 'Stock commit snapshot tidak siap.'];
         }
-        $row = $this->CI->db->from('pos_stock_commit')->where('id', $commitId)->limit(1)->get()->row_array();
-        if (!$row) {
-            return ['ok' => false, 'message' => 'Stock commit snapshot tidak ditemukan.'];
+        $db = $this->CI->db;
+        $db->trans_begin();
+        try {
+            $row = $this->commit_context_for_update($commitId);
+            if (!$row) {
+                throw new RuntimeException('Stock commit snapshot tidak ditemukan.');
+            }
+
+            $targetStatus = $this->normalize_enum($status, $this->allowedCommitStatuses, 'DRAFT');
+            $currentStatus = strtoupper(trim((string)($row['commit_status'] ?? '')));
+            $terminalReason = $this->terminal_commit_context_reason($row);
+            if (in_array($currentStatus, ['REVERSED', 'VOID'], true) && $targetStatus !== $currentStatus) {
+                throw new RuntimeException('Stock commit snapshot sudah ' . $currentStatus . ' dan tidak boleh diubah lagi.');
+            }
+            if ($terminalReason !== '' && !in_array($targetStatus, ['REVERSED', 'VOID'], true)) {
+                throw new RuntimeException($terminalReason);
+            }
+
+            $payload = ['commit_status' => $targetStatus] + $extra;
+            $db->where('id', $commitId)->update('pos_stock_commit', $payload);
+            if ($db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan status stock commit snapshot.');
+            }
+            $db->trans_commit();
+            return ['ok' => true, 'id' => $commitId, 'commit_status' => $targetStatus];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
         }
-        $payload = ['commit_status' => $this->normalize_enum($status, $this->allowedCommitStatuses, 'DRAFT')] + $extra;
-        $this->CI->db->where('id', $commitId)->update('pos_stock_commit', $payload);
-        return ['ok' => true, 'id' => $commitId];
+    }
+
+    protected function commit_context_for_update(int $commitId): ?array
+    {
+        $db = $this->CI->db;
+        $seed = $db->select('order_id')->from('pos_stock_commit')->where('id', $commitId)->limit(1)->get()->row_array();
+        if (!$seed) {
+            return null;
+        }
+
+        $order = null;
+        $orderId = (int)($seed['order_id'] ?? 0);
+        if ($orderId > 0) {
+            $order = $db->query(
+                'SELECT id, status, stock_commit_status FROM pos_order WHERE id = ? FOR UPDATE',
+                [$orderId]
+            )->row_array();
+        }
+        $commit = $db->query('SELECT * FROM pos_stock_commit WHERE id = ? FOR UPDATE', [$commitId])->row_array();
+        if (!$commit) {
+            return null;
+        }
+
+        $commit['order_status'] = (string)($order['status'] ?? '');
+        $commit['order_stock_commit_status'] = (string)($order['stock_commit_status'] ?? '');
+        return $commit;
+    }
+
+    protected function terminal_commit_context_reason(array $context): string
+    {
+        $orderStatus = strtoupper(trim((string)($context['order_status'] ?? '')));
+        if (in_array($orderStatus, ['VOID', 'REFUND_FULL', 'REFUNDED_FULL'], true)) {
+            return 'Order POS sudah ' . $orderStatus . '; stock commit tidak boleh diproses ulang.';
+        }
+
+        $orderCommitStatus = strtoupper(trim((string)($context['order_stock_commit_status'] ?? '')));
+        if ($orderCommitStatus === 'REVERSED') {
+            return 'Stock commit order sudah direversal dan tidak boleh diproses ulang.';
+        }
+
+        $commitStatus = strtoupper(trim((string)($context['commit_status'] ?? '')));
+        if (in_array($commitStatus, ['REVERSED', 'VOID'], true)) {
+            return 'Stock commit snapshot sudah ' . $commitStatus . ' dan tidak boleh diproses ulang.';
+        }
+
+        return '';
     }
 
     protected function reversal_key_for_line(array $line): string

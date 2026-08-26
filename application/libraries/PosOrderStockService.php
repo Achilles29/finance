@@ -36,9 +36,37 @@ class PosOrderStockService
         $db->db_debug = false;
         $db->trans_begin();
         try {
+            // Keep the stock writer serialized with void/refund. A terminal
+            // order must never receive a late stock post from a queued job.
+            $context = $this->commit_order_context_for_update($commitId);
+            if (!$context) {
+                throw new RuntimeException('Snapshot stock commit tidak ditemukan saat akan diposting.');
+            }
+            $terminalReason = $this->terminal_commit_order_reason($context);
+            if ($terminalReason !== '') {
+                throw new RuntimeException($terminalReason);
+            }
+            $snapshot = $this->load_snapshot($commitId);
+            if (!$snapshot['header']) {
+                throw new RuntimeException('Snapshot stock commit tidak ditemukan saat akan diposting.');
+            }
+
             $posted = 0;
             $skipped = 0;
             foreach ($snapshot['lines'] as $line) {
+                // A partial void/refund may finish before its queued stock job.
+                // Post only the quantity that remains active in the snapshot.
+                $remainingQty = round(
+                    max(0, (float)($line['committed_qty'] ?? $line['required_qty'] ?? 0) - (float)($line['reversed_qty'] ?? 0)),
+                    4
+                );
+                if ($remainingQty <= 0.0001) {
+                    $skipped++;
+                    continue;
+                }
+                $line['committed_qty'] = $remainingQty;
+                $line['required_qty'] = $remainingQty;
+
                 $movementRefType = strtoupper(trim((string)($line['movement_ref_type'] ?? 'NONE')));
                 $movementRefId = (int)($line['movement_ref_id'] ?? 0);
                 if (($movementRefType !== '' && $movementRefType !== 'NONE') || $movementRefId > 0) {
@@ -88,6 +116,57 @@ class PosOrderStockService
             $db->db_debug = $origDbDebug;
             return ['ok' => false, 'message' => $this->formatThrowableMessage($e)];
         }
+    }
+
+    private function commit_order_context_for_update(int $commitId): ?array
+    {
+        $db = $this->ci->db;
+        $seed = $db->select('order_id')->from('pos_stock_commit')->where('id', $commitId)->limit(1)->get()->row_array();
+        if (!$seed) {
+            return null;
+        }
+
+        $order = null;
+        $orderId = (int)($seed['order_id'] ?? 0);
+        if ($orderId > 0) {
+            $order = $db->query(
+                'SELECT id, status, stock_commit_status FROM pos_order WHERE id = ? FOR UPDATE',
+                [$orderId]
+            )->row_array();
+        }
+        $commit = $db->query(
+            'SELECT id, commit_status, commit_no FROM pos_stock_commit WHERE id = ? FOR UPDATE',
+            [$commitId]
+        )->row_array();
+        if (!$commit) {
+            return null;
+        }
+
+        return [
+            'order_status' => (string)($order['status'] ?? ''),
+            'order_stock_commit_status' => (string)($order['stock_commit_status'] ?? ''),
+            'commit_status' => (string)($commit['commit_status'] ?? ''),
+        ];
+    }
+
+    private function terminal_commit_order_reason(array $context): string
+    {
+        $orderStatus = strtoupper(trim((string)($context['order_status'] ?? '')));
+        if (in_array($orderStatus, ['VOID', 'REFUND_FULL', 'REFUNDED_FULL'], true)) {
+            return 'Order POS sudah ' . $orderStatus . '; stok tidak boleh diposting ulang.';
+        }
+
+        $orderCommitStatus = strtoupper(trim((string)($context['order_stock_commit_status'] ?? '')));
+        if ($orderCommitStatus === 'REVERSED') {
+            return 'Stock commit order sudah direversal; stok tidak boleh diposting ulang.';
+        }
+
+        $commitStatus = strtoupper(trim((string)($context['commit_status'] ?? '')));
+        if (in_array($commitStatus, ['REVERSED', 'VOID'], true)) {
+            return 'Snapshot stock commit sudah ' . $commitStatus . '; stok tidak boleh diposting ulang.';
+        }
+
+        return '';
     }
 
     public function reverse_commit_snapshot(int $commitId, array $lineDecisions, array $meta = []): array

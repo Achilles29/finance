@@ -273,7 +273,3 @@ sementara seperti itu. ada ide diskusi?
 
 
 revisi tampilan cetak payment kasir menampilkan link reviewnya. seharusnya cukup qr code tidak perlu link. perbaiki
-
-saya ingin membuat modul untuk recon kas di rumpun keuangan
-halaman menampilkan saldo rekening sistem, di sebelahnya ada form input ajax, untuk saya gunakan input saldo rekening rill di rekening. lalu disebelah kanannya muncul selisihnya.
-lalu disebelah kanan ada opsi selisih itu mau diapakan, bisa di mutasi antar rekening, bisa di mutasi keluar /masuk, tapi opsional dibiarkan juga boleh. kejutkan saya!

@@ -7614,6 +7614,15 @@ class Pos_model extends CI_Model
             return ['ok' => false, 'message' => 'Status stock commit POS tidak valid.'];
         }
 
+        $currentOrderStatus = strtoupper(trim((string)($row['status'] ?? '')));
+        $currentStockCommitStatus = strtoupper(trim((string)($row['stock_commit_status'] ?? '')));
+        if ($currentStockCommitStatus === 'REVERSED' && $stockCommitStatus !== 'REVERSED') {
+            return ['ok' => false, 'message' => 'Stock commit order sudah direversal dan tidak boleh diproses ulang.'];
+        }
+        if (in_array($currentOrderStatus, ['VOID', 'REFUND_FULL', 'REFUNDED_FULL'], true) && $stockCommitStatus !== 'REVERSED') {
+            return ['ok' => false, 'message' => 'Order sudah ' . $currentOrderStatus . '; status stock commit tidak boleh diubah lagi.'];
+        }
+
         $eventCode = strtoupper(trim((string)($meta['event_code'] ?? 'ORDER_STOCK_COMMIT_STATUS')));
         $actorEmployeeId = max(0, (int)($meta['actor_employee_id'] ?? 0));
         $note = trim((string)($meta['note'] ?? ''));
@@ -8102,34 +8111,43 @@ class Pos_model extends CI_Model
         }
 
         $orderId = (int)($payload['order_id'] ?? 0);
-        $preview = $this->order_reversal_preview($orderId);
-        if (!($preview['ok'] ?? false)) {
-            return $preview;
-        }
-
-        $order = (array)($preview['order'] ?? []);
-        $header = (array)($order['header'] ?? []);
-        if (in_array((string)($header['status'] ?? ''), ['VOID', 'REFUND_FULL'], true)) {
-            return ['ok' => false, 'message' => 'Order ini sudah tidak bisa di-void lagi.'];
-        }
-        if (in_array((string)($header['status'] ?? ''), ['PAID', 'PAID_PARTIAL', 'REFUND_PARTIAL', 'SERVED'], true)) {
-            return ['ok' => false, 'message' => 'Order yang sudah dibayar/disajikan tidak boleh di-void. Gunakan refund agar jejak pembayarannya tetap rapi.'];
-        }
-
-        $selection = $this->build_reversal_selection($order, (array)($preview['plan']['lines'] ?? []), (array)($payload['lines'] ?? []), [
-            'default_return_to_stock' => !empty($payload['return_to_stock']),
-            'default_processed_state' => array_key_exists('processed_state', $payload)
-                ? strtoupper(trim((string)$payload['processed_state']))
-                : '',
-        ]);
-        if (empty($selection['product_lines']) && empty($selection['extra_lines'])) {
-            return ['ok' => false, 'message' => 'Tidak ada line void yang valid.'];
+        if ($orderId <= 0) {
+            return ['ok' => false, 'message' => 'Order POS tidak valid untuk void.'];
         }
 
         $this->load->library('PosOrderStockService');
 
         $this->db->trans_begin();
         try {
+            // Void shares this lock with the stock worker. The reversal plan is
+            // rebuilt only after the latest order state is safely locked.
+            if (!$this->lock_order_for_update($orderId)) {
+                throw new RuntimeException('Order POS tidak ditemukan untuk void.');
+            }
+            $preview = $this->order_reversal_preview($orderId);
+            if (!($preview['ok'] ?? false)) {
+                throw new RuntimeException((string)($preview['message'] ?? 'Gagal membaca order terbaru untuk void.'));
+            }
+
+            $order = (array)($preview['order'] ?? []);
+            $header = (array)($order['header'] ?? []);
+            if (in_array((string)($header['status'] ?? ''), ['VOID', 'REFUND_FULL'], true)) {
+                throw new RuntimeException('Order ini sudah tidak bisa di-void lagi.');
+            }
+            if (in_array((string)($header['status'] ?? ''), ['PAID', 'PAID_PARTIAL', 'REFUND_PARTIAL', 'SERVED'], true)) {
+                throw new RuntimeException('Order yang sudah dibayar/disajikan tidak boleh di-void. Gunakan refund agar jejak pembayarannya tetap rapi.');
+            }
+
+            $selection = $this->build_reversal_selection($order, (array)($preview['plan']['lines'] ?? []), (array)($payload['lines'] ?? []), [
+                'default_return_to_stock' => !empty($payload['return_to_stock']),
+                'default_processed_state' => array_key_exists('processed_state', $payload)
+                    ? strtoupper(trim((string)$payload['processed_state']))
+                    : '',
+            ]);
+            if (empty($selection['product_lines']) && empty($selection['extra_lines'])) {
+                throw new RuntimeException('Tidak ada line void yang valid.');
+            }
+
             $voidPayload = [
                 'void_no' => $this->generate_pos_void_no(),
                 'order_id' => $orderId,
@@ -8227,6 +8245,18 @@ class Pos_model extends CI_Model
             $this->db->where('id', $orderId)->update('pos_order', $orderUpdate);
             $this->insert_order_state_log($orderId, (string)($header['status'] ?? 'CONFIRMED'), $newOrderStatus, 'ORDER_VOID', $actorEmployeeId, 'Void POS #' . $voidId);
 
+            $runtimeCancelledCount = 0;
+            if ($newOrderStatus === 'VOID') {
+                $runtimeCancel = $this->cancel_active_runtime_jobs_for_terminal_order(
+                    $orderId,
+                    'Order di-void; job stock commit dibatalkan agar stok tidak diposting ulang.'
+                );
+                if (!($runtimeCancel['ok'] ?? false)) {
+                    throw new RuntimeException((string)($runtimeCancel['message'] ?? 'Gagal membatalkan job stock POS setelah void.'));
+                }
+                $runtimeCancelledCount = (int)($runtimeCancel['cancelled_count'] ?? 0);
+            }
+
             if ($this->db->trans_status() === false) {
                 throw new RuntimeException('Gagal menyimpan void POS.');
             }
@@ -8238,6 +8268,7 @@ class Pos_model extends CI_Model
                 'void_no' => (string)$voidPayload['void_no'],
                 'order_status' => $newOrderStatus,
                 'adjustment_doc_count' => (int)($reverse['adjustment_doc_count'] ?? 0),
+                'runtime_job_cancelled_count' => $runtimeCancelledCount,
             ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
@@ -8285,7 +8316,7 @@ class Pos_model extends CI_Model
         try {
             // Serialize refunds for one order. A second request must read the
             // result of the first refund instead of using a stale preview.
-            if (!$this->lock_order_for_refund($orderId)) {
+            if (!$this->lock_order_for_update($orderId)) {
                 throw new RuntimeException('Order POS tidak ditemukan untuk refund.');
             }
 
@@ -8419,6 +8450,18 @@ class Pos_model extends CI_Model
             $this->db->where('id', $orderId)->update('pos_order', ['status' => $newOrderStatus]);
             $this->insert_order_state_log($orderId, (string)($header['status'] ?? 'PAID'), $newOrderStatus, 'ORDER_REFUND', $actorEmployeeId, 'Refund POS #' . $refundId);
 
+            $runtimeCancelledCount = 0;
+            if ($newOrderStatus === 'REFUND_FULL') {
+                $runtimeCancel = $this->cancel_active_runtime_jobs_for_terminal_order(
+                    $orderId,
+                    'Order direfund penuh; job stock commit dibatalkan agar stok tidak diposting ulang.'
+                );
+                if (!($runtimeCancel['ok'] ?? false)) {
+                    throw new RuntimeException((string)($runtimeCancel['message'] ?? 'Gagal membatalkan job stock POS setelah refund penuh.'));
+                }
+                $runtimeCancelledCount = (int)($runtimeCancel['cancelled_count'] ?? 0);
+            }
+
             if ($this->db->trans_status() === false) {
                 throw new RuntimeException('Gagal menyimpan refund POS.');
             }
@@ -8430,6 +8473,7 @@ class Pos_model extends CI_Model
                 'refund_no' => (string)$refundPayload['refund_no'],
                 'order_status' => $newOrderStatus,
                 'adjustment_doc_count' => (int)($reverse['adjustment_doc_count'] ?? 0),
+                'runtime_job_cancelled_count' => $runtimeCancelledCount,
             ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
@@ -8438,21 +8482,45 @@ class Pos_model extends CI_Model
     }
 
     /**
-     * Locks the order header so only one refund writer can calculate a
-     * refundable balance for the order at a time.
+     * Locks the order header so stock workers, void, and refund writers read
+     * one final state at a time.
      */
-    private function lock_order_for_refund(int $orderId): ?array
+    private function lock_order_for_update(int $orderId): ?array
     {
         if ($orderId <= 0) {
             return null;
         }
 
         $row = $this->db->query(
-            'SELECT id, status, paid_total, paid_at FROM pos_order WHERE id = ? FOR UPDATE',
+            'SELECT id, status, stock_commit_status, paid_total, paid_at FROM pos_order WHERE id = ? FOR UPDATE',
             [$orderId]
         )->row_array();
 
         return $row ?: null;
+    }
+
+    private function cancel_active_runtime_jobs_for_terminal_order(int $orderId, string $reason): array
+    {
+        if ($orderId <= 0 || !$this->db->table_exists('pos_runtime_job')) {
+            return ['ok' => true, 'cancelled_count' => 0];
+        }
+
+        $this->db
+            ->where('job_type', 'ORDER_CONFIRM_STOCK_COMMIT')
+            ->where('order_id', $orderId)
+            ->where_in('status', ['QUEUED', 'PROCESSING', 'FAILED'])
+            ->update('pos_runtime_job', [
+                'status' => 'CANCELLED',
+                'finished_at' => date('Y-m-d H:i:s'),
+                'last_error' => trim($reason) !== '' ? trim($reason) : 'Job stock commit POS dibatalkan karena order sudah terminal.',
+            ]);
+
+        $dbError = $this->db->error();
+        if (!empty($dbError['code'])) {
+            return ['ok' => false, 'message' => (string)($dbError['message'] ?? 'Gagal membatalkan job stock POS.')];
+        }
+
+        return ['ok' => true, 'cancelled_count' => max(0, (int)$this->db->affected_rows())];
     }
 
     /**

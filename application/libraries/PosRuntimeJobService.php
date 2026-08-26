@@ -26,6 +26,11 @@ class PosRuntimeJobService
             return ['ok' => false, 'message' => 'Queue runtime POS belum siap. Jalankan migrasi queue POS terlebih dahulu.'];
         }
 
+        $terminalReason = $this->terminal_reason_for_order_snapshot($orderId, $snapshotId);
+        if ($terminalReason !== '') {
+            return ['ok' => false, 'message' => $terminalReason];
+        }
+
         $existing = $this->CI->db->query(
             "SELECT *
              FROM pos_runtime_job
@@ -96,9 +101,16 @@ class PosRuntimeJobService
             'finished_at' => date('Y-m-d H:i:s'),
             'last_error' => trim($reason) !== '' ? trim($reason) : null,
         ];
-        $this->CI->db->where('id', $jobId)->update('pos_runtime_job', $payload);
+        $this->CI->db
+            ->where('id', $jobId)
+            ->where_in('status', ['QUEUED', 'PROCESSING', 'FAILED'])
+            ->update('pos_runtime_job', $payload);
         if ($this->CI->db->affected_rows() <= 0) {
-            return ['ok' => false, 'message' => 'Job runtime POS tidak ditemukan saat dibatalkan.'];
+            $current = $this->job_context($jobId);
+            if ($current && strtoupper((string)($current['status'] ?? '')) === 'CANCELLED') {
+                return ['ok' => true, 'id' => $jobId, 'status' => 'CANCELLED', 'already_cancelled' => true];
+            }
+            return ['ok' => false, 'message' => 'Job runtime POS sudah selesai atau tidak ditemukan saat dibatalkan.'];
         }
         return ['ok' => true, 'id' => $jobId, 'status' => 'CANCELLED'];
     }
@@ -290,15 +302,23 @@ class PosRuntimeJobService
             return ['ok' => false, 'message' => 'Job runtime POS tidak valid untuk retry.'];
         }
 
-        $job = $this->CI->db->from('pos_runtime_job')->where('id', $jobId)->limit(1)->get()->row_array();
+        $job = $this->job_context($jobId);
         if (!$job) {
             return ['ok' => false, 'message' => 'Job runtime POS tidak ditemukan.'];
+        }
+
+        $terminalReason = $this->terminal_reason_from_context($job);
+        if ($terminalReason !== '') {
+            $this->cancel_terminal_job($jobId, $terminalReason);
+            return ['ok' => false, 'message' => 'Job tidak dapat dijalankan ulang. ' . $terminalReason];
         }
 
         $status = strtoupper((string)($job['status'] ?? ''));
         if (!in_array($status, ['FAILED', 'CANCELLED'], true)) {
             return ['ok' => false, 'message' => 'Hanya job FAILED/CANCELLED yang bisa di-retry manual.'];
         }
+
+        $hasPartialReversal = strtoupper((string)($job['snapshot_commit_status'] ?? '')) === 'PARTIAL_REVERSED';
 
         $this->CI->db->where('id', $jobId)->update('pos_runtime_job', [
             'status' => 'QUEUED',
@@ -312,10 +332,10 @@ class PosRuntimeJobService
 
         $orderId = max(0, (int)($job['order_id'] ?? 0));
         $snapshotId = max(0, (int)($job['snapshot_id'] ?? 0));
-        if ($snapshotId > 0) {
+        if (!$hasPartialReversal && $snapshotId > 0) {
             $this->CI->posstockcommitservice->mark_queued($snapshotId);
         }
-        if ($orderId > 0) {
+        if (!$hasPartialReversal && $orderId > 0) {
             $this->CI->Pos_model->update_order_stock_commit_state($orderId, 'QUEUED', [
                 'actor_employee_id' => $actorEmployeeId,
                 'event_code' => 'ORDER_CONFIRM_STOCK_RETRY',
@@ -394,6 +414,11 @@ class PosRuntimeJobService
         }
 
         $job = (array)($claim['job'] ?? []);
+        $currentContext = $this->job_context($jobId);
+        $terminalReason = $this->terminal_reason_from_context((array)($currentContext ?: $job));
+        if ($terminalReason !== '') {
+            return $this->cancel_terminal_job($jobId, $terminalReason);
+        }
         $payload = $this->decode_json((string)($job['payload_json'] ?? ''));
         $orderId = max(0, (int)($job['order_id'] ?? ($payload['order_id'] ?? 0)));
         $snapshotId = max(0, (int)($job['snapshot_id'] ?? ($payload['snapshot_id'] ?? 0)));
@@ -405,24 +430,30 @@ class PosRuntimeJobService
             return $this->fail_job($job, 'Payload job runtime POS tidak valid.', [], false, false);
         }
 
-        $this->CI->Pos_model->update_order_stock_commit_state($orderId, 'PROCESSING', [
-            'actor_employee_id' => $actorEmployeeId,
-            'event_code' => 'ORDER_CONFIRM_STOCK_QUEUE_PROCESS',
-            'note' => 'Queue POS sedang memproses stock commit #' . $snapshotId . '.',
-        ]);
-        $markProcessing = $this->CI->posstockcommitservice->mark_processing($snapshotId);
-        if (!($markProcessing['ok'] ?? false)) {
-            return $this->fail_job($job, (string)($markProcessing['message'] ?? 'Snapshot stock commit gagal ditandai processing.'));
-        }
-
-        $refreshSnapshot = $this->CI->posstockcommitservice->refresh_snapshot_from_order($snapshotId, $actorEmployeeId, [
-            'event_source' => $eventSource,
-            'event_id' => $eventId,
-        ]);
-        if (!($refreshSnapshot['ok'] ?? false)) {
-            return $this->fail_job($job, (string)($refreshSnapshot['message'] ?? 'Snapshot stock commit gagal di-refresh sebelum retry.'), [
-                'refresh_snapshot' => $refreshSnapshot,
+        $hasPartialReversal = strtoupper((string)($currentContext['snapshot_commit_status'] ?? '')) === 'PARTIAL_REVERSED';
+        if (!$hasPartialReversal) {
+            $orderProcessing = $this->CI->Pos_model->update_order_stock_commit_state($orderId, 'PROCESSING', [
+                'actor_employee_id' => $actorEmployeeId,
+                'event_code' => 'ORDER_CONFIRM_STOCK_QUEUE_PROCESS',
+                'note' => 'Queue POS sedang memproses stock commit #' . $snapshotId . '.',
             ]);
+            if (!($orderProcessing['ok'] ?? false)) {
+                return $this->fail_job($job, (string)($orderProcessing['message'] ?? 'Status stock commit order POS gagal ditandai processing.'));
+            }
+            $markProcessing = $this->CI->posstockcommitservice->mark_processing($snapshotId);
+            if (!($markProcessing['ok'] ?? false)) {
+                return $this->fail_job($job, (string)($markProcessing['message'] ?? 'Snapshot stock commit gagal ditandai processing.'));
+            }
+
+            $refreshSnapshot = $this->CI->posstockcommitservice->refresh_snapshot_from_order($snapshotId, $actorEmployeeId, [
+                'event_source' => $eventSource,
+                'event_id' => $eventId,
+            ]);
+            if (!($refreshSnapshot['ok'] ?? false)) {
+                return $this->fail_job($job, (string)($refreshSnapshot['message'] ?? 'Snapshot stock commit gagal di-refresh sebelum retry.'), [
+                    'refresh_snapshot' => $refreshSnapshot,
+                ]);
+            }
         }
 
         $stockPost = $this->CI->posorderstockservice->post_commit_snapshot($snapshotId, [
@@ -486,8 +517,12 @@ class PosRuntimeJobService
         $sql = "SELECT j.*
                 FROM pos_runtime_job j
                 INNER JOIN pos_order o ON o.id = j.order_id
+                LEFT JOIN pos_stock_commit s ON s.id = j.snapshot_id
                 WHERE j.job_type = 'ORDER_CONFIRM_STOCK_COMMIT'
                   AND j.run_after <= ?
+                  AND UPPER(COALESCE(o.status, '')) NOT IN ('VOID', 'REFUND_FULL', 'REFUNDED_FULL')
+                  AND UPPER(COALESCE(o.stock_commit_status, '')) <> 'REVERSED'
+                  AND UPPER(COALESCE(s.commit_status, '')) NOT IN ('REVERSED', 'VOID')
                   AND (
                       j.status = 'QUEUED'
                       OR (
@@ -515,58 +550,110 @@ class PosRuntimeJobService
 
     protected function claim_job(int $jobId): array
     {
-        $job = $this->CI->db->from('pos_runtime_job')->where('id', $jobId)->limit(1)->get()->row_array();
-        if (!$job) {
+        $seed = $this->CI->db->select('order_id, snapshot_id')->from('pos_runtime_job')->where('id', $jobId)->limit(1)->get()->row_array();
+        if (!$seed) {
             return ['ok' => false, 'message' => 'Job runtime POS tidak ditemukan.'];
         }
 
-        $status = strtoupper((string)($job['status'] ?? ''));
-        if (in_array($status, ['SUCCESS', 'CANCELLED'], true)) {
-            return ['ok' => true, 'skip' => true, 'job' => $job];
-        }
-        if ($status === 'PROCESSING') {
-            $startedAt = strtotime((string)($job['started_at'] ?? ''));
-            if ($startedAt > 0 && $startedAt >= strtotime('-5 minutes')) {
+        $db = $this->CI->db;
+        $db->trans_begin();
+        try {
+            // Lock the order before the job. Void/refund uses the same order lock,
+            // so a late worker cannot post stock after the order becomes terminal.
+            $order = null;
+            if ((int)($seed['order_id'] ?? 0) > 0) {
+                $order = $db->query(
+                    'SELECT id, status, stock_commit_status, stock_committed_at FROM pos_order WHERE id = ? FOR UPDATE',
+                    [(int)$seed['order_id']]
+                )->row_array();
+            }
+            $job = $db->query('SELECT * FROM pos_runtime_job WHERE id = ? FOR UPDATE', [$jobId])->row_array();
+            if (!$job) {
+                throw new RuntimeException('Job runtime POS tidak ditemukan saat akan diproses.');
+            }
+            $snapshot = null;
+            if ((int)($job['snapshot_id'] ?? 0) > 0) {
+                $snapshot = $db->query(
+                    'SELECT id, commit_status, commit_no FROM pos_stock_commit WHERE id = ? FOR UPDATE',
+                    [(int)$job['snapshot_id']]
+                )->row_array();
+            }
+            $job['order_status'] = (string)($order['status'] ?? '');
+            $job['stock_commit_status'] = (string)($order['stock_commit_status'] ?? '');
+            $job['stock_committed_at'] = $order['stock_committed_at'] ?? null;
+            $job['snapshot_commit_status'] = (string)($snapshot['commit_status'] ?? '');
+            $job['commit_no'] = (string)($snapshot['commit_no'] ?? '');
+
+            $status = strtoupper((string)($job['status'] ?? ''));
+            if (in_array($status, ['SUCCESS', 'CANCELLED'], true)) {
+                $db->trans_commit();
                 return ['ok' => true, 'skip' => true, 'job' => $job];
             }
-        }
-        if ((int)($job['attempts'] ?? 0) >= (int)($job['max_attempts'] ?? 0) && $status === 'FAILED') {
-            return ['ok' => true, 'skip' => true, 'job' => $job];
-        }
 
-        $attempts = (int)($job['attempts'] ?? 0) + 1;
-        $update = [
-            'status' => 'PROCESSING',
-            'attempts' => $attempts,
-            'started_at' => date('Y-m-d H:i:s'),
-            'finished_at' => null,
-            'last_error' => null,
-        ];
-        $this->CI->db->where('id', $jobId)->update('pos_runtime_job', $update);
-        $job = array_merge($job, $update);
+            $terminalReason = $this->terminal_reason_from_context($job);
+            if ($terminalReason !== '') {
+                $update = $this->terminal_cancellation_payload($terminalReason);
+                $db->where('id', $jobId)->where_in('status', ['QUEUED', 'PROCESSING', 'FAILED'])->update('pos_runtime_job', $update);
+                if ($db->trans_status() === false) {
+                    throw new RuntimeException('Gagal membatalkan job POS yang sudah terminal.');
+                }
+                $db->trans_commit();
+                return ['ok' => true, 'skip' => true, 'job' => array_merge($job, $update), 'message' => $terminalReason];
+            }
 
-        return ['ok' => true, 'job' => $job, 'skip' => false];
+            if ($status === 'PROCESSING') {
+                $startedAt = strtotime((string)($job['started_at'] ?? ''));
+                if ($startedAt > 0 && $startedAt >= strtotime('-5 minutes')) {
+                    $db->trans_commit();
+                    return ['ok' => true, 'skip' => true, 'job' => $job];
+                }
+            }
+            if ((int)($job['attempts'] ?? 0) >= (int)($job['max_attempts'] ?? 0) && $status === 'FAILED') {
+                $db->trans_commit();
+                return ['ok' => true, 'skip' => true, 'job' => $job];
+            }
+
+            $attempts = (int)($job['attempts'] ?? 0) + 1;
+            $update = [
+                'status' => 'PROCESSING',
+                'attempts' => $attempts,
+                'started_at' => date('Y-m-d H:i:s'),
+                'finished_at' => null,
+                'last_error' => null,
+            ];
+            $db->where('id', $jobId)->update('pos_runtime_job', $update);
+            if ($db->trans_status() === false) {
+                throw new RuntimeException('Gagal mengunci job runtime POS untuk diproses.');
+            }
+            $db->trans_commit();
+
+            return ['ok' => true, 'job' => array_merge($job, $update), 'skip' => false];
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
     }
 
     protected function complete_job(array $job, array $result = []): array
     {
+        $terminalReason = $this->terminal_reason_from_context((array)($this->job_context((int)$job['id']) ?: $job));
+        if ($terminalReason !== '') {
+            return $this->cancel_terminal_job((int)$job['id'], $terminalReason);
+        }
         $payload = [
             'status' => 'SUCCESS',
             'finished_at' => date('Y-m-d H:i:s'),
             'last_error' => null,
             'result_json' => $this->encode_json($result),
         ];
-        $this->CI->db->where('id', (int)$job['id'])->update('pos_runtime_job', $payload);
-        $row = $this->CI->db->query(
-            "SELECT j.*, o.status AS order_status, o.stock_commit_status, o.stock_committed_at,
-                    s.commit_status AS snapshot_commit_status, s.commit_no
-             FROM pos_runtime_job j
-             LEFT JOIN pos_order o ON o.id = j.order_id
-             LEFT JOIN pos_stock_commit s ON s.id = j.snapshot_id
-             WHERE j.id = ?
-             LIMIT 1",
-            [(int)$job['id']]
-        )->row_array();
+        $this->CI->db->where('id', (int)$job['id'])->where('status', 'PROCESSING')->update('pos_runtime_job', $payload);
+        $row = $this->job_context((int)$job['id']);
+        if ($this->CI->db->affected_rows() <= 0) {
+            if ($row && strtoupper((string)($row['status'] ?? '')) === 'CANCELLED') {
+                return ['ok' => true, 'skipped' => true, 'job' => $this->format_job_row($row)];
+            }
+            return ['ok' => false, 'message' => 'Status job runtime POS berubah sebelum proses selesai.', 'job' => $this->format_job_row((array)$row)];
+        }
 
         return [
             'ok' => true,
@@ -577,6 +664,10 @@ class PosRuntimeJobService
 
     protected function fail_job(array $job, string $message, array $result = [], bool $preserveSnapshotStatus = false, bool $preserveOrderStatus = false): array
     {
+        $terminalReason = $this->terminal_reason_from_context((array)($this->job_context((int)$job['id']) ?: $job));
+        if ($terminalReason !== '') {
+            return $this->cancel_terminal_job((int)$job['id'], $terminalReason);
+        }
         $delaySeconds = min(300, max(15, ((int)($job['attempts'] ?? 1)) * 20));
         $payload = [
             'status' => 'FAILED',
@@ -585,7 +676,14 @@ class PosRuntimeJobService
             'result_json' => $this->encode_json($result),
             'run_after' => date('Y-m-d H:i:s', time() + $delaySeconds),
         ];
-        $this->CI->db->where('id', (int)$job['id'])->update('pos_runtime_job', $payload);
+        $this->CI->db->where('id', (int)$job['id'])->where('status', 'PROCESSING')->update('pos_runtime_job', $payload);
+        if ($this->CI->db->affected_rows() <= 0) {
+            $current = $this->job_context((int)$job['id']);
+            if ($current && strtoupper((string)($current['status'] ?? '')) === 'CANCELLED') {
+                return ['ok' => true, 'skipped' => true, 'job' => $this->format_job_row($current)];
+            }
+            return ['ok' => false, 'message' => 'Status job runtime POS berubah sebelum kegagalan dicatat.', 'job' => $this->format_job_row((array)$current)];
+        }
 
         $snapshotId = max(0, (int)($job['snapshot_id'] ?? 0));
         if (!$preserveSnapshotStatus && $snapshotId > 0) {
@@ -606,16 +704,7 @@ class PosRuntimeJobService
             ]);
         }
 
-        $current = $this->CI->db->query(
-            "SELECT j.*, o.status AS order_status, o.stock_commit_status, o.stock_committed_at,
-                    s.commit_status AS snapshot_commit_status, s.commit_no
-             FROM pos_runtime_job j
-             LEFT JOIN pos_order o ON o.id = j.order_id
-             LEFT JOIN pos_stock_commit s ON s.id = j.snapshot_id
-             WHERE j.id = ?
-             LIMIT 1",
-            [(int)$job['id']]
-        )->row_array();
+        $current = $this->job_context((int)$job['id']);
 
         return [
             'ok' => false,
@@ -671,6 +760,103 @@ class PosRuntimeJobService
         }
 
         return $rebuilt;
+    }
+
+    protected function job_context(int $jobId): ?array
+    {
+        if ($jobId <= 0) {
+            return null;
+        }
+
+        $row = $this->CI->db->query(
+            "SELECT j.*, o.status AS order_status, o.stock_commit_status, o.stock_committed_at,
+                    s.commit_status AS snapshot_commit_status, s.commit_no
+             FROM pos_runtime_job j
+             LEFT JOIN pos_order o ON o.id = j.order_id
+             LEFT JOIN pos_stock_commit s ON s.id = j.snapshot_id
+             WHERE j.id = ?
+             LIMIT 1",
+            [$jobId]
+        )->row_array();
+
+        return $row ?: null;
+    }
+
+    protected function terminal_reason_for_order_snapshot(int $orderId, int $snapshotId): string
+    {
+        if ($orderId <= 0) {
+            return 'Order POS tidak valid untuk queue stock commit.';
+        }
+
+        $row = $this->CI->db->query(
+            "SELECT o.status AS order_status, o.stock_commit_status,
+                    s.commit_status AS snapshot_commit_status
+             FROM pos_order o
+             LEFT JOIN pos_stock_commit s ON s.id = ?
+             WHERE o.id = ?
+             LIMIT 1",
+            [$snapshotId, $orderId]
+        )->row_array();
+
+        if (!$row) {
+            return 'Order POS tidak ditemukan untuk queue stock commit.';
+        }
+
+        return $this->terminal_reason_from_context($row);
+    }
+
+    protected function terminal_reason_from_context(array $context): string
+    {
+        $orderStatus = strtoupper(trim((string)($context['order_status'] ?? '')));
+        if (in_array($orderStatus, ['VOID', 'REFUND_FULL', 'REFUNDED_FULL'], true)) {
+            return 'Order sudah ' . $orderStatus . '; job stock commit tidak boleh diproses.';
+        }
+
+        $orderCommitStatus = strtoupper(trim((string)($context['stock_commit_status'] ?? '')));
+        if ($orderCommitStatus === 'REVERSED') {
+            return 'Stock commit order sudah direversal; job tidak boleh diproses ulang.';
+        }
+
+        $snapshotStatus = strtoupper(trim((string)($context['snapshot_commit_status'] ?? '')));
+        if (in_array($snapshotStatus, ['REVERSED', 'VOID'], true)) {
+            return 'Snapshot stock commit sudah ' . $snapshotStatus . '; job tidak boleh diproses ulang.';
+        }
+
+        return '';
+    }
+
+    protected function terminal_cancellation_payload(string $reason): array
+    {
+        return [
+            'status' => 'CANCELLED',
+            'finished_at' => date('Y-m-d H:i:s'),
+            'last_error' => trim($reason) !== '' ? trim($reason) : 'Job stock POS dibatalkan karena order sudah terminal.',
+            'result_json' => $this->encode_json(['cancelled_reason' => trim($reason)]),
+        ];
+    }
+
+    protected function cancel_terminal_job(int $jobId, string $reason): array
+    {
+        if ($jobId <= 0) {
+            return ['ok' => false, 'message' => 'Job runtime POS tidak valid untuk dibatalkan.'];
+        }
+
+        $this->CI->db
+            ->where('id', $jobId)
+            ->where_in('status', ['QUEUED', 'PROCESSING', 'FAILED'])
+            ->update('pos_runtime_job', $this->terminal_cancellation_payload($reason));
+
+        $job = $this->job_context($jobId);
+        if (!$job) {
+            return ['ok' => false, 'message' => 'Job runtime POS tidak ditemukan saat dibatalkan.'];
+        }
+
+        return [
+            'ok' => true,
+            'skip' => true,
+            'message' => $reason,
+            'job' => $this->format_job_row($job),
+        ];
     }
 
     protected function queue_tables_ready(): bool
