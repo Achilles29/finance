@@ -221,6 +221,29 @@ class PosPrinterPreviewService
         return $paperWidthMm === 58 ? 32 : 48;
     }
 
+    public function buildLogoPrintMarker(string $url): string
+    {
+        $url = $this->normalizeLogoUrl($url);
+        if ($url === '') {
+            return '';
+        }
+
+        $localPath = $this->resolveLogoLocalPath($url);
+        if ($localPath !== '') {
+            $raw = @file_get_contents($localPath);
+            if (is_string($raw) && $raw !== '') {
+                return '[[LOGO_BASE64:' . base64_encode($raw) . ']]';
+            }
+        }
+
+        return '[[LOGO_URL:' . $url . ']]';
+    }
+
+    public function normalizedLogoUrl(string $url): string
+    {
+        return $this->normalizeLogoUrl($url);
+    }
+
     private function buildPreviewLines(string $documentType, array $payload, int $width): array
     {
         $documentType = strtoupper(trim($documentType));
@@ -554,7 +577,113 @@ class PosPrinterPreviewService
             return base_url('assets/img/logo.png');
         }
 
+        $rewritten = $this->rewriteLegacyLogoUrl($url);
+        if ($rewritten !== '') {
+            return $rewritten;
+        }
+
         return $url;
+    }
+
+    private function rewriteLegacyLogoUrl(string $url): string
+    {
+        $parts = @parse_url($url);
+        if (!is_array($parts)) {
+            return '';
+        }
+
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $currentHost = strtolower((string)parse_url(base_url(), PHP_URL_HOST));
+        $legacyHosts = ['localhost', '127.0.0.1', '::1', 'core.namuacoffee.com'];
+        if ($host !== '' && $host !== $currentHost && !in_array($host, $legacyHosts, true)) {
+            return '';
+        }
+
+        $path = (string)($parts['path'] ?? '');
+        $relativePath = $this->relativeAssetPathFromUrlPath($path);
+        if ($relativePath !== '') {
+            return base_url($relativePath);
+        }
+
+        if (preg_match('~(?:^|/)assets/img/logo(?:\.[a-z0-9]+)?$~i', $path)) {
+            return base_url('assets/img/logo.png');
+        }
+
+        return '';
+    }
+
+    private function resolveLogoLocalPath(string $url): string
+    {
+        $parts = @parse_url($url);
+        if (is_array($parts)) {
+            $path = (string)($parts['path'] ?? '');
+            $relativePath = $this->relativeAssetPathFromUrlPath($path);
+            if ($relativePath !== '') {
+                return $this->safeLocalPath($relativePath);
+            }
+            if (preg_match('~^/(assets|uploads)/~i', $path)) {
+                return $this->safeLocalPath(ltrim($path, '/'));
+            }
+            return '';
+        }
+
+        return $this->safeLocalPath($url);
+    }
+
+    private function relativeAssetPathFromUrlPath(string $path): string
+    {
+        $path = '/' . ltrim((string)$path, '/');
+        $basePath = (string)parse_url(base_url(), PHP_URL_PATH);
+        $basePath = '/' . trim($basePath, '/');
+        $basePrefix = $basePath === '/' ? '/' : rtrim($basePath, '/') . '/';
+
+        if (strpos($path, $basePrefix) === 0) {
+            $relativePath = ltrim(substr($path, strlen($basePrefix)), '/');
+            if ($this->isLocalLogoRelativePath($relativePath)) {
+                return $relativePath;
+            }
+        }
+
+        if (preg_match('~^/(assets|uploads)/~i', $path)) {
+            $relativePath = ltrim($path, '/');
+            if ($this->isLocalLogoRelativePath($relativePath)) {
+                return $relativePath;
+            }
+        }
+
+        return '';
+    }
+
+    private function isLocalLogoRelativePath(string $relativePath): bool
+    {
+        $relativePath = ltrim(str_replace('\\', '/', $relativePath), '/');
+        if ($relativePath === '' || strpos($relativePath, '..') !== false) {
+            return false;
+        }
+
+        return preg_match('~^(assets|uploads)/~i', $relativePath) === 1;
+    }
+
+    private function safeLocalPath(string $relativePath): string
+    {
+        $relativePath = ltrim(str_replace('\\', '/', preg_replace('/[?#].*$/', '', (string)$relativePath)), '/');
+        if (!$this->isLocalLogoRelativePath($relativePath)) {
+            return '';
+        }
+
+        $root = rtrim(str_replace('\\', '/', FCPATH), '/');
+        $fullPath = $root . '/' . $relativePath;
+        $realPath = realpath($fullPath);
+        if ($realPath === false || !is_file($realPath)) {
+            return '';
+        }
+
+        $realPath = str_replace('\\', '/', $realPath);
+        if (strpos($realPath, $root . '/') !== 0) {
+            return '';
+        }
+
+        return $realPath;
     }
 
     private function boolValue($value): bool

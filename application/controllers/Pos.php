@@ -1695,7 +1695,10 @@ public function self_order_tables_print()
         ], (string)($template['document_type'] ?? 'RECEIPT'));
         $textLines = (array)($preview['lines'] ?? []);
         if (!empty($preview['logo_url'])) {
-            array_unshift($textLines, '[[LOGO_URL:' . (string)$preview['logo_url'] . ']]');
+            $logoMarker = $this->posprinterpreviewservice->buildLogoPrintMarker((string)$preview['logo_url']);
+            if ($logoMarker !== '') {
+                array_unshift($textLines, $logoMarker);
+            }
         }
         if (!empty($preview['payload']['show_customer_review_qr']) && !empty($preview['payload']['customer_review_qr_enabled'])) {
             $reviewUrl = $this->Pos_customer_review_model->station_url();
@@ -2255,6 +2258,7 @@ public function self_order_tables_print()
         }
 
         $preview = $this->posprinterpreviewservice->buildPreviewPackage($payload, $row, $documentType);
+        $logoPrintMarker = $this->posprinterpreviewservice->buildLogoPrintMarker((string)($preview['logo_url'] ?? ''));
         $this->render('pos/printer_preview', [
             'page_title' => 'Preview Printer POS',
             'active_menu' => 'pos.printer.index',
@@ -2262,6 +2266,7 @@ public function self_order_tables_print()
             'templates' => $templates,
             'selected_template' => $selectedTemplate,
             'preview' => $preview,
+            'logo_print_marker' => $logoPrintMarker,
             'autoprint' => (int)$this->input->get('autoprint', true) === 1,
         ]);
     }
@@ -2318,6 +2323,7 @@ public function self_order_tables_print()
         }
 
         $preview = $this->posprinterpreviewservice->buildPreviewPackage($payload, $row, $documentType);
+        $logoPrintMarker = $this->posprinterpreviewservice->buildLogoPrintMarker((string)($preview['logo_url'] ?? ''));
         $this->json_ok([
             'printer' => [
                 'id' => (int)($row['id'] ?? 0),
@@ -2333,7 +2339,7 @@ public function self_order_tables_print()
             ],
             'preview' => $preview,
             'print_payload' => [
-                'text' => (!empty($preview['logo_url']) ? '[[LOGO_URL:' . $preview['logo_url'] . ']]' . "\n" : '')
+                'text' => ($logoPrintMarker !== '' ? $logoPrintMarker . "\n" : '')
                     . implode("\n", (array)($preview['lines'] ?? [])),
                 'paper_width_mm' => (int)($preview['paper_width_mm'] ?? 80),
                 'chars_per_line' => (int)($preview['chars_per_line'] ?? 48),

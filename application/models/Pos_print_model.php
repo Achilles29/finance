@@ -178,6 +178,7 @@ class Pos_print_model extends CI_Model
         if (trim((string)$payload['logo_url']) === '') {
             $payload['logo_url'] = base_url('assets/img/logo.png');
         }
+        $payload['logo_url'] = $this->normalize_logo_url_value((string)$payload['logo_url']);
         return ['row' => $row ?: null, 'payload' => $payload];
     }
 
@@ -200,7 +201,7 @@ class Pos_print_model extends CI_Model
         $payload = [
             'title' => trim((string)$value('title', 'NAMUA COFFEE N EATERY')),
             'subtitle' => trim((string)$value('subtitle', '')),
-            'logo_url' => trim((string)$value('logo_url', base_url('assets/img/logo.png'))),
+            'logo_url' => $this->normalize_logo_url_value(trim((string)$value('logo_url', base_url('assets/img/logo.png')))),
             'wifi_name' => trim((string)$value('wifi_name', '')),
             'wifi_password' => trim((string)$value('wifi_password', '')),
             'customer_voucher_limit' => max(1, min(5, (int)$value('customer_voucher_limit', 1))),
@@ -248,6 +249,25 @@ class Pos_print_model extends CI_Model
         return $this->db->insert_id() > 0
             ? ['ok' => true, 'id' => (int)$this->db->insert_id()]
             : ['ok' => false, 'message' => 'Gagal menambah tampilan umum cetak.'];
+    }
+
+    private function normalize_logo_url_value(string $logoUrl): string
+    {
+        $logoUrl = trim($logoUrl);
+        if ($logoUrl === '') {
+            return base_url('assets/img/logo.png');
+        }
+
+        $ci = function_exists('get_instance') ? get_instance() : null;
+        if ($ci && method_exists($ci, 'load') && (!isset($ci->posprinterpreviewservice) || !is_object($ci->posprinterpreviewservice))) {
+            $ci->load->library('PosPrinterPreviewService', null, 'posprinterpreviewservice');
+        }
+        if ($ci && isset($ci->posprinterpreviewservice) && is_object($ci->posprinterpreviewservice)
+            && method_exists($ci->posprinterpreviewservice, 'normalizedLogoUrl')) {
+            return (string)$ci->posprinterpreviewservice->normalizedLogoUrl($logoUrl);
+        }
+
+        return $logoUrl;
     }
 
     /**

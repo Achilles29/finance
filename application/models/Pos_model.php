@@ -9519,8 +9519,11 @@ class Pos_model extends CI_Model
     {
         $logoUrl = trim((string)($payload['logo_url'] ?? ''));
         if (!empty($payload['show_logo']) && $logoUrl !== '') {
-            // Marker ini diterjemahkan Local Agent menjadi gambar ESC/POS.
-            $chunks[] = '[[LOGO_URL:' . $logoUrl . ']]';
+            $logoMarker = $this->direct_print_logo_marker($logoUrl);
+            if ($logoMarker !== '') {
+                // Marker ini diterjemahkan Local Agent menjadi gambar ESC/POS.
+                $chunks[] = $logoMarker;
+            }
         }
         if (empty($payload['show_header'])) {
             return;
@@ -9549,6 +9552,25 @@ class Pos_model extends CI_Model
         if ($hasHeaderContent) {
             $chunks[] = $dash;
         }
+    }
+
+    private function direct_print_logo_marker(string $logoUrl): string
+    {
+        $logoUrl = trim($logoUrl);
+        if ($logoUrl === '') {
+            return '';
+        }
+
+        $ci = function_exists('get_instance') ? get_instance() : null;
+        if ($ci && method_exists($ci, 'load') && (!isset($ci->posprinterpreviewservice) || !is_object($ci->posprinterpreviewservice))) {
+            $ci->load->library('PosPrinterPreviewService', null, 'posprinterpreviewservice');
+        }
+        if ($ci && isset($ci->posprinterpreviewservice) && is_object($ci->posprinterpreviewservice)
+            && method_exists($ci->posprinterpreviewservice, 'buildLogoPrintMarker')) {
+            return (string)$ci->posprinterpreviewservice->buildLogoPrintMarker($logoUrl);
+        }
+
+        return '[[LOGO_URL:' . $logoUrl . ']]';
     }
 
     private function direct_print_footer_barcode_value(array $payload, array $values): string

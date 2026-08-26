@@ -241,3 +241,61 @@ Decrypted message with closed session.
 ➜ Pesan personal diterima engine: 3EB0B59B09CDE545F58DB7 -> 6285198374391@s.whatsapp.net
 ℹ Status pesan WhatsApp 3EB0B59B09CDE545F58DB7: 3
 ✓ Delivery WhatsApp dikonfirmasi: 3EB0B59B09CDE545F58DB7
+ℹ Status pesan WhatsApp 3EB0B59B09CDE545F58DB7: 4
+✓ Delivery WhatsApp dikonfirmasi: 3EB0B59B09CDE545F58DB7
+ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 2
+ℹ Status pesan WhatsApp 3EB0DF0524B80A48218E91: 2
+ℹ Status pesan WhatsApp 3EB0B59B09CDE545F58DB7: 2
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
+ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (503). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️  Gagal memproses command grup: fetch failed
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (503). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (503). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (503). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (503). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+ℹ Status pesan WhatsApp A5A3A738C98BED1D89EB3087D47CE207: 3
+✓ Delivery WhatsApp dikonfirmasi: A5A3A738C98BED1D89EB3087D47CE207
+ℹ Status pesan WhatsApp A58C7F70FA8BCDEC9A1840F8C2004980: 3
+✓ Delivery WhatsApp dikonfirmasi: A58C7F70FA8BCDEC9A1840F8C2004980
+ℹ Status pesan WhatsApp A55F71E939420AD90BE9FAE2859F028C: 3
+✓ Delivery WhatsApp dikonfirmasi: A55F71E939420AD90BE9FAE2859F028C
+ℹ Status pesan WhatsApp A50303196FED246BD30662D33EC33072: 3
+✓ Delivery WhatsApp dikonfirmasi: A50303196FED246BD30662D33EC33072
+ℹ Status pesan WhatsApp A5154F0EEF3DAB0E219628213AC31579: 3
+✓ Delivery WhatsApp dikonfirmasi: A5154F0EEF3DAB0E219628213AC31579
+ℹ Status pesan WhatsApp 3EB0CE8922FB5466FD839A: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0CE8922FB5466FD839A
+ℹ Status pesan WhatsApp 3EB0DF0524B80A48218E91: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0DF0524B80A48218E91

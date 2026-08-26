@@ -93,7 +93,7 @@ $pythonPort = (int)($preview['summary']['python_port'] ?? $row['python_port'] ??
   const preview = document.getElementById('previewPrintText');
   if (!btn || !preview) return;
   const pythonPort = <?= $pythonPort > 0 ? $pythonPort : 0 ?>;
-  const logoUrl = <?= json_encode($preview['logo_url'] ?? '') ?>;
+  const logoPrintMarker = <?= json_encode((string)($logo_print_marker ?? '')) ?>;
   const autoPrint = <?= $autoprint ? 'true' : 'false' ?>;
   let started = false;
 
@@ -104,8 +104,8 @@ $pythonPort = (int)($preview['summary']['python_port'] ?? $row['python_port'] ??
     }
     btn.disabled = true;
     let textPayload = preview.textContent || '';
-    if (logoUrl) {
-      textPayload = '[[LOGO_URL:' + logoUrl + ']]\n' + textPayload;
+    if (logoPrintMarker) {
+      textPayload = logoPrintMarker + '\n' + textPayload;
     }
     fetch('http://127.0.0.1:' + pythonPort + '/cetak', {
       method: 'POST',
