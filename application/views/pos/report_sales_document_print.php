@@ -38,6 +38,7 @@ $refunds = is_array($refunds ?? null) ? $refunds : [];
 $documentType = ($document_type ?? 'invoice') === 'receipt' ? 'receipt' : 'invoice';
 $isReceipt = $documentType === 'receipt';
 $documentLabel = $isReceipt ? 'KWITANSI' : 'INVOICE';
+$reviewUrl = trim((string)($review_url ?? ''));
 $money = static function ($value): string { return 'Rp ' . number_format((float)$value, 0, ',', '.'); };
 $qty = static function ($value): string { return number_format((float)$value, 0, ',', '.'); };
 $dateTime = static function ($value): string {
@@ -116,8 +117,19 @@ $paymentState = $remaining <= 0.009 && $paidTotal > 0 ? 'LUNAS' : ($paidTotal > 
     .payment-row:last-child { border-bottom:0; }
     .payment-method { font-weight:800; }
     .payment-ref { font-size:10px; color:var(--muted); }
+    .review-cta { margin-top:18px; border:1px solid #eadfd7; border-radius:14px; padding:12px 14px; background:linear-gradient(180deg,#fffdf9,#fff8f2); display:flex; align-items:center; justify-content:space-between; gap:14px; }
+    .review-copy { min-width:0; }
+    .review-kicker { color:var(--accent); font-size:10px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+    .review-title { margin-top:2px; font-size:15px; font-weight:900; color:var(--accent-deep); }
+    .review-text { margin-top:5px; color:#6f5e58; }
+    .review-link { margin-top:6px; font-size:9px; color:#9a857c; word-break:break-all; }
+    .review-qr { width:96px; height:96px; flex:0 0 auto; display:grid; place-items:center; padding:6px; border:1px solid #ead2c8; border-radius:12px; background:#fff; box-shadow:0 6px 15px rgba(108,41,24,.08); }
+    .review-qr img, .review-qr canvas { display:none !important; }
+    .review-qr [data-pos-qr-visual="true"] { display:block !important; width:100% !important; height:100% !important; image-rendering:pixelated; }
+    .review-qr.qr-render-fallback { font-size:9px; line-height:1.3; color:#9a3b32; text-align:center; }
     .notice { margin-top:18px; border-left:4px solid var(--gold); background:#fff8eb; padding:9px 11px; color:#6e5427; font-size:10px; }
     .footer { position:absolute; bottom:11mm; left:13mm; right:13mm; display:flex; justify-content:space-between; gap:10px; border-top:1px solid var(--line); padding-top:8px; color:var(--muted); font-size:9px; }
+    @media (max-width:760px) { .review-cta { flex-direction:column; align-items:flex-start; } .review-qr { width:120px; height:120px; } }
     @media print { body { background:#fff; } .toolbar { display:none; } .sheet { width:auto; min-height:0; margin:0; padding:0; box-shadow:none; overflow:visible; } .footer { position:static; margin-top:24px; } }
   </style>
 </head>
@@ -167,8 +179,35 @@ $paymentState = $remaining <= 0.009 && $paidTotal > 0 ? 'LUNAS' : ($paidTotal > 
     <table class="totals"><tbody><tr><td>Subtotal</td><td class="text-end"><?php echo $money($header['subtotal_amount'] ?? 0); ?></td></tr><?php if ($discountTotal > 0): ?><tr><td>Potongan</td><td class="text-end">- <?php echo $money($discountTotal); ?></td></tr><?php endif; ?><?php if ((float)($header['tax_amount'] ?? 0) > 0): ?><tr><td>Pajak</td><td class="text-end"><?php echo $money($header['tax_amount'] ?? 0); ?></td></tr><?php endif; ?><?php if ((float)($header['service_amount'] ?? 0) > 0): ?><tr><td>Service</td><td class="text-end"><?php echo $money($header['service_amount'] ?? 0); ?></td></tr><?php endif; ?><tr class="total"><td>Grand Total</td><td class="text-end"><?php echo $money($grandTotal); ?></td></tr></tbody></table>
 
     <?php if ($isReceipt): ?><section class="panel payments"><div class="panel-title">Pembayaran Diterima</div><div style="padding:0 11px;"><?php foreach ($paymentRows as $payment): ?><div class="payment-row"><div><div class="payment-method"><?php echo html_escape($payment['method_name']); ?></div><?php if ($payment['reference_no'] !== ''): ?><div class="payment-ref">Ref: <?php echo html_escape($payment['reference_no']); ?></div><?php endif; ?></div><strong><?php echo $money($payment['amount']); ?></strong></div><?php endforeach; ?><?php if (empty($paymentRows)): ?><div class="payment-row"><span>Belum ada pembayaran tercatat.</span></div><?php endif; ?><div class="payment-row"><strong>Total Dibayar</strong><strong><?php echo $money($paidTotal); ?></strong></div><?php if ((float)($header['change_total'] ?? 0) > 0): ?><div class="payment-row"><span>Kembalian</span><strong><?php echo $money($header['change_total']); ?></strong></div><?php endif; ?><?php if ($refundTotal > 0): ?><div class="payment-row"><span>Refund</span><strong>- <?php echo $money($refundTotal); ?></strong></div><?php endif; ?></div></section><?php else: ?><div class="notice">Sisa tagihan: <strong><?php echo $money($remaining); ?></strong>. Invoice ini merupakan rincian transaksi dan bukan faktur pajak.</div><?php endif; ?>
+    <?php if ($isReceipt && $reviewUrl !== ''): ?>
+      <section class="review-cta" aria-label="QR ulasan pelanggan">
+        <div class="review-copy">
+          <div class="review-kicker">Ulasan Pelanggan</div>
+          <div class="review-title">Scan untuk kirim ulasan & daftar member</div>
+          <div class="review-text">Arahkan kamera HP ke QR ini. Form ulasan akan terbuka tanpa perlu mengetik alamat link.</div>
+          <div class="review-link"><?php echo html_escape($reviewUrl); ?></div>
+        </div>
+        <div class="review-qr" id="receipt-review-qr" data-qr-url="<?php echo html_escape($reviewUrl); ?>" role="img" aria-label="QR ulasan pelanggan"></div>
+      </section>
+    <?php endif; ?>
 
     <footer class="footer"><span>Dicetak <?php echo html_escape(date('d M Y, H:i')); ?></span><span><?php echo $documentLabel; ?> · <?php echo html_escape((string)($header['order_no'] ?? '-')); ?></span></footer>
   </main>
+  <?php if ($isReceipt && $reviewUrl !== ''): ?>
+    <script src="<?= base_url('assets/vendor/qrcodejs/qrcode.min.js') ?>"></script>
+    <script src="<?= base_url('assets/js/pos-local-qr.js') ?>?v=20260825g"></script>
+    <script>
+    window.addEventListener('load', function () {
+      var target = document.getElementById('receipt-review-qr');
+      if (!target) return;
+      if (window.PosLocalQr) {
+        window.PosLocalQr.render(target, target.getAttribute('data-qr-url'), {size: 560, label: 'QR ulasan pelanggan'});
+      } else {
+        target.classList.add('qr-render-fallback');
+        target.textContent = 'QR belum dapat dimuat.';
+      }
+    });
+    </script>
+  <?php endif; ?>
 </body>
 </html>

@@ -686,6 +686,19 @@ class PrinterService:
             errors.append(str(exc))
 
         try:
+            qr_raw = self.qrcode_remote_image_bytes(value, paper_width_mm)
+            mode = str(self.logo.get("mode", "esc_star")).strip().lower()
+            if mode == "raster":
+                return self.image_to_escpos_raster(
+                    qr_raw,
+                    self.qrcode_max_width_dots(paper_width_mm),
+                    self.paper_canvas_width_dots(paper_width_mm),
+                )
+            return self.image_to_escpos_esc_star(qr_raw, self.qrcode_max_width_dots(paper_width_mm))
+        except Exception as exc:
+            errors.append(str(exc))
+
+        try:
             return self.native_escpos_qrcode_bytes(value, paper_width_mm)
         except Exception as exc:
             errors.append(str(exc))
@@ -699,6 +712,17 @@ class PrinterService:
         output = io.BytesIO()
         image.save(output, format="PNG")
         return output.getvalue()
+
+    def qrcode_remote_image_bytes(self, value: str, paper_width_mm: int) -> bytes:
+        size = 320 if int(paper_width_mm or 80) >= 76 else 240
+        qr_url = (
+            "https://api.qrserver.com/v1/create-qr-code/"
+            f"?size={size}x{size}&ecc=M&data={urllib.parse.quote(str(value or '').strip(), safe='')}"
+        )
+        req = urllib.request.Request(qr_url)
+        req.add_header("User-Agent", "CorePrinterLocalService/1.0")
+        timeout = int(self.logo.get("fetch_timeout_seconds", 10) or 10)
+        return self.fetch_url_bytes(req, timeout=timeout)
 
     def native_escpos_qrcode_bytes(self, value: str, paper_width_mm: int) -> bytes:
         data = str(value or "").strip().encode("utf-8")

@@ -4413,12 +4413,22 @@ public function self_order_tables_print()
             return;
         }
 
+        $reviewUrl = '';
+        if ($documentType === 'receipt') {
+            $review = $this->Pos_customer_review_model->ensure_for_order((array)($order['header'] ?? []));
+            $token = trim((string)($review['review_token'] ?? ''));
+            if (preg_match('/^[a-f0-9]{64}$/i', $token)) {
+                $reviewUrl = site_url('review/' . strtolower($token));
+            }
+        }
+
         $this->load->view('pos/report_sales_document_print', [
             'order' => $order,
             'payments' => $this->Pos_report_model->order_payment_rows((int)$id),
             'refunds' => $this->Pos_report_model->order_refund_rows((int)$id),
             'document_type' => $documentType,
             'logo_url' => base_url('assets/img/logo.png'),
+            'review_url' => $reviewUrl,
         ]);
     }
 
