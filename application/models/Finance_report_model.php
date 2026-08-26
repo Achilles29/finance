@@ -1029,6 +1029,8 @@ class Finance_report_model extends CI_Model
               WHEN ref_module = 'FINANCE_PAYABLE' AND mutation_type = 'OUT' THEN 'Pembayaran Utang'
               WHEN ref_module = 'FINANCE_RECEIVABLE' AND mutation_type = 'OUT' THEN 'Piutang Keluar'
               WHEN ref_module = 'FINANCE_RECEIVABLE' AND mutation_type = 'IN' THEN 'Pelunasan Piutang'
+              WHEN ref_module = 'FINANCE_RECON' AND mutation_type = 'IN' THEN 'Penyesuaian Rekonsiliasi Masuk'
+              WHEN ref_module = 'FINANCE_RECON' AND mutation_type = 'OUT' THEN 'Penyesuaian Rekonsiliasi Keluar'
               WHEN ref_module = 'FINANCE_TRANSFER' AND mutation_type = 'IN' THEN 'Transfer Antar Rekening Masuk'
               WHEN ref_module = 'FINANCE_TRANSFER' AND mutation_type = 'OUT' THEN 'Transfer Antar Rekening Keluar'
               ELSE CONCAT(COALESCE(ref_module, 'LAINNYA'), ' / ', COALESCE(ref_table, '-'))

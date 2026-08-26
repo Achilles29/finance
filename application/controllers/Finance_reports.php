@@ -7,6 +7,7 @@ class Finance_reports extends MY_Controller
     {
         parent::__construct();
         $this->load->model('Finance_report_model');
+        $this->load->model('Finance_cash_reconciliation_model');
     }
 
     private function per_page(int $default = 25): int
@@ -39,6 +40,152 @@ class Finance_reports extends MY_Controller
     private function actor_user_id(): int
     {
         return (int)($this->current_user['id'] ?? 0);
+    }
+
+    private function cash_reconciliation_payload(): array
+    {
+        $raw = trim((string)$this->input->raw_input_stream);
+        if ($raw !== '') {
+            $payload = json_decode($raw, true);
+            if (is_array($payload)) {
+                return $payload;
+            }
+        }
+
+        $post = $this->input->post(NULL, true);
+        return is_array($post) ? $post : [];
+    }
+
+    private function cash_reconciliation_json(array $payload, int $status = 200): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($status)
+            ->set_content_type('application/json')
+            ->set_output(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    public function cash_reconciliation()
+    {
+        $this->require_permission('finance.cash_reconciliation.index', 'view');
+
+        $reconciliationDate = trim((string)$this->input->get('date', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $reconciliationDate)) {
+            $reconciliationDate = date('Y-m-d');
+        }
+        $reconciliationId = max(0, (int)$this->input->get('reconciliation_id', true));
+
+        $dashboard = $this->Finance_cash_reconciliation_model->dashboard($reconciliationDate, $reconciliationId);
+        $this->render('finance/cash_reconciliation', [
+            'page_title' => 'Rekonsiliasi Kas',
+            'active_menu' => 'finance.cash_reconciliation',
+            'finance_tab_active' => 'cash-reconciliation',
+            'dashboard' => $dashboard,
+            'reconciliation_date' => $reconciliationDate,
+            'can_reconcile_edit' => $this->can('finance.cash_reconciliation.index', 'edit'),
+            'round_create_url' => site_url('finance-reports/cash-reconciliation/round-create'),
+            'save_url' => site_url('finance-reports/cash-reconciliation/line-save'),
+            'post_url' => site_url('finance-reports/cash-reconciliation/line-post'),
+            'mutation_url' => site_url('finance/mutations'),
+        ]);
+    }
+
+    public function cash_reconciliation_line_save()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+        $this->require_permission('finance.cash_reconciliation.index', 'edit');
+
+        $payload = $this->cash_reconciliation_payload();
+        $result = $this->Finance_cash_reconciliation_model->save_line(
+            $payload,
+            $this->actor_user_id(),
+            (string)$this->input->ip_address()
+        );
+        if (empty($result['ok'])) {
+            $this->cash_reconciliation_json([
+                'ok' => false,
+                'message' => (string)($result['message'] ?? 'Gagal menyimpan rekonsiliasi kas.'),
+            ], 422);
+            return;
+        }
+
+        $date = (string)($result['line']['reconciliation_date'] ?? $payload['reconciliation_date'] ?? date('Y-m-d'));
+        $reconciliationId = (int)($result['line']['reconciliation_id'] ?? 0);
+        $this->cash_reconciliation_json([
+            'ok' => true,
+            'message' => (string)($result['message'] ?? 'Saldo riil tersimpan.'),
+            'line' => $result['line'] ?? [],
+            'dashboard' => $this->Finance_cash_reconciliation_model->dashboard($date, $reconciliationId),
+        ]);
+    }
+
+    public function cash_reconciliation_line_post()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+        $this->require_permission('finance.cash_reconciliation.index', 'edit');
+
+        $payload = $this->cash_reconciliation_payload();
+        $result = $this->Finance_cash_reconciliation_model->post_line(
+            (int)($payload['line_id'] ?? 0),
+            $this->actor_user_id(),
+            (string)$this->input->ip_address()
+        );
+        if (empty($result['ok'])) {
+            $this->cash_reconciliation_json([
+                'ok' => false,
+                'message' => (string)($result['message'] ?? 'Gagal memposting penyesuaian rekonsiliasi.'),
+            ], 422);
+            return;
+        }
+
+        $date = (string)($result['line']['reconciliation_date'] ?? date('Y-m-d'));
+        $reconciliationId = (int)($result['line']['reconciliation_id'] ?? 0);
+        $this->cash_reconciliation_json([
+            'ok' => true,
+            'message' => (string)($result['message'] ?? 'Penyesuaian berhasil diposting.'),
+            'line' => $result['line'] ?? [],
+            'dashboard' => $this->Finance_cash_reconciliation_model->dashboard($date, $reconciliationId),
+        ]);
+    }
+
+    public function cash_reconciliation_round_create()
+    {
+        if ($this->input->method() !== 'post') {
+            show_404();
+        }
+        $this->require_permission('finance.cash_reconciliation.index', 'edit');
+
+        $payload = $this->cash_reconciliation_payload();
+        $result = $this->Finance_cash_reconciliation_model->create_round(
+            (string)($payload['reconciliation_date'] ?? ''),
+            $this->actor_user_id(),
+            (string)$this->input->ip_address()
+        );
+        if (empty($result['ok'])) {
+            $this->cash_reconciliation_json([
+                'ok' => false,
+                'message' => (string)($result['message'] ?? 'Gagal membuat sesi pengecekan.'),
+            ], 422);
+            return;
+        }
+
+        $header = (array)($result['header'] ?? []);
+        $query = http_build_query([
+            'date' => (string)($header['reconciliation_date'] ?? $payload['reconciliation_date'] ?? date('Y-m-d')),
+            'reconciliation_id' => (int)($header['id'] ?? 0),
+        ]);
+        $this->cash_reconciliation_json([
+            'ok' => true,
+            'message' => (string)($result['message'] ?? 'Sesi pengecekan dibuat.'),
+            'header' => $header,
+            'redirect_url' => site_url('finance-reports/cash-reconciliation') . '?' . $query,
+        ]);
     }
 
     public function cash_vault_daily()

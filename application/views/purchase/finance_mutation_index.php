@@ -58,6 +58,7 @@ $moduleLabel = static function (string $module, string $table): string {
     switch (strtoupper($module)) {
         case 'PURCHASE':          return 'Purchase';
         case 'POS':               return 'POS';
+        case 'FINANCE_RECON':     return 'Rekonsiliasi Kas';
         case 'FINANCE_TRANSFER':  return 'Transfer';
         case 'FINANCE_PAYABLE':   return 'Utang';
         case 'FINANCE_RECEIVABLE':return 'Piutang';
@@ -74,6 +75,7 @@ $moduleBadgeClass = static function (string $module): string {
     switch (strtoupper($module)) {
         case 'PURCHASE':           return 'bg-label-danger';
         case 'POS':                return 'bg-label-success';
+        case 'FINANCE_RECON':      return 'bg-label-warning';
         case 'FINANCE_TRANSFER':   return 'bg-label-info';
         case 'FINANCE_PAYABLE':    return 'bg-label-warning';
         case 'FINANCE_RECEIVABLE': return 'bg-label-primary';
@@ -108,6 +110,7 @@ $moduleFilterOptions = [
     'POS' => 'POS',
     'PURCHASE' => 'PO / Purchase',
     'FINANCE' => 'Manual',
+    'FINANCE_RECON' => 'Rekonsiliasi Kas',
     'FINANCE_TRANSFER' => 'Transfer',
     'FINANCE_PAYABLE' => 'Utang',
     'FINANCE_RECEIVABLE' => 'Piutang',

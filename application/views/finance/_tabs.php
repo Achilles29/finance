@@ -11,6 +11,7 @@ $active = (string)($finance_tab_active ?? '');
   <a href="<?php echo site_url('finance-reports/rekap-rekening-harian'); ?>" class="btn btn-sm <?php echo $active === 'bank-daily-recap' ? 'btn-primary' : 'btn-outline-primary'; ?>">Rekap Rekening Harian</a>
   <a href="<?php echo site_url('finance-reports/cash-position'); ?>" class="btn btn-sm <?php echo $active === 'cash-position' ? 'btn-primary' : 'btn-outline-primary'; ?>">Posisi Kas & Eksposur</a>
   <a href="<?php echo site_url('finance-reports/cash-vault-daily'); ?>" class="btn btn-sm <?php echo $active === 'cash-vault' ? 'btn-primary' : 'btn-outline-primary'; ?>">Brankas Harian</a>
+  <a href="<?php echo site_url('finance-reports/cash-reconciliation'); ?>" class="btn btn-sm <?php echo $active === 'cash-reconciliation' ? 'btn-primary' : 'btn-outline-primary'; ?>">Rekonsiliasi Kas</a>
   <a href="<?php echo site_url('finance-reports/period-close'); ?>" class="btn btn-sm <?php echo $active === 'period-close' ? 'btn-primary' : 'btn-outline-primary'; ?>">Tutup Periode</a>
   <a href="<?php echo site_url('finance-reports/targets'); ?>" class="btn btn-sm <?php echo $active === 'target-plan' ? 'btn-primary' : 'btn-outline-primary'; ?>">Target Keuangan</a>
 </div>

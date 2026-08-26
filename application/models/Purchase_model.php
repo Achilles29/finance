@@ -507,7 +507,7 @@ class Purchase_model extends CI_Model
         $scope = strtolower(trim($scope));
         $fieldPrefix = $alias !== '' ? ($alias . '.') : '';
         if ($scope === 'manual') {
-            $this->db->where_in($fieldPrefix . 'ref_module', ['FINANCE', 'FINANCE_TRANSFER']);
+            $this->db->where_in($fieldPrefix . 'ref_module', ['FINANCE', 'FINANCE_RECON', 'FINANCE_TRANSFER']);
         }
     }
 
@@ -593,7 +593,7 @@ class Purchase_model extends CI_Model
             $whereParts[] = "mutation_date <= " . $this->db->escape($to);
         }
         if (strtolower(trim($scope)) === 'manual') {
-            $whereParts[] = "ref_module IN ('FINANCE','FINANCE_TRANSFER')";
+            $whereParts[] = "ref_module IN ('FINANCE','FINANCE_RECON','FINANCE_TRANSFER')";
         }
         $mutationType = strtoupper(trim($mutationType));
         if (in_array($mutationType, ['IN', 'OUT'], true)) {

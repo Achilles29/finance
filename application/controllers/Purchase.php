@@ -657,7 +657,7 @@ class Purchase extends MY_Controller
             $mutationType = 'ALL';
         }
         $moduleFilter = strtoupper(trim((string)$this->input->get('module_filter', true)));
-        $allowedModuleFilters = ['ALL', 'POS', 'PURCHASE', 'FINANCE', 'FINANCE_TRANSFER', 'FINANCE_PAYABLE', 'FINANCE_RECEIVABLE', 'PAYROLL'];
+        $allowedModuleFilters = ['ALL', 'POS', 'PURCHASE', 'FINANCE', 'FINANCE_RECON', 'FINANCE_TRANSFER', 'FINANCE_PAYABLE', 'FINANCE_RECEIVABLE', 'PAYROLL'];
         if (!in_array($moduleFilter, $allowedModuleFilters, true)) {
             $moduleFilter = 'ALL';
         }

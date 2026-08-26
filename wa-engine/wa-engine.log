@@ -317,3 +317,27 @@ Decrypted message with closed session.
 ✓ Delivery WhatsApp dikonfirmasi: 3EB0CE8922FB5466FD839A
 ℹ Status pesan WhatsApp 3EB0DF0524B80A48218E91: 3
 ✓ Delivery WhatsApp dikonfirmasi: 3EB0DF0524B80A48218E91
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+ℹ Status pesan WhatsApp A5B989851CD507F148054F5963EA3307: 3
+✓ Delivery WhatsApp dikonfirmasi: A5B989851CD507F148054F5963EA3307
+ℹ Status pesan WhatsApp 3EB0353A21DA7ADA01AEF9: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0353A21DA7ADA01AEF9
+ℹ Status pesan WhatsApp 3EB02FACCA69EB09A7E0EE: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB02FACCA69EB09A7E0EE
+ℹ Status pesan WhatsApp 3EB098C37B81AAE1EFC562: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB098C37B81AAE1EFC562
+ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
+ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
+ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
+ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
+Closing open session in favor of incoming prekey bundle
+ℹ libsignal: Closing session (detail disembunyikan)
+ℹ libsignal: Closing session (detail disembunyikan)
+ℹ Status pesan WhatsApp 3EB073AC834AF5B67B02B5: 0 (479)
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
