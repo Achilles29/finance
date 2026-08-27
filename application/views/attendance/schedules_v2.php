@@ -17,9 +17,15 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
   .schedule-v2-table { border-collapse:separate; border-spacing:0; min-width:1200px; }
   .schedule-v2-table th, .schedule-v2-table td { border:1px solid #d7dfe7 !important; }
   .schedule-v2-table thead th { position:sticky; top:0; background:#eef2f6; z-index:7; }
-  .schedule-v2-fixed { position:sticky; left:0; background:#f9fbfd; min-width:240px; max-width:240px; border-right:2px solid #aeb8c2 !important; background-clip:padding-box; box-shadow:2px 0 0 #aeb8c2; }
-  .schedule-v2-table thead .schedule-v2-fixed { z-index:6; }
-  .schedule-v2-table tbody .schedule-v2-fixed { z-index:5; }
+  .schedule-v2-fixed { position:sticky; left:0; min-width:240px; max-width:240px; border-right:2px solid #aeb8c2 !important; background-clip:padding-box; box-shadow:3px 0 0 #aeb8c2, 8px 0 12px rgba(31, 41, 55, 0.08); }
+  /* Keep the employee column above scrolling shift cells instead of letting them show through. */
+  .schedule-v2-table thead .schedule-v2-fixed { z-index:20; background:#ad0d23 !important; color:#fff !important; }
+  .schedule-v2-table tbody .schedule-v2-fixed { z-index:12; background:#fffdfb !important; background-color:#fffdfb !important; opacity:1; }
+  .schedule-v2-total { position:sticky; right:0; min-width:112px; text-align:center; white-space:nowrap; border-left:2px solid #aeb8c2 !important; background-clip:padding-box; box-shadow:-3px 0 0 #aeb8c2, -8px 0 12px rgba(31, 41, 55, 0.08); }
+  .schedule-v2-table thead .schedule-v2-total { z-index:21; background:#ad0d23 !important; color:#fff !important; }
+  .schedule-v2-table tbody .schedule-v2-total { z-index:11; background:#fffdfb !important; background-color:#fffdfb !important; }
+  .schedule-v2-total-count { display:block; font-size:1rem; font-weight:800; line-height:1.15; }
+  .schedule-v2-total-label { display:block; margin-top:.15rem; font-size:.72rem; color:#7c2d12; }
   .schedule-v2-cell { min-width:58px; text-align:center; font-weight:700; background:#fbf8ea; }
   .schedule-v2-cell[contenteditable="true"] { background:#fffbe8; outline:none; }
   .schedule-v2-cell.is-error { background:#ffe8e8; color:#9f1d1d; }
@@ -40,6 +46,10 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
     background: #ffd9c7 !important;
     border-color: #fb923c !important;
   }
+  .schedule-v2-cell.is-sunday { background:#fbe3e7 !important; color:#8f1728; border-color:#efb7c0 !important; }
+  .schedule-v2-cell.is-sunday[contenteditable="true"] { background:#f8d2d8 !important; }
+  .schedule-v2-cell.is-sunday.schedule-v2-today-head { background:#ffb020 !important; color:#1f2937 !important; border-color:#f08c00 !important; }
+  .schedule-v2-cell.is-sunday.schedule-v2-today-cell { background:#ffd9c7 !important; border-color:#fb923c !important; }
   .schedule-v2-legend code { padding:.15rem .35rem; background:#f1f5f9; border-radius:6px; }
 </style>
 
@@ -70,18 +80,21 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
     <thead>
       <tr>
         <th class="schedule-v2-fixed">Pegawai</th>
-        <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $isHoliday = isset($holidayMap[$date]); $isToday = ($date === $todayDate); ?>
-          <th class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isToday ? ' schedule-v2-today-head' : ''; ?>"><?php echo str_pad((string)$d,2,'0',STR_PAD_LEFT); ?></th>
+        <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $isHoliday = isset($holidayMap[$date]); $isSunday = ((int)date('N', strtotime($date)) === 7); $isToday = ($date === $todayDate); ?>
+          <th class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isSunday ? ' is-sunday' : ''; ?><?php echo $isToday ? ' schedule-v2-today-head' : ''; ?>"><?php echo str_pad((string)$d,2,'0',STR_PAD_LEFT); ?></th>
         <?php endfor; ?>
+        <th class="schedule-v2-total">Total Hadir</th>
       </tr>
     </thead>
     <tbody>
       <?php foreach($employees as $emp): ?>
         <tr>
           <td class="schedule-v2-fixed"><?php echo html_escape(((string)($emp->employee_code ?? '-')) . ' - ' . ((string)($emp->employee_name ?? '-'))); ?></td>
-          <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $val = $scheduleMap[(int)$emp->id][$date] ?? ''; $isHoliday = isset($holidayMap[$date]); $isToday = ($date === $todayDate); ?>
-            <td class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isToday ? ' schedule-v2-today-cell' : ''; ?>" contenteditable="true" data-employee-id="<?php echo (int)$emp->id; ?>" data-date="<?php echo html_escape($date); ?>" data-original="<?php echo html_escape((string)$val); ?>"><?php echo html_escape((string)$val); ?></td>
+          <?php $attendanceScheduleCount = 0; ?>
+          <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $val = $scheduleMap[(int)$emp->id][$date] ?? ''; $isHoliday = isset($holidayMap[$date]); $isSunday = ((int)date('N', strtotime($date)) === 7); $isToday = ($date === $todayDate); if (trim((string)$val) !== '') { $attendanceScheduleCount++; } ?>
+            <td class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isSunday ? ' is-sunday' : ''; ?><?php echo $isToday ? ' schedule-v2-today-cell' : ''; ?>" contenteditable="true" data-employee-id="<?php echo (int)$emp->id; ?>" data-date="<?php echo html_escape($date); ?>" data-original="<?php echo html_escape((string)$val); ?>"><?php echo html_escape((string)$val); ?></td>
           <?php endfor; ?>
+          <td class="schedule-v2-total"><span class="schedule-v2-total-count" data-schedule-attendance-total><?php echo (int)$attendanceScheduleCount; ?></span><span class="schedule-v2-total-label">termasuk PH</span></td>
         </tr>
       <?php endforeach; ?>
     </tbody>
@@ -93,6 +106,20 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
   var warnEl = document.getElementById('scheduleWarn');
   function showWarn(msg){ warnEl.textContent = msg; warnEl.classList.remove('d-none'); }
   function clearWarn(){ warnEl.textContent = ''; warnEl.classList.add('d-none'); }
+
+  function refreshAttendanceTotal(cell){
+    var row = cell.closest('tr');
+    if (!row) return;
+    var total = Array.prototype.reduce.call(
+      row.querySelectorAll('.schedule-v2-cell[contenteditable="true"]'),
+      function(count, scheduleCell){
+        return count + (((scheduleCell.textContent || '').trim() !== '') ? 1 : 0);
+      },
+      0
+    );
+    var totalEl = row.querySelector('[data-schedule-attendance-total]');
+    if (totalEl) totalEl.textContent = String(total);
+  }
 
   function saveCell(cell){
     var employeeId = cell.getAttribute('data-employee-id');
@@ -119,6 +146,7 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
       cell.classList.remove('is-error');
       cell.setAttribute('data-original', shiftCode);
       cell.textContent = shiftCode;
+      refreshAttendanceTotal(cell);
       clearWarn();
     })
     .catch(function(){

@@ -202,14 +202,11 @@ maksud saya misal ada orderan, nah sementara NORI stok nya tidak cukup atau bahk
 <!-- buatkan halaman analisa dan saran dan tampilkan di dashboard, di atas Stok Produk Live POS.
 datanya menganalisa bahan baku yang menumpuk yang merupakan component base/prepare tapi stok base / prepare tersebut kritis atau kosong.
 misal stok Prepare DIMSUM FILL kosong. di formulanya ada ayam, sementara stok ayam di kitchen menumpuk banyak. maka berikan warning / analisa / dan saran untuk memproses DIMSUM FILL -->
-=======
+<!-- =======
 
 
-  * * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100
+  * * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100 -->
 
-  cron untuk semua halaman yang butuh cron. kamu cek semua
-  
-  cek semua halaman yang dobel
 <!-- 
 buatkan halaman analisa dan saran dan tampilkan di dashboard, di atas Stok Produk Live POS.
 datanya menganalisa bahan baku yang menumpuk yang merupakan component base/prepare tapi stok base / prepare tersebut kritis atau kosong.
@@ -246,16 +243,20 @@ kenapa saya coba kirim pesan manual selain 085730012324 tidak bisa? -->
 - apakah kalau server normal masih memungkinkan missmatch dengan kasus yang kamu jelaskan?
 - lakukan perbaikan 1-5 mu, dan untuk repair data buatkan juga sql nya untuk saya run di server -->
 
-sekarang aku ingin kamu memeriksa halaman modul /pos/printers , beserta semua halaman dan database terkait printer, serta hasil cetaknya. saya masih menemukan banyak data ambigu, tumpang tindih, yang akhir nya membingungkan dan tidak simple. padahal prinsip awalnya simple:
+<!-- sekarang aku ingin kamu memeriksa halaman modul /pos/printers , beserta semua halaman dan database terkait printer, serta hasil cetaknya. saya masih menemukan banyak data ambigu, tumpang tindih, yang akhir nya membingungkan dan tidak simple. padahal prinsip awalnya simple:
 1. pengaturan koneksi printer per divisi / lokasi
 2. pengaturan umum tampilan printer (terkait data data master misal nama outlet, logo , dan lain sebagainya)
 3. pengaturan tampilan printer per divisi / lokasi, terkait layouting printer, data apa saja yang ditampilkan dan tidak perlu ditampilkan di masing masing lokasi
 4. halaman panduan.
 5. halaman lain yang menurutmu penting
 
-nah coba lakukan analisa detail, dan buatkan saran perbaikian!
+nah coba lakukan analisa detail, dan buatkan saran perbaikian! -->
 
 
+
+  cron untuk semua halaman yang butuh cron. kamu cek semua
+  
+  cek semua halaman yang dobel
 
 kunci source code untuk dijual, dengan licensi
 pengaturan umum, upload logo, ganti nama, dll
@@ -272,10 +273,22 @@ konsep yang saya inginkan antara lain:
 sementara seperti itu. ada ide diskusi?
 
 
-revisi tampilan cetak payment kasir menampilkan link reviewnya. seharusnya cukup qr code tidak perlu link. perbaiki
+masih di /attendance/schedules-v2 tambahkan kolom paling kanan jumlah jadwal kehadiran termasuk PH
 
 
 cek PH
-jadwal PH kok malah dapat jatah PH, harusnya kan digundakan PH nya
+lakukan pengecekan untuk modul PH / Public Holiday serta korelasinya.
+ketentuan seharusnya adalah:
 
-guarding tanggal jadwal absen yang sudah lewat hari tidak bisa diganti
+- Setiap pegawai yang hadir atau mempunyai jadwal kehadiran di att_shift_schedule selain PH  atau selain shift_id nya adalah PH, pada hari libur nasional yang ada di att_holiday_calendar serta mempunyai hak ph sebagaimana tabel att_ph_eligibility dan dia melakukan presensi, baik manual lokasi maupun pengajuan absensi, maka di mendapatkan 1 jatah PH.
+- PH disini adalah hak pegawai yang sebenarnya dia mendapatkan jatah libur, tapi secara kehadiran dianggap hadir dan mendapatkan perhitungan gaji. posisi sekarang pegawai yang jadwal PH cukup membuka halaman absensi maka sudah dihitung masuk
+- Jumlah PH yang dimiliki pegawai berkurang setiap kali diguanakan dimana pegawai memaiknya di shift_id PH
+- PH expired jika tidak digunakan lebih dari sebagaimana diatur dalam /attendance/settings (saat ini 3 bulan setelah mendapatkan)
+
+sekarang aku ingin kamu lakukan pengecekan:
+- dari penjelasan logika diatas, masih ada bug tersisa. apa saja? dan bagaimana perbaikannya?
+- dari skema diatas, dimulai dari data awal PH pegawai dimana aplikasi ini pertama digunakan, mana saja pegawai yang seharusnya mendapat PH tapi tidak dapat, lalu pegawai yang sudah memakai jatah PH tapi belum berkurang, dan anomali lain yang kamu temukan. jelaskan
+
+
+- harus ada guarding saat admin / HOD melakukan input shift pegawa, PH tidak boleh melebihi jatah sisa. misal EKO tidak punya jatah PH tersisa, dan admin/hod melakukan input jadwal PH untuk eko di tanggal kedepan maka tertolak. 
+- jumlah hari masuk adalah 26 hari, jadi harus ada guarding jadwal absen pegawai tidak bisa lebih dari 26 hari dalam sebulan termasuk PH
