@@ -1,5 +1,11 @@
 # Koreksi Migrasi PH V2 dan Pemeriksaan Pegawai
 
+> Status dokumen: V2 tidak lagi menjadi kebijakan akhir. V2 menjumlahkan seluruh
+> grant historis Core dan membuat saldo pembuka terlalu besar. Gunakan
+> [migrasi PH V3](2026-08-27_migrasi_ph_v3_saldo_awal_core_dan_rekonsiliasi.md),
+> yang memakai `core.org_employee.ph` sebagai saldo awal resmi.
+> Jangan menjalankan preview atau apply V2 lagi pada database aktif.
+
 ## Keputusan Aturan
 
 Finance mulai digunakan pada **1 Juni 2026**. Untuk menjaga batas ini dengan tegas, aturan migrasi yang dipakai sekarang adalah:

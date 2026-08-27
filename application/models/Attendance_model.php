@@ -1208,10 +1208,13 @@ class Attendance_model extends CI_Model
             foreach ($rows as $row) {
                 $txType = strtoupper((string)($row['tx_type'] ?? ''));
                 $qty = round((float)($row['qty_days'] ?? 0), 2);
-                if ($qty <= 0) {
+                if (abs($qty) <= 0.0001) {
                     continue;
                 }
                 if ($txType === 'GRANT') {
+                    if ($qty < 0) {
+                        continue;
+                    }
                     $lot = [
                         'ledger_id' => (int)$row['id'],
                         'remaining' => $qty,
@@ -1220,6 +1223,24 @@ class Attendance_model extends CI_Model
                     ];
                     $lots[] = $lot;
                     $lotById[(int)$row['id']] = count($lots) - 1;
+                    continue;
+                }
+
+                // Migration may create a debit adjustment to settle an
+                // already-approved historic PH use. It is never exposed as
+                // a negative value in the operator form.
+                if ($txType === 'ADJUST') {
+                    if ($qty > 0) {
+                        $lots[] = [
+                            'ledger_id' => (int)$row['id'],
+                            'remaining' => $qty,
+                            'expired_at' => '',
+                            'tx_date' => (string)($row['tx_date'] ?? ''),
+                        ];
+                        $lotById[(int)$row['id']] = count($lots) - 1;
+                    } else {
+                        $consumeFromLots($lots, abs($qty));
+                    }
                     continue;
                 }
 
@@ -1335,22 +1356,83 @@ class Attendance_model extends CI_Model
             $txDate = (string)($row['tx_date'] ?? '');
             $txType = strtoupper((string)($row['tx_type'] ?? ''));
             $qty = round((float)($row['qty_days'] ?? 0), 2);
-            if ($qty <= 0 || $txDate === '' || $txType === '') {
+            if (abs($qty) <= $eps || $txDate === '' || $txType === '') {
                 continue;
             }
 
-            if ($txType === 'GRANT' || $txType === 'ADJUST') {
+            if ($txType === 'GRANT') {
+                if ($qty < 0) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Mutasi GRANT tidak boleh bernilai negatif pada ' . $txDate . '.',
+                    ];
+                }
                 $lots[] = [
                     'ledger_id' => $ledgerId,
                     'remaining' => $qty,
-                    'expired_at' => ($txType === 'GRANT') ? (string)($row['expired_at'] ?? '') : '',
+                    'expired_at' => (string)($row['expired_at'] ?? ''),
                     'tx_date' => $txDate,
-                    'tx_type' => $txType,
+                    'tx_type' => 'GRANT',
                 ];
                 if ($ledgerId > 0) {
                     $lotByLedgerId[$ledgerId] = count($lots) - 1;
                 }
                 continue;
+            }
+
+            if ($txType === 'ADJUST') {
+                if ($qty > 0) {
+                    $lots[] = [
+                        'ledger_id' => $ledgerId,
+                        'remaining' => $qty,
+                        'expired_at' => '',
+                        'tx_date' => $txDate,
+                        'tx_type' => 'ADJUST',
+                    ];
+                    if ($ledgerId > 0) {
+                        $lotByLedgerId[$ledgerId] = count($lots) - 1;
+                    }
+                    continue;
+                }
+
+                $debitQty = abs($qty);
+                $activeAvailable = $sumAvailable(
+                    $lots,
+                    $txDate,
+                    static function (array $lot, string $date): bool {
+                        $exp = (string)($lot['expired_at'] ?? '');
+                        return ($exp === '' || $exp >= $date);
+                    }
+                );
+                if ($debitQty > ($activeAvailable + $eps)) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Koreksi debit PH melebihi saldo aktif pada ' . $txDate . '.',
+                    ];
+                }
+                $remain = $consume(
+                    $lots,
+                    $debitQty,
+                    $txDate,
+                    static function (array $lot, string $date): bool {
+                        $exp = (string)($lot['expired_at'] ?? '');
+                        return ($exp === '' || $exp >= $date);
+                    }
+                );
+                if ($remain > $eps) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Koreksi debit PH gagal dialokasikan ke lot aktif pada ' . $txDate . '.',
+                    ];
+                }
+                continue;
+            }
+
+            if ($qty < 0) {
+                return [
+                    'ok' => false,
+                    'message' => 'Mutasi ' . $txType . ' tidak boleh bernilai negatif pada ' . $txDate . '.',
+                ];
             }
 
             if ($txType === 'USE') {

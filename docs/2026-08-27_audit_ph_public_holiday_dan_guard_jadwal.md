@@ -4,7 +4,7 @@ Tanggal audit lokal: 27 Agustus 2026
 Data yang dibaca: sejak jadwal dan absensi pertama tersedia pada April 2026.  
 Status: guard dan aturan expiry sudah diseragamkan di kode. Riwayat sebelum cutover Finance ditangani oleh migrasi saldo awal Core, bukan dihitung ulang dari data April-Mei Finance.
 
-> Pembaruan cutover: gunakan [koreksi migrasi PH V2 dan pemeriksaan pegawai](2026-08-27_koreksi_migrasi_ph_v2_dan_pemeriksaan_pegawai.md). Finance mulai dipakai 1 Juni 2026, sehingga penggunaan PH sebelum tanggal tersebut tidak boleh mengurangi saldo Finance. V2 membawa seluruh grant Core, mempertahankan tanggal berlaku sampai asli, lalu memvalidasi ulang penggunaan setelah cutover dengan urutan FIFO.
+> Pembaruan cutover: gunakan [migrasi PH V3](2026-08-27_migrasi_ph_v3_saldo_awal_core_dan_rekonsiliasi.md). Finance mulai dipakai 1 Juni 2026, sehingga penggunaan PH sebelum tanggal tersebut tidak boleh mengurangi saldo Finance. V3 memakai `core.org_employee.ph` sebagai saldo awal resmi, bukan seluruh grant historis Core, lalu memvalidasi penggunaan setelah cutover dengan urutan FIFO.
 
 ## Aturan yang Dipakai
 

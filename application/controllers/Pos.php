@@ -13,6 +13,7 @@ class Pos extends MY_Controller
         $this->load->model('Pos_availability_queue_model');
         $this->load->model('Pos_print_model');
         $this->load->model('Pos_customer_review_model');
+        $this->load->model('Pos_reservation_model');
         $this->load->model('Purchase_model');
         $this->load->model('Production_model');
         $this->load->library('PosPrinterPreviewService', null, 'posprinterpreviewservice');
@@ -790,6 +791,169 @@ class Pos extends MY_Controller
         redirect('pos/self-order/orders');
     }
 
+    public function reservations()
+    {
+        $this->require_permission('pos.reservation.index', 'view');
+        $this->render('pos/reservation_index', [
+            'page_title' => 'Reservasi Customer',
+            'active_menu' => 'pos.reservation.index',
+            'pos_master_tab_active' => 'reservation',
+            'filters' => $this->reservation_filters(),
+            'filter_options' => $this->Pos_reservation_model->page_options($this->current_actor_employee_id()),
+            'schema_ready' => $this->Pos_reservation_model->schema_ready(),
+        ]);
+    }
+
+    public function reservations_data()
+    {
+        $this->require_permission('pos.reservation.index', 'view');
+        $this->json_ok($this->Pos_reservation_model->reservation_rows($this->reservation_filters()));
+    }
+
+    public function reservation_products_data()
+    {
+        $this->require_permission('pos.reservation.index', 'view');
+        $this->json_ok($this->Pos_reservation_model->reservation_product_rows($this->reservation_filters()));
+    }
+
+    public function reservation_detail($id)
+    {
+        $this->require_permission('pos.reservation.index', 'view');
+        $reservation = $this->Pos_reservation_model->find_reservation((int)$id);
+        if (!$reservation) {
+            $this->json_error('Reservasi tidak ditemukan.', 404);
+            return;
+        }
+        $this->json_ok(['reservation' => $reservation]);
+    }
+
+    public function reservation_catalog()
+    {
+        $this->require_permission('pos.reservation.index', 'view');
+        $filters = [
+            'q' => trim((string)$this->input->get('q', true)),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'division_id' => max(0, (int)$this->input->get('division_id', true)),
+            'category_id' => max(0, (int)$this->input->get('category_id', true)),
+            'limit' => max(1, min(120, (int)$this->input->get('limit', true) ?: 32)),
+        ];
+        $this->json_ok(['rows' => $this->Pos_model->order_product_catalog($filters)]);
+    }
+
+    public function reservation_bundle_catalog()
+    {
+        $this->require_permission('pos.reservation.index', 'view');
+        $filters = [
+            'q' => trim((string)$this->input->get('q', true)),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'division_id' => max(0, (int)$this->input->get('division_id', true)),
+            'limit' => max(1, min(60, (int)$this->input->get('limit', true) ?: 24)),
+        ];
+        $this->json_ok(['rows' => $this->Pos_model->order_bundle_catalog($filters)]);
+    }
+
+    public function reservation_extra_options()
+    {
+        $this->require_permission('pos.reservation.index', 'view');
+        $productId = max(0, (int)$this->input->get('product_id', true));
+        $this->json_ok(['groups' => $this->Pos_model->order_extra_options($productId)]);
+    }
+
+    public function reservation_member_search()
+    {
+        $this->require_permission('pos.reservation.index', 'view');
+        $q = trim((string)$this->input->get('q', true));
+        $limit = max(1, min(20, (int)$this->input->get('limit', true) ?: 8));
+        $this->json_ok(['rows' => $this->Pos_model->order_member_search($q, $limit)]);
+    }
+
+    public function reservation_save()
+    {
+        $payload = $this->request_payload();
+        $id = max(0, (int)($payload['id'] ?? 0));
+        $this->require_permission('pos.reservation.index', $id > 0 ? 'edit' : 'create');
+        $result = $this->Pos_reservation_model->save_reservation(
+            $payload,
+            $this->current_actor_employee_id(),
+            $this->current_actor_user_id()
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan reservasi.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'id' => (int)($result['id'] ?? 0),
+            'reservation_no' => (string)($result['reservation_no'] ?? ''),
+            'deposit' => (array)($result['deposit'] ?? []),
+            'reservation' => (array)($result['reservation'] ?? []),
+        ]);
+    }
+
+    public function reservation_deposit($id)
+    {
+        $this->require_permission('pos.reservation.index', 'edit');
+        $result = $this->Pos_reservation_model->add_deposit(
+            (int)$id,
+            $this->request_payload(),
+            $this->current_actor_employee_id(),
+            $this->current_actor_user_id()
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menambahkan DP reservasi.'), 422);
+            return;
+        }
+        $this->json_ok([
+            'deposit' => (array)($result['deposit'] ?? []),
+            'reservation' => (array)($result['reservation'] ?? []),
+        ]);
+    }
+
+    public function reservation_verify($id)
+    {
+        $this->require_permission('pos.reservation.index', 'edit');
+        $this->verify_reservation_and_respond(
+            (int)$id,
+            $this->current_actor_employee_id(),
+            $this->current_actor_user_id()
+        );
+    }
+
+    public function reservation_reject($id)
+    {
+        $this->require_permission('pos.reservation.index', 'edit');
+        $payload = $this->request_payload();
+        $result = $this->Pos_reservation_model->reject_reservation(
+            (int)$id,
+            $this->current_actor_employee_id(),
+            $this->current_actor_user_id(),
+            trim((string)($payload['reason'] ?? '')),
+            !empty($payload['refund_deposit'])
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal menolak reservasi.'), 422);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
+    public function reservation_cancel($id)
+    {
+        $this->require_permission('pos.reservation.index', 'delete');
+        $payload = $this->request_payload();
+        $result = $this->Pos_reservation_model->cancel_reservation(
+            (int)$id,
+            $this->current_actor_employee_id(),
+            $this->current_actor_user_id(),
+            trim((string)($payload['reason'] ?? '')),
+            !empty($payload['refund_deposit'])
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Gagal membatalkan reservasi.'), 422);
+            return;
+        }
+        $this->json_ok($result);
+    }
+
     public function self_order_settings()
     {
         $this->require_permission('pos.self_order.index', 'view');
@@ -1120,7 +1284,11 @@ public function self_order_tables_print()
     {
         $this->require_permission('pos.deposit.index', 'create');
         $payload = $this->request_payload();
-        $result = $this->Pos_model->save_deposit($payload, $this->current_actor_employee_id());
+        $result = $this->Pos_model->save_deposit(
+            $payload,
+            $this->current_actor_employee_id(),
+            $this->current_actor_user_id()
+        );
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan deposit / DP.'), 422);
             return;
@@ -1135,7 +1303,11 @@ public function self_order_tables_print()
     public function deposit_void($id)
     {
         $this->require_permission('pos.deposit.index', 'edit');
-        $result = $this->Pos_model->void_deposit((int)$id, $this->current_actor_employee_id());
+        $result = $this->Pos_model->void_deposit(
+            (int)$id,
+            $this->current_actor_employee_id(),
+            $this->current_actor_user_id()
+        );
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal membatalkan deposit / DP.'), 422);
             return;
@@ -5277,6 +5449,24 @@ public function self_order_tables_print()
         ];
     }
 
+    private function reservation_filters(): array
+    {
+        $statusTab = strtoupper(trim((string)$this->input->get('status_tab', true)));
+        if (!in_array($statusTab, ['ACTIVE', 'COMPLETED', 'OVERDUE', 'ALL'], true)) {
+            $statusTab = 'ACTIVE';
+        }
+
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'outlet_id' => max(0, (int)$this->input->get('outlet_id', true)),
+            'status_tab' => $statusTab,
+            'date_from' => $this->optional_report_date_input('date_from'),
+            'date_to' => $this->optional_report_date_input('date_to'),
+            'page' => max(1, (int)$this->input->get('page', true)),
+            'limit' => max(10, min(200, (int)$this->input->get('limit', true) ?: 25)),
+        ];
+    }
+
     private function online_food_location_filters(): array
     {
         $freeStatus = strtoupper(trim((string)$this->input->get('free_status', true)));
@@ -5290,6 +5480,195 @@ public function self_order_tables_print()
             'page' => max(1, (int)$this->input->get('page', true)),
             'limit' => max(10, min(200, (int)$this->input->get('limit', true) ?: 50)),
         ];
+    }
+
+    private function verify_reservation_and_respond(int $reservationId, int $actorEmployeeId, int $actorUserId): void
+    {
+        $this->load->library('PosStockCommitService');
+        $this->load->library('PosRuntimeJobService');
+
+        $prepared = $this->Pos_reservation_model->prepare_verification($reservationId, $actorEmployeeId, $actorUserId);
+        if (!($prepared['ok'] ?? false)) {
+            $this->json_error((string)($prepared['message'] ?? 'Reservasi belum siap diverifikasi.'), 422);
+            return;
+        }
+
+        $orderId = (int)($prepared['order_id'] ?? 0);
+        $isPaid = !empty($prepared['is_paid']);
+        if ($orderId <= 0) {
+            $this->json_error('Order POS hasil reservasi tidak valid.', 422);
+            return;
+        }
+
+        if (!empty($prepared['already_verified'])) {
+            $this->json_ok([
+                'id' => $orderId,
+                'reservation_id' => $reservationId,
+                'already_verified' => true,
+                'workspace_bucket' => $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER',
+                'target_status' => $isPaid ? 'PAID' : 'CONFIRMED',
+                'direct_print_targets' => [],
+            ]);
+            return;
+        }
+
+        if (!empty($prepared['already_pos_finalized'])) {
+            $completed = $this->Pos_reservation_model->complete_verification($reservationId, $orderId, $actorEmployeeId, $isPaid, $actorUserId);
+            if (!($completed['ok'] ?? false)) {
+                $this->json_error((string)($completed['message'] ?? 'Order POS sudah terbentuk, tetapi status reservasi belum dapat diselesaikan.'), 422);
+                return;
+            }
+            $this->json_ok([
+                'id' => $orderId,
+                'reservation_id' => $reservationId,
+                'recovered_finalization' => true,
+                'workspace_bucket' => $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER',
+                'target_status' => $isPaid ? 'PAID' : 'CONFIRMED',
+                'direct_print_targets' => [],
+            ]);
+            return;
+        }
+
+        $resolved = $this->Pos_model->resolve_order_stock_commit_payload($orderId, $actorEmployeeId, [
+            'allowed_statuses' => ['PENDING'],
+        ]);
+        if (!($resolved['ok'] ?? false)) {
+            $this->json_error((string)($resolved['message'] ?? 'Gagal menyiapkan stock commit reservasi.'), 422);
+            return;
+        }
+
+        $warningMessages = [];
+        $warningMessage = trim((string)($resolved['warning_message'] ?? ''));
+        if ($warningMessage !== '') {
+            $warningMessages[] = $warningMessage;
+        }
+
+        $snapshotId = 0;
+        $commitNo = '';
+        $jobId = 0;
+        $jobCode = '';
+        $stockCommitStatus = 'PENDING';
+        $kickoff = [
+            'ok' => false,
+            'mode' => 'not_required',
+            'message' => 'Stock commit dilewati karena seluruh produk reservasi belum memiliki recipe.',
+        ];
+
+        if (!empty($resolved['lines'])) {
+            $snapshot = $this->posstockcommitservice->create_snapshot($orderId, (array)($resolved['header'] ?? []), (array)($resolved['lines'] ?? []));
+            if (!($snapshot['ok'] ?? false)) {
+                $this->json_error((string)($snapshot['message'] ?? 'Gagal membuat snapshot stock commit reservasi.'), 422);
+                return;
+            }
+            $snapshotId = (int)($snapshot['id'] ?? 0);
+            $commitNo = (string)($snapshot['commit_no'] ?? '');
+
+            $queued = $this->posruntimejobservice->queue_order_confirm_commit($orderId, $snapshotId, $actorEmployeeId, [
+                'event_source' => 'RESERVATION_VERIFY',
+                'event_id' => $reservationId,
+            ]);
+            if (!($queued['ok'] ?? false)) {
+                $this->json_error((string)($queued['message'] ?? 'Snapshot reservasi berhasil, tetapi antrean stok gagal dibuat.'), 422, [
+                    'snapshot_id' => $snapshotId,
+                    'commit_no' => $commitNo,
+                ]);
+                return;
+            }
+            $jobId = (int)($queued['job_id'] ?? 0);
+            $jobCode = (string)($queued['job_code'] ?? '');
+            $markQueued = $this->posstockcommitservice->mark_queued($snapshotId);
+            if (!($markQueued['ok'] ?? false)) {
+                $this->posruntimejobservice->cancel_job($jobId, 'Snapshot reservasi gagal ditandai queued.');
+                $this->json_error((string)($markQueued['message'] ?? 'Gagal menandai stock commit reservasi sebagai queued.'), 422);
+                return;
+            }
+            $stockCommitStatus = 'QUEUED';
+            $kickoff = [
+                'ok' => false,
+                'mode' => 'client_trigger_required',
+                'message' => 'Queue stok reservasi akan dipicu dari halaman setelah verifikasi selesai.',
+            ];
+            if (function_exists('fastcgi_finish_request')) {
+                $kickoff = $this->schedule_runtime_job_processing($orderId, $jobId, 1);
+            }
+        }
+
+        $finalize = $this->Pos_model->finalize_self_order_verification($orderId, $snapshotId, $actorEmployeeId, [
+            'payment_mode' => 'RESERVATION',
+            'is_paid' => $isPaid,
+            'payment' => [],
+            'stock_commit_status' => $stockCommitStatus,
+            'verify_destination' => $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER',
+            'allow_paid_destination' => true,
+            'order_label' => 'Reservasi',
+            'event_prefix' => 'RESERVATION',
+        ]);
+        if (!($finalize['ok'] ?? false)) {
+            if ($jobId > 0) {
+                $this->posruntimejobservice->cancel_job($jobId, 'Order reservasi gagal difinalkan setelah queue dibuat.');
+            }
+            $this->json_error((string)($finalize['message'] ?? 'Order reservasi gagal difinalkan.'), 422, [
+                'snapshot_id' => $snapshotId,
+                'commit_no' => $commitNo,
+            ]);
+            return;
+        }
+
+        $completed = $this->Pos_reservation_model->complete_verification($reservationId, $orderId, $actorEmployeeId, $isPaid, $actorUserId);
+        if (!($completed['ok'] ?? false)) {
+            $this->json_error((string)($completed['message'] ?? 'Order reservasi sudah dibuat, tetapi status reservasi belum dapat diperbarui.'), 422, [
+                'order_id' => $orderId,
+                'snapshot_id' => $snapshotId,
+                'commit_no' => $commitNo,
+            ]);
+            return;
+        }
+
+        $this->Pos_order_monitor_model->sync_order_tasks($orderId);
+
+        $directPrintTargets = [];
+        // A ticket is an operational instruction, not a stock-commit result.
+        // With snapshotId 0 the existing printer helper intentionally uses all
+        // order lines, so a recipe gap cannot silently suppress BAR/KITCHEN.
+        $kotPrint = $this->Pos_model->direct_print_targets_for_order_confirm($orderId, $snapshotId);
+        if ($kotPrint['ok'] ?? false) {
+            $directPrintTargets = array_merge($directPrintTargets, (array)($kotPrint['targets'] ?? []));
+        } else {
+            $warningMessages[] = (string)($kotPrint['message'] ?? 'Tiket produksi belum dapat disiapkan untuk cetak.');
+        }
+        $paymentId = (int)($prepared['payment_id'] ?? 0);
+        if ($paymentId > 0 && $isPaid) {
+            $receiptPrint = $this->Pos_model->direct_print_targets_for_payment($paymentId, true);
+            if ($receiptPrint['ok'] ?? false) {
+                $directPrintTargets = array_merge($directPrintTargets, (array)($receiptPrint['targets'] ?? []));
+            } else {
+                $warningMessages[] = (string)($receiptPrint['message'] ?? 'Struk DP belum dapat disiapkan untuk cetak.');
+            }
+        }
+
+        $this->json_ok([
+            'id' => $orderId,
+            'reservation_id' => $reservationId,
+            'snapshot_id' => $snapshotId,
+            'commit_no' => $commitNo,
+            'resolved_line_count' => (int)($resolved['resolved_line_count'] ?? 0),
+            'runtime_job_id' => $jobId,
+            'runtime_job_code' => $jobCode,
+            'runtime_kickoff' => $kickoff,
+            'stock_sync' => [
+                'queued' => $jobId > 0,
+                'status' => $stockCommitStatus,
+                'kickoff_ok' => !empty($kickoff['ok']),
+            ],
+            'stock_commit_status' => $stockCommitStatus,
+            'workspace_bucket' => (string)($finalize['workspace_bucket'] ?? ($isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER')),
+            'target_status' => (string)($finalize['target_status'] ?? ($isPaid ? 'PAID' : 'CONFIRMED')),
+            'payment_id' => $paymentId,
+            'is_paid' => $isPaid ? 1 : 0,
+            'loyalty' => (array)($finalize['loyalty'] ?? []),
+            'direct_print_targets' => $directPrintTargets,
+            'warning_message' => implode(' ', array_values(array_filter($warningMessages))),
+        ]);
     }
 
     private function verify_self_order_and_respond(int $orderId, int $actorEmployeeId, array $payload = [], array $options = []): void
@@ -5702,6 +6081,11 @@ public function self_order_tables_print()
     private function current_actor_employee_id(): int
     {
         return max(0, (int)($this->current_user['employee_id'] ?? 0));
+    }
+
+    private function current_actor_user_id(): int
+    {
+        return max(0, (int)($this->current_user['id'] ?? 0));
     }
 
     private function resolve_cli_php_binary(): ?string

@@ -1938,13 +1938,18 @@ class Pos_model extends CI_Model
             ? (int)$row['member_id']
             : (!empty($paymentContext['member_id']) ? (int)$paymentContext['member_id'] : 0);
         $verifyDestination = strtoupper(trim((string)($context['verify_destination'] ?? '')));
+        // Self order QRIS has always been allowed to go straight to paid
+        // orders. Reservation verification explicitly opts in too when its
+        // linked DP has covered the full invoice; other flows keep the old
+        // cashier destination rule.
+        $allowPaidDestination = !empty($context['allow_paid_destination']);
         if ($paymentMode === 'QRIS' && $isPaid) {
             $verifyDestination = 'PAID_ORDER';
         } else {
             if (!in_array($verifyDestination, ['ACTIVE_CASHIER', 'PAID_ORDER'], true)) {
                 $verifyDestination = $isPaid ? 'PAID_ORDER' : 'ACTIVE_CASHIER';
             }
-            if ($paymentMode !== 'QRIS' || !$isPaid) {
+            if (!$isPaid || ($paymentMode !== 'QRIS' && !$allowPaidDestination)) {
                 $verifyDestination = 'ACTIVE_CASHIER';
             }
         }
@@ -2663,7 +2668,7 @@ class Pos_model extends CI_Model
         ];
     }
 
-    public function save_deposit(array $payload, int $actorEmployeeId): array
+    public function save_deposit(array $payload, int $actorEmployeeId, int $actorUserId = 0): array
     {
         if (!$this->db->table_exists('pos_payment') || !$this->db->table_exists('pos_payment_line')) {
             return ['ok' => false, 'message' => 'Schema payment POS belum tersedia. Jalankan migration payment terlebih dulu.'];
@@ -2715,6 +2720,10 @@ class Pos_model extends CI_Model
         }
 
         $activeSession = $actorEmployeeId > 0 ? $this->find_active_cashier_session($actorEmployeeId) : null;
+        $cashierEmployeeId = $actorEmployeeId > 0 ? $actorEmployeeId : null;
+        $mutationCreatedBy = $actorUserId > 0
+            ? $actorUserId
+            : ($actorEmployeeId > 0 ? $actorEmployeeId : null);
         $this->db->trans_begin();
         try {
             if ($memberId === null) {
@@ -2741,7 +2750,10 @@ class Pos_model extends CI_Model
                 'order_id' => null,
                 'shift_id' => !empty($activeSession['shift_id']) ? (int)$activeSession['shift_id'] : null,
                 'cashier_session_id' => !empty($activeSession['id']) ? (int)$activeSession['id'] : null,
-                'cashier_employee_id' => $actorEmployeeId,
+                // Reservation DP may be received before a cashier is opened.
+                // Keep the employee nullable in that case; the reservation and
+                // account mutation retain the logged-in user as the auditor.
+                'cashier_employee_id' => $cashierEmployeeId,
                 'member_id' => $memberId,
                 'payment_type' => 'DEPOSIT',
                 'payment_status' => 'PAID',
@@ -2790,7 +2802,7 @@ class Pos_model extends CI_Model
                 'ref_id' => $paymentId,
                 'ref_no' => $paymentNo,
                 'notes' => 'DP POS diterima',
-                'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                'created_by' => $mutationCreatedBy,
             ]);
             if (!($financeResult['ok'] ?? false)) {
                 throw new RuntimeException((string)($financeResult['message'] ?? 'Gagal posting DP ke rekening perusahaan.'));
@@ -2813,7 +2825,7 @@ class Pos_model extends CI_Model
         }
     }
 
-    public function void_deposit(int $id, int $actorEmployeeId): array
+    public function void_deposit(int $id, int $actorEmployeeId, int $actorUserId = 0): array
     {
         if ($id <= 0) {
             return ['ok' => false, 'message' => 'Deposit tidak valid.'];
@@ -2877,9 +2889,15 @@ class Pos_model extends CI_Model
 
         $this->db->trans_begin();
         try {
+            $actorLabel = $actorUserId > 0
+                ? 'user ' . $actorUserId
+                : ($actorEmployeeId > 0 ? 'employee ' . $actorEmployeeId : 'system');
+            $mutationCreatedBy = $actorUserId > 0
+                ? $actorUserId
+                : ($actorEmployeeId > 0 ? $actorEmployeeId : null);
             $this->db->where('id', $id)->update('pos_payment', [
                 'payment_status' => 'VOID',
-                'notes' => trim((string)($row['notes'] ?? '') . ' | VOID by employee ' . $actorEmployeeId),
+                'notes' => trim((string)($row['notes'] ?? '') . ' | VOID by ' . $actorLabel),
             ]);
             $this->db->where('payment_id', $id)->update('pos_payment_line', ['status' => 'VOID']);
 
@@ -2893,7 +2911,7 @@ class Pos_model extends CI_Model
                 'ref_id' => $id,
                 'ref_no' => (string)($row['payment_no'] ?? null),
                 'notes' => 'Pembatalan DP POS',
-                'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                'created_by' => $mutationCreatedBy,
                 'reversal_of_mutation_id' => (int)($originMutation['id'] ?? 0),
             ]);
             if (!($financeResult['ok'] ?? false)) {
@@ -2997,6 +3015,13 @@ class Pos_model extends CI_Model
             ? ' LEFT JOIN pos_payment_line pl ON pl.payment_id = p.id LEFT JOIN pos_payment_method pm ON pm.id = pl.payment_method_id '
             : '';
         $forUpdateSql = $forUpdate ? ' FOR UPDATE' : '';
+        // A DP attached to an unverified reservation is not generic member
+        // credit yet. It becomes available again only when the reservation is
+        // rejected/cancelled without a refund, or is applied during verify.
+        $reservationExclusion = '';
+        if ($this->db->table_exists('pos_reservation_payment') && $this->db->table_exists('pos_reservation')) {
+            $reservationExclusion = "\n              AND NOT EXISTS (\n                SELECT 1\n                FROM pos_reservation_payment reservation_payment\n                JOIN pos_reservation reservation ON reservation.id = reservation_payment.reservation_id\n                WHERE reservation_payment.payment_id = p.id\n                  AND reservation.status = 'PENDING'\n                  AND reservation_payment.link_status IN ('OPEN', 'PARTIAL')\n              )";
+        }
 
         $sql = "
             SELECT
@@ -3014,6 +3039,7 @@ class Pos_model extends CI_Model
               AND p.payment_type = 'DEPOSIT'
               AND p.payment_status = 'PAID'
               AND {$remainingExpr} > 0
+              {$reservationExclusion}
             GROUP BY p.id
             ORDER BY COALESCE(p.paid_at, p.created_at) ASC, p.id ASC
             {$forUpdateSql}
@@ -3191,7 +3217,14 @@ class Pos_model extends CI_Model
             $isFullyPaid = $remainingDue <= 0.009;
             $nextOrderStatus = $isFullyPaid ? 'PAID' : 'PAID_PARTIAL';
 
-            $paymentNo = $this->generate_pos_payment_no('FINAL', $now);
+            $reservationSettlement = $this->pending_reservation_settlement_payment($orderId);
+            $reservationDepositApplied = round((float)($reservationSettlement['deposit_applied_amount'] ?? 0), 2);
+            $paymentNo = $reservationSettlement
+                ? (string)($reservationSettlement['payment_no'] ?? '')
+                : $this->generate_pos_payment_no('FINAL', $now);
+            if ($paymentNo === '') {
+                $paymentNo = $this->generate_pos_payment_no('FINAL', $now);
+            }
             $sessionShiftId = !empty($session['shift_id']) ? (int)$session['shift_id'] : 0;
             $paymentShiftId = $this->local_record_exists('pos_shift', $sessionShiftId) ? $sessionShiftId : null;
             $paymentPayload = [
@@ -3210,14 +3243,21 @@ class Pos_model extends CI_Model
                 'voucher_amount' => $voucherAmount,
                 'point_redeem_amount' => $pointRedeemAmount,
                 'compliment_amount' => $complimentAmount,
-                'deposit_applied_amount' => $depositAppliedAmount,
+                // The reservation DP was already applied at verification. A
+                // subsequent cashier payment may still use another open DP.
+                'deposit_applied_amount' => round($reservationDepositApplied + $depositAppliedAmount, 2),
                 'net_amount' => $grandTotal,
                 'change_amount' => $changeTotal,
                 'notes' => $this->nullable_text($payload['notes'] ?? ''),
                 'created_at' => $now,
             ];
-            $this->db->insert('pos_payment', $this->filter_table_payload('pos_payment', $paymentPayload));
-            $paymentId = (int)$this->db->insert_id();
+            if ($reservationSettlement) {
+                $paymentId = (int)($reservationSettlement['id'] ?? 0);
+                $this->db->where('id', $paymentId)->update('pos_payment', $this->filter_table_payload('pos_payment', $paymentPayload));
+            } else {
+                $this->db->insert('pos_payment', $this->filter_table_payload('pos_payment', $paymentPayload));
+                $paymentId = (int)$this->db->insert_id();
+            }
             if ($paymentId <= 0) {
                 throw new RuntimeException($this->db_error_message('Gagal membuat dokumen pembayaran POS.'));
             }
@@ -3303,7 +3343,7 @@ class Pos_model extends CI_Model
                 'paid_now' => $paidNow,
                 'entered_now' => $enteredNow,
                 'change_total' => $changeTotal,
-                'deposit_applied_amount' => $depositAppliedAmount,
+                'deposit_applied_amount' => round($reservationDepositApplied + $depositAppliedAmount, 2),
                 'remaining_due' => $remainingDue,
                 'loyalty' => $loyaltySummary,
             ];
@@ -3317,6 +3357,33 @@ class Pos_model extends CI_Model
     private function is_cashier_payment_allowed_status(string $status): bool
     {
         return in_array($status, ['CONFIRMED', 'PAID_PARTIAL', 'IN_KITCHEN', 'READY', 'SERVED'], true);
+    }
+
+    /**
+     * A reservation can have a partial DP before it reaches the cashier.
+     * Reuse its pending FINAL payment so the later cash settlement remains
+     * one payment document rather than creating a duplicate sale record.
+     */
+    private function pending_reservation_settlement_payment(int $orderId): ?array
+    {
+        if ($orderId <= 0
+            || !$this->db->table_exists('pos_reservation')
+            || !$this->db->field_exists('settlement_payment_id', 'pos_reservation')) {
+            return null;
+        }
+
+        $row = $this->db
+            ->select('p.id, p.payment_no, p.deposit_applied_amount')
+            ->from('pos_reservation r')
+            ->join('pos_payment p', 'p.id = r.settlement_payment_id', 'inner')
+            ->where('r.order_id', $orderId)
+            ->where('p.payment_type', 'FINAL')
+            ->where('p.payment_status', 'PENDING')
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return $row ?: null;
     }
 
     private function current_order_payment_base_total(int $orderId): float
@@ -8153,7 +8220,8 @@ class Pos_model extends CI_Model
             if (in_array((string)($header['status'] ?? ''), ['VOID', 'REFUND_FULL'], true)) {
                 throw new RuntimeException('Order ini sudah tidak bisa di-void lagi.');
             }
-            if (in_array((string)($header['status'] ?? ''), ['PAID', 'PAID_PARTIAL', 'REFUND_PARTIAL', 'SERVED'], true)) {
+            $hasRecordedPayment = (float)($header['paid_total'] ?? 0) > 0.009 || !empty($header['paid_at']);
+            if (in_array((string)($header['status'] ?? ''), ['PAID', 'PAID_PARTIAL', 'REFUND_PARTIAL', 'SERVED'], true) || $hasRecordedPayment) {
                 throw new RuntimeException('Order yang sudah dibayar/disajikan tidak boleh di-void. Gunakan refund agar jejak pembayarannya tetap rapi.');
             }
 
@@ -8346,7 +8414,8 @@ class Pos_model extends CI_Model
 
             $order = (array)($preview['order'] ?? []);
             $header = (array)($order['header'] ?? []);
-            if (!in_array((string)($header['status'] ?? ''), ['PAID', 'PAID_PARTIAL', 'READY', 'SERVED', 'REFUND_PARTIAL'], true)) {
+            $hasRecordedPayment = (float)($header['paid_total'] ?? 0) > 0.009 || !empty($header['paid_at']);
+            if (!in_array((string)($header['status'] ?? ''), ['PAID', 'PAID_PARTIAL', 'READY', 'SERVED', 'REFUND_PARTIAL'], true) && !$hasRecordedPayment) {
                 throw new RuntimeException('Refund hanya boleh dipakai untuk order yang sudah masuk tahap bayar / siap saji / served.');
             }
             if ((float)($header['paid_total'] ?? 0) <= 0 && empty($header['paid_at'])) {
@@ -8684,6 +8753,17 @@ class Pos_model extends CI_Model
     private function generate_local_named_code(string $table, string $column, string $name, string $prefix = '', int $excludeId = 0, int $maxLen = 40): string
     {
         return $this->generate_named_code($this->db, $table, $column, $name, $prefix, $excludeId, $maxLen);
+    }
+
+    public function normalize_reservation_lines(array $lines, int $outletId = 0): array
+    {
+        $result = $this->normalize_order_draft_lines($lines, $outletId);
+        if (!($result['ok'] ?? false)) {
+            $message = (string)($result['message'] ?? 'Produk reservasi belum valid.');
+            $result['message'] = str_replace(['draft order POS', 'Draft order'], ['reservasi', 'Reservasi'], $message);
+        }
+
+        return $result;
     }
 
     private function normalize_order_draft_lines(array $lines, int $outletId = 0): array

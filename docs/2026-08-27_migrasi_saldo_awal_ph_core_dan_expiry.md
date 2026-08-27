@@ -1,6 +1,10 @@
 # Migrasi Saldo Awal PH dari Core
 
-> Status dokumen: migrasi V1 di bawah sudah pernah dijalankan sebagai tahap awal, tetapi kebijakan akhirnya telah diganti oleh [koreksi migrasi PH V2](2026-08-27_koreksi_migrasi_ph_v2_dan_pemeriksaan_pegawai.md). Jangan menjalankan ulang file apply V1. V2 membawa seluruh grant Core, menghitung penggunaan mulai 1 Juni 2026, dan mencatat expiry per lot.
+> Status dokumen: migrasi V1 di bawah sudah pernah dijalankan sebagai tahap awal.
+> V1 dan V2 kini digantikan oleh [migrasi PH V3](2026-08-27_migrasi_ph_v3_saldo_awal_core_dan_rekonsiliasi.md).
+> Jangan menjalankan ulang file apply V1 atau V2; V3 memakai
+> `core.org_employee.ph` sebagai saldo awal resmi dan menutup hasil V1/V2
+> secara berjejak.
 
 ## Tujuan
 
@@ -51,7 +55,7 @@ Nilai bulan expiry pada kebijakan Finance disamakan dengan kebijakan aktif di `c
 
 ## File V1 yang pernah dijalankan
 
-Bagian ini hanya catatan historis. Jangan menjalankan ulang file ini untuk mengoreksi data saat ini. Gunakan urutan file V2 pada dokumen koreksi yang ditautkan di atas.
+Bagian ini hanya catatan historis. Jangan menjalankan ulang file ini untuk mengoreksi data saat ini. Gunakan urutan file V3 pada dokumen migrasi V3 yang ditautkan di atas.
 
 1. [Preview cutover](../sql/2026-08-27e_preview_ph_core_cutover_opening_balance.sql)
 2. [Apply cutover](../sql/2026-08-27f_apply_ph_core_cutover_opening_balance.sql)
