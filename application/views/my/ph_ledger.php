@@ -6,7 +6,7 @@ $filters = $filters ?? [];
 $rows = $rows ?? [];
 $summary = $summary ?? ['balance' => 0, 'grant_total' => 0, 'use_total' => 0, 'expire_total' => 0, 'adjust_total' => 0];
 $pg = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
-$txTypeOptions = $tx_type_options ?? ['GRANT', 'USE', 'EXPIRE', 'ADJUST'];
+$txTypeOptions = $tx_type_options ?? ['GRANT', 'USE', 'EXPIRE', 'ADJUST', 'VOID'];
 $expiredState = strtoupper((string)($filters['expired_state'] ?? 'ALL'));
 $baseQuery = http_build_query(array_filter([
     'employee_id' => $selectedEmployeeId ?: null,

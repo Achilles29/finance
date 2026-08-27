@@ -11,6 +11,7 @@ $shiftCodes = $shift_codes ?? [];
 $holidayMap = array_flip($holiday_dates ?? []);
 $todayDate = date('Y-m-d');
 $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '-01'));
+$scheduleLimitDays = max(1, (int)($schedule_limit_days ?? 26));
 ?>
 <style>
   .schedule-v2-wrap { overflow:auto; max-height:72vh; border:1px solid #d8dee4; border-radius:10px; background:#fff; position: relative; }
@@ -50,6 +51,8 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
   .schedule-v2-cell.is-sunday[contenteditable="true"] { background:#f8d2d8 !important; }
   .schedule-v2-cell.is-sunday.schedule-v2-today-head { background:#ffb020 !important; color:#1f2937 !important; border-color:#f08c00 !important; }
   .schedule-v2-cell.is-sunday.schedule-v2-today-cell { background:#ffd9c7 !important; border-color:#fb923c !important; }
+  .schedule-v2-cell.is-empty-schedule[contenteditable="true"] { background:#f1f5f9 !important; color:#64748b; font-weight:700; }
+  .schedule-v2-cell.is-ph-schedule[contenteditable="true"] { background:#dbeafe !important; color:#075985; }
   .schedule-v2-legend code { padding:.15rem .35rem; background:#f1f5f9; border-radius:6px; }
 </style>
 
@@ -64,7 +67,7 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
     <div class="col-6 col-md-2"><label class="form-label">Tahun</label><input type="number" name="year" min="2000" max="2100" class="form-control" value="<?php echo html_escape($selectedYear); ?>"></div>
     <div class="col-12 col-md-2"><button type="submit" class="btn btn-primary w-100">Tampilkan</button></div>
     <div class="col-12 col-md-6 text-md-end schedule-v2-legend">
-      <small class="text-muted">Isi sel dengan kode shift. Kosongkan sel untuk hapus jadwal. Kode aktif:
+      <small class="text-muted">Isi sel dengan kode shift. Kosongkan sel untuk hapus jadwal. Maksimum normal <strong><?php echo $scheduleLimitDays; ?> hari/bulan</strong> termasuk PH; Security dikecualikan. Kode aktif:
         <?php foreach($shiftCodes as $s): ?>
           <code><?php echo html_escape((string)($s['shift_code'] ?? '')); ?></code>
         <?php endforeach; ?>
@@ -91,8 +94,8 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
         <tr>
           <td class="schedule-v2-fixed"><?php echo html_escape(((string)($emp->employee_code ?? '-')) . ' - ' . ((string)($emp->employee_name ?? '-'))); ?></td>
           <?php $attendanceScheduleCount = 0; ?>
-          <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $val = $scheduleMap[(int)$emp->id][$date] ?? ''; $isHoliday = isset($holidayMap[$date]); $isSunday = ((int)date('N', strtotime($date)) === 7); $isToday = ($date === $todayDate); if (trim((string)$val) !== '') { $attendanceScheduleCount++; } ?>
-            <td class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isSunday ? ' is-sunday' : ''; ?><?php echo $isToday ? ' schedule-v2-today-cell' : ''; ?>" contenteditable="true" data-employee-id="<?php echo (int)$emp->id; ?>" data-date="<?php echo html_escape($date); ?>" data-original="<?php echo html_escape((string)$val); ?>"><?php echo html_escape((string)$val); ?></td>
+          <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $val = $scheduleMap[(int)$emp->id][$date] ?? ''; $shiftCode = strtoupper(trim((string)$val)); $isHoliday = isset($holidayMap[$date]); $isSunday = ((int)date('N', strtotime($date)) === 7); $isToday = ($date === $todayDate); $isEmptySchedule = ($shiftCode === ''); $isPhSchedule = in_array($shiftCode, ['PH', 'PHB'], true); if (!$isEmptySchedule) { $attendanceScheduleCount++; } ?>
+            <td class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isSunday ? ' is-sunday' : ''; ?><?php echo $isEmptySchedule ? ' is-empty-schedule' : ''; ?><?php echo $isPhSchedule ? ' is-ph-schedule' : ''; ?><?php echo $isToday ? ' schedule-v2-today-cell' : ''; ?>" contenteditable="true" data-employee-id="<?php echo (int)$emp->id; ?>" data-date="<?php echo html_escape($date); ?>" data-original="<?php echo html_escape((string)$val); ?>" data-empty-schedule="<?php echo $isEmptySchedule ? '1' : '0'; ?>"><?php echo html_escape($isEmptySchedule ? 'OFF' : $shiftCode); ?></td>
           <?php endfor; ?>
           <td class="schedule-v2-total"><span class="schedule-v2-total-count" data-schedule-attendance-total><?php echo (int)$attendanceScheduleCount; ?></span><span class="schedule-v2-total-label">termasuk PH</span></td>
         </tr>
@@ -107,13 +110,18 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
   function showWarn(msg){ warnEl.textContent = msg; warnEl.classList.remove('d-none'); }
   function clearWarn(){ warnEl.textContent = ''; warnEl.classList.add('d-none'); }
 
+  function getScheduleCode(cell){
+    var shiftCode = (cell.textContent || '').trim().toUpperCase();
+    return shiftCode === 'OFF' ? '' : shiftCode;
+  }
+
   function refreshAttendanceTotal(cell){
     var row = cell.closest('tr');
     if (!row) return;
     var total = Array.prototype.reduce.call(
       row.querySelectorAll('.schedule-v2-cell[contenteditable="true"]'),
       function(count, scheduleCell){
-        return count + (((scheduleCell.textContent || '').trim() !== '') ? 1 : 0);
+        return count + (getScheduleCode(scheduleCell) !== '' ? 1 : 0);
       },
       0
     );
@@ -121,41 +129,84 @@ $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '
     if (totalEl) totalEl.textContent = String(total);
   }
 
+  function refreshScheduleCellState(cell, value){
+    var shiftCode = (typeof value === 'string' ? value : getScheduleCode(cell)).trim().toUpperCase();
+    var isEmpty = (shiftCode === '');
+    cell.setAttribute('data-empty-schedule', isEmpty ? '1' : '0');
+    cell.classList.toggle('is-empty-schedule', isEmpty);
+    cell.classList.toggle('is-ph-schedule', shiftCode === 'PH' || shiftCode === 'PHB');
+    cell.textContent = isEmpty ? 'OFF' : shiftCode;
+  }
+
+  function restoreCell(cell, original){
+    cell.classList.remove('is-error');
+    refreshScheduleCellState(cell, original);
+    refreshAttendanceTotal(cell);
+  }
+
   function saveCell(cell){
     var employeeId = cell.getAttribute('data-employee-id');
     var date = cell.getAttribute('data-date');
-    var shiftCode = (cell.textContent || '').trim().toUpperCase();
+    var shiftCode = getScheduleCode(cell);
     var original = (cell.getAttribute('data-original') || '').trim().toUpperCase();
     if (shiftCode === original) {
-      cell.textContent = shiftCode;
+      refreshScheduleCellState(cell, shiftCode);
       return;
     }
 
-    fetch(<?php echo json_encode(site_url('attendance/schedules-v2/save')); ?>, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json', 'X-Requested-With':'XMLHttpRequest'},
-      body: JSON.stringify({employee_id: employeeId, schedule_date: date, shift_code: shiftCode})
-    })
-    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
-    .then(function(res){
-      if (!res.ok || !res.j || Number(res.j.ok) !== 1) {
-        cell.classList.add('is-error');
-        showWarn((res.j && res.j.message) ? res.j.message : 'Gagal simpan jadwal.');
-        return;
-      }
-      cell.classList.remove('is-error');
-      cell.setAttribute('data-original', shiftCode);
-      cell.textContent = shiftCode;
-      refreshAttendanceTotal(cell);
-      clearWarn();
-    })
-    .catch(function(){
-      cell.classList.add('is-error');
-      showWarn('Terjadi kesalahan koneksi saat menyimpan jadwal.');
-    });
+    function send(allowMonthlyOverride, overrideReason){
+      fetch(<?php echo json_encode(site_url('attendance/schedules-v2/save')); ?>, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json', 'X-Requested-With':'XMLHttpRequest'},
+        body: JSON.stringify({
+          employee_id: employeeId,
+          schedule_date: date,
+          shift_code: shiftCode,
+          allow_monthly_override: allowMonthlyOverride ? 1 : 0,
+          override_reason: overrideReason || ''
+        })
+      })
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(res){
+        var message = (res.j && res.j.message) ? res.j.message : 'Gagal simpan jadwal.';
+        if (!res.ok || !res.j || Number(res.j.ok) !== 1) {
+          if (res.j && Number(res.j.requires_override) === 1) {
+            var approved = window.confirm(message + '\n\nLanjutkan sebagai override Superadmin?');
+            if (approved) {
+              var reason = window.prompt('Catatan alasan override Superadmin:', 'Kebutuhan operasional jadwal');
+              if (reason !== null) {
+                send(true, reason);
+                return;
+              }
+            }
+          }
+          restoreCell(cell, original);
+          showWarn(message);
+          return;
+        }
+        cell.classList.remove('is-error');
+        cell.setAttribute('data-original', shiftCode);
+        refreshScheduleCellState(cell, shiftCode);
+        refreshAttendanceTotal(cell);
+        clearWarn();
+      })
+      .catch(function(){
+        restoreCell(cell, original);
+        showWarn('Terjadi kesalahan koneksi saat menyimpan jadwal.');
+      });
+    }
+
+    send(false, '');
   }
 
   document.querySelectorAll('.schedule-v2-cell[contenteditable="true"]').forEach(function(cell){
+    cell.addEventListener('focus', function(){
+      if (cell.getAttribute('data-empty-schedule') === '1') {
+        cell.textContent = '';
+        cell.setAttribute('data-empty-schedule', '0');
+        cell.classList.remove('is-empty-schedule');
+      }
+    });
     cell.addEventListener('blur', function(){ saveCell(cell); });
     cell.addEventListener('keydown', function(e){
       if (e.key === 'Enter') {

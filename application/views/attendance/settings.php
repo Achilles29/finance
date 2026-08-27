@@ -184,34 +184,26 @@ if ($revisionWindowDays <= 0) {
           <div class="form-text">Mode MANUAL: lembur otomatis dari checkout dimatikan (overtime_minutes = 0). Nilai lembur diambil dari entri lembur manual yang approved.</div>
         </div>
         <div class="col-md-4">
-          <label class="form-label">Mode Kehadiran Shift PH</label>
-          <select name="ph_attendance_mode" class="form-select">
-            <option value="AUTO_PRESENT" <?php echo $phMode === 'AUTO_PRESENT' ? 'selected' : ''; ?>>Auto Hadir Saat Buka Halaman Absen</option>
-            <option value="MANUAL_CLOCK" <?php echo $phMode === 'MANUAL_CLOCK' ? 'selected' : ''; ?>>Tetap Wajib Check-in/Check-out</option>
-          </select>
+          <label class="form-label">Kehadiran Shift PH</label>
+          <div class="form-control bg-light text-wrap py-2">Otomatis hadir saat pegawai membuka halaman Absensi Saya.</div>
+          <input type="hidden" name="ph_attendance_mode" value="AUTO_PRESENT">
+          <div class="form-text">PH adalah hak libur berbayar; shift PH memakai satu saldo PH, bukan presensi kerja biasa.</div>
         </div>
         <div class="col-md-4">
-          <label class="form-label">Cara Mendapat PH</label>
-          <select name="ph_grant_mode" class="form-select">
-            <option value="SHIFT_ONLY" <?php echo $phGrantMode === 'SHIFT_ONLY' ? 'selected' : ''; ?>>Masuk di Shift PH Saja (Disarankan)</option>
-            <option value="HOLIDAY_ONLY" <?php echo $phGrantMode === 'HOLIDAY_ONLY' ? 'selected' : ''; ?>>Legacy: dari attendance holiday</option>
-            <option value="SHIFT_OR_HOLIDAY" <?php echo $phGrantMode === 'SHIFT_OR_HOLIDAY' ? 'selected' : ''; ?>>Legacy campuran: shift PH atau holiday</option>
-          </select>
-          <div class="form-text">Konsep final operasional: PH didapat karena pegawai masuk di jadwal shift PH. Hari libur biasa tidak otomatis menghasilkan PH bila pegawai memang tidak dijadwalkan kerja.</div>
+          <label class="form-label">Aturan Mendapat PH</label>
+          <div class="form-control bg-light text-wrap py-2">Otomatis: pegawai eligible hadir pada hari libur nasional dengan shift kerja reguler.</div>
+          <input type="hidden" name="ph_grant_mode" value="HOLIDAY_ONLY">
+          <input type="hidden" name="ph_grant_holiday_type" value="NATIONAL">
+          <div class="form-text">Shift PH memakai saldo yang sudah ada, bukan menambah jatah baru.</div>
         </div>
         <div class="col-md-2">
           <label class="form-label">Jatah PH / Hari</label>
           <input type="number" min="0.25" step="0.25" name="ph_grant_qty_per_day" class="form-control" value="<?php echo html_escape((string)$val('ph_grant_qty_per_day', 1)); ?>">
         </div>
         <div class="col-md-3">
-          <label class="form-label">Tipe Holiday untuk Grant Legacy</label>
-          <select name="ph_grant_holiday_type" class="form-select">
-            <option value="ANY" <?php echo $phGrantHolidayType === 'ANY' ? 'selected' : ''; ?>>Semua Tipe</option>
-            <option value="NATIONAL" <?php echo $phGrantHolidayType === 'NATIONAL' ? 'selected' : ''; ?>>NATIONAL</option>
-            <option value="COMPANY" <?php echo $phGrantHolidayType === 'COMPANY' ? 'selected' : ''; ?>>COMPANY</option>
-            <option value="SPECIAL" <?php echo $phGrantHolidayType === 'SPECIAL' ? 'selected' : ''; ?>>SPECIAL</option>
-          </select>
-          <div class="form-text">Dipakai hanya bila mode grant masih memakai opsi legacy berbasis holiday.</div>
+          <label class="form-label">Hari yang Diakui</label>
+          <div class="form-control bg-light py-2">Libur nasional aktif</div>
+          <div class="form-text">Libur perusahaan atau special tidak menambah PH kecuali kebijakan resmi diubah melalui pengembangan sistem.</div>
         </div>
         <div class="col-md-2">
           <label class="form-label">Expired PH (bulan)</label>

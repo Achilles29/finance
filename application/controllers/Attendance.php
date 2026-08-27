@@ -78,6 +78,16 @@ class Attendance extends MY_Controller
         return (int)($this->current_user['employee_id'] ?? 0);
     }
 
+    private function schedule_guard_options(bool $allowMonthlyOverride = false, string $overrideReason = ''): array
+    {
+        return [
+            'actor_user_id' => (int)($this->current_user['id'] ?? 0),
+            'is_superadmin' => $this->is_superadmin(),
+            'allow_monthly_override' => $allowMonthlyOverride && $this->is_superadmin(),
+            'override_reason' => trim($overrideReason),
+        ];
+    }
+
     public function settings()
     {
         $this->require_permission('attendance.settings.index', 'view');
@@ -86,18 +96,14 @@ class Attendance extends MY_Controller
         if ($this->input->method() === 'post') {
             $this->require_permission('attendance.settings.index', 'edit');
 
-            $phMode = strtoupper(trim((string)$this->input->post('ph_attendance_mode', true)));
-            if (!in_array($phMode, ['AUTO_PRESENT', 'MANUAL_CLOCK'], true)) {
-                $phMode = 'AUTO_PRESENT';
-            }
-            $phGrantMode = strtoupper(trim((string)$this->input->post('ph_grant_mode', true)));
-            if (!in_array($phGrantMode, ['SHIFT_ONLY', 'HOLIDAY_ONLY', 'SHIFT_OR_HOLIDAY'], true)) {
-                $phGrantMode = strtoupper((string)($currentPolicy['ph_grant_mode'] ?? 'SHIFT_ONLY'));
-            }
-            $phGrantHolidayType = strtoupper(trim((string)$this->input->post('ph_grant_holiday_type', true)));
-            if (!in_array($phGrantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], true)) {
-                $phGrantHolidayType = strtoupper((string)($currentPolicy['ph_grant_holiday_type'] ?? 'ANY'));
-            }
+            // PH is a paid compensatory leave. A PH schedule is marked present
+            // automatically when the employee opens the attendance page.
+            $phMode = 'AUTO_PRESENT';
+            // PH is a compensatory leave: it is granted only for an eligible
+            // employee who really works a normal shift on a national holiday.
+            // Do not let legacy UI values re-open the old mixed logic.
+            $phGrantMode = 'HOLIDAY_ONLY';
+            $phGrantHolidayType = 'NATIONAL';
 
             $pendingScope = strtoupper(trim((string)$this->input->post('pending_request_scope', true)));
             if (!in_array($pendingScope, ['SELF_ONLY', 'POSITION_ONLY', 'SELF_AND_POSITION'], true)) {
@@ -377,6 +383,8 @@ class Attendance extends MY_Controller
             'schedule_map' => $matrix['schedule_map'],
             'shift_codes' => array_values($this->Attendance_model->get_shift_code_map()),
             'holiday_dates' => $this->Attendance_model->get_holiday_dates_between($start, $end),
+            'schedule_limit_days' => max(1, (int)($this->Attendance_model->get_active_policy()['default_work_days_per_month'] ?? 26)),
+            'is_superadmin' => $this->is_superadmin(),
         ];
         $this->render('attendance/schedules_v2', $data);
     }
@@ -400,7 +408,11 @@ class Attendance extends MY_Controller
             (int)($payload['employee_id'] ?? 0),
             trim((string)($payload['schedule_date'] ?? '')),
             strtoupper(trim((string)($payload['shift_code'] ?? ''))),
-            $this->actor_employee_id()
+            $this->actor_employee_id(),
+            $this->schedule_guard_options(
+                !empty($payload['allow_monthly_override']),
+                trim((string)($payload['override_reason'] ?? ''))
+            )
         );
         $statusCode = !empty($result['ok']) ? 200 : 422;
 
@@ -409,6 +421,9 @@ class Attendance extends MY_Controller
             ->set_output(json_encode([
                 'ok' => !empty($result['ok']) ? 1 : 0,
                 'message' => (string)($result['message'] ?? 'Gagal menyimpan jadwal.'),
+                'requires_override' => !empty($result['requires_override']) ? 1 : 0,
+                'scheduled_days' => isset($result['scheduled_days']) ? (int)$result['scheduled_days'] : null,
+                'base_limit_days' => isset($result['base_limit_days']) ? (int)$result['base_limit_days'] : null,
             ]));
     }
 
@@ -423,7 +438,11 @@ class Attendance extends MY_Controller
             (int)$this->input->post('shift_id', true),
             trim((string)$this->input->post('schedule_date', true)),
             trim((string)$this->input->post('notes', true)),
-            $this->actor_employee_id()
+            $this->actor_employee_id(),
+            $this->schedule_guard_options(
+                (bool)$this->input->post('allow_monthly_override'),
+                trim((string)$this->input->post('override_reason', true))
+            )
         );
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan jadwal.'));
         redirect('attendance/schedules');
@@ -439,7 +458,11 @@ class Attendance extends MY_Controller
             $id,
             (int)$this->input->post('shift_id', true),
             trim((string)$this->input->post('schedule_date', true)),
-            trim((string)$this->input->post('notes', true))
+            trim((string)$this->input->post('notes', true)),
+            $this->schedule_guard_options(
+                (bool)$this->input->post('allow_monthly_override'),
+                trim((string)$this->input->post('override_reason', true))
+            )
         );
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal memperbarui jadwal.'));
         redirect('attendance/schedules?' . http_build_query([
@@ -484,7 +507,11 @@ class Attendance extends MY_Controller
             trim((string)$this->input->post('date_start', true)),
             trim((string)$this->input->post('date_end', true)),
             trim((string)$this->input->post('notes', true)),
-            $this->actor_employee_id()
+            $this->actor_employee_id(),
+            $this->schedule_guard_options(
+                (bool)$this->input->post('allow_monthly_override'),
+                trim((string)$this->input->post('override_reason', true))
+            )
         );
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal memproses bulk jadwal.'));
         redirect('attendance/schedules');
@@ -1079,7 +1106,8 @@ class Attendance extends MY_Controller
             'summary' => $summary,
             'edit_row' => $editRow,
             'employee_options' => $this->Attendance_model->get_employee_options(),
-            'tx_type_options' => ['GRANT', 'USE', 'EXPIRE', 'ADJUST'],
+            'tx_type_options' => ['GRANT', 'USE', 'EXPIRE', 'ADJUST', 'VOID'],
+            'manual_tx_type_options' => ['GRANT', 'USE', 'EXPIRE', 'ADJUST'],
         ]);
     }
 

@@ -109,6 +109,236 @@ class Attendance_model extends CI_Model
         return $this->db->affected_rows() > 0;
     }
 
+    private function is_ph_shift_code(string $shiftCode): bool
+    {
+        return in_array(strtoupper(trim($shiftCode)), ['PH', 'PHB'], true);
+    }
+
+    /**
+     * Older releases accidentally granted PH when the employee used a PH
+     * shift. The attendance shift is the immutable business fact; a schedule
+     * may legitimately be corrected before attendance is finalized.
+     */
+    private function legacy_wrong_auto_ph_grant_id_set(int $employeeId = 0, string $asOfDate = ''): array
+    {
+        if (
+            !$this->db->table_exists('att_employee_ph_ledger')
+            || !$this->db->table_exists('att_daily')
+            || !$this->db->table_exists('att_shift')
+        ) {
+            return [];
+        }
+
+        $sql = "
+            SELECT ledger_grant.id
+            FROM att_employee_ph_ledger ledger_grant
+            JOIN att_daily daily_row
+              ON ledger_grant.ref_table = 'att_daily'
+             AND ledger_grant.ref_id = daily_row.id
+            JOIN att_shift daily_shift ON daily_shift.id = daily_row.shift_id
+            WHERE ledger_grant.tx_type = 'GRANT'
+              AND UPPER(COALESCE(ledger_grant.entry_mode, '')) = 'AUTO'
+              AND UPPER(TRIM(COALESCE(daily_shift.shift_code, ''))) IN ('PH', 'PHB')
+        ";
+        $params = [];
+        if ($employeeId > 0) {
+            $sql .= ' AND ledger_grant.employee_id = ?';
+            $params[] = $employeeId;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOfDate)) {
+            $sql .= ' AND ledger_grant.tx_date <= ?';
+            $params[] = $asOfDate;
+        }
+
+        $idSet = [];
+        foreach ($this->db->query($sql, $params)->result_array() as $row) {
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $idSet[$id] = true;
+            }
+        }
+        return $idSet;
+    }
+
+    /**
+     * Keep historical rows visible for audit, but exclude the known reversed
+     * logic and its expiry child rows when calculating usable PH capacity.
+     */
+    private function filter_legacy_wrong_auto_ph_ledger_rows(array $rows, array $wrongGrantIds): array
+    {
+        if (empty($wrongGrantIds)) {
+            return $rows;
+        }
+
+        return array_values(array_filter($rows, static function (array $row) use ($wrongGrantIds): bool {
+            $ledgerId = (int)($row['id'] ?? 0);
+            if ($ledgerId > 0 && isset($wrongGrantIds[$ledgerId])) {
+                return false;
+            }
+
+            return !(
+                strtoupper((string)($row['tx_type'] ?? '')) === 'EXPIRE'
+                && (string)($row['ref_table'] ?? '') === 'att_employee_ph_ledger'
+                && isset($wrongGrantIds[(int)($row['ref_id'] ?? 0)])
+            );
+        }));
+    }
+
+    /**
+     * A PH grant must be based on one real work session, not merely on a
+     * non-empty timestamp that may have been corrected to an unrelated date.
+     */
+    private function is_valid_ph_work_attendance(array $row, array $policy, bool $requireCheckout): bool
+    {
+        $attendanceDate = trim((string)($row['attendance_date'] ?? ''));
+        $status = strtoupper(trim((string)($row['attendance_status'] ?? '')));
+        if ($attendanceDate === '' || !in_array($status, ['PRESENT', 'LATE'], true)) {
+            return false;
+        }
+
+        $checkinAt = trim((string)($row['checkin_at'] ?? ''));
+        $checkoutAt = trim((string)($row['checkout_at'] ?? ''));
+        $checkinTs = $checkinAt !== '' ? strtotime($checkinAt) : 0;
+        $checkoutTs = $checkoutAt !== '' ? strtotime($checkoutAt) : 0;
+        if ($checkinTs <= 0 || date('Y-m-d', $checkinTs) !== $attendanceDate) {
+            return false;
+        }
+        if ($requireCheckout && $checkoutTs <= 0) {
+            return false;
+        }
+        if ($checkoutTs <= 0) {
+            return true;
+        }
+        if ($checkoutTs < $checkinTs) {
+            return false;
+        }
+
+        $startTime = trim((string)($row['scheduled_start_time'] ?? ''));
+        $endTime = trim((string)($row['scheduled_end_time'] ?? ''));
+        if ($startTime === '' || $endTime === '') {
+            return true;
+        }
+
+        $startTs = strtotime($attendanceDate . ' ' . $startTime);
+        $endTs = strtotime($attendanceDate . ' ' . $endTime);
+        $isOvernight = (int)($row['scheduled_is_overnight'] ?? 0) === 1;
+        if ($startTs > 0 && $endTs > 0 && ($isOvernight || $endTs <= $startTs)) {
+            $endTs = strtotime('+1 day', $endTs);
+        }
+        if ($endTs <= 0) {
+            return true;
+        }
+
+        $closeMinutes = max(0, (int)($policy['checkout_close_minutes_after'] ?? 180));
+        return $checkoutTs <= ($endTs + ($closeMinutes * 60));
+    }
+
+    private function list_ph_grant_attendance_candidates(string $dateStart, string $dateEnd, int $employeeId = 0): array
+    {
+        $sql = "
+            SELECT DISTINCT
+                ad.id AS daily_id,
+                ad.employee_id,
+                ad.attendance_date,
+                ad.checkin_at,
+                ad.checkout_at,
+                ad.attendance_status,
+                ad.source_type,
+                scheduled_shift.shift_code AS scheduled_shift_code,
+                scheduled_shift.start_time AS scheduled_start_time,
+                scheduled_shift.end_time AS scheduled_end_time,
+                scheduled_shift.is_overnight AS scheduled_is_overnight,
+                daily_shift.shift_code AS daily_shift_code,
+                pe.effective_date,
+                pe.expiry_months_override
+            FROM att_daily ad
+            JOIN att_shift_schedule ss
+              ON ss.employee_id = ad.employee_id
+              AND ss.schedule_date = ad.attendance_date
+            JOIN att_shift scheduled_shift ON scheduled_shift.id = ss.shift_id
+            LEFT JOIN att_shift daily_shift ON daily_shift.id = ad.shift_id
+            JOIN att_holiday_calendar hc
+              ON hc.holiday_date = ad.attendance_date
+             AND hc.is_active = 1
+             AND hc.holiday_type = 'NATIONAL'
+            JOIN att_ph_eligibility pe
+              ON pe.employee_id = ad.employee_id
+             AND pe.is_eligible = 1
+             AND pe.effective_date <= ad.attendance_date
+            WHERE ad.attendance_date >= ?
+              AND ad.attendance_date <= ?
+              AND ad.attendance_status IN ('PRESENT', 'LATE')
+              AND UPPER(TRIM(COALESCE(scheduled_shift.shift_code, ''))) NOT IN ('PH', 'PHB')
+              AND UPPER(TRIM(COALESCE(daily_shift.shift_code, ''))) NOT IN ('PH', 'PHB')
+        ";
+        $params = [$dateStart, $dateEnd];
+        if ($employeeId > 0) {
+            $sql .= ' AND ad.employee_id = ?';
+            $params[] = $employeeId;
+        }
+        $sql .= ' ORDER BY ad.attendance_date ASC, ad.id ASC';
+        return $this->db->query($sql, $params)->result_array();
+    }
+
+    private function create_ph_grant_from_attendance_row(array $row, array $policy, int $actorUserId): array
+    {
+        $dailyId = (int)($row['daily_id'] ?? 0);
+        $employeeId = (int)($row['employee_id'] ?? 0);
+        $attendanceDate = (string)($row['attendance_date'] ?? '');
+        if ($dailyId <= 0 || $employeeId <= 0 || $attendanceDate === '') {
+            return ['created' => false, 'skipped' => true, 'message' => 'Data absensi kandidat PH tidak lengkap.'];
+        }
+
+        $requireCheckout = (int)($policy['ph_grant_requires_checkout'] ?? 1) === 1;
+        if (!$this->is_valid_ph_work_attendance($row, $policy, $requireCheckout)) {
+            return ['created' => false, 'skipped' => true, 'message' => 'Presensi kerja belum final atau berada di luar rentang shift.'];
+        }
+
+        $exists = $this->db->select('id')
+            ->from('att_employee_ph_ledger')
+            ->where('employee_id', $employeeId)
+            ->where('tx_type', 'GRANT')
+            ->where('ref_table', 'att_daily')
+            ->where('ref_id', $dailyId)
+            ->limit(1)
+            ->get()->row_array();
+        if ($exists) {
+            return ['created' => false, 'skipped' => true, 'message' => 'Grant PH sudah ada.'];
+        }
+
+        $grantQty = round((float)($policy['ph_grant_qty_per_day'] ?? 1), 2);
+        if ($grantQty <= 0) {
+            $grantQty = 1;
+        }
+        $expiryMonths = $row['expiry_months_override'] !== null
+            ? max(0, (int)$row['expiry_months_override'])
+            : max(0, (int)($policy['ph_expiry_months'] ?? 0));
+        $expiredAt = $expiryMonths > 0
+            ? date('Y-m-d', strtotime($attendanceDate . ' +' . $expiryMonths . ' month'))
+            : null;
+        $now = date('Y-m-d H:i:s');
+        $created = $this->insert_ph_grant_ledger([
+            'employee_id' => $employeeId,
+            'tx_date' => $attendanceDate,
+            'tx_type' => 'GRANT',
+            'qty_days' => $grantQty,
+            'expired_at' => $expiredAt,
+            'ref_table' => 'att_daily',
+            'ref_id' => $dailyId,
+            'entry_mode' => 'AUTO',
+            'notes' => 'Auto grant: hadir pada hari libur nasional dengan shift kerja reguler.',
+            'created_by' => $actorUserId > 0 ? $actorUserId : null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return [
+            'created' => $created,
+            'skipped' => !$created,
+            'message' => $created ? 'Grant PH dibuat.' : 'Grant PH sudah ada atau gagal dibuat.',
+        ];
+    }
+
     public function get_active_policy(): array
     {
         $row = $this->db->from('att_attendance_policy')
@@ -118,15 +348,13 @@ class Attendance_model extends CI_Model
             ->get()->row_array();
 
         if ($row) {
-            if (!isset($row['ph_attendance_mode']) || $row['ph_attendance_mode'] === '') {
-                $row['ph_attendance_mode'] = ((int)($row['ph_requires_clock_in_out'] ?? 0) === 1) ? 'MANUAL_CLOCK' : 'AUTO_PRESENT';
-            }
-            if (!isset($row['ph_grant_mode']) || $row['ph_grant_mode'] === '') {
-                $row['ph_grant_mode'] = 'SHIFT_ONLY';
-            }
-            if (!isset($row['ph_grant_holiday_type']) || $row['ph_grant_holiday_type'] === '') {
-                $row['ph_grant_holiday_type'] = 'ANY';
-            }
+            // PH is paid compensatory leave, not a regular clock-in shift.
+            // Keep it automatic regardless of a legacy policy value.
+            $row['ph_attendance_mode'] = 'AUTO_PRESENT';
+            // Keep one business definition everywhere: PH is earned only by
+            // working a regular shift on an active national holiday.
+            $row['ph_grant_mode'] = 'HOLIDAY_ONLY';
+            $row['ph_grant_holiday_type'] = 'NATIONAL';
             if (!isset($row['ph_grant_requires_checkout'])) {
                 $row['ph_grant_requires_checkout'] = 1;
             }
@@ -173,8 +401,8 @@ class Attendance_model extends CI_Model
             'attendance_revision_window_mode' => 'ON',
             'attendance_revision_window_days' => 7,
             'ph_attendance_mode' => 'AUTO_PRESENT',
-            'ph_grant_mode' => 'SHIFT_ONLY',
-            'ph_grant_holiday_type' => 'ANY',
+            'ph_grant_mode' => 'HOLIDAY_ONLY',
+            'ph_grant_holiday_type' => 'NATIONAL',
             'ph_grant_requires_checkout' => 1,
             'ph_grant_qty_per_day' => 1,
             'ph_expiry_months' => 3,
@@ -779,6 +1007,27 @@ class Attendance_model extends CI_Model
         }
     }
 
+    /**
+     * Eligibility changes must not leave a PH schedule that cannot be honored.
+     * Past schedules remain historical and are deliberately out of this guard.
+     */
+    private function count_future_ph_schedules(int $employeeId, string $dateStart, string $dateEndExclusive = ''): int
+    {
+        if ($employeeId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart)) {
+            return 0;
+        }
+
+        $query = $this->db->from('att_shift_schedule ss')
+            ->join('att_shift s', 's.id = ss.shift_id', 'inner')
+            ->where('ss.employee_id', $employeeId)
+            ->where('ss.schedule_date >=', $dateStart)
+            ->where("UPPER(TRIM(COALESCE(s.shift_code, ''))) IN ('PH', 'PHB')", null, false);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEndExclusive)) {
+            $query->where('ss.schedule_date <', $dateEndExclusive);
+        }
+        return (int)$query->count_all_results();
+    }
+
     public function upsert_ph_assignment(array $payload, int $actorUserId): array
     {
         if (!$this->db->table_exists('att_ph_eligibility')) {
@@ -815,9 +1064,24 @@ class Attendance_model extends CI_Model
             $expiryOverride = max(0, (int)$expiryOverride);
         }
 
+        $isEligible = !empty($payload['is_eligible']) ? 1 : 0;
+        $today = date('Y-m-d');
+        $conflictingSchedules = 0;
+        if ($isEligible !== 1) {
+            $conflictingSchedules = $this->count_future_ph_schedules($employeeId, $today);
+        } elseif ($effectiveDate > $today) {
+            $conflictingSchedules = $this->count_future_ph_schedules($employeeId, $today, $effectiveDate);
+        }
+        if ($conflictingSchedules > 0) {
+            return [
+                'ok' => false,
+                'message' => 'Hak PH belum dapat diubah karena masih ada ' . $conflictingSchedules . ' jadwal PH hari ini/masa depan yang akan menjadi tidak valid. Ubah atau hapus jadwal PH tersebut terlebih dahulu.',
+            ];
+        }
+
         $dbPayload = [
             'employee_id' => $employeeId,
-            'is_eligible' => !empty($payload['is_eligible']) ? 1 : 0,
+            'is_eligible' => $isEligible,
             'effective_date' => $effectiveDate,
             'expiry_months_override' => $expiryOverride,
             'notes' => trim((string)($payload['notes'] ?? '')) ?: null,
@@ -846,13 +1110,20 @@ class Attendance_model extends CI_Model
         if ($assignmentId <= 0) {
             return ['ok' => false, 'message' => 'ID assignment tidak valid.'];
         }
-        $row = $this->db->select('id')
+        $row = $this->db->select('id, employee_id')
             ->from('att_ph_eligibility')
             ->where('id', $assignmentId)
             ->limit(1)
             ->get()->row_array();
         if (!$row) {
             return ['ok' => false, 'message' => 'Assignment PH tidak ditemukan.'];
+        }
+        $futureSchedules = $this->count_future_ph_schedules((int)($row['employee_id'] ?? 0), date('Y-m-d'));
+        if ($futureSchedules > 0) {
+            return [
+                'ok' => false,
+                'message' => 'Assignment PH tidak dapat dihapus karena masih ada ' . $futureSchedules . ' jadwal PH hari ini/masa depan. Hapus atau ubah jadwal tersebut terlebih dahulu.',
+            ];
         }
         $this->db->where('id', $assignmentId)->delete('att_ph_eligibility');
         return ['ok' => true, 'message' => 'Assignment PH berhasil dihapus.'];
@@ -887,7 +1158,9 @@ class Attendance_model extends CI_Model
             ->from('att_employee_ph_ledger')
             ->where('tx_type', 'GRANT')
             ->where('expired_at IS NOT NULL', null, false)
-            ->where('expired_at <=', $asOfDate)
+            // expired_at means "berlaku sampai". A lot stays usable on this
+            // exact date and is expired when the following date is processed.
+            ->where('expired_at <', $asOfDate)
             ->get()->result_array();
 
         $inserted = 0;
@@ -897,6 +1170,7 @@ class Attendance_model extends CI_Model
             if ($employeeId <= 0) {
                 continue;
             }
+            $wrongGrantIds = $this->legacy_wrong_auto_ph_grant_id_set($employeeId, $asOfDate);
             $rows = $this->db->select('id, tx_date, tx_type, qty_days, expired_at, ref_table, ref_id')
                 ->from('att_employee_ph_ledger')
                 ->where('employee_id', $employeeId)
@@ -904,6 +1178,7 @@ class Attendance_model extends CI_Model
                 ->order_by('tx_date', 'ASC')
                 ->order_by('id', 'ASC')
                 ->get()->result_array();
+            $rows = $this->filter_legacy_wrong_auto_ph_ledger_rows($rows, $wrongGrantIds);
             if (empty($rows)) {
                 continue;
             }
@@ -971,20 +1246,20 @@ class Attendance_model extends CI_Model
                 $lotId = (int)($lot['ledger_id'] ?? 0);
                 $remaining = round((float)($lot['remaining'] ?? 0), 2);
                 $expiredAt = (string)($lot['expired_at'] ?? '');
-                if ($lotId <= 0 || $remaining <= 0 || $expiredAt === '' || $expiredAt > $asOfDate) {
+                if ($lotId <= 0 || $remaining <= 0 || $expiredAt === '' || $expiredAt >= $asOfDate) {
                     continue;
                 }
 
                 $created = $this->insert_ph_grant_ledger([
                     'employee_id' => $employeeId,
-                    'tx_date' => $expiredAt,
+                    'tx_date' => date('Y-m-d', strtotime($expiredAt . ' +1 day')),
                     'tx_type' => 'EXPIRE',
                     'qty_days' => $remaining,
                     'expired_at' => null,
                     'ref_table' => 'att_employee_ph_ledger',
                     'ref_id' => $lotId,
                     'entry_mode' => 'AUTO',
-                    'notes' => 'Auto expire PH sesuai tanggal expired',
+                    'notes' => 'Auto expire PH setelah tanggal berlaku berakhir.',
                     'created_by' => $actorUserId > 0 ? $actorUserId : null,
                     'created_at' => date('Y-m-d H:i:s'),
                     'updated_at' => date('Y-m-d H:i:s'),
@@ -1553,144 +1828,29 @@ class Attendance_model extends CI_Model
         }
     }
 
-    public function sync_ph_grants_from_attendance(string $dateStart, string $dateEnd, int $actorUserId): array
+    public function sync_ph_grants_from_attendance(string $dateStart, string $dateEnd, int $actorUserId, bool $allowHistorical = false): array
     {
         if (!$this->db->table_exists('att_ph_eligibility') || !$this->db->table_exists('att_employee_ph_ledger')) {
             return ['ok' => false, 'message' => 'Tabel PH belum lengkap. Jalankan migration terbaru.'];
         }
-        if ($dateStart === '' || $dateEnd === '') {
-            return ['ok' => false, 'message' => 'Tanggal awal dan akhir wajib diisi.'];
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd) || $dateEnd < $dateStart) {
+            return ['ok' => false, 'message' => 'Rentang tanggal PH tidak valid.'];
         }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
-            return ['ok' => false, 'message' => 'Format tanggal wajib YYYY-MM-DD.'];
-        }
-        if ($dateEnd < $dateStart) {
-            return ['ok' => false, 'message' => 'Rentang tanggal tidak valid.'];
+        $currentMonthStart = date('Y-m-01');
+        if (!$allowHistorical && $dateStart < $currentMonthStart) {
+            return [
+                'ok' => false,
+                'message' => 'Sinkron massal hanya untuk bulan berjalan agar riwayat PH/payroll lama tidak berubah tanpa rekonsiliasi. Untuk data lama, gunakan laporan audit PH dan koreksi yang disetujui.',
+            ];
         }
 
         $policy = $this->get_active_policy();
-        $grantMode = strtoupper((string)($policy['ph_grant_mode'] ?? 'SHIFT_ONLY'));
-        if (!in_array($grantMode, ['SHIFT_ONLY', 'HOLIDAY_ONLY', 'SHIFT_OR_HOLIDAY'], true)) {
-            $grantMode = 'SHIFT_ONLY';
-        }
-        $grantHolidayType = strtoupper((string)($policy['ph_grant_holiday_type'] ?? 'ANY'));
-        if (!in_array($grantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], true)) {
-            $grantHolidayType = 'ANY';
-        }
-        $requireCheckout = (int)($policy['ph_grant_requires_checkout'] ?? 1) === 1;
-        $grantQty = round((float)($policy['ph_grant_qty_per_day'] ?? 1), 2);
-        if ($grantQty <= 0) {
-            $grantQty = 1;
-        }
-        $defaultExpiryMonths = (int)($policy['ph_expiry_months'] ?? 0);
-        if ($defaultExpiryMonths < 0) {
-            $defaultExpiryMonths = 0;
-        }
-
-        $rows = $this->db->query("
-            SELECT
-                ad.id AS daily_id,
-                ad.employee_id,
-                ad.attendance_date,
-                ad.checkin_at,
-                ad.checkout_at,
-                ad.attendance_status,
-                s.shift_code,
-                hc.holiday_type,
-                pe.effective_date,
-                pe.expiry_months_override
-            FROM att_daily ad
-            JOIN att_ph_eligibility pe ON pe.employee_id = ad.employee_id AND pe.is_eligible = 1
-            LEFT JOIN att_shift s ON s.id = ad.shift_id
-            LEFT JOIN att_holiday_calendar hc ON hc.holiday_date = ad.attendance_date AND hc.is_active = 1
-            WHERE ad.attendance_date >= ? AND ad.attendance_date <= ?
-              AND ad.attendance_status IN ('PRESENT', 'LATE', 'HOLIDAY')
-        ", [$dateStart, $dateEnd])->result_array();
-
+        $rows = $this->list_ph_grant_attendance_candidates($dateStart, $dateEnd);
         $inserted = 0;
         $skipped = 0;
-        $now = date('Y-m-d H:i:s');
         foreach ($rows as $row) {
-            $dailyId = (int)($row['daily_id'] ?? 0);
-            $employeeId = (int)($row['employee_id'] ?? 0);
-            $attendanceDate = (string)($row['attendance_date'] ?? '');
-            if ($dailyId <= 0 || $employeeId <= 0 || $attendanceDate === '') {
-                $skipped++;
-                continue;
-            }
-
-            $effectiveDate = (string)($row['effective_date'] ?? '');
-            if ($effectiveDate !== '' && $attendanceDate < $effectiveDate) {
-                $skipped++;
-                continue;
-            }
-
-            if ($requireCheckout) {
-                $checkinAt = trim((string)($row['checkin_at'] ?? ''));
-                $checkoutAt = trim((string)($row['checkout_at'] ?? ''));
-                if ($checkinAt === '' || $checkoutAt === '') {
-                    $skipped++;
-                    continue;
-                }
-            }
-
-            $shiftCode = strtoupper(trim((string)($row['shift_code'] ?? '')));
-            $holidayType = strtoupper(trim((string)($row['holiday_type'] ?? '')));
-            $isShiftPh = in_array($shiftCode, ['PH', 'PHB'], true);
-            $isHoliday = ($holidayType !== '');
-            if ($grantHolidayType !== 'ANY' && $holidayType !== $grantHolidayType) {
-                $isHoliday = false;
-            }
-
-            $qualified = false;
-            if ($grantMode === 'SHIFT_ONLY') {
-                $qualified = $isShiftPh;
-            } elseif ($grantMode === 'HOLIDAY_ONLY') {
-                $qualified = $isHoliday;
-            } else {
-                $qualified = $isShiftPh || $isHoliday;
-            }
-            if (!$qualified) {
-                $skipped++;
-                continue;
-            }
-
-            $exists = $this->db->select('id')
-                ->from('att_employee_ph_ledger')
-                ->where('employee_id', $employeeId)
-                ->where('tx_type', 'GRANT')
-                ->where('ref_table', 'att_daily')
-                ->where('ref_id', $dailyId)
-                ->limit(1)
-                ->get()->row_array();
-            if ($exists) {
-                $skipped++;
-                continue;
-            }
-
-            $expiryMonths = $row['expiry_months_override'] !== null
-                ? max(0, (int)$row['expiry_months_override'])
-                : $defaultExpiryMonths;
-            $expiredAt = null;
-            if ($expiryMonths > 0) {
-                $expiredAt = date('Y-m-d', strtotime($attendanceDate . ' +' . $expiryMonths . ' month'));
-            }
-
-            $created = $this->insert_ph_grant_ledger([
-                'employee_id' => $employeeId,
-                'tx_date' => $attendanceDate,
-                'tx_type' => 'GRANT',
-                'qty_days' => $grantQty,
-                'expired_at' => $expiredAt,
-                'ref_table' => 'att_daily',
-                'ref_id' => $dailyId,
-                'entry_mode' => 'AUTO',
-                'notes' => 'Auto grant dari absensi PH/holiday',
-                'created_by' => $actorUserId > 0 ? $actorUserId : null,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
-            if ($created) {
+            $result = $this->create_ph_grant_from_attendance_row($row, $policy, $actorUserId);
+            if (!empty($result['created'])) {
                 $inserted++;
             } else {
                 $skipped++;
@@ -1708,136 +1868,155 @@ class Attendance_model extends CI_Model
 
     public function sync_ph_grant_for_employee_date(int $employeeId, string $date, int $actorUserId = 0): array
     {
-        if ($employeeId <= 0 || $date === '') {
-            return ['ok' => false, 'message' => 'Employee/date tidak valid.'];
-        }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-            return ['ok' => false, 'message' => 'Format tanggal tidak valid.'];
+        if ($employeeId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return ['ok' => false, 'inserted' => 0, 'skipped' => 0, 'message' => 'Pegawai atau tanggal PH tidak valid.'];
         }
         if (!$this->db->table_exists('att_ph_eligibility') || !$this->db->table_exists('att_employee_ph_ledger')) {
-            return ['ok' => false, 'message' => 'Tabel PH belum lengkap.'];
+            return ['ok' => false, 'inserted' => 0, 'skipped' => 0, 'message' => 'Tabel PH belum lengkap.'];
         }
 
         $policy = $this->get_active_policy();
-        $grantMode = strtoupper((string)($policy['ph_grant_mode'] ?? 'SHIFT_ONLY'));
-        if (!in_array($grantMode, ['SHIFT_ONLY', 'HOLIDAY_ONLY', 'SHIFT_OR_HOLIDAY'], true)) {
-            $grantMode = 'SHIFT_ONLY';
+        $rows = $this->list_ph_grant_attendance_candidates($date, $date, $employeeId);
+        if (empty($rows)) {
+            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Tidak memenuhi syarat grant PH.'];
         }
-        $grantHolidayType = strtoupper((string)($policy['ph_grant_holiday_type'] ?? 'ANY'));
-        if (!in_array($grantHolidayType, ['ANY', 'NATIONAL', 'COMPANY', 'SPECIAL'], true)) {
-            $grantHolidayType = 'ANY';
-        }
-        $requireCheckout = (int)($policy['ph_grant_requires_checkout'] ?? 1) === 1;
-        $grantQty = round((float)($policy['ph_grant_qty_per_day'] ?? 1), 2);
-        if ($grantQty <= 0) {
-            $grantQty = 1;
-        }
-        $defaultExpiryMonths = max(0, (int)($policy['ph_expiry_months'] ?? 0));
 
+        $inserted = 0;
+        $skipped = 0;
+        foreach ($rows as $row) {
+            $result = $this->create_ph_grant_from_attendance_row($row, $policy, $actorUserId);
+            if (!empty($result['created'])) {
+                $inserted++;
+            } else {
+                $skipped++;
+            }
+        }
+
+        return [
+            'ok' => true,
+            'inserted' => $inserted,
+            'skipped' => $skipped,
+            'message' => $inserted > 0 ? 'Grant PH dibuat.' : 'Grant PH sudah ada atau presensi belum memenuhi syarat.',
+        ];
+    }
+
+    private function get_ph_use_attendance_candidate(int $employeeId, string $date): ?array
+    {
         $row = $this->db->query("
             SELECT
                 ad.id AS daily_id,
                 ad.employee_id,
                 ad.attendance_date,
-                ad.checkin_at,
-                ad.checkout_at,
                 ad.attendance_status,
-                s.shift_code,
-                hc.holiday_type,
-                pe.effective_date,
-                pe.expiry_months_override
+                ss.id AS schedule_id,
+                ss.shift_id AS scheduled_shift_id,
+                scheduled_shift.shift_code AS scheduled_shift_code,
+                ad.shift_id AS daily_shift_id,
+                daily_shift.shift_code AS daily_shift_code,
+                pe.is_eligible,
+                pe.effective_date
             FROM att_daily ad
-            JOIN att_ph_eligibility pe ON pe.employee_id = ad.employee_id AND pe.is_eligible = 1
-            LEFT JOIN att_shift s ON s.id = ad.shift_id
-            LEFT JOIN att_holiday_calendar hc ON hc.holiday_date = ad.attendance_date AND hc.is_active = 1
+            LEFT JOIN att_shift_schedule ss
+              ON ss.employee_id = ad.employee_id
+             AND ss.schedule_date = ad.attendance_date
+            LEFT JOIN att_shift scheduled_shift ON scheduled_shift.id = ss.shift_id
+            JOIN att_shift daily_shift ON daily_shift.id = ad.shift_id
+            LEFT JOIN att_ph_eligibility pe ON pe.employee_id = ad.employee_id
             WHERE ad.employee_id = ?
               AND ad.attendance_date = ?
-              AND ad.attendance_status IN ('PRESENT', 'LATE', 'HOLIDAY')
+              AND ad.attendance_status IN ('HOLIDAY', 'PRESENT', 'LATE')
+              AND UPPER(TRIM(COALESCE(daily_shift.shift_code, ''))) IN ('PH', 'PHB')
+            ORDER BY ad.id DESC
             LIMIT 1
         ", [$employeeId, $date])->row_array();
+        return $row ?: null;
+    }
 
-        if (!$row) {
-            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Tidak memenuhi syarat grant PH.'];
+    /**
+     * Creates the one PH USE mutation tied to a real attendance row. The
+     * ledger reference makes reloads, manual attendance, and approvals idempotent.
+     */
+    public function sync_ph_use_for_employee_date(int $employeeId, string $date, int $actorUserId = 0): array
+    {
+        if ($employeeId <= 0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return ['ok' => false, 'inserted' => 0, 'skipped' => 0, 'message' => 'Pegawai atau tanggal penggunaan PH tidak valid.'];
         }
-
-        $effectiveDate = (string)($row['effective_date'] ?? '');
-        if ($effectiveDate !== '' && $date < $effectiveDate) {
-            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Tanggal absen sebelum effective date PH.'];
-        }
-
-        if ($requireCheckout) {
-            $checkinAt = trim((string)($row['checkin_at'] ?? ''));
-            $checkoutAt = trim((string)($row['checkout_at'] ?? ''));
-            if ($checkinAt === '' || $checkoutAt === '') {
-                return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Grant PH butuh check-in/out lengkap.'];
-            }
+        if (!$this->db->table_exists('att_ph_eligibility') || !$this->db->table_exists('att_employee_ph_ledger')) {
+            return ['ok' => false, 'inserted' => 0, 'skipped' => 0, 'message' => 'Tabel PH belum lengkap.'];
         }
 
-        $shiftCode = strtoupper(trim((string)($row['shift_code'] ?? '')));
-        $holidayType = strtoupper(trim((string)($row['holiday_type'] ?? '')));
-        $isShiftPh = in_array($shiftCode, ['PH', 'PHB'], true);
-        $isHoliday = ($holidayType !== '');
-        if ($grantHolidayType !== 'ANY' && $holidayType !== $grantHolidayType) {
-            $isHoliday = false;
+        $candidate = $this->get_ph_use_attendance_candidate($employeeId, $date);
+        if (!$candidate) {
+            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Tidak ada kehadiran final yang memakai shift PH.'];
+        }
+        if ((int)($candidate['is_eligible'] ?? 0) !== 1 || (string)($candidate['effective_date'] ?? '') > $date) {
+            return ['ok' => false, 'inserted' => 0, 'skipped' => 1, 'message' => 'Pegawai belum memiliki hak PH aktif untuk memakai shift PH ini.'];
         }
 
-        $qualified = false;
-        if ($grantMode === 'SHIFT_ONLY') {
-            $qualified = $isShiftPh;
-        } elseif ($grantMode === 'HOLIDAY_ONLY') {
-            $qualified = $isHoliday;
-        } else {
-            $qualified = $isShiftPh || $isHoliday;
-        }
-        if (!$qualified) {
-            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Tidak memenuhi mode grant PH.'];
-        }
-
-        $dailyId = (int)($row['daily_id'] ?? 0);
-        if ($dailyId <= 0) {
-            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Rekap harian tidak valid.'];
-        }
+        $dailyId = (int)($candidate['daily_id'] ?? 0);
         $exists = $this->db->select('id')
             ->from('att_employee_ph_ledger')
             ->where('employee_id', $employeeId)
-            ->where('tx_type', 'GRANT')
+            ->where('tx_type', 'USE')
             ->where('ref_table', 'att_daily')
             ->where('ref_id', $dailyId)
             ->limit(1)
             ->get()->row_array();
         if ($exists) {
-            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Grant PH sudah pernah dibuat.'];
+            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Penggunaan PH sudah tercatat.'];
         }
 
-        $expiryMonths = $row['expiry_months_override'] !== null
-            ? max(0, (int)$row['expiry_months_override'])
-            : $defaultExpiryMonths;
-        $expiredAt = null;
-        if ($expiryMonths > 0) {
-            $expiredAt = date('Y-m-d', strtotime($date . ' +' . $expiryMonths . ' month'));
+        $this->sync_ph_expiry_ledger(date('Y-m-d'), $actorUserId);
+        $hasMatchingPhSchedule = (int)($candidate['schedule_id'] ?? 0) > 0
+            && $this->is_ph_shift_code((string)($candidate['scheduled_shift_code'] ?? ''));
+        $capacity = $this->validate_ph_schedule_capacity(
+            $employeeId,
+            $date,
+            (int)($candidate['daily_shift_id'] ?? $candidate['scheduled_shift_id'] ?? 0),
+            0,
+            $hasMatchingPhSchedule
+        );
+        if (empty($capacity['ok'])) {
+            return [
+                'ok' => false,
+                'inserted' => 0,
+                'skipped' => 1,
+                'message' => (string)($capacity['message'] ?? 'Saldo PH tidak cukup.'),
+            ];
         }
 
+        $now = date('Y-m-d H:i:s');
         $created = $this->insert_ph_grant_ledger([
             'employee_id' => $employeeId,
             'tx_date' => $date,
-            'tx_type' => 'GRANT',
-            'qty_days' => $grantQty,
-            'expired_at' => $expiredAt,
+            'tx_type' => 'USE',
+            'qty_days' => 1,
+            'expired_at' => null,
             'ref_table' => 'att_daily',
             'ref_id' => $dailyId,
             'entry_mode' => 'AUTO',
-            'notes' => 'Auto grant dari absensi PH/holiday',
+            'notes' => 'Auto use: kehadiran pada jadwal shift PH.',
             'created_by' => $actorUserId > 0 ? $actorUserId : null,
-            'created_at' => date('Y-m-d H:i:s'),
-            'updated_at' => date('Y-m-d H:i:s'),
+            'created_at' => $now,
+            'updated_at' => $now,
         ]);
-
         if (!$created) {
-            return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Grant PH sudah ada atau gagal dibuat.'];
+            $exists = $this->db->select('id')
+                ->from('att_employee_ph_ledger')
+                ->where('employee_id', $employeeId)
+                ->where('tx_type', 'USE')
+                ->where('ref_table', 'att_daily')
+                ->where('ref_id', $dailyId)
+                ->limit(1)
+                ->get()->row_array();
+            if ($exists) {
+                return ['ok' => true, 'inserted' => 0, 'skipped' => 1, 'message' => 'Penggunaan PH sudah tercatat.'];
+            }
+            return ['ok' => false, 'inserted' => 0, 'skipped' => 0, 'message' => 'Gagal mencatat penggunaan PH.'];
         }
-        return ['ok' => true, 'inserted' => 1, 'skipped' => 0, 'message' => 'Grant PH dibuat.'];
-    }
 
+        return ['ok' => true, 'inserted' => 1, 'skipped' => 0, 'message' => 'Penggunaan PH dicatat.'];
+    }
     public function count_overtime_entries(array $f): int
     {
         $this->build_overtime_query($f, false);
@@ -2115,18 +2294,414 @@ class Attendance_model extends CI_Model
         }
     }
 
-    public function save_schedule(int $employeeId, int $shiftId, string $date, string $notes = '', int $createdBy = 0): array
+    private function get_schedule_shift(int $shiftId): ?array
+    {
+        if ($shiftId <= 0) {
+            return null;
+        }
+        $row = $this->db->select('id, shift_code, shift_name')
+            ->from('att_shift')
+            ->where('id', $shiftId)
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        return $row ?: null;
+    }
+
+    private function get_schedule_employee_profile(int $employeeId): ?array
+    {
+        if ($employeeId <= 0) {
+            return null;
+        }
+        $row = $this->db->select('e.id, p.position_code')
+            ->from('org_employee e')
+            ->join('org_position p', 'p.id = e.position_id', 'left')
+            ->where('e.id', $employeeId)
+            ->where('e.is_active', 1)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        return $row ?: null;
+    }
+
+    /**
+     * A finalized attendance row already drives payroll and, for PH, the
+     * ledger. Changing its source schedule afterwards would silently change
+     * the meaning of a completed day, so schedule changes must stop here.
+     */
+    private function validate_finalized_schedule_change(array $scheduleRow, int $newShiftId, string $newDate): array
+    {
+        $employeeId = (int)($scheduleRow['employee_id'] ?? 0);
+        $oldShiftId = (int)($scheduleRow['shift_id'] ?? 0);
+        $oldDate = (string)($scheduleRow['schedule_date'] ?? '');
+        if ($employeeId <= 0 || $oldDate === '' || ($oldShiftId === $newShiftId && $oldDate === $newDate)) {
+            return ['ok' => true];
+        }
+
+        $daily = $this->db->select('id, attendance_status')
+            ->from('att_daily')
+            ->where('employee_id', $employeeId)
+            ->where('attendance_date', $oldDate)
+            ->where_in('attendance_status', ['PRESENT', 'LATE', 'HOLIDAY'])
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$daily) {
+            return ['ok' => true];
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Jadwal tidak dapat diubah karena presensi tanggal ' . date('d/m/Y', strtotime($oldDate)) . ' sudah final. Koreksi melalui proses absensi agar gaji dan ledger PH tetap konsisten.',
+        ];
+    }
+
+    private function validate_finalized_schedule_delete(array $scheduleRow): array
+    {
+        return $this->validate_finalized_schedule_change($scheduleRow, -1, '__DELETE__');
+    }
+
+    private function get_schedule_monthly_override(int $employeeId, string $monthStart): ?array
+    {
+        if (!$this->db->table_exists('att_schedule_monthly_override')) {
+            return null;
+        }
+        $row = $this->db->from('att_schedule_monthly_override')
+            ->where('employee_id', $employeeId)
+            ->where('month_start', $monthStart)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        return $row ?: null;
+    }
+
+    private function save_schedule_monthly_override(int $employeeId, string $monthStart, int $baseLimit, int $approvedLimit, array $options): array
+    {
+        if (!$this->db->table_exists('att_schedule_monthly_override')) {
+            return ['ok' => false, 'message' => 'Migration guard jadwal belum dijalankan.'];
+        }
+
+        $actorUserId = max(0, (int)($options['actor_user_id'] ?? 0));
+        $reason = trim((string)($options['override_reason'] ?? ''));
+        if ($reason === '') {
+            $reason = 'Override Superadmin untuk kebutuhan jadwal operasional.';
+        }
+        $now = date('Y-m-d H:i:s');
+        $payload = [
+            'employee_id' => $employeeId,
+            'month_start' => $monthStart,
+            'base_limit_days' => $baseLimit,
+            'approved_limit_days' => $approvedLimit,
+            'reason' => $reason,
+            'approved_by' => $actorUserId > 0 ? $actorUserId : null,
+            'approved_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+        $sql = $this->db->insert_string('att_schedule_monthly_override', $payload)
+            . ' ON DUPLICATE KEY UPDATE'
+            . ' base_limit_days=VALUES(base_limit_days),'
+            . ' approved_limit_days=GREATEST(approved_limit_days, VALUES(approved_limit_days)),'
+            . ' reason=VALUES(reason),'
+            . ' approved_by=VALUES(approved_by),'
+            . ' approved_at=VALUES(approved_at),'
+            . ' updated_at=VALUES(updated_at)';
+        $this->db->query($sql);
+        return $this->db->error()['code'] ? ['ok' => false, 'message' => 'Gagal menyimpan override batas jadwal.'] : ['ok' => true];
+    }
+
+    /**
+     * Simulate recorded PH mutations plus real past use and future PH
+     * reservations. This prevents a second PH schedule from bypassing the
+     * balance merely because its attendance row has not been created yet.
+     */
+    private function validate_ph_schedule_capacity(
+        int $employeeId,
+        string $candidateDate,
+        int $candidateShiftId,
+        int $excludeScheduleId = 0,
+        bool $candidateAlreadyScheduled = false
+    ): array {
+        $candidateShift = $this->get_schedule_shift($candidateShiftId);
+        if (!$candidateShift || !$this->is_ph_shift_code((string)($candidateShift['shift_code'] ?? ''))) {
+            return ['ok' => true, 'message' => ''];
+        }
+
+        $eligibility = $this->db->select('is_eligible, effective_date')
+            ->from('att_ph_eligibility')
+            ->where('employee_id', $employeeId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$eligibility || (int)($eligibility['is_eligible'] ?? 0) !== 1 || (string)($eligibility['effective_date'] ?? '') > $candidateDate) {
+            return ['ok' => false, 'message' => 'Shift PH ditolak: pegawai belum memiliki hak PH aktif pada tanggal tersebut.'];
+        }
+
+        $ledgerRows = $this->db->select('id, tx_date, tx_type, qty_days, expired_at, ref_table, ref_id')
+            ->from('att_employee_ph_ledger')
+            ->where('employee_id', $employeeId)
+            ->where('tx_date <=', $candidateDate)
+            ->order_by('tx_date', 'ASC')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+
+        // Do not let old bad AUTO grants from PH leave attendance inflate a
+        // new PH schedule. Their expiry children are excluded too.
+        $wrongAutoGrantIds = $this->legacy_wrong_auto_ph_grant_id_set($employeeId, $candidateDate);
+        $ledgerRows = $this->filter_legacy_wrong_auto_ph_ledger_rows($ledgerRows, $wrongAutoGrantIds);
+
+        // Some historic regular-holiday attendances are valid but did not get
+        // their AUTO GRANT. Treat them as a virtual grant for scheduling only.
+        // The ledger stays untouched until an approved historical reconciliation
+        // is run, while employees are not punished or over-credited meanwhile.
+        $grantByDailyId = [];
+        foreach ($ledgerRows as $ledgerRow) {
+            if (
+                strtoupper((string)($ledgerRow['tx_type'] ?? '')) === 'GRANT'
+                && (string)($ledgerRow['ref_table'] ?? '') === 'att_daily'
+                && (int)($ledgerRow['ref_id'] ?? 0) > 0
+            ) {
+                $grantByDailyId[(int)$ledgerRow['ref_id']] = true;
+            }
+        }
+        $policy = $this->get_active_policy();
+        $grantHistoryStart = max('2000-01-01', (string)($eligibility['effective_date'] ?? '2000-01-01'));
+        $grantCandidates = $this->list_ph_grant_attendance_candidates($grantHistoryStart, $candidateDate, $employeeId);
+        $virtualGrantCount = 0;
+        foreach ($grantCandidates as $grantCandidate) {
+            $dailyId = (int)($grantCandidate['daily_id'] ?? 0);
+            if ($dailyId <= 0 || isset($grantByDailyId[$dailyId])) {
+                continue;
+            }
+            $requireCheckout = (int)($policy['ph_grant_requires_checkout'] ?? 1) === 1;
+            if (!$this->is_valid_ph_work_attendance($grantCandidate, $policy, $requireCheckout)) {
+                continue;
+            }
+            $grantQty = round((float)($policy['ph_grant_qty_per_day'] ?? 1), 2);
+            if ($grantQty <= 0) {
+                $grantQty = 1;
+            }
+            $grantDate = (string)($grantCandidate['attendance_date'] ?? '');
+            $expiryMonths = array_key_exists('expiry_months_override', $grantCandidate) && $grantCandidate['expiry_months_override'] !== null
+                ? max(0, (int)$grantCandidate['expiry_months_override'])
+                : max(0, (int)($policy['ph_expiry_months'] ?? 0));
+            $ledgerRows[] = [
+                'id' => 0,
+                'tx_date' => $grantDate,
+                'tx_type' => 'GRANT',
+                'qty_days' => $grantQty,
+                'expired_at' => $expiryMonths > 0 ? date('Y-m-d', strtotime($grantDate . ' +' . $expiryMonths . ' month')) : null,
+                'ref_table' => 'att_daily',
+                'ref_id' => $dailyId,
+            ];
+            $grantByDailyId[$dailyId] = true;
+            $virtualGrantCount++;
+        }
+        $maxSyntheticId = 0;
+        foreach ($ledgerRows as $ledgerRow) {
+            $maxSyntheticId = max($maxSyntheticId, (int)($ledgerRow['id'] ?? 0));
+        }
+
+        $scheduledRows = $this->db->select("\n                ss.id AS schedule_id,\n                ss.schedule_date,\n                ss.shift_id,\n                ad.id AS daily_id,\n                ad.shift_id AS daily_shift_id,\n                ad.attendance_status,\n                daily_shift.shift_code AS daily_shift_code,\n                use_ledger.id AS use_ledger_id\n            ", false)
+            ->from('att_shift_schedule ss')
+            ->join('att_shift s', 's.id = ss.shift_id', 'inner')
+            ->join('att_daily ad', 'ad.employee_id = ss.employee_id AND ad.attendance_date = ss.schedule_date', 'left')
+            ->join('att_shift daily_shift', 'daily_shift.id = ad.shift_id', 'left')
+            ->join("att_employee_ph_ledger use_ledger", "use_ledger.employee_id = ss.employee_id AND use_ledger.tx_type = 'USE' AND use_ledger.ref_table = 'att_daily' AND use_ledger.ref_id = ad.id", 'left', false)
+            ->where('ss.employee_id', $employeeId)
+            ->where('ss.schedule_date <=', $candidateDate)
+            ->where("UPPER(TRIM(COALESCE(s.shift_code, ''))) IN ('PH', 'PHB')", null, false)
+            ->order_by('ss.schedule_date', 'ASC')
+            ->order_by('ss.id', 'ASC')
+            ->get()
+            ->result_array();
+
+        $today = date('Y-m-d');
+        $reserved = 0;
+        foreach ($scheduledRows as $scheduleRow) {
+            if ($excludeScheduleId > 0 && (int)($scheduleRow['schedule_id'] ?? 0) === $excludeScheduleId) {
+                continue;
+            }
+            $scheduleDate = (string)($scheduleRow['schedule_date'] ?? '');
+            $attendanceStatus = strtoupper((string)($scheduleRow['attendance_status'] ?? ''));
+            $dailyShiftIsPh = $this->is_ph_shift_code((string)($scheduleRow['daily_shift_code'] ?? ''));
+            $hasRecordedUse = (int)($scheduleRow['use_ledger_id'] ?? 0) > 0;
+            $isActualPastUse = $scheduleDate < $today
+                && $dailyShiftIsPh
+                && in_array($attendanceStatus, ['HOLIDAY', 'PRESENT', 'LATE'], true);
+            $isFutureReservation = $scheduleDate >= $today;
+            if ($hasRecordedUse || (!$isActualPastUse && !$isFutureReservation)) {
+                continue;
+            }
+            $ledgerRows[] = [
+                'id' => ++$maxSyntheticId,
+                'tx_date' => $scheduleDate,
+                'tx_type' => 'USE',
+                'qty_days' => 1,
+                'expired_at' => null,
+                'ref_table' => 'att_shift_schedule',
+                'ref_id' => (int)($scheduleRow['schedule_id'] ?? 0),
+            ];
+            $reserved++;
+        }
+
+        if (!$candidateAlreadyScheduled) {
+            $ledgerRows[] = [
+                'id' => ++$maxSyntheticId,
+                'tx_date' => $candidateDate,
+                'tx_type' => 'USE',
+                'qty_days' => 1,
+                'expired_at' => null,
+                'ref_table' => 'att_shift_schedule',
+                'ref_id' => 0,
+            ];
+            $reserved++;
+        }
+
+        $integrity = $this->ph_validate_rows_integrity($ledgerRows);
+        if (empty($integrity['ok'])) {
+            return [
+                'ok' => false,
+                'message' => 'Shift PH ditolak: saldo tidak cukup setelah menghitung PH yang sudah dipakai atau dijadwalkan. ' . (string)($integrity['message'] ?? 'Periksa ledger PH.'),
+                'reserved' => $reserved,
+                'virtual_grants' => $virtualGrantCount,
+                'ignored_wrong_auto_grants' => count($wrongAutoGrantIds),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'message' => '',
+            'reserved' => $reserved,
+            'virtual_grants' => $virtualGrantCount,
+            'ignored_wrong_auto_grants' => count($wrongAutoGrantIds),
+        ];
+    }
+
+    /**
+     * Public preflight used by the employee attendance page before it creates
+     * an automatic PH attendance row.
+     */
+    public function validate_scheduled_ph_use(int $employeeId, string $date, int $shiftId): array
+    {
+        return $this->validate_ph_schedule_capacity($employeeId, $date, $shiftId, 0, true);
+    }
+
+    private function validate_schedule_change(int $employeeId, int $shiftId, string $date, int $excludeScheduleId = 0, array $options = []): array
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return ['ok' => false, 'message' => 'Tanggal jadwal tidak valid.'];
+        }
+        $employee = $this->get_schedule_employee_profile($employeeId);
+        if (!$employee) {
+            return ['ok' => false, 'message' => 'Pegawai tidak valid atau nonaktif.'];
+        }
+        $shift = $this->get_schedule_shift($shiftId);
+        if (!$shift) {
+            return ['ok' => false, 'message' => 'Shift tidak valid atau nonaktif.'];
+        }
+
+        if ($this->is_ph_shift_code((string)($shift['shift_code'] ?? ''))) {
+            $capacity = $this->validate_ph_schedule_capacity($employeeId, $date, $shiftId, $excludeScheduleId, false);
+            if (empty($capacity['ok'])) {
+                return $capacity;
+            }
+        }
+
+        $policy = $this->get_active_policy();
+        $baseLimit = max(1, (int)($policy['default_work_days_per_month'] ?? 26));
+        $monthStart = date('Y-m-01', strtotime($date));
+        $monthEnd = date('Y-m-t', strtotime($date));
+        $counter = $this->db->select('COUNT(DISTINCT schedule_date) AS total_days', false)
+            ->from('att_shift_schedule')
+            ->where('employee_id', $employeeId)
+            ->where('schedule_date >=', $monthStart)
+            ->where('schedule_date <=', $monthEnd);
+        if ($excludeScheduleId > 0) {
+            $counter->where('id !=', $excludeScheduleId);
+        }
+        $countRow = $counter->get()->row_array() ?: [];
+        $scheduledAfter = (int)($countRow['total_days'] ?? 0) + 1;
+        $isSecurity = strtoupper(trim((string)($employee['position_code'] ?? ''))) === 'SECURITY';
+        if ($isSecurity || $scheduledAfter <= $baseLimit) {
+            return ['ok' => true, 'message' => '', 'scheduled_days' => $scheduledAfter, 'base_limit_days' => $baseLimit];
+        }
+
+        $override = $this->get_schedule_monthly_override($employeeId, $monthStart);
+        if ($override && (int)($override['approved_limit_days'] ?? 0) >= $scheduledAfter) {
+            return [
+                'ok' => true,
+                'message' => 'Jadwal di atas batas standar memakai override Superadmin yang sudah tercatat.',
+                'warning' => true,
+                'scheduled_days' => $scheduledAfter,
+                'base_limit_days' => $baseLimit,
+            ];
+        }
+
+        $isSuperadmin = !empty($options['is_superadmin']);
+        if (!$isSuperadmin) {
+            return [
+                'ok' => false,
+                'message' => 'Jadwal ditolak: total ' . $scheduledAfter . ' hari melebihi batas ' . $baseLimit . ' hari/bulan. Hanya Superadmin dapat membuka override untuk kebutuhan operasional.',
+                'scheduled_days' => $scheduledAfter,
+                'base_limit_days' => $baseLimit,
+            ];
+        }
+        if (empty($options['allow_monthly_override'])) {
+            return [
+                'ok' => false,
+                'requires_override' => true,
+                'message' => 'Total jadwal menjadi ' . $scheduledAfter . ' hari, melebihi batas ' . $baseLimit . ' hari/bulan. Setujui override Superadmin untuk melanjutkan.',
+                'scheduled_days' => $scheduledAfter,
+                'base_limit_days' => $baseLimit,
+            ];
+        }
+
+        $savedOverride = $this->save_schedule_monthly_override($employeeId, $monthStart, $baseLimit, $scheduledAfter, $options);
+        if (empty($savedOverride['ok'])) {
+            return $savedOverride;
+        }
+        return [
+            'ok' => true,
+            'message' => 'Override Superadmin dicatat: ' . $scheduledAfter . ' hari pada ' . date('F Y', strtotime($monthStart)) . '.',
+            'warning' => true,
+            'scheduled_days' => $scheduledAfter,
+            'base_limit_days' => $baseLimit,
+        ];
+    }
+
+    public function save_schedule(int $employeeId, int $shiftId, string $date, string $notes = '', int $createdBy = 0, array $guardOptions = []): array
     {
         if ($employeeId <= 0 || $shiftId <= 0 || $date === '') {
             return ['ok' => false, 'message' => 'Data jadwal tidak lengkap.'];
         }
 
-        $exists = $this->db->select('id')
+        $exists = $this->db->select('id, employee_id, shift_id, schedule_date')
             ->from('att_shift_schedule')
             ->where('employee_id', $employeeId)
             ->where('schedule_date', $date)
             ->limit(1)
             ->get()->row_array();
+
+        if ($exists) {
+            $finalized = $this->validate_finalized_schedule_change($exists, $shiftId, $date);
+            if (empty($finalized['ok'])) {
+                return $finalized;
+            }
+        }
+
+        $guard = $this->validate_schedule_change(
+            $employeeId,
+            $shiftId,
+            $date,
+            (int)($exists['id'] ?? 0),
+            $guardOptions
+        );
+        if (empty($guard['ok'])) {
+            return $guard;
+        }
 
         $payload = [
             'shift_id' => $shiftId,
@@ -2135,7 +2710,7 @@ class Attendance_model extends CI_Model
         ];
         if ($exists) {
             $this->db->where('id', (int)$exists['id'])->update('att_shift_schedule', $payload);
-            return ['ok' => true, 'message' => 'Jadwal diperbarui.'];
+            return array_merge($guard, ['ok' => true, 'message' => (string)($guard['message'] ?? '') ?: 'Jadwal diperbarui.']);
         }
 
         $this->db->insert('att_shift_schedule', [
@@ -2146,10 +2721,10 @@ class Attendance_model extends CI_Model
             'created_by' => $createdBy > 0 ? $createdBy : null,
             'created_at' => date('Y-m-d H:i:s'),
         ]);
-        return ['ok' => true, 'message' => 'Jadwal ditambahkan.'];
+        return array_merge($guard, ['ok' => true, 'message' => (string)($guard['message'] ?? '') ?: 'Jadwal ditambahkan.']);
     }
 
-    public function update_schedule(int $id, int $shiftId, string $date, string $notes = ''): array
+    public function update_schedule(int $id, int $shiftId, string $date, string $notes = '', array $guardOptions = []): array
     {
         $row = $this->db->from('att_shift_schedule')->where('id', $id)->limit(1)->get()->row_array();
         if (!$row) {
@@ -2157,6 +2732,11 @@ class Attendance_model extends CI_Model
         }
         if ($shiftId <= 0 || $date === '') {
             return ['ok' => false, 'message' => 'Shift dan tanggal wajib diisi.'];
+        }
+
+        $finalized = $this->validate_finalized_schedule_change($row, $shiftId, $date);
+        if (empty($finalized['ok'])) {
+            return $finalized;
         }
 
         $dup = $this->db->select('id')
@@ -2170,13 +2750,24 @@ class Attendance_model extends CI_Model
             return ['ok' => false, 'message' => 'Pegawai sudah punya jadwal lain di tanggal tersebut.'];
         }
 
+        $guard = $this->validate_schedule_change(
+            (int)$row['employee_id'],
+            $shiftId,
+            $date,
+            $id,
+            $guardOptions
+        );
+        if (empty($guard['ok'])) {
+            return $guard;
+        }
+
         $this->db->where('id', $id)->update('att_shift_schedule', [
             'shift_id' => $shiftId,
             'schedule_date' => $date,
             'notes' => ($notes !== '') ? $notes : null,
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
-        return ['ok' => true, 'message' => 'Jadwal berhasil diperbarui.'];
+        return array_merge($guard, ['ok' => true, 'message' => (string)($guard['message'] ?? '') ?: 'Jadwal berhasil diperbarui.']);
     }
 
     public function delete_schedule(int $id): array
@@ -2185,11 +2776,15 @@ class Attendance_model extends CI_Model
         if (!$row) {
             return ['ok' => false, 'message' => 'Jadwal tidak ditemukan.'];
         }
+        $finalized = $this->validate_finalized_schedule_delete($row);
+        if (empty($finalized['ok'])) {
+            return $finalized;
+        }
         $this->db->where('id', $id)->delete('att_shift_schedule');
         return ['ok' => true, 'message' => 'Jadwal berhasil dihapus.'];
     }
 
-    public function bulk_save_schedule(array $employeeIds, int $shiftId, string $startDate, string $endDate, string $notes = '', int $createdBy = 0): array
+    public function bulk_save_schedule(array $employeeIds, int $shiftId, string $startDate, string $endDate, string $notes = '', int $createdBy = 0, array $guardOptions = []): array
     {
         if ($shiftId <= 0 || $startDate === '' || $endDate === '' || empty($employeeIds)) {
             return ['ok' => false, 'message' => 'Data bulk jadwal tidak lengkap.'];
@@ -2213,16 +2808,43 @@ class Attendance_model extends CI_Model
         }
 
         $affected = 0;
-        $this->db->trans_start();
+        $this->db->trans_begin();
         for ($ts = $startTs; $ts <= $endTs; $ts = strtotime('+1 day', $ts)) {
             $date = date('Y-m-d', $ts);
             foreach (array_keys($cleanEmployeeIds) as $employeeId) {
-                $exists = $this->db->select('id')
+                $exists = $this->db->select('id, employee_id, shift_id, schedule_date')
                     ->from('att_shift_schedule')
                     ->where('employee_id', $employeeId)
                     ->where('schedule_date', $date)
                     ->limit(1)
                     ->get()->row_array();
+
+                if ($exists) {
+                    $finalized = $this->validate_finalized_schedule_change($exists, $shiftId, $date);
+                    if (empty($finalized['ok'])) {
+                        $this->db->trans_rollback();
+                        return [
+                            'ok' => false,
+                            'message' => 'Bulk dibatalkan pada ' . $date . ' untuk pegawai #' . $employeeId . ': ' . (string)($finalized['message'] ?? 'Presensi final tidak boleh diubah.'),
+                        ];
+                    }
+                }
+
+                $guard = $this->validate_schedule_change(
+                    $employeeId,
+                    $shiftId,
+                    $date,
+                    (int)($exists['id'] ?? 0),
+                    $guardOptions
+                );
+                if (empty($guard['ok'])) {
+                    $this->db->trans_rollback();
+                    return [
+                        'ok' => false,
+                        'message' => 'Bulk dibatalkan pada ' . $date . ' untuk pegawai #' . $employeeId . ': ' . (string)($guard['message'] ?? 'Validasi jadwal gagal.'),
+                        'requires_override' => !empty($guard['requires_override']),
+                    ];
+                }
                 if ($exists) {
                     $this->db->where('id', (int)$exists['id'])->update('att_shift_schedule', [
                         'shift_id' => $shiftId,
@@ -2242,7 +2864,7 @@ class Attendance_model extends CI_Model
                 $affected++;
             }
         }
-        $this->db->trans_complete();
+        $this->db->trans_commit();
         if (!$this->db->trans_status()) {
             return ['ok' => false, 'message' => 'Gagal menyimpan bulk jadwal.'];
         }
@@ -2325,7 +2947,7 @@ class Attendance_model extends CI_Model
         }, $rows)));
     }
 
-    public function upsert_schedule_by_shift_code(int $employeeId, string $date, string $shiftCode, int $actorEmployeeId = 0): array
+    public function upsert_schedule_by_shift_code(int $employeeId, string $date, string $shiftCode, int $actorEmployeeId = 0, array $guardOptions = []): array
     {
         $shiftCode = strtoupper(trim($shiftCode));
         $date = trim($date);
@@ -2344,13 +2966,24 @@ class Attendance_model extends CI_Model
         }
 
         if ($shiftCode === '') {
-            $this->db->where('employee_id', $employeeId)
+            $existing = $this->db->from('att_shift_schedule')
+                ->where('employee_id', $employeeId)
                 ->where('schedule_date', $date)
-                ->delete('att_shift_schedule');
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if ($existing) {
+                $finalized = $this->validate_finalized_schedule_delete($existing);
+                if (empty($finalized['ok'])) {
+                    return $finalized;
+                }
+                $this->db->where('id', (int)$existing['id'])->delete('att_shift_schedule');
+            }
             return ['ok' => true, 'message' => 'Jadwal dihapus.'];
         }
 
-        $shift = $this->db->select('id')
+        $shift = $this->db->select('id, shift_code')
             ->from('att_shift')
             ->where('shift_code', $shiftCode)
             ->where('is_active', 1)
@@ -2360,19 +2993,52 @@ class Attendance_model extends CI_Model
             return ['ok' => false, 'message' => 'Kode shift tidak valid: ' . $shiftCode];
         }
 
-        $now = date('Y-m-d H:i:s');
-        $payload = [
-            'employee_id' => $employeeId,
-            'schedule_date' => $date,
-            'shift_id' => (int)$shift['id'],
-            'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
-            'updated_at' => $now,
-        ];
-        $sql = $this->db->insert_string('att_shift_schedule', $payload);
-        $sql .= ' ON DUPLICATE KEY UPDATE shift_id=VALUES(shift_id), updated_at=VALUES(updated_at), notes=NULL';
-        $this->db->query($sql);
+        // Update one existing row explicitly. This keeps the spreadsheet safe
+        // even before a legacy database receives its unique schedule migration.
+        $existing = $this->db->select('id, employee_id, shift_id, schedule_date')
+            ->from('att_shift_schedule')
+            ->where('employee_id', $employeeId)
+            ->where('schedule_date', $date)
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if ($existing) {
+            $finalized = $this->validate_finalized_schedule_change($existing, (int)$shift['id'], $date);
+            if (empty($finalized['ok'])) {
+                return $finalized;
+            }
+        }
+        $guard = $this->validate_schedule_change(
+            $employeeId,
+            (int)$shift['id'],
+            $date,
+            (int)($existing['id'] ?? 0),
+            $guardOptions
+        );
+        if (empty($guard['ok'])) {
+            return $guard;
+        }
 
-        return ['ok' => true, 'message' => 'Jadwal tersimpan.'];
+        $now = date('Y-m-d H:i:s');
+        if ($existing) {
+            $this->db->where('id', (int)$existing['id'])->update('att_shift_schedule', [
+                'shift_id' => (int)$shift['id'],
+                'notes' => null,
+                'updated_at' => $now,
+            ]);
+        } else {
+            $this->db->insert('att_shift_schedule', [
+                'employee_id' => $employeeId,
+                'schedule_date' => $date,
+                'shift_id' => (int)$shift['id'],
+                'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        return array_merge($guard, ['ok' => true, 'message' => (string)($guard['message'] ?? '') ?: 'Jadwal tersimpan.']);
     }
 
     public function get_active_locations(): array
@@ -3115,6 +3781,10 @@ class Attendance_model extends CI_Model
                 $this->db->where('id', (int)$dailyRow['id'])->update('att_daily', $dailyPayrollPayload);
             }
             $this->sync_ph_grant_for_employee_date($employeeId, $date, 0);
+            $use = $this->sync_ph_use_for_employee_date($employeeId, $date, 0);
+            if (empty($use['ok'])) {
+                return $use;
+            }
         }
 
         return ['ok' => true, 'message' => ''];

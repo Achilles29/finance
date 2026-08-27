@@ -273,10 +273,10 @@ konsep yang saya inginkan antara lain:
 sementara seperti itu. ada ide diskusi?
 
 
-masih di /attendance/schedules-v2 tambahkan kolom paling kanan jumlah jadwal kehadiran termasuk PH
+<!-- masih di /attendance/schedules-v2 tambahkan kolom paling kanan jumlah jadwal kehadiran termasuk PH -->
 
 
-cek PH
+<!-- cek PH
 lakukan pengecekan untuk modul PH / Public Holiday serta korelasinya.
 ketentuan seharusnya adalah:
 
@@ -291,4 +291,18 @@ sekarang aku ingin kamu lakukan pengecekan:
 
 
 - harus ada guarding saat admin / HOD melakukan input shift pegawa, PH tidak boleh melebihi jatah sisa. misal EKO tidak punya jatah PH tersisa, dan admin/hod melakukan input jadwal PH untuk eko di tanggal kedepan maka tertolak. 
-- jumlah hari masuk adalah 26 hari, jadi harus ada guarding jadwal absen pegawai tidak bisa lebih dari 26 hari dalam sebulan termasuk PH
+- jumlah hari masuk adalah 26 hari (sesuai pengaturan di /attendance/settings), jadi harus ada guarding jadwal absen pegawai tidak bisa lebih dari 26 hari dalam sebulan termasuk PH, kecuali ditentukan lain. kecuali security. jadi kalau admin/hod melakukan input jadwal melebih hari pengaturan nanti ada warning, nanti superadmin yang akan menentukan apakah dibuka untuk lebih dari hari sesuai pengaturan atau tidak -->
+
+
+sekarang buatkan modul halaman reservasi.
+reservasi digunakan untuk mencatat reservasi customer, kemudian disimpan ke database. 
+skema tampilan, admin menambahkan data reservasi seperti pada orderan biasa, mengisi data seperti nama dan lainnya, produk dan extra nya, kemudian ada total tagihan. kemudian ada input DP sesuai metode pembayaran(input DP masuk ke mutasi keuangan sesuai rekening)
+kemudian ketika kasir melakukan verifikasi, bisa edit, tolak, terima, kemudian ketika di verifikasi otomatis masuk ke orderan aktif POS jika belum lunas, masuk ke pesanan terbayar jika sudah lunas, dan printer mencetak sesuai dengan ketentuan
+
+tampilan halaman jadi 2 tab.
+- tab pertama tampilan per transaksi, dengan tab turunan tab aktif, selesai, sudah lewat. urutan tampilan paling atas yang belum diverifikasi, yang sudah diverifikasi dibawah 
+- tab rincian produk, berisi rincian produknya agar memudahkan divisi menghitung produk
+
+- masukkan ke sidebar dibawah self odere, masukkan hak akses full ke superadmin, management , hod, barista
+
+kembangkan lagi sesuai dengan pengetahuanmu. kejutkan saya!

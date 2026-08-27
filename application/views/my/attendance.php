@@ -6,6 +6,7 @@ $policy = $policy ?? [];
 $today = $today ?? date('Y-m-d');
 $todaySchedule = $today_schedule ?? null;
 $todayPresence = $today_presence ?? ['checkin_count'=>0,'checkout_count'=>0,'last_checkin_at'=>null,'last_checkout_at'=>null];
+$phAutoResult = $ph_auto_result ?? null;
 $pendingPeerFeedback = $pending_peer_feedback ?? [];
 $locationOptions = $location_options ?? [];
 $defaultLocationId = (int)($default_location_id ?? 0);
@@ -73,6 +74,12 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   Data pegawai tidak ditemukan pada akun ini. Hubungkan dulu `auth_user.employee_id`.
 </div>
 <?php else: ?>
+<?php if (is_array($phAutoResult) && empty($phAutoResult['ok'])): ?>
+<div class="alert alert-danger border-0 shadow-sm">
+  <div class="fw-semibold">Shift PH belum dapat ditandai hadir</div>
+  <div class="small"><?php echo html_escape((string)($phAutoResult['message'] ?? 'Saldo PH tidak cukup.')); ?></div>
+</div>
+<?php endif; ?>
 <?php if (!empty($pendingPeerFeedback)): ?>
 <div class="alert alert-warning border-0 shadow-sm">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">

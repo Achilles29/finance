@@ -4,8 +4,15 @@ $rows = $rows ?? [];
 $pg = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $summary = $summary ?? ['grant' => 0, 'use' => 0, 'expire' => 0, 'adjust' => 0, 'balance' => 0];
 $employeeOptions = $employee_options ?? [];
-$txTypeOptions = $tx_type_options ?? ['GRANT', 'USE', 'EXPIRE', 'ADJUST'];
+$txTypeOptions = $tx_type_options ?? ['GRANT', 'USE', 'EXPIRE', 'ADJUST', 'VOID'];
+$manualTxTypeOptions = $manual_tx_type_options ?? ['GRANT', 'USE', 'EXPIRE', 'ADJUST'];
 $editRow = $edit_row ?? null;
+$currentMonthStart = date('Y-m-01');
+$syncDateStart = max($currentMonthStart, (string)($filters['date_start'] ?? $currentMonthStart));
+$syncDateEnd = (string)($filters['date_end'] ?? date('Y-m-t'));
+if ($syncDateEnd < $syncDateStart) {
+    $syncDateEnd = date('Y-m-t');
+}
 
 $buildQuery = static function (array $overrides = []) use ($filters, $pg): string {
     $base = [
@@ -50,6 +57,10 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   <span class="text-muted small">Total: <?php echo (int)$pg['total']; ?></span>
 </div>
 
+<div class="alert alert-warning py-2 small mb-3">
+  <strong>Catatan saldo:</strong> angka ledger di bawah adalah riwayat yang pernah tercatat. Saat admin menjadwalkan PH baru, sistem memakai saldo efektif: grant otomatis lama yang keliru dari shift PH tidak dipakai, sedangkan hak dari presensi libur nasional yang valid tetapi belum tercatat tetap diperhitungkan untuk mencegah jadwal salah. Riwayat lama tidak diubah otomatis.
+</div>
+
 <div class="row g-3 mb-3">
   <div class="col-md-2"><div class="card"><div class="card-body py-2"><small class="text-muted d-block">Grant</small><div class="fw-semibold text-success"><?php echo number_format((float)$summary['grant'], 2, ',', '.'); ?></div></div></div></div>
   <div class="col-md-2"><div class="card"><div class="card-body py-2"><small class="text-muted d-block">Use</small><div class="fw-semibold text-danger"><?php echo number_format((float)$summary['use'], 2, ',', '.'); ?></div></div></div></div>
@@ -86,7 +97,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
         <form method="post" action="<?php echo !empty($editRow) ? site_url('attendance/ph-ledger/update/' . (int)$editRow['id']) : site_url('attendance/ph-ledger/store'); ?>" class="row g-2 align-items-end">
           <div class="col-md-5"><label class="form-label mb-1">Pegawai</label><select class="form-select" name="employee_id" required><option value="">Pilih pegawai...</option><?php foreach ($employeeOptions as $opt): ?><option value="<?php echo (int)$opt['value']; ?>" <?php echo (!empty($editRow) && (int)$editRow['employee_id'] === (int)$opt['value']) ? 'selected' : ''; ?>><?php echo html_escape((string)$opt['label']); ?></option><?php endforeach; ?></select></div>
           <div class="col-md-2"><label class="form-label mb-1">Tanggal</label><input type="date" name="tx_date" class="form-control" value="<?php echo html_escape((string)($editRow['tx_date'] ?? date('Y-m-d'))); ?>" required></div>
-          <div class="col-md-2"><label class="form-label mb-1">Jenis</label><select name="tx_type" class="form-select" required><?php foreach ($txTypeOptions as $type): ?><option value="<?php echo html_escape($type); ?>" <?php echo (!empty($editRow) && strtoupper((string)($editRow['tx_type'] ?? '')) === $type) ? 'selected' : ''; ?>><?php echo html_escape($type); ?></option><?php endforeach; ?></select></div>
+          <div class="col-md-2"><label class="form-label mb-1">Jenis</label><select name="tx_type" class="form-select" required><?php foreach ($manualTxTypeOptions as $type): ?><option value="<?php echo html_escape($type); ?>" <?php echo (!empty($editRow) && strtoupper((string)($editRow['tx_type'] ?? '')) === $type) ? 'selected' : ''; ?>><?php echo html_escape($type); ?></option><?php endforeach; ?></select></div>
           <div class="col-md-2"><label class="form-label mb-1">Qty Hari</label><input type="number" min="0.01" step="0.01" name="qty_days" class="form-control" value="<?php echo html_escape((string)($editRow['qty_days'] ?? '1')); ?>" required></div>
           <div class="col-md-12"><label class="form-label mb-1">Catatan</label><input type="text" name="notes" class="form-control" value="<?php echo html_escape((string)($editRow['notes'] ?? '')); ?>" placeholder="Keterangan mutasi manual"></div>
           <div class="col-12 d-flex gap-2">
@@ -100,13 +111,13 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   <div class="col-lg-5">
     <div class="card h-100">
       <div class="card-body">
-        <h6 class="mb-3">Sinkron Grant PH dari Absensi</h6>
+        <h6 class="mb-3">Sinkron Grant PH Bulan Berjalan</h6>
         <form method="post" action="<?php echo site_url('attendance/ph-ledger/sync-grants'); ?>" class="row g-2 align-items-end">
-          <div class="col-md-6"><label class="form-label mb-1">Dari</label><input type="date" name="date_start" class="form-control" value="<?php echo html_escape((string)($filters['date_start'] ?? date('Y-m-01'))); ?>" required></div>
-          <div class="col-md-6"><label class="form-label mb-1">Sampai</label><input type="date" name="date_end" class="form-control" value="<?php echo html_escape((string)($filters['date_end'] ?? date('Y-m-t'))); ?>" required></div>
+          <div class="col-md-6"><label class="form-label mb-1">Dari</label><input type="date" name="date_start" min="<?php echo html_escape($currentMonthStart); ?>" class="form-control" value="<?php echo html_escape($syncDateStart); ?>" required></div>
+          <div class="col-md-6"><label class="form-label mb-1">Sampai</label><input type="date" name="date_end" min="<?php echo html_escape($currentMonthStart); ?>" class="form-control" value="<?php echo html_escape($syncDateEnd); ?>" required></div>
           <div class="col-12"><button type="submit" class="btn btn-warning">Sinkron Grant PH</button></div>
         </form>
-        <div class="form-text mt-2">Grant akan dibuat otomatis dari `att_daily` sesuai setting PH di pengaturan absensi dan hanya untuk pegawai yang eligible.</div>
+        <div class="form-text mt-2">Hanya untuk bulan berjalan. Riwayat bulan lalu dibaca melalui Audit PH terlebih dahulu agar payroll lama tidak berubah tanpa persetujuan.</div>
       </div>
     </div>
   </div>
@@ -123,7 +134,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <th>Jenis</th>
           <th class="text-end">Qty</th>
           <th>Ref</th>
-          <th>Expired At</th>
+          <th>Berlaku s.d.</th>
           <th>Mode</th>
           <th>Catatan</th>
           <th>Dibuat Oleh</th>
@@ -143,6 +154,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
               <?php if ($type === 'GRANT'): ?><span class="badge bg-success">GRANT</span>
               <?php elseif ($type === 'USE'): ?><span class="badge bg-primary">USE</span>
               <?php elseif ($type === 'EXPIRE'): ?><span class="badge bg-danger">EXPIRE</span>
+              <?php elseif ($type === 'VOID'): ?><span class="badge bg-secondary">VOID</span>
               <?php else: ?><span class="badge bg-info">ADJUST</span><?php endif; ?>
             </td>
             <td class="text-end fw-semibold"><?php echo number_format((float)($row['qty_days'] ?? 0), 2, ',', '.'); ?></td>

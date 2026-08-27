@@ -138,9 +138,10 @@ class My extends MY_Controller
         $pg = ['total' => 0, 'per_page' => $this->per_page(), 'page' => 1, 'total_pages' => 1, 'offset' => 0];
         $locationOptions = $this->Attendance_model->get_active_locations();
         $defaultLocationId = $this->Attendance_model->get_default_location_id();
+        $phAutoResult = null;
 
         if ($employee) {
-            $this->My_portal_model->ensure_auto_ph_presence((int)$employee['id'], $today, $policy);
+            $phAutoResult = $this->My_portal_model->ensure_auto_ph_presence((int)$employee['id'], $today, $policy);
             $todaySchedule = $this->My_portal_model->get_schedule_with_shift((int)$employee['id'], $today);
             $todayPresence = $this->My_portal_model->get_today_presence_state((int)$employee['id'], $today);
             $pendingPeerFeedback = $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], $today);
@@ -162,6 +163,7 @@ class My extends MY_Controller
             'today' => $today,
             'today_schedule' => $todaySchedule,
             'today_presence' => $todayPresence,
+            'ph_auto_result' => $phAutoResult,
             'pending_peer_feedback' => $pendingPeerFeedback,
             'location_options' => $locationOptions,
             'default_location_id' => $defaultLocationId,
@@ -197,7 +199,9 @@ class My extends MY_Controller
         $policy = $this->My_portal_model->get_active_policy();
         $result = $this->My_portal_model->mark_attendance((int)$employee['id'], date('Y-m-d'), $eventType, $policy, $locationId, $latVal, $lonVal);
         if (!empty($result['ok'])) {
-            $this->Attendance_model->sync_ph_grant_for_employee_date((int)$employee['id'], date('Y-m-d'), (int)($this->current_user['id'] ?? 0));
+            // PH grant/use is synchronized inside the attendance transaction.
+            // Do not retry it after commit: a post-commit error would make a
+            // successful attendance look failed to the employee.
             $pendingPeerFeedback = $this->Payroll_model->get_pending_peer_feedback_targets((int)$employee['id'], date('Y-m-d'));
             if (!empty($pendingPeerFeedback)) {
                 $this->session->set_flashdata('warning', 'Masih ada rekan kerja hari ini yang belum Anda nilai. Buka Bonus Saya untuk mengisi penilaian 360.');
@@ -791,7 +795,7 @@ class My extends MY_Controller
             'rows' => $rows,
             'pg' => $pg,
             'summary' => $summary,
-            'tx_type_options' => ['GRANT', 'USE', 'EXPIRE', 'ADJUST'],
+            'tx_type_options' => ['GRANT', 'USE', 'EXPIRE', 'ADJUST', 'VOID'],
         ]);
     }
 

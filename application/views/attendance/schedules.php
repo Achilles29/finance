@@ -77,6 +77,12 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <div class="col-md-2"><label class="form-label mb-1">Tanggal</label><input type="date" name="schedule_date" class="form-control" required></div>
           <div class="col-md-2"><label class="form-label mb-1">Catatan</label><input type="text" name="notes" class="form-control" maxlength="255" placeholder="Opsional"></div>
           <div class="col-md-1 d-grid"><button class="btn btn-primary" type="submit"><i class="ri-check-line"></i></button></div>
+          <?php if ($isSuperadmin): ?>
+          <div class="col-12 small text-muted">
+            <label class="me-3"><input type="checkbox" name="allow_monthly_override" value="1"> Izinkan override bila total jadwal melewati batas bulanan</label>
+            <input type="text" name="override_reason" class="form-control form-control-sm d-inline-block" style="max-width:380px" maxlength="255" placeholder="Alasan override Superadmin (jika diperlukan)">
+          </div>
+          <?php endif; ?>
         </form>
       </div>
     </div>
@@ -173,6 +179,12 @@ $buildPageItems = static function (int $page, int $totalPages): array {
             <div class="mb-2"><label class="form-label">Tanggal</label><input type="date" name="schedule_date" class="form-control" value="<?php echo html_escape((string)$r['schedule_date']); ?>" required></div>
             <div class="mb-2"><label class="form-label">Shift</label><select name="shift_id" class="form-select" required><?php foreach($shiftOptions as $o): ?><option value="<?php echo (int)$o['value']; ?>" <?php echo ((int)$o['value']===(int)($r['shift_id'] ?? 0))?'selected':''; ?>><?php echo html_escape($o['label']); ?></option><?php endforeach; ?></select></div>
             <div><label class="form-label">Catatan</label><input type="text" name="notes" class="form-control" value="<?php echo html_escape((string)($r['notes'] ?? '')); ?>" maxlength="255"></div>
+            <?php if ($isSuperadmin): ?>
+            <div class="mt-2 small text-muted">
+              <label><input type="checkbox" name="allow_monthly_override" value="1"> Izinkan override bila total jadwal melewati batas bulanan</label>
+              <input type="text" name="override_reason" class="form-control form-control-sm mt-1" maxlength="255" placeholder="Alasan override Superadmin (jika diperlukan)">
+            </div>
+            <?php endif; ?>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
