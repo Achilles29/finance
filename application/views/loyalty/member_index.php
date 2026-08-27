@@ -36,6 +36,12 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
     animation: loyaltyMemberSpin .8s linear infinite;
     vertical-align: middle;
   }
+  #member-feedback:not(.d-none) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+  }
   @keyframes loyaltyMemberSpin {
     to { transform: rotate(360deg); }
   }
@@ -149,6 +155,8 @@ $tiers = is_array($filterOptions['tiers'] ?? null) ? $filterOptions['tiers'] : [
     font-size: .76rem;
   }
 </style>
+
+<div id="member-feedback" class="alert d-none mb-3" role="status" aria-live="polite"></div>
 
 <div class="container-xxl py-3">
   <div class="fin-page-header">
@@ -333,6 +341,18 @@ document.addEventListener('DOMContentLoaded', function () {
   const modalTitle = document.getElementById('memberModalLabel');
   const saveButton = document.getElementById('btn-save');
   const saveButtonLabel = saveButton ? saveButton.querySelector('.btn-label') : null;
+  const memberFeedback = document.getElementById('member-feedback');
+
+  function showMemberFeedback(message, type = 'success') {
+    if (!memberFeedback) return;
+    memberFeedback.className = `alert alert-${type} mb-3`;
+    memberFeedback.textContent = String(message || 'Perubahan member berhasil disimpan.');
+    window.clearTimeout(showMemberFeedback.timeout);
+    showMemberFeedback.timeout = window.setTimeout(() => {
+      memberFeedback.className = 'alert d-none mb-3';
+      memberFeedback.textContent = '';
+    }, 4500);
+  }
 
   function escapeHtml(v) {
     return String(v ?? '').replace(/[&<>\"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[m]));
@@ -615,10 +635,12 @@ document.addEventListener('DOMContentLoaded', function () {
       if (saveButtonLabel) saveButtonLabel.innerHTML = '<span class="loyalty-member-save-spinner me-2"></span>Menyimpan...';
     }
     try {
-      await postJson('<?php echo site_url('loyalty/members/save'); ?>', payload);
+      const saved = await postJson('<?php echo site_url('loyalty/members/save'); ?>', payload);
       modal && modal.hide();
       await loadRows();
+      showMemberFeedback(saved.message, 'success');
     } catch (err) {
+      showMemberFeedback(err.message, 'danger');
       alert(err.message);
     } finally {
       if (saveButton) {
@@ -1035,7 +1057,6 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
   </div>
 </div>
-
 
 
 

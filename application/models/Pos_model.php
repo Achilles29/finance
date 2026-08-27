@@ -12,6 +12,7 @@ class Pos_model extends CI_Model
     public function __construct()
     {
         parent::__construct();
+        $this->load->helper('member_phone');
         $this->coredb = $this->resolveCoreDatabase();
     }
 
@@ -208,9 +209,11 @@ class Pos_model extends CI_Model
         try {
             $memberNo = strtoupper(trim((string)($data['member_no'] ?? '')));
             $joinedAt = $this->nullable_datetime($data['joined_at'] ?? '') ?: date('Y-m-d H:i:s');
+            $mobilePhoneInput = trim((string)($data['mobile_phone'] ?? ''));
+            $mobilePhone = member_phone_normalize($mobilePhoneInput);
             $payload = [
                 'member_name' => $name,
-                'mobile_phone' => $this->nullable_text($data['mobile_phone'] ?? ''),
+                'mobile_phone' => $mobilePhone !== '' ? $mobilePhone : $this->nullable_text($mobilePhoneInput),
                 'email' => $this->nullable_text($data['email'] ?? ''),
                 'birth_date' => $this->nullable_date($data['birth_date'] ?? ''),
                 'gender' => $gender,
@@ -224,6 +227,22 @@ class Pos_model extends CI_Model
                 'notes' => $this->nullable_text($data['notes'] ?? ''),
                 'is_active' => 1,
             ];
+
+            $phoneMatches = $mobilePhone !== ''
+                ? $this->member_phone_matches($db, $mobilePhone, $id)
+                : [];
+            if ($id > 0 && !empty($phoneMatches)) {
+                throw new RuntimeException($this->member_phone_registered_message($phoneMatches[0], $mobilePhone));
+            }
+            if ($id <= 0 && !empty($phoneMatches)) {
+                foreach ($phoneMatches as $match) {
+                    if (member_names_match($name, (string)($match['member_name'] ?? ''))) {
+                        $db->trans_commit();
+                        return ['ok' => true, 'id' => (int)$match['id'], 'existing' => true];
+                    }
+                }
+                throw new RuntimeException($this->member_phone_registered_message($phoneMatches[0], $mobilePhone));
+            }
 
             if ($id > 0) {
                 $existing = $this->find_member($id);
@@ -12735,6 +12754,33 @@ class Pos_model extends CI_Model
             $db->where('id !=', $excludeId);
         }
         return (int)$db->count_all_results() > 0;
+    }
+
+    /** Return every record whose stored number is the same after normalization. */
+    private function member_phone_matches(CI_DB_query_builder $db, string $phone, int $excludeId = 0): array
+    {
+        if ($phone === '') {
+            return [];
+        }
+
+        $query = $db->select('id, member_no, member_name, mobile_phone')
+            ->from('crm_member');
+        if ($excludeId > 0) {
+            $query->where('id !=', $excludeId);
+        }
+
+        $rows = $query->order_by('id', 'ASC')->get()->result_array();
+        return array_values(array_filter($rows, static function (array $row) use ($phone): bool {
+            return member_phone_normalize($row['mobile_phone'] ?? '') === $phone;
+        }));
+    }
+
+    private function member_phone_registered_message(array $member, string $phone): string
+    {
+        $owner = trim((string)($member['member_name'] ?? '')) ?: 'member lain';
+        $memberNo = trim((string)($member['member_no'] ?? ''));
+        $suffix = $memberNo !== '' ? ' (' . $memberNo . ')' : '';
+        return 'Nomor HP ' . member_phone_display($phone) . ' sudah terdaftar atas nama ' . $owner . $suffix . '.';
     }
 
     private function generate_member_no_core(?string $joinedAt = null): string

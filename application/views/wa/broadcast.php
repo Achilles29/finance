@@ -13,6 +13,8 @@ $statusCounts = (array)($status_counts ?? []);
 $canCreate    = (bool)($can_create ?? false);
 $canEdit      = (bool)($can_edit ?? false);
 $canDelete    = (bool)($can_delete ?? false);
+$personalOutboundEnabled = (bool)($personal_outbound_enabled ?? false);
+$personalOutboundLockMessage = (string)($personal_outbound_lock_message ?? 'Pengiriman WhatsApp personal sedang dikunci sementara.');
 
 $statusOptions = ['DRAFT','QUEUED','SENDING','DONE','FAILED','CANCELLED'];
 $statusLabel   = ['DRAFT'=>'Draft','QUEUED'=>'Dijadwalkan','SENDING'=>'Berjalan','DONE'=>'Selesai','FAILED'=>'Gagal','CANCELLED'=>'Nonaktif'];
@@ -100,7 +102,7 @@ $toRow = $totalRows > 0 ? min($totalRows, $page * $perPage) : 0;
       <h4 class="wa-page-title"><i class="ri ri-broadcast-line me-1"></i>Broadcast WhatsApp</h4>
       <p class="wa-page-subtitle">Kelola antrean pesan personal ke target member, pola jeda, status pengiriman, dan broadcast nonaktif.</p>
     </div>
-    <?php if ($canCreate): ?>
+    <?php if ($canCreate && $personalOutboundEnabled): ?>
     <a href="<?= site_url('wa/broadcast/create') ?>" class="btn btn-primary">
       <i class="ri ri-add-line me-1"></i>Buat Broadcast
     </a>
@@ -111,6 +113,13 @@ $toRow = $totalRows > 0 ? min($totalRows, $page * $perPage) : 0;
     <div class="alert alert-success alert-dismissible fade show"><?= html_escape($flash) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
   <?php elseif ($flash = $this->session->flashdata('error')): ?>
     <div class="alert alert-danger alert-dismissible fade show"><?= html_escape($flash) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+  <?php endif; ?>
+
+  <?php if (!$personalOutboundEnabled): ?>
+  <div class="alert alert-danger d-flex gap-2 align-items-start" role="alert">
+    <i class="ri ri-shield-keyhole-line fs-5"></i>
+    <div><strong>Broadcast personal dikunci.</strong><br><?= html_escape($personalOutboundLockMessage) ?></div>
+  </div>
   <?php endif; ?>
 
   <div class="wa-tabs">

@@ -36,7 +36,13 @@ class Loyalty extends MY_Controller
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan member.'), 422);
             return;
         }
-        $this->json_ok(['id' => (int)$result['id']]);
+        $this->json_ok([
+            'id' => (int)$result['id'],
+            'existing' => !empty($result['existing']),
+            'message' => !empty($result['existing'])
+                ? 'Member dengan nama dan nomor yang sama sudah ada. Data lama digunakan.'
+                : 'Member berhasil disimpan dan langsung aktif.',
+        ]);
     }
 
     public function member_toggle($id)

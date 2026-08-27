@@ -341,3 +341,85 @@ Closing open session in favor of incoming prekey bundle
 ℹ Status pesan WhatsApp 3EB073AC834AF5B67B02B5: 0 (479)
 ⚠️   Terputus (428). Reconnect: true, delay: 6000ms
 ✅  WA terhubung — nomor: 6285139324878
+🚀 wa-engine dimulai...
+🔄  Internal API siap di http://127.0.0.1:3070
+🔑  Token internal dikonfigurasi.
+✅  WA terhubung — nomor: 6285139324878
+🚀 wa-engine dimulai...
+🔄  Internal API siap di http://127.0.0.1:3070
+🔑  Token internal dikonfigurasi.
+✅  WA terhubung — nomor: 6285139324878
+ℹ Status pesan WhatsApp 3AA3AD557BE7D795D72A: 4
+✓ Delivery WhatsApp dikonfirmasi: 3AA3AD557BE7D795D72A
+ℹ Status pesan WhatsApp 3EB0C3CE9F5DDA667FE7E1: 4
+✓ Delivery WhatsApp dikonfirmasi: 3EB0C3CE9F5DDA667FE7E1
+ℹ Status pesan WhatsApp 3ABC3B63F6CBE58E13AF: 4
+✓ Delivery WhatsApp dikonfirmasi: 3ABC3B63F6CBE58E13AF
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (503). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+⚠️   Terputus (503). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+ℹ libsignal: Closing session (detail disembunyikan)
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB068639043E6D043F04C -> 6285730012324@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
+ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 2
+ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
+ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 4
+✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
+ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB034FE0FB1FA7E95FE94 -> 6285292961993@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB034FE0FB1FA7E95FE94: 2
+ℹ Status pesan WhatsApp 3EB034FE0FB1FA7E95FE94: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB034FE0FB1FA7E95FE94
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB00C37F10E0351E15A8A -> 6285198374391@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB00C37F10E0351E15A8A: 2
+ℹ Status pesan WhatsApp 3EB00C37F10E0351E15A8A: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB00C37F10E0351E15A8A
+ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
+⚠️   Terputus (428). Reconnect: true, delay: 6000ms
+✅  WA terhubung — nomor: 6285139324878
+ℹ Status pesan WhatsApp 3EB034FE0FB1FA7E95FE94: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB034FE0FB1FA7E95FE94
+ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
+ℹ libsignal: Closing session (detail disembunyikan)
+➜ Pesan personal diterima engine: 3EB02E084D352F6286EB1A -> 6281325110990@s.whatsapp.net
+ℹ Status pesan WhatsApp 3EB02E084D352F6286EB1A: 3
+✓ Delivery WhatsApp dikonfirmasi: 3EB02E084D352F6286EB1A
+🧹  Sesi WA logged out. Auth lama dibersihkan, engine akan meminta QR baru.
+⚠️   Terputus (401). Reconnect: false, delay: 6000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 12000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 24000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 48000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.

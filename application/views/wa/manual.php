@@ -6,6 +6,9 @@ $bulkQueue  = (array)($bulk_queue ?? []);
 $bulkLines  = (array)($bulk_lines ?? []);
 $bulkCounts = (array)($bulk_line_status_counts ?? []);
 $recentBulkQueues = (array)($recent_bulk_queues ?? []);
+$personalOutboundEnabled = (bool)($personal_outbound_enabled ?? false);
+$personalOutboundLockMessage = (string)($personal_outbound_lock_message ?? 'Pengiriman WhatsApp personal sedang dikunci sementara.');
+$canPersonalCreate = $canCreate && $personalOutboundEnabled;
 
 $bulkStatusLabel = ['DRAFT' => 'Draft', 'QUEUED' => 'Dijadwalkan', 'SENDING' => 'Berjalan', 'DONE' => 'Selesai', 'FAILED' => 'Perlu Tindakan', 'CANCELLED' => 'Dibatalkan'];
 $bulkStatusBadge = ['DRAFT' => 'bg-secondary', 'QUEUED' => 'bg-info', 'SENDING' => 'bg-warning text-dark', 'DONE' => 'bg-success', 'FAILED' => 'bg-danger', 'CANCELLED' => 'bg-light text-dark'];
@@ -17,7 +20,7 @@ $bulkFailedCount = (int)($bulkCounts['FAILED'] ?? 0);
 $bulkQueueId = (int)($bulkQueue['id'] ?? 0);
 $bulkAutoStart = !empty($bulk_auto_start);
 $bulkDelayPattern = (array)($bulkQueue['delay_pattern'] ?? [1 => 5, 2 => 5, 3 => 5, 4 => 5, 5 => 5, 6 => 5, 7 => 5, 8 => 5, 9 => 5, 10 => 5]);
-$bulkCanStart = $bulkQueueId > 0 && $canCreate && (
+$bulkCanStart = $bulkQueueId > 0 && $canPersonalCreate && (
     $bulkCurrentStatus === 'DRAFT'
     || ($bulkCurrentStatus === 'SENDING' && $bulkPendingCount > 0)
     || ($bulkCurrentStatus === 'FAILED' && ($bulkPendingCount > 0 || $bulkFailedCount > 0))
@@ -109,6 +112,13 @@ foreach ($bulkLines as $bulkLineForRetry) {
     <div class="alert alert-danger alert-dismissible fade show"><?= html_escape($flash) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
   <?php endif; ?>
 
+  <?php if (!$personalOutboundEnabled): ?>
+  <div class="alert alert-danger d-flex gap-2 align-items-start" role="alert">
+    <i class="ri ri-shield-keyhole-line fs-5"></i>
+    <div><strong>Pengiriman personal dihentikan.</strong><br><?= html_escape($personalOutboundLockMessage) ?></div>
+  </div>
+  <?php endif; ?>
+
   <nav class="nav wa-manual-tabs mb-3" aria-label="Mode kirim pesan manual">
     <a class="nav-link <?= $activeTab === 'single' ? 'active' : '' ?>" href="<?= site_url('wa/manual') ?>?tab=single"><i class="ri ri-flashlight-line me-1"></i>Kirim Cepat</a>
     <a class="nav-link <?= $activeTab === 'bulk' ? 'active' : '' ?>" href="<?= site_url('wa/manual') ?>?tab=bulk"><i class="ri ri-list-check-2 me-1"></i>Kirim Pesan Bulk</a>
@@ -167,7 +177,7 @@ foreach ($bulkLines as $bulkLineForRetry) {
           </div>
           <div class="card-footer d-flex justify-content-end gap-2">
             <a href="<?= site_url('wa/dashboard') ?>" class="btn btn-outline-secondary">Batal</a>
-            <button type="submit" class="btn btn-primary" <?= !$canCreate ? 'disabled' : '' ?> id="btnManualSubmit">
+            <button type="submit" class="btn btn-primary" <?= !$canPersonalCreate ? 'disabled' : '' ?> id="btnManualSubmit">
               <i class="ri ri-send-plane-line me-1"></i>Kirim Pesan
             </button>
           </div>
@@ -280,7 +290,7 @@ foreach ($bulkLines as $bulkLineForRetry) {
           </div>
           <div class="card-footer d-flex justify-content-end gap-2">
             <a href="<?= site_url('wa/dashboard') ?>" class="btn btn-outline-secondary">Batal</a>
-            <button type="submit" class="btn btn-primary" <?= !$canCreate ? 'disabled' : '' ?> id="btnBulkCreate"><i class="ri ri-send-plane-line me-1"></i>Kirim Pesan Bulk</button>
+            <button type="submit" class="btn btn-primary" <?= !$canPersonalCreate ? 'disabled' : '' ?> id="btnBulkCreate"><i class="ri ri-send-plane-line me-1"></i>Kirim Pesan Bulk</button>
           </div>
         </div>
       </form>

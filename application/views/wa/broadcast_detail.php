@@ -3,6 +3,8 @@ $broadcast  = (array)($broadcast ?? []);
 $lines      = (array)($lines ?? []);
 $canEdit    = (bool)($can_edit ?? false);
 $canDelete  = (bool)($can_delete ?? false);
+$personalOutboundEnabled = (bool)($personal_outbound_enabled ?? false);
+$personalOutboundLockMessage = (string)($personal_outbound_lock_message ?? 'Pengiriman WhatsApp personal sedang dikunci sementara.');
 
 $statusLabel = ['DRAFT'=>'Draft','QUEUED'=>'Dijadwalkan','SENDING'=>'Berjalan','DONE'=>'Selesai','FAILED'=>'Gagal','CANCELLED'=>'Dibatalkan'];
 $statusBadge = ['DRAFT'=>'bg-secondary','QUEUED'=>'bg-info','SENDING'=>'bg-warning','DONE'=>'bg-success','FAILED'=>'bg-danger','CANCELLED'=>'bg-light text-dark'];
@@ -23,7 +25,7 @@ foreach ($lines as $lineForCount) {
 }
 $pendingLineCount = (int)($lineStatusCounts['PENDING'] ?? 0);
 $failedLineCount = (int)($lineStatusCounts['FAILED'] ?? 0);
-$canStart = $canEdit && (
+$canStart = $canEdit && $personalOutboundEnabled && (
     $currentStatus === 'DRAFT'
     || ($currentStatus === 'FAILED' && ($pendingLineCount > 0 || $failedLineCount > 0))
     || ($currentStatus === 'SENDING' && $pendingLineCount > 0)
@@ -53,6 +55,13 @@ foreach ($lines as $lineForRetry) {
     <div class="alert alert-success alert-dismissible fade show"><?= html_escape($flash) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
   <?php elseif ($flash = $this->session->flashdata('error')): ?>
     <div class="alert alert-danger alert-dismissible fade show"><?= html_escape($flash) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+  <?php endif; ?>
+
+  <?php if (!$personalOutboundEnabled): ?>
+  <div class="alert alert-danger d-flex gap-2 align-items-start" role="alert">
+    <i class="ri ri-shield-keyhole-line fs-5"></i>
+    <div><strong>Antrean personal tidak dapat dijalankan.</strong><br><?= html_escape($personalOutboundLockMessage) ?></div>
+  </div>
   <?php endif; ?>
 
   <div class="row g-3">

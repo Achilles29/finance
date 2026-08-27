@@ -273,3 +273,9 @@ sementara seperti itu. ada ide diskusi?
 
 
 revisi tampilan cetak payment kasir menampilkan link reviewnya. seharusnya cukup qr code tidak perlu link. perbaiki
+
+
+cek PH
+jadwal PH kok malah dapat jatah PH, harusnya kan digundakan PH nya
+
+guarding tanggal jadwal absen yang sudah lewat hari tidak bisa diganti

@@ -12,6 +12,10 @@ class Whatsapp extends MY_Controller
     private const PAGE_MANUAL    = 'wa.manual';
     private const PAGE_SETTINGS  = 'wa.settings';
     private const MANUAL_BULK_NOTE_PREFIX = '[MANUAL_BULK]';
+    // Emergency circuit breaker. Personal/member sends must move to the
+    // official WhatsApp Business Platform before this is enabled again.
+    private const PERSONAL_OUTBOUND_ENABLED = false;
+    private const PERSONAL_OUTBOUND_LOCK_MESSAGE = 'Pengiriman WhatsApp personal sedang dikunci untuk melindungi akun yang dibatasi. Antrean lama sudah dihentikan; gunakan laporan grup saja sampai kanal resmi WhatsApp Business Platform siap.';
 
     /**
      * Keeps user-facing finance summaries free from a transaction that was
@@ -49,6 +53,11 @@ class Whatsapp extends MY_Controller
     {
         parent::__construct();
         $this->ensureSchema();
+    }
+
+    private function personalOutboundEnabled(): bool
+    {
+        return self::PERSONAL_OUTBOUND_ENABLED;
     }
 
     // ──────────────────────────────────────────────────────────
@@ -136,6 +145,8 @@ class Whatsapp extends MY_Controller
             'can_create'  => $this->can(self::PAGE_BROADCAST, 'create'),
             'can_edit'    => $this->can(self::PAGE_BROADCAST, 'edit'),
             'can_delete'  => $this->can(self::PAGE_BROADCAST, 'delete'),
+            'personal_outbound_enabled' => $this->personalOutboundEnabled(),
+            'personal_outbound_lock_message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE,
         ]);
     }
 
@@ -199,6 +210,11 @@ class Whatsapp extends MY_Controller
             ->order_by('group_name', 'ASC')->get()->result_array();
 
         if ($this->input->method() === 'post') {
+            if (!$this->personalOutboundEnabled()) {
+                $this->session->set_flashdata('error', self::PERSONAL_OUTBOUND_LOCK_MESSAGE);
+                redirect('wa/broadcast');
+                return;
+            }
             $name          = trim((string)$this->input->post('name', true));
             $templateId    = (int)$this->input->post('template_id', true);
             $customMessage = trim((string)$this->input->post('custom_message', false));
@@ -283,6 +299,11 @@ class Whatsapp extends MY_Controller
             ->order_by('group_name', 'ASC')->get()->result_array();
 
         if ($this->input->method() === 'post') {
+            if (!$this->personalOutboundEnabled()) {
+                $this->session->set_flashdata('error', self::PERSONAL_OUTBOUND_LOCK_MESSAGE);
+                redirect('wa/broadcast/detail/' . $id);
+                return;
+            }
             $name          = trim((string)$this->input->post('name', true));
             $templateId    = (int)$this->input->post('template_id', true);
             $customMessage = trim((string)$this->input->post('custom_message', false));
@@ -403,6 +424,8 @@ class Whatsapp extends MY_Controller
             'lines'       => $lines,
             'can_edit'    => $this->can(self::PAGE_BROADCAST, 'edit'),
             'can_delete'  => $this->can(self::PAGE_BROADCAST, 'delete'),
+            'personal_outbound_enabled' => $this->personalOutboundEnabled(),
+            'personal_outbound_lock_message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE,
         ]);
     }
 
@@ -874,6 +897,13 @@ class Whatsapp extends MY_Controller
         if ($this->input->method() === 'post') {
             $this->require_permission(self::PAGE_MANUAL, 'create');
 
+            if (!$this->personalOutboundEnabled()) {
+                $tab = (string)$this->input->post('delivery_mode', true) === 'bulk' ? 'bulk' : 'single';
+                $this->session->set_flashdata('error', self::PERSONAL_OUTBOUND_LOCK_MESSAGE);
+                redirect('wa/manual?tab=' . $tab);
+                return;
+            }
+
             if ((string)$this->input->post('delivery_mode', true) === 'bulk') {
                 $this->createManualBulkQueue();
                 return;
@@ -991,6 +1021,8 @@ class Whatsapp extends MY_Controller
             'bulk_line_status_counts' => $bulkLineStatusCounts,
             'recent_bulk_queues' => $recentBulkQueues,
             'bulk_auto_start' => $bulkAutoStart,
+            'personal_outbound_enabled' => $this->personalOutboundEnabled(),
+            'personal_outbound_lock_message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE,
         ]);
     }
 
@@ -1048,6 +1080,10 @@ class Whatsapp extends MY_Controller
     public function api_send_test()
     {
         $this->require_permission(self::PAGE_SETTINGS, 'edit');
+        if (!$this->personalOutboundEnabled()) {
+            $this->jsonOut(['ok' => false, 'message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE]);
+            return;
+        }
         $payload = json_decode((string)$this->input->raw_input_stream, true) ?? [];
         $to      = trim((string)($payload['to'] ?? ''));
         $message = trim((string)($payload['message'] ?? ''));
@@ -1079,6 +1115,11 @@ class Whatsapp extends MY_Controller
         $log = $this->db->from('wa_send_log')->where('id', $id)->limit(1)->get()->row_array();
         if (!$log || ($log['status'] ?? '') !== 'FAILED') {
             $this->jsonOut(['ok' => false, 'message' => 'Log gagal tidak ditemukan.']);
+            return;
+        }
+
+        if (($log['source'] ?? '') !== 'GROUP' && !$this->personalOutboundEnabled()) {
+            $this->jsonOut(['ok' => false, 'message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE]);
             return;
         }
 
@@ -1231,6 +1272,10 @@ class Whatsapp extends MY_Controller
         $canManualCreate = $this->can(self::PAGE_MANUAL, 'create');
         if (!$canBroadcastEdit && !$canManualCreate) {
             $this->jsonOut(['ok' => false, 'message' => 'Akses pengiriman antrean ditolak.']);
+            return;
+        }
+        if (!$this->personalOutboundEnabled()) {
+            $this->jsonOut(['ok' => false, 'stopped' => true, 'message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE]);
             return;
         }
 
@@ -2034,6 +2079,11 @@ class Whatsapp extends MY_Controller
     private function createManualBulkQueue(): void
     {
         $redirectBase = 'wa/manual?tab=bulk';
+        if (!$this->personalOutboundEnabled()) {
+            $this->session->set_flashdata('error', self::PERSONAL_OUTBOUND_LOCK_MESSAGE);
+            redirect($redirectBase);
+            return;
+        }
         $message = trim((string)$this->input->post('message', false));
         $manualLines = (string)$this->input->post('manual_numbers', false);
         $memberIdsRaw = trim((string)$this->input->post('selected_member_ids', true));

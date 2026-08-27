@@ -86,6 +86,12 @@ try {
 const SYNC_PORT  = Number(process.env.WA_PORT  || 3070);
 const SYNC_TOKEN = String(process.env.WA_TOKEN || 'local-dev-token');
 const FINANCE_COMMAND_URL = String(process.env.FINANCE_COMMAND_URL || 'https://core.namuacoffee.com/wa/api/group-command');
+// Baileys is retained only for the existing internal group-report workflow.
+// Member/customer outreach must use the official WhatsApp Business Platform.
+// Keep this off by default so reconnecting a restricted account cannot resume
+// a personal queue accidentally.
+const PERSONAL_OUTBOUND_ENABLED = /^(?:1|true|yes|on)$/i.test(String(process.env.WA_PERSONAL_OUTBOUND_ENABLED || ''));
+const PERSONAL_OUTBOUND_LOCK_MESSAGE = 'Pengiriman WhatsApp personal dikunci sementara. Gunakan kanal resmi WhatsApp Business Platform untuk pesan ke member.';
 
 const dbConfig = {
   host:             process.env.DB_HOST || '127.0.0.1',
@@ -471,6 +477,7 @@ function startServer() {
           ok:        true,
           status:    botStatus,
           phone:     botPhone,
+          personal_outbound_enabled: PERSONAL_OUTBOUND_ENABLED,
           uptime:    Math.floor(process.uptime()),
           timestamp: new Date().toISOString(),
         });
@@ -502,6 +509,13 @@ function startServer() {
 
       // POST /internal/send   body: { to: "62xxx", message: "...", image_path?: "/path/file.jpg" }
       if (url.pathname === '/internal/send' && req.method === 'POST') {
+        if (!PERSONAL_OUTBOUND_ENABLED) {
+          return jsonReply(res, 423, {
+            ok: false,
+            code: 'PERSONAL_OUTBOUND_LOCKED',
+            message: PERSONAL_OUTBOUND_LOCK_MESSAGE,
+          });
+        }
         if (!currentSock || botStatus !== 'CONNECTED') {
           return jsonReply(res, 503, { ok: false, message: 'Bot tidak terhubung.' });
         }
@@ -662,25 +676,30 @@ async function start() {
     }
 
     if (connection === 'close') {
-      setStatus('DISCONNECTED');
-      const code          = lastDisconnect?.error?.output?.statusCode;
+      const code = lastDisconnect?.error?.output?.statusCode;
+      const disconnectDetail = String(lastDisconnect?.error?.message || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 240);
       const shouldReconnect = code !== DisconnectReason.loggedOut;
       if (!shouldReconnect) {
         latestQr = null;
         clearSessionQr().catch(() => {});
-        try {
-          fs.rmSync(authDir, { recursive: true, force: true });
-          console.log('🧹  Sesi WA logged out. Auth lama dibersihkan, engine akan meminta QR baru.');
-        } catch (err) {
-          console.warn('⚠️  Gagal membersihkan auth_info:', err?.message || err);
-        }
+        // A logged-out companion can be a restriction, a manual unlink, or
+        // another-device conflict. Do not clear auth or generate another QR
+        // automatically: repeated relinks can make a restricted account worse.
+        setStatus('LOGGED_OUT');
+        console.error(`⛔ WA logged out (${code || 'unknown'})${disconnectDetail ? `: ${disconnectDetail}` : ''}. Reconnect/QR otomatis dihentikan.`);
+        isStarting = false;
+        return;
       }
+      setStatus('DISCONNECTED');
       reconnectDelay = code === 440
         ? Math.max(reconnectDelay, 60000)
         : Math.min(reconnectDelay * 2, 120000);
       console.log(`⚠️   Terputus (${code}). Reconnect: ${shouldReconnect}, delay: ${reconnectDelay}ms`);
       isStarting = false;
-      if ((shouldReconnect || code === DisconnectReason.loggedOut) && !reconnectTimer) {
+      if (shouldReconnect && !reconnectTimer) {
         reconnectTimer = setTimeout(() => { reconnectTimer = null; start(); }, reconnectDelay);
       }
     }
@@ -690,6 +709,9 @@ async function start() {
 // ─── Main ────────────────────────────────────────────────────
 async function main() {
   await loadBaileys();
+  if (!PERSONAL_OUTBOUND_ENABLED) {
+    console.warn('🔒 Pengiriman personal WA dinonaktifkan oleh safety lock. Laporan grup tetap tersedia.');
+  }
   startServer();
   await start();
 }
