@@ -1,7 +1,38 @@
 # Roadmap Komersialisasi Finance POS
 
-**Status:** Rancangan awal untuk pegangan produk dan teknis. Belum mengubah
-kode, database, lisensi, atau perilaku aplikasi yang sedang dipakai.
+**Status:** Konsep produk dan arsitektur lisensi final untuk menjadi acuan
+implementasi. Dokumen ini belum mengubah kode, database, lisensi, atau
+perilaku aplikasi yang sedang dipakai.
+
+## Keputusan Final Singkat
+
+1. Finance dijual sebagai **lisensi perpetual per organisasi dan instalasi**,
+   bukan penjualan source code.
+2. Paket awal mencakup **1 outlet dan 3 terminal POS aktif**. Outlet, terminal,
+   APK POS, dan modul tertentu dapat ditambah sebagai add-on lisensi.
+3. Customer tetap dapat memakai versi yang telah dibeli setelah masa support
+   berakhir. Yang berhenti adalah update dan dukungan baru, bukan akses data
+   atau transaksi kasir.
+4. Masa update dan dukungan standar adalah **12 bulan** sejak aktivasi.
+   Perpanjangan maintenance membuka kembali akses release dan support tanpa
+   mengubah hak pakai perpetual yang sudah dimiliki.
+5. Lisensi menentukan paket dan kapasitas customer. RBAC tetap menentukan
+   pegawai mana di customer tersebut yang boleh memakai fitur.
+6. Setiap customer pada tahap awal memakai database dan instalasi sendiri.
+   Multi-tenant cloud bukan bagian dari rilis komersial pertama.
+7. Update dilakukan melalui paket rilis bertanda tangan dan migration yang
+   diaudit, bukan melalui `git pull` di server customer.
+8. Aplikasi tidak boleh mati mendadak ketika internet putus. Lisensi memakai
+   cache bertanda tangan dengan grace period offline 30 hari dan jalur aktivasi
+   offline untuk lokasi tanpa internet stabil.
+
+### Bentuk Produk yang Dijual
+
+Customer menerima installer atau deployment package resmi, dokumentasi,
+lisensi, dan akses support sesuai paketnya. Repository Git, private key
+lisensi, dan source code pengembangan tetap milik produk Finance. Bila suatu
+customer membutuhkan source escrow, hal itu hanya tersedia sebagai kontrak
+Enterprise khusus dan bukan bagian dari jual beli putus standar.
 
 ## 1. Tujuan Produk
 
@@ -99,14 +130,14 @@ Menyembunyikan menu saja tidak cukup. Endpoint, controller, job CLI, dan APK
 harus melalui satu `FeatureGate` di server. Jika fitur tidak dibeli, endpoint
 ditolak dengan pesan yang jelas; bukan hanya tombolnya yang hilang.
 
-Contoh paket awal yang dapat kita diskusikan:
+Paket komersial awal yang dipakai sebagai standar:
 
 | Paket | Cakupan kandidat |
 | --- | --- |
-| Essential POS | Kasir, katalog, produk, pembayaran, printer dasar, laporan penjualan dasar, user dan role dasar. |
-| Operations | Semua Essential ditambah multi outlet, gudang, purchase order, store request, adjustment, stok harian, member, promo, voucher, self order, dan reservasi. |
-| Control | Semua Operations ditambah recipe, produksi component, HPP, defisit stok, period lock, stock health, audit penjualan/HPP, dan laporan keuangan lanjutan. |
-| Enterprise | Semua Control ditambah APK POS, integrasi API, online order, automasi khusus, SSO, custom report, dan source escrow bila disepakati. |
+| Essential POS | Kasir, katalog, produk, pembayaran, printer dasar, laporan penjualan dasar, user/role dasar, dan 1 outlet dengan 3 terminal POS. |
+| Operations | Semua Essential ditambah gudang, purchase order, store request, adjustment, stok harian, member, promo, voucher, self order, reservasi, dan outlet tambahan. |
+| Control | Semua Operations ditambah recipe, produksi component, HPP, defisit stok, period lock, stock health, audit penjualan/HPP, laporan keuangan lanjutan, attendance, dan payroll. |
+| Enterprise | Semua Control ditambah APK POS, integrasi API, online order, automasi khusus, SSO, custom report, serta source escrow hanya bila disepakati secara terpisah. |
 
 Fitur yang cocok menjadi add-on terpisah:
 
@@ -117,10 +148,22 @@ Fitur yang cocok menjadi add-on terpisah:
 - Asset management.
 - Integrasi akuntansi, WhatsApp, pembayaran, atau perangkat khusus.
 
-Nama paket, isi, dan harga belum perlu diputuskan sekarang. Yang penting
-arsitektur memakai kode fitur stabil, misalnya `pos.cashier`,
-`inventory.production`, `hr.payroll`, dan `mobile.pos`, sehingga isi paket
-dapat diubah tanpa memecah kode aplikasi.
+Harga tidak disimpan di source code; harga adalah kebijakan komersial yang dapat
+berubah. Yang dibuat stabil adalah kode fitur, misalnya `pos.cashier`,
+`inventory.production`, `hr.payroll`, dan `mobile.pos`, sehingga isi paket dapat
+diatur dari portal lisensi tanpa memecah aplikasi customer.
+
+### Aturan add-on yang final
+
+| Add-on | Satuan lisensi |
+| --- | --- |
+| Terminal POS tambahan | Per terminal aktif. |
+| APK POS | Per device Android aktif; dihitung sebagai terminal POS. |
+| Outlet tambahan | Per outlet aktif. |
+| Online order / self order eksternal | Per organisasi atau per outlet sesuai integrasi. |
+| Attendance dan payroll | Per organisasi. |
+| Integrasi API / perangkat khusus | Per integrasi. |
+| Source escrow | Kontrak Enterprise satuan proyek, bukan fitur biasa. |
 
 ## 5. Arsitektur Teknis Lisensi
 
@@ -294,7 +337,104 @@ Hasil yang harus ada:
 - dokumentasi installer, onboarding, dan knowledge base;
 - evaluasi apakah perlu SaaS multi-tenant atau tetap on-premise.
 
-## 10. Hal yang Sebaiknya Tidak Dilakukan
+## 10. Urutan Pengerjaan yang Harus Kita Jalankan
+
+Urutan ini sengaja dimulai dari fondasi rilis. Lisensi yang bagus tidak akan
+membantu jika pemasangan, migration, dan pemulihan update belum aman.
+
+### Langkah 1 - Kunci produk yang dijual
+
+Sebelum coding lisensi, buat satu dokumen komersial yang berisi harga, paket,
+add-on, jumlah outlet, tiga terminal awal, durasi maintenance, dan SOP ganti
+device. Dokumen ini juga menjadi bahan kontrak/EULA. Hasilnya: tim sales,
+support, dan developer memakai definisi produk yang sama.
+
+### Langkah 2 - Rapikan release engineering Finance
+
+Buat nomor versi resmi, changelog, migration manifest, backup database,
+rollback plan, dan smoke test. Buat release package dari branch/tag yang bersih
+di CI atau mesin build khusus. Server customer tidak lagi diupdate lewat Git.
+Hasilnya: satu release bisa dipasang ulang dan dipulihkan dengan cara yang sama
+di semua customer.
+
+### Langkah 3 - Bangun Finance License Hub
+
+Buat aplikasi/layanan internal terpisah untuk mengelola customer, paket,
+lisensi, activation code, terminal, masa maintenance, dan release. License Hub
+tidak menyimpan transaksi atau data keuangan customer. Ia hanya menjadi lemari
+kunci yang menerbitkan lisensi bertanda tangan.
+
+Tabel minimum di License Hub:
+
+| Tabel | Isi utama |
+| --- | --- |
+| `lic_customer` | Identitas organisasi customer dan kontak pemilik. |
+| `lic_plan` | Essential POS, Operations, Control, Enterprise. |
+| `lic_feature` dan `lic_plan_feature` | Katalog fitur serta fitur milik setiap paket. |
+| `lic_license` | Nomor lisensi, status, batas outlet/terminal, dan masa maintenance. |
+| `lic_license_entitlement` | Add-on dan limit yang spesifik untuk satu customer. |
+| `lic_device_activation` | Device/terminal aktif, outlet, public key, dan statusnya. |
+| `lic_activation_audit` | Jejak aktivasi, reset, penggantian, dan alasan. |
+| `lic_release` | Manifest release, signature, versi minimum, dan channel rilis. |
+
+### Langkah 4 - Integrasikan lisensi ke Finance tanpa mengganggu operasi
+
+Tambahkan halaman `System > Lisensi & Aktivasi`, cache lisensi bertanda tangan,
+dan pemeriksaan status yang tidak langsung mematikan kasir. Tambahkan satu
+`FeatureGate` di backend; menu, URL, controller, API, cron, dan endpoint APK
+memakai gate yang sama. Saat belum ada lisensi pada masa migrasi, gunakan mode
+internal/development yang dicatat jelas dan hanya dapat dipakai oleh instalasi
+milik kita.
+
+### Langkah 5 - Aktifkan batas terminal dan APK POS
+
+Saat POS web terminal atau APK pertama kali dipasang, device melakukan pairing
+dengan kode aktivasi. Setiap device menyimpan pasangan kunci, bukan hanya MAC
+address atau cookie. Owner dapat menonaktifkan device lama lalu memasangkan
+pengganti; semua tindakan masuk audit. APK POS harus memakai entitlement yang
+sama dan menghitung satu slot terminal.
+
+### Langkah 6 - Buat Update Center secara bertahap
+
+Versi pertama cukup berupa update terbantu: admin melihat release, sistem
+melakukan preflight dan backup, lalu admin menerapkan paket yang sudah
+ditandatangani. Setelah proses itu stabil, baru aktifkan download dan update
+otomatis terjadwal. Setiap update wajib membuat backup, menjalankan migration,
+health check, dan menyediakan rollback yang diuji.
+
+### Langkah 7 - Paketkan dan lindungi release production
+
+Pisahkan repository private dari artefak pelanggan. Rilis production berisi
+kode yang diperlukan aplikasi, konfigurasi template, installer, dan checksum;
+tidak berisi Git, secret, private key, atau alat pengembangan. Evaluasi PHP
+encoder setelah installer/updater stabil. Encoder memperkuat hambatan menyalin,
+tetapi kontrak lisensi dan proses distribusi tetap menjadi perlindungan utama.
+
+### Langkah 8 - Pilot sebelum dijual luas
+
+Pilih satu sampai dua instalasi pilot. Uji pembelian lisensi, aktivasi tiga
+terminal, ganti HP/PC, internet putus, maintenance habis, feature gate,
+update, rollback, dan ekspor data. Hanya setelah seluruh skenario ini lolos,
+paket dijual ke customer berikutnya.
+
+## 11. Kriteria Siap Jual Versi Pertama
+
+Produk dianggap siap dijual ketika seluruh poin berikut telah terbukti pada
+instalasi pilot:
+
+- customer bisa memasang aplikasi tanpa akses Git atau source code;
+- lisensi membatasi 1 outlet dan 3 terminal sesuai kontrak, termasuk APK;
+- owner dapat melihat dan mengganti device dengan audit trail;
+- RBAC dan FeatureGate sama-sama menolak akses yang tidak berhak;
+- POS tetap beroperasi saat koneksi License Hub terputus dalam grace period;
+- masa maintenance habis tidak mengunci transaksi maupun data;
+- update memiliki preflight, backup, migration, health check, dan rollback;
+- support dapat membaca status versi/aktivasi tanpa menerima data transaksi
+  customer secara default;
+- kontrak lisensi, SOP instalasi, SOP support, dan kebijakan privasi siap
+  dipakai.
+
+## 12. Hal yang Sebaiknya Tidak Dilakukan
 
 - Jangan menjanjikan source code "tidak mungkin disalin".
 - Jangan menjadikan MAC address, IP, atau cookie browser sebagai satu-satunya
@@ -307,23 +447,24 @@ Hasil yang harus ada:
 - Jangan mengirim data transaksi customer ke server lisensi demi pemeriksaan
   aktivasi biasa.
 
-## 11. Urutan Keputusan Sebelum Mulai Coding
+## 13. Keputusan yang Sudah Ditetapkan Sebelum Mulai Coding
 
-1. Tentukan apakah penjualan awal fokus on-premise, managed server, atau
-   keduanya.
-2. Putuskan satuan lisensi: per organisasi, outlet, terminal POS, dan add-on.
-3. Tentukan jumlah device default, prosedur penggantian, serta grace period
-   offline.
-4. Tentukan paket fitur awal berdasarkan nilai bisnis, bukan banyaknya menu.
-5. Tetapkan masa maintenance dan jenis update yang tetap diberikan setelahnya,
-   misalnya security fix versus fitur baru.
-6. Siapkan kontrak lisensi dan SOP support bersama pihak hukum.
-7. Baru implementasikan Fase 1, lalu Fase 2. Jangan melompat langsung ke
-   obfuscation atau APK locking.
+1. Penjualan awal adalah on-premise per organisasi; managed server dapat
+   ditawarkan sebagai layanan instalasi/support, bukan perubahan model produk.
+2. Lisensi dihitung per organisasi, outlet, terminal POS, dan add-on.
+3. Paket awal mencakup 1 outlet dan 3 terminal aktif dengan grace period
+   offline 30 hari serta jalur penggantian device berjejak.
+4. Paket awal adalah Essential POS, Operations, Control, dan Enterprise.
+5. Maintenance standar 12 bulan; aplikasi perpetual tetap berjalan setelahnya,
+   sedangkan update/support baru memerlukan perpanjangan.
+6. Kontrak lisensi, EULA, dan SOP support harus ditinjau pihak hukum sebelum
+   penjualan pertama.
+7. Pengerjaan dimulai dari Langkah 1 dan 2, lalu lisensi dasar. Obfuscation dan
+   APK locking tidak boleh mendahului release engineering.
 
-## 12. Rekomendasi Keputusan Awal
+## 14. Ringkasan Arah Produk
 
-Untuk versi pertama yang akan dijual, rekomendasi saya adalah:
+Untuk versi pertama yang akan dijual, arah finalnya adalah:
 
 - jual **perpetual on-premise per organisasi** dengan 1 outlet dan 3 terminal
   POS sebagai paket awal;
