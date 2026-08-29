@@ -21,13 +21,15 @@ class Landing_page extends MY_Controller
             : 'config';
 
         $data = [
-            'title'     => 'Pengaturan Landing Page',
-            'tab'       => $tab,
-            'cfg'       => $this->lp->get_config(),
-            'menus'     => $this->lp->get_menu(true),
-            'galleries' => $this->lp->get_gallery(true),
-            'embeds'    => $this->lp->get_embed(true),
-            'links'     => $this->lp->get_links(true),
+            'title'              => 'Pengaturan Landing Page',
+            'tab'                => $tab,
+            'cfg'                => $this->lp->get_config(),
+            'menus'              => $this->lp->get_landing_products(),
+            'available_products' => $this->lp->get_available_landing_products(),
+            'product_categories' => $this->lp->get_product_categories(),
+            'galleries'          => $this->lp->get_gallery(true),
+            'embeds'             => $this->lp->get_embed(true),
+            'links'              => $this->lp->get_links(true),
         ];
         $this->render('landing_page/index', $data);
     }
@@ -44,6 +46,8 @@ class Landing_page extends MY_Controller
             'address', 'phone', 'whatsapp',
             'order_url', 'member_url', 'instagram_url', 'linktree_url', 'map_url',
             'cta_title', 'cta_text', 'footer_text',
+            'seo_title', 'seo_description', 'seo_canonical_url', 'seo_share_image',
+            'seo_google_verification',
         ];
         $data = [];
         foreach ($text_fields as $f) {
@@ -63,15 +67,15 @@ class Landing_page extends MY_Controller
         $data['about_points'] = json_encode($points, JSON_UNESCAPED_UNICODE);
 
         // Pengaturan sumber data
-        $menu_source    = $this->input->post('menu_source', true);
         $gallery_source = $this->input->post('gallery_source', true);
-        $data['menu_source']          = in_array($menu_source, ['manual', 'produk'], true) ? $menu_source : 'manual';
+        $data['menu_source']          = 'produk';
         $data['gallery_source']       = in_array($gallery_source, ['manual', 'produk'], true) ? $gallery_source : 'manual';
         $data['menu_limit']           = max(4, min(20, (int)$this->input->post('menu_limit', true)));
         $data['gallery_limit']        = max(4, min(12, (int)$this->input->post('gallery_limit', true)));
         $data['menu_best_seller_top'] = max(1, min(10, (int)$this->input->post('menu_best_seller_top', true)));
-        $data['menu_kategori_ids']    = trim((string)$this->input->post('menu_kategori_ids', true));
-        $data['gallery_kategori_ids'] = trim((string)$this->input->post('gallery_kategori_ids', true));
+        $data['menu_kategori_ids']    = $this->_category_ids_from_post('menu_kategori_ids');
+        $data['gallery_kategori_ids'] = $this->_category_ids_from_post('gallery_kategori_ids');
+        $data['seo_indexing']         = $this->input->post('seo_indexing', true) === 'noindex' ? 'noindex' : 'index';
 
         $data['updated_by'] = (int)$this->current_user['id'];
 
@@ -85,66 +89,63 @@ class Landing_page extends MY_Controller
     public function menu_store(): void
     {
         $this->require_permission(self::PAGE_CODE, 'create');
-        $input = $this->_menu_input();
-        if ($input['title'] === '') { $this->json_error('Nama menu tidak boleh kosong.', 422); return; }
+        $productId = (int)$this->input->post('product_id', true);
+        $product = $this->lp->find_product($productId);
+        if (!$product || (int)$product['is_active'] !== 1) {
+            $this->json_error('Produk aktif tidak ditemukan.', 404);
+            return;
+        }
+        if ((int)$product['show_landing'] === 1) {
+            $this->json_error('Produk sudah tampil di landing page.', 422);
+            return;
+        }
 
-        $input['sort_order'] = $this->lp->next_menu_sort();
-        $input['created_by'] = (int)$this->current_user['id'];
-        $input['updated_by'] = (int)$this->current_user['id'];
-        $this->lp->insert_menu($input);
-        $this->json_ok(['message' => 'Menu berhasil ditambahkan.']);
+        $this->lp->add_product_to_landing($productId);
+        $this->json_ok(['message' => 'Produk ditambahkan ke landing page.']);
     }
 
     public function menu_update(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
-        if ($id <= 0 || !$this->lp->find_menu($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
-
-        $input = $this->_menu_input();
-        if ($input['title'] === '') { $this->json_error('Nama menu tidak boleh kosong.', 422); return; }
-
-        $input['updated_by'] = (int)$this->current_user['id'];
-        $this->lp->update_menu($id, $input);
-        $this->json_ok(['message' => 'Menu berhasil diperbarui.']);
+        if ($id <= 0 || !$this->lp->find_product($id)) {
+            $this->json_error('Produk tidak ditemukan.', 404);
+            return;
+        }
+        $this->json_error('Nama, harga, foto, dan deskripsi harus diubah dari Master Produk.', 409);
     }
 
     public function menu_delete(int $id): void
     {
-        $this->require_permission(self::PAGE_CODE, 'delete');
-        if ($id <= 0 || !$this->lp->find_menu($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
-        $this->lp->delete_menu($id);
-        $this->json_ok(['message' => 'Menu berhasil dihapus.']);
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        if ($id <= 0 || !$this->lp->find_product($id)) { $this->json_error('Produk tidak ditemukan.', 404); return; }
+        $this->lp->remove_product_from_landing($id);
+        $this->json_ok(['message' => 'Produk disembunyikan dari landing page.']);
     }
 
     public function menu_toggle(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
-        if ($id <= 0 || !$this->lp->find_menu($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
-        $new = $this->lp->toggle_menu($id);
-        $this->json_ok(['message' => 'Status berhasil diubah.', 'is_active' => $new]);
+        if ($id <= 0 || !$this->lp->find_product($id)) { $this->json_error('Produk tidak ditemukan.', 404); return; }
+        $new = $this->lp->toggle_landing_product($id);
+        $this->json_ok(['message' => 'Status tampil produk berhasil diubah.', 'is_active' => $new]);
     }
 
     public function menu_reorder(): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
-        $body = json_decode(file_get_contents('php://input'), true);
-        $ids  = array_filter(array_map('intval', (array)($body['ids'] ?? [])));
-        if (empty($ids)) { $this->json_error('Data urutan tidak valid.', 422); return; }
-        $this->lp->reorder_menu(array_values($ids));
-        $this->json_ok(['message' => 'Urutan menu berhasil disimpan.']);
+        $this->json_error('Urutan landing dihitung otomatis dari penjualan 90 hari.', 409);
     }
 
-    private function _menu_input(): array
+    private function _category_ids_from_post(string $field): string
     {
-        $price_raw = preg_replace('/[^0-9]/', '', (string)$this->input->post('price', true));
-        return [
-            'title'          => trim((string)$this->input->post('title', true)),
-            'description'    => trim((string)$this->input->post('description', true)),
-            'image'          => trim((string)$this->input->post('image', true)),
-            'price'          => $price_raw !== '' ? (int)$price_raw : null,
-            'is_best_seller' => $this->input->post('is_best_seller', true) ? 1 : 0,
-            'is_active'      => $this->input->post('is_active', true) !== '0' ? 1 : 0,
-        ];
+        $raw = $this->input->post($field, true);
+        $values = is_array($raw) ? $raw : explode(',', (string)$raw);
+        $ids = [];
+        foreach ($values as $value) {
+            $id = (int)$value;
+            if ($id > 0) $ids[$id] = $id;
+        }
+        return implode(',', array_values($ids));
     }
 
     // ── GALLERY ───────────────────────────────────────────────────────

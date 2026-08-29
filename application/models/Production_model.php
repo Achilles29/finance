@@ -2198,10 +2198,16 @@ class Production_model extends CI_Model
                     'opening_qty' => round($qtyBefore, 4),
                     'opening_total_value' => round($valueBefore, 2),
                     'in_qty' => 0.0,
+                    'in_total_value' => 0.0,
                     'out_qty' => 0.0,
+                    'out_total_value' => 0.0,
                     'waste_qty' => 0.0,
+                    'waste_total_value' => 0.0,
                     'spoil_qty' => 0.0,
+                    'spoil_total_value' => 0.0,
                     'adjustment_qty' => 0.0,
+                    'adjustment_plus_total_value' => 0.0,
+                    'adjustment_minus_total_value' => 0.0,
                     'closing_qty' => round($qtyBefore, 4),
                     'avg_cost' => round($avgBefore, 6),
                     'total_value' => round($valueBefore, 2),
@@ -2214,44 +2220,65 @@ class Production_model extends CI_Model
             $qtyIn = round((float)($log['qty_in'] ?? 0), 4);
             $qtyOut = round((float)($log['qty_out'] ?? 0), 4);
             $unitCost = round((float)($log['unit_cost'] ?? 0), 6);
+            // Daily closing average can be zero after stock is fully consumed.
+            // Keep each movement's recorded value for monthly cost reporting.
+            $movementValue = round(abs((float)($log['total_cost'] ?? 0)), 2);
             $movementType = strtoupper(trim((string)($log['movement_type'] ?? '')));
             $movementAt = (string)($log['movement_datetime'] ?? ($movementDate . ' 00:00:00'));
 
             if ($movementType === 'OPENING') {
                 $daily[$movementDate]['opening_qty'] = round((float)$daily[$movementDate]['opening_qty'] + $qtyIn - $qtyOut, 4);
+                $daily[$movementDate]['opening_total_value'] = round((float)$daily[$movementDate]['opening_total_value'] + $movementValue, 2);
             } elseif (in_array($movementType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
                 $daily[$movementDate]['in_qty'] = round((float)$daily[$movementDate]['in_qty'] + $qtyIn, 4);
+                $daily[$movementDate]['in_total_value'] = round((float)$daily[$movementDate]['in_total_value'] + $movementValue, 2);
             } elseif (in_array($movementType, ['PRODUCTION_OUT', 'TRANSFER_OUT', 'USAGE'], true)) {
                 $daily[$movementDate]['out_qty'] = round((float)$daily[$movementDate]['out_qty'] + $qtyOut, 4);
+                $daily[$movementDate]['out_total_value'] = round((float)$daily[$movementDate]['out_total_value'] + $movementValue, 2);
             } elseif ($movementType === 'WASTE') {
                 $daily[$movementDate]['waste_qty'] = round((float)$daily[$movementDate]['waste_qty'] + $qtyOut, 4);
+                $daily[$movementDate]['waste_total_value'] = round((float)$daily[$movementDate]['waste_total_value'] + $movementValue, 2);
             } elseif ($movementType === 'SPOIL') {
                 $daily[$movementDate]['spoil_qty'] = round((float)$daily[$movementDate]['spoil_qty'] + $qtyOut, 4);
+                $daily[$movementDate]['spoil_total_value'] = round((float)$daily[$movementDate]['spoil_total_value'] + $movementValue, 2);
             } elseif ($movementType === 'ADJUSTMENT_PLUS') {
                 $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                $daily[$movementDate]['adjustment_plus_total_value'] = round((float)$daily[$movementDate]['adjustment_plus_total_value'] + $movementValue, 2);
             } elseif ($movementType === 'ADJUSTMENT_MINUS') {
                 $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] - $qtyOut, 4);
+                $daily[$movementDate]['adjustment_minus_total_value'] = round((float)$daily[$movementDate]['adjustment_minus_total_value'] + $movementValue, 2);
             } elseif ($movementType === 'VOID_REVERSE') {
                 $originType = strtoupper(trim((string)($log['reversal_origin_type'] ?? '')));
                 if (in_array($originType, ['PRODUCTION_OUT', 'TRANSFER_OUT', 'USAGE'], true)) {
                     $daily[$movementDate]['out_qty'] = round((float)$daily[$movementDate]['out_qty'] - $qtyIn, 4);
+                    $daily[$movementDate]['out_total_value'] = round((float)$daily[$movementDate]['out_total_value'] - $movementValue, 2);
                 } elseif ($originType === 'WASTE') {
                     $daily[$movementDate]['waste_qty'] = round((float)$daily[$movementDate]['waste_qty'] - $qtyIn, 4);
+                    $daily[$movementDate]['waste_total_value'] = round((float)$daily[$movementDate]['waste_total_value'] - $movementValue, 2);
                 } elseif ($originType === 'SPOIL') {
                     $daily[$movementDate]['spoil_qty'] = round((float)$daily[$movementDate]['spoil_qty'] - $qtyIn, 4);
+                    $daily[$movementDate]['spoil_total_value'] = round((float)$daily[$movementDate]['spoil_total_value'] - $movementValue, 2);
                 } elseif ($originType === 'ADJUSTMENT_MINUS') {
                     $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                    $daily[$movementDate]['adjustment_minus_total_value'] = round((float)$daily[$movementDate]['adjustment_minus_total_value'] - $movementValue, 2);
                 } elseif (in_array($originType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
                     $daily[$movementDate]['in_qty'] = round((float)$daily[$movementDate]['in_qty'] - $qtyIn, 4);
+                    $daily[$movementDate]['in_total_value'] = round((float)$daily[$movementDate]['in_total_value'] - $movementValue, 2);
                 } else {
                     $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] + $qtyIn, 4);
+                    $daily[$movementDate]['adjustment_plus_total_value'] = round((float)$daily[$movementDate]['adjustment_plus_total_value'] + $movementValue, 2);
                 }
             } elseif ($movementType === 'VOID_OUT') {
                 $originType = strtoupper(trim((string)($log['reversal_origin_type'] ?? '')));
                 if (in_array($originType, ['PRODUCTION_IN', 'TRANSFER_IN'], true)) {
                     $daily[$movementDate]['in_qty'] = round((float)$daily[$movementDate]['in_qty'] - $qtyOut, 4);
+                    $daily[$movementDate]['in_total_value'] = round((float)$daily[$movementDate]['in_total_value'] - $movementValue, 2);
+                } elseif ($originType === 'ADJUSTMENT_PLUS') {
+                    $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] - $qtyOut, 4);
+                    $daily[$movementDate]['adjustment_plus_total_value'] = round((float)$daily[$movementDate]['adjustment_plus_total_value'] - $movementValue, 2);
                 } else {
                     $daily[$movementDate]['adjustment_qty'] = round((float)$daily[$movementDate]['adjustment_qty'] - $qtyOut, 4);
+                    $daily[$movementDate]['adjustment_minus_total_value'] = round((float)$daily[$movementDate]['adjustment_minus_total_value'] + $movementValue, 2);
                 }
             }
 
@@ -2337,26 +2364,25 @@ class Production_model extends CI_Model
                 ];
             }
 
-            $avgCost = round((float)($row['avg_cost'] ?? 0), 6);
             $adjustmentQty = round((float)($row['adjustment_qty'] ?? 0), 4);
 
             $monthlyRows[$monthKey]['in_qty'] = round((float)$monthlyRows[$monthKey]['in_qty'] + (float)($row['in_qty'] ?? 0), 4);
-            $monthlyRows[$monthKey]['in_total_value'] = round((float)$monthlyRows[$monthKey]['in_total_value'] + ((float)($row['in_qty'] ?? 0) * $avgCost), 2);
+            $monthlyRows[$monthKey]['in_total_value'] = round((float)$monthlyRows[$monthKey]['in_total_value'] + (float)($row['in_total_value'] ?? 0), 2);
             $monthlyRows[$monthKey]['out_qty'] = round((float)$monthlyRows[$monthKey]['out_qty'] + (float)($row['out_qty'] ?? 0), 4);
-            $monthlyRows[$monthKey]['out_total_value'] = round((float)$monthlyRows[$monthKey]['out_total_value'] + ((float)($row['out_qty'] ?? 0) * $avgCost), 2);
+            $monthlyRows[$monthKey]['out_total_value'] = round((float)$monthlyRows[$monthKey]['out_total_value'] + (float)($row['out_total_value'] ?? 0), 2);
             $monthlyRows[$monthKey]['waste_qty'] = round((float)$monthlyRows[$monthKey]['waste_qty'] + (float)($row['waste_qty'] ?? 0), 4);
-            $monthlyRows[$monthKey]['waste_total_value'] = round((float)$monthlyRows[$monthKey]['waste_total_value'] + ((float)($row['waste_qty'] ?? 0) * $avgCost), 2);
+            $monthlyRows[$monthKey]['waste_total_value'] = round((float)$monthlyRows[$monthKey]['waste_total_value'] + (float)($row['waste_total_value'] ?? 0), 2);
             $monthlyRows[$monthKey]['spoil_qty'] = round((float)$monthlyRows[$monthKey]['spoil_qty'] + (float)($row['spoil_qty'] ?? 0), 4);
-            $monthlyRows[$monthKey]['spoil_total_value'] = round((float)$monthlyRows[$monthKey]['spoil_total_value'] + ((float)($row['spoil_qty'] ?? 0) * $avgCost), 2);
+            $monthlyRows[$monthKey]['spoil_total_value'] = round((float)$monthlyRows[$monthKey]['spoil_total_value'] + (float)($row['spoil_total_value'] ?? 0), 2);
             if ($adjustmentQty >= 0) {
                 $monthlyRows[$monthKey]['adjustment_plus_qty'] = round((float)$monthlyRows[$monthKey]['adjustment_plus_qty'] + $adjustmentQty, 4);
-                $monthlyRows[$monthKey]['adjustment_plus_total_value'] = round((float)$monthlyRows[$monthKey]['adjustment_plus_total_value'] + ($adjustmentQty * $avgCost), 2);
+                $monthlyRows[$monthKey]['adjustment_plus_total_value'] = round((float)$monthlyRows[$monthKey]['adjustment_plus_total_value'] + (float)($row['adjustment_plus_total_value'] ?? 0), 2);
             } else {
                 $monthlyRows[$monthKey]['adjustment_minus_qty'] = round((float)$monthlyRows[$monthKey]['adjustment_minus_qty'] + abs($adjustmentQty), 4);
-                $monthlyRows[$monthKey]['adjustment_minus_total_value'] = round((float)$monthlyRows[$monthKey]['adjustment_minus_total_value'] + (abs($adjustmentQty) * $avgCost), 2);
+                $monthlyRows[$monthKey]['adjustment_minus_total_value'] = round((float)$monthlyRows[$monthKey]['adjustment_minus_total_value'] + (float)($row['adjustment_minus_total_value'] ?? 0), 2);
             }
             $monthlyRows[$monthKey]['closing_qty'] = round((float)($row['closing_qty'] ?? 0), 4);
-            $monthlyRows[$monthKey]['avg_cost'] = $avgCost;
+            $monthlyRows[$monthKey]['avg_cost'] = round((float)($row['avg_cost'] ?? 0), 6);
             $monthlyRows[$monthKey]['total_value'] = round((float)($row['total_value'] ?? 0), 2);
             $monthlyRows[$monthKey]['movement_day_count'] = (int)$monthlyRows[$monthKey]['movement_day_count'] + 1;
             $monthlyRows[$monthKey]['mutation_count'] = (int)$monthlyRows[$monthKey]['mutation_count'] + (int)($row['mutation_count'] ?? 0);

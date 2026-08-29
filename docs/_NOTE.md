@@ -306,3 +306,7 @@ tampilan halaman jadi 2 tab.
 - masukkan ke sidebar dibawah self odere, masukkan hak akses full ke superadmin, management , hod, barista
 
 kembangkan lagi sesuai dengan pengetahuanmu. kejutkan saya!
+
+
+
+sepertinya perlu dipisahkan nama label dan nama produk agar tidak salah dan mudah memberi tanda. karena bisa saja produk yang sama punya beberapa jenis label

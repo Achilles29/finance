@@ -12,6 +12,7 @@ $holidayMap = array_flip($holiday_dates ?? []);
 $todayDate = date('Y-m-d');
 $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '-01'));
 $scheduleLimitDays = max(1, (int)($schedule_limit_days ?? 26));
+$canMonthlyScheduleOverride = !empty($can_monthly_schedule_override);
 ?>
 <style>
   .schedule-v2-wrap { overflow:auto; max-height:72vh; border:1px solid #d8dee4; border-radius:10px; background:#fff; position: relative; }
@@ -107,6 +108,7 @@ $scheduleLimitDays = max(1, (int)($schedule_limit_days ?? 26));
 <script>
 (function(){
   var warnEl = document.getElementById('scheduleWarn');
+  var canMonthlyScheduleOverride = <?php echo $canMonthlyScheduleOverride ? 'true' : 'false'; ?>;
   function showWarn(msg){ warnEl.textContent = msg; warnEl.classList.remove('d-none'); }
   function clearWarn(){ warnEl.textContent = ''; warnEl.classList.add('d-none'); }
 
@@ -170,10 +172,10 @@ $scheduleLimitDays = max(1, (int)($schedule_limit_days ?? 26));
       .then(function(res){
         var message = (res.j && res.j.message) ? res.j.message : 'Gagal simpan jadwal.';
         if (!res.ok || !res.j || Number(res.j.ok) !== 1) {
-          if (res.j && Number(res.j.requires_override) === 1) {
-            var approved = window.confirm(message + '\n\nLanjutkan sebagai override Superadmin?');
+          if (res.j && Number(res.j.requires_override) === 1 && canMonthlyScheduleOverride) {
+            var approved = window.confirm(message + '\n\nLanjutkan dengan override jadwal?');
             if (approved) {
-              var reason = window.prompt('Catatan alasan override Superadmin:', 'Kebutuhan operasional jadwal');
+              var reason = window.prompt('Catatan alasan override:', 'Kebutuhan operasional jadwal');
               if (reason !== null) {
                 send(true, reason);
                 return;

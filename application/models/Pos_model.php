@@ -11425,6 +11425,13 @@ class Pos_model extends CI_Model
     private function resolve_product_default_operational_division(array $product): ?int
     {
         $divisionId = (int)($product['default_operational_division_id'] ?? 0);
+
+        // This is the KOT station explicitly selected for the product. Recipe
+        // sources may span several divisions and must not reroute the KOT.
+        if ($divisionId > 0) {
+            return $divisionId;
+        }
+
         $productId = (int)($product['id'] ?? 0);
         $recipeDivisionId = 0;
 
@@ -11438,13 +11445,6 @@ class Pos_model extends CI_Model
                 ->get()
                 ->row_array();
             $recipeDivisionId = (int)($recipeRow['source_division_id'] ?? 0);
-        }
-
-        if ($divisionId > 0) {
-            if ($recipeDivisionId > 0 && $recipeDivisionId !== $divisionId) {
-                return $recipeDivisionId;
-            }
-            return $divisionId;
         }
 
         if ($recipeDivisionId > 0) {

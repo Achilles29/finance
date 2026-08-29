@@ -2,9 +2,17 @@
 $tab        = $tab        ?? 'config';
 $cfg        = $cfg        ?? [];
 $menus      = $menus      ?? [];
+$available_products = $available_products ?? [];
+$product_categories = $product_categories ?? [];
 $galleries  = $galleries  ?? [];
 $embeds     = $embeds     ?? [];
 $links      = $links      ?? [];
+
+$host = preg_replace('/:\\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
+$isLocalHost = in_array($host, ['localhost', '127.0.0.1'], true);
+$landingUrl = $isLocalHost ? 'http://localhost/namuacoffee.com/' : 'https://namuacoffee.com/';
+$menuCategoryIds = array_filter(array_map('intval', explode(',', (string)($cfg['menu_kategori_ids'] ?? ''))));
+$galleryCategoryIds = array_filter(array_map('intval', explode(',', (string)($cfg['gallery_kategori_ids'] ?? ''))));
 
 $baseUrl    = site_url('landing-page');
 $cfgUrl     = site_url('landing-page/config/update');
@@ -36,15 +44,18 @@ function lp_badge(int $active): string {
   .lp-cfg-card { border: 0; box-shadow: 0 .15rem .6rem rgba(80,40,30,.09); margin-bottom: 1.25rem; }
   .lp-cfg-card .card-header { background: #fdf9f5; border-bottom: 1px solid #f0e6da; font-weight: 600; font-size: .88rem; }
   .lp-embed-preview { max-height: 60px; overflow: hidden; font-size: .78rem; color: #6c757d; background: #f8f9fa; border-radius: 6px; padding: .35rem .6rem; font-family: monospace; }
+  .lp-source-lock { background: #f4fbf7; border: 1px solid #cfe9da; border-radius: .65rem; padding: .8rem .9rem; }
+  .lp-product-thumb { background: #f6f1eb; }
+  .lp-category-select { min-height: 150px; }
 </style>
 
 <!-- Page header -->
 <div class="d-flex flex-wrap justify-content-between align-items-start mb-3 gap-2">
   <div>
     <h4 class="mb-1">Pengaturan Landing Page</h4>
-    <small class="text-muted">Kelola konten halaman utama Namua Coffee &amp; Eatery</small>
+    <small class="text-muted">Kelola konten halaman utama Namua Coffee &amp; Roastery</small>
   </div>
-  <a href="http://localhost/namuacoffee/" target="_blank" class="btn btn-outline-secondary btn-sm">
+  <a href="<?= html_escape($landingUrl) ?>" target="_blank" rel="noreferrer" class="btn btn-outline-secondary btn-sm">
     <i class="ri ri-external-link-line me-1"></i>Lihat Landing Page
   </a>
 </div>
@@ -162,6 +173,42 @@ function lp_badge(int $active): string {
 
     <div class="col-lg-4">
 
+      <!-- SEO -->
+      <div class="card lp-cfg-card">
+        <div class="card-header"><i class="ri ri-search-eye-line me-1"></i>SEO &amp; Social Preview</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label">SEO Title</label>
+            <input type="text" name="seo_title" id="seoTitle" class="form-control" maxlength="255" value="<?= html_escape($cfg['seo_title'] ?? 'Namua Coffee & Roastery Rembang | Kopi & Comfort Food') ?>">
+            <div class="form-text"><span id="seoTitleCount">0</span> karakter. Buat spesifik dan mudah dipahami.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Meta Description</label>
+            <textarea name="seo_description" id="seoDescription" class="form-control" rows="3" maxlength="320"><?= html_escape($cfg['seo_description'] ?? 'Nikmati kopi pilihan, hasil roasting, dan comfort food di Namua Coffee & Roastery Rembang. Buka setiap hari pukul 09.00-23.00.') ?></textarea>
+            <div class="form-text"><span id="seoDescriptionCount">0</span> karakter. Ringkas isi halaman untuk hasil pencarian.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Canonical URL</label>
+            <input type="url" name="seo_canonical_url" class="form-control form-control-sm" value="<?= html_escape($cfg['seo_canonical_url'] ?? 'https://namuacoffee.com/') ?>">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Share Image <small class="text-muted">(URL/path)</small></label>
+            <input type="text" name="seo_share_image" class="form-control form-control-sm" value="<?= html_escape($cfg['seo_share_image'] ?? 'assets/hero/americano_hot.jpg') ?>">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Indexing</label>
+            <select name="seo_indexing" class="form-select form-select-sm">
+              <option value="index" <?= ($cfg['seo_indexing'] ?? 'index') === 'index' ? 'selected' : '' ?>>Index, follow</option>
+              <option value="noindex" <?= ($cfg['seo_indexing'] ?? '') === 'noindex' ? 'selected' : '' ?>>Noindex (sembunyikan dari mesin pencari)</option>
+            </select>
+          </div>
+          <div class="mb-0">
+            <label class="form-label">Google Site Verification <small class="text-muted">(opsional)</small></label>
+            <input type="text" name="seo_google_verification" class="form-control form-control-sm" placeholder="Kode content dari Search Console" value="<?= html_escape($cfg['seo_google_verification'] ?? '') ?>">
+          </div>
+        </div>
+      </div>
+
       <!-- Kontak -->
       <div class="card lp-cfg-card">
         <div class="card-header"><i class="ri ri-map-pin-line me-1"></i>Kontak &amp; Lokasi</div>
@@ -206,10 +253,11 @@ function lp_badge(int $active): string {
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label mb-1 small fw-semibold">Sumber Menu</label>
-            <select name="menu_source" class="form-select form-select-sm">
-              <option value="manual" <?= ($cfg['menu_source'] ?? 'manual') === 'manual' ? 'selected' : '' ?>>Manual (tabel lp_menu)</option>
-              <option value="produk" <?= ($cfg['menu_source'] ?? '') === 'produk'  ? 'selected' : '' ?>>Produk POS</option>
-            </select>
+            <input type="hidden" name="menu_source" value="produk">
+            <div class="lp-source-lock small">
+              <div class="fw-semibold text-success mb-1"><i class="ri ri-checkbox-circle-fill me-1"></i>Sinkron langsung dengan mst_product</div>
+              <span class="text-muted">Landing membaca nama, foto, deskripsi, kategori, harga, status, dan flag <code>show_landing</code> tanpa menyalin data.</span>
+            </div>
           </div>
           <div class="row g-2 mb-3">
             <div class="col-6">
@@ -222,15 +270,22 @@ function lp_badge(int $active): string {
             </div>
           </div>
           <div class="mb-3">
-            <label class="form-label mb-1 small">Filter Kategori Menu <small class="text-muted">(ID, pisah koma)</small></label>
-            <input type="text" name="menu_kategori_ids" class="form-control form-control-sm" placeholder="1,2,3" value="<?= html_escape($cfg['menu_kategori_ids'] ?? '') ?>">
+            <label class="form-label mb-1 small">Filter Kategori Menu</label>
+            <select name="menu_kategori_ids[]" class="form-select form-select-sm lp-category-select" multiple>
+              <?php foreach ($product_categories as $category): ?>
+                <option value="<?= (int)$category['id'] ?>" <?= in_array((int)$category['id'], $menuCategoryIds, true) ? 'selected' : '' ?>>
+                  <?= html_escape($category['name']) ?> (<?= (int)$category['landing_count'] ?> tampil)
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <div class="form-text">Kosongkan pilihan untuk menampilkan semua kategori.</div>
           </div>
           <hr class="my-2">
           <div class="mb-3">
             <label class="form-label mb-1 small fw-semibold">Sumber Gallery</label>
             <select name="gallery_source" class="form-select form-select-sm">
               <option value="manual" <?= ($cfg['gallery_source'] ?? 'manual') === 'manual' ? 'selected' : '' ?>>Manual (tabel lp_gallery)</option>
-              <option value="produk" <?= ($cfg['gallery_source'] ?? '') === 'produk'  ? 'selected' : '' ?>>Produk POS</option>
+              <option value="produk" <?= ($cfg['gallery_source'] ?? '') === 'produk'  ? 'selected' : '' ?>>Foto mst_product</option>
             </select>
           </div>
           <div class="row g-2 mb-3">
@@ -241,7 +296,14 @@ function lp_badge(int $active): string {
           </div>
           <div class="mb-0">
             <label class="form-label mb-1 small">Filter Kategori Gallery</label>
-            <input type="text" name="gallery_kategori_ids" class="form-control form-control-sm" placeholder="1,2,3" value="<?= html_escape($cfg['gallery_kategori_ids'] ?? '') ?>">
+            <select name="gallery_kategori_ids[]" class="form-select form-select-sm lp-category-select" multiple>
+              <?php foreach ($product_categories as $category): ?>
+                <option value="<?= (int)$category['id'] ?>" <?= in_array((int)$category['id'], $galleryCategoryIds, true) ? 'selected' : '' ?>>
+                  <?= html_escape($category['name']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <div class="form-text">Dipakai hanya jika sumber gallery adalah foto mst_product.</div>
           </div>
         </div>
       </div>
@@ -258,10 +320,17 @@ function lp_badge(int $active): string {
 
 <!-- ═══════════════════ TAB MENU ═══════════════════ -->
 <?php elseif ($tab === 'menu'): ?>
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <small class="text-muted">Total: <?= count($menus) ?> item &nbsp;·&nbsp; Drag baris untuk atur urutan</small>
+<div class="alert alert-success border-success-subtle d-flex gap-2 align-items-start py-2" role="status">
+  <i class="ri ri-database-2-line mt-1"></i>
+  <div class="small">
+    <strong>Sumber tunggal: mst_product.</strong>
+    Landing menampilkan maksimal <?= (int)($cfg['menu_limit'] ?? 8) ?> produk dan mengurutkannya dari penjualan 90 hari. Perubahan nama, harga, foto, atau deskripsi dilakukan di Master Produk dan langsung ikut tampil.
+  </div>
+</div>
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+  <small class="text-muted"><?= count($menus) ?> produk ditandai <code>show_landing = 1</code> &nbsp;·&nbsp; <?= count($available_products) ?> produk aktif tersedia</small>
   <button class="btn btn-primary btn-sm" data-lp-open-modal="menu" data-lp-mode="add">
-    <i class="ri ri-add-line me-1"></i>Tambah Menu
+    <i class="ri ri-add-line me-1"></i>Pilih Produk
   </button>
 </div>
 <div class="card border-0 shadow-sm">
@@ -269,52 +338,47 @@ function lp_badge(int $active): string {
     <table class="table table-hover align-middle mb-0" id="menuTable">
       <thead class="table-light">
         <tr>
-          <th width="36"></th>
           <th width="44">No</th>
           <th width="72">Foto</th>
-          <th>Nama Menu</th>
-          <th>Deskripsi</th>
+          <th>Produk</th>
+          <th>Kategori</th>
           <th width="120">Harga</th>
-          <th width="80">Best Seller</th>
-          <th width="90">Status</th>
-          <th width="110">Aksi</th>
+          <th width="110">Terjual 90 hari</th>
+          <th width="110">Kelengkapan</th>
+          <th width="120">Aksi</th>
         </tr>
       </thead>
-      <tbody id="menuTbody">
+      <tbody>
         <?php if (empty($menus)): ?>
-        <tr><td colspan="9" class="text-center text-muted py-4">Belum ada data menu.</td></tr>
+        <tr><td colspan="8" class="text-center text-muted py-4">Belum ada produk yang ditandai tampil di landing page.</td></tr>
         <?php else: ?>
         <?php foreach ($menus as $i => $m): ?>
-        <tr class="lp-sort-row" draggable="true" data-row-id="<?= (int)$m['id'] ?>">
-          <td class="lp-reorder-handle text-center"><i class="ri ri-drag-move-2-line"></i></td>
+        <tr>
           <td class="text-muted small"><?= $i + 1 ?></td>
           <td><?= lp_img((string)($m['image'] ?? ''), html_escape($m['title'])) ?></td>
-          <td class="fw-semibold"><?= html_escape($m['title']) ?></td>
-          <td class="text-muted small" style="max-width:220px"><?= html_escape(mb_strimwidth((string)($m['description'] ?? ''), 0, 80, '...')) ?></td>
-          <td class="small"><?= $m['price'] !== null ? 'Rp '.number_format((float)$m['price'],0,',','.') : '<span class="text-muted">—</span>' ?></td>
-          <td class="text-center"><?= (int)$m['is_best_seller'] ? '<i class="ri ri-star-fill text-warning"></i>' : '<span class="text-muted">—</span>' ?></td>
           <td>
-            <button class="btn btn-sm <?= (int)$m['is_active'] ? 'btn-success' : 'btn-outline-secondary' ?>"
-              data-lp-toggle="menu" data-id="<?= (int)$m['id'] ?>" style="min-width:70px">
-              <?= (int)$m['is_active'] ? 'Aktif' : 'Nonaktif' ?>
-            </button>
+            <div class="fw-semibold"><?= html_escape($m['title']) ?></div>
+            <small class="text-muted"><?= html_escape($m['product_code']) ?> &middot; ID <?= (int)$m['id'] ?></small>
+          </td>
+          <td><span class="badge bg-light text-dark border"><?= html_escape($m['category_name'] ?? 'Tanpa kategori') ?></span></td>
+          <td class="small"><?= $m['price'] !== null ? 'Rp '.number_format((float)$m['price'],0,',','.') : '<span class="text-muted">—</span>' ?></td>
+          <td class="text-center fw-semibold"><?= number_format((float)($m['sales_qty'] ?? 0), 0, ',', '.') ?></td>
+          <td class="small">
+            <?php if (!empty($m['image']) && !empty($m['description'])): ?>
+              <span class="badge bg-success">Lengkap</span>
+            <?php else: ?>
+              <span class="badge bg-warning text-dark"><?= empty($m['image']) ? 'Foto' : 'Deskripsi' ?> belum ada</span>
+            <?php endif; ?>
           </td>
           <td>
             <div class="d-flex gap-1">
-              <button class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit"
-                data-lp-open-modal="menu" data-lp-mode="edit"
-                data-id="<?= (int)$m['id'] ?>"
-                data-title="<?= html_escape($m['title']) ?>"
-                data-description="<?= html_escape($m['description'] ?? '') ?>"
-                data-image="<?= html_escape($m['image'] ?? '') ?>"
-                data-price="<?= $m['price'] !== null ? (int)$m['price'] : '' ?>"
-                data-is_best_seller="<?= (int)$m['is_best_seller'] ?>"
-                data-is_active="<?= (int)$m['is_active'] ?>">
+              <a class="btn btn-sm btn-outline-primary action-icon-btn" title="Edit di Master Produk"
+                href="<?= site_url('master/product/edit/' . (int)$m['id']) ?>">
                 <i class="ri ri-edit-line"></i>
-              </button>
-              <button class="btn btn-sm btn-outline-danger action-icon-btn" title="Hapus"
+              </a>
+              <button class="btn btn-sm btn-outline-danger action-icon-btn" title="Sembunyikan dari landing"
                 data-lp-delete="menu" data-id="<?= (int)$m['id'] ?>" data-name="<?= html_escape($m['title']) ?>">
-                <i class="ri ri-delete-bin-line"></i>
+                <i class="ri ri-eye-off-line"></i>
               </button>
             </div>
           </td>
@@ -392,7 +456,7 @@ function lp_badge(int $active): string {
 <div class="d-flex justify-content-between align-items-center mb-3">
   <small class="text-muted">
     Total: <?= count($links) ?> link &nbsp;·&nbsp; Drag untuk atur urutan &nbsp;·&nbsp;
-    <a href="http://localhost/namuacoffee/links.php" target="_blank" class="text-decoration-none">
+    <a href="<?= html_escape($landingUrl . 'links.php') ?>" target="_blank" rel="noreferrer" class="text-decoration-none">
       <i class="ri ri-external-link-line"></i> Preview halaman
     </a>
   </small>
@@ -524,49 +588,35 @@ function lp_badge(int $active): string {
 
 <!-- ══════════════ MODAL: MENU ══════════════ -->
 <div class="modal fade" id="menuModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="menuModalTitle">Tambah Menu</h5>
+        <h5 class="modal-title" id="menuModalTitle">Pilih Produk mst_product</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <input type="hidden" id="menuId">
         <div class="mb-3">
-          <label class="form-label">Nama Menu <span class="text-danger">*</span></label>
-          <input type="text" id="menuTitle" class="form-control" placeholder="Americano Hot">
+          <label class="form-label" for="productSearch">Cari produk</label>
+          <input type="search" id="productSearch" class="form-control" placeholder="Ketik nama, kode, atau kategori..." autocomplete="off">
         </div>
-        <div class="mb-3">
-          <label class="form-label">Deskripsi</label>
-          <textarea id="menuDescription" class="form-control" rows="2"></textarea>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">URL / Path Gambar</label>
-          <input type="text" id="menuImage" class="form-control" placeholder="assets/menu/americano_hot.png">
-        </div>
-        <div class="row g-3 mb-3">
-          <div class="col-md-6">
-            <label class="form-label">Harga (Rp)</label>
-            <input type="number" id="menuPrice" class="form-control" placeholder="0 = sembunyikan">
-          </div>
-          <div class="col-md-6 d-flex align-items-end">
-            <div class="form-check mb-0">
-              <input type="checkbox" class="form-check-input" id="menuBestSeller" value="1">
-              <label class="form-check-label" for="menuBestSeller">Best Seller</label>
-            </div>
-          </div>
-        </div>
-        <div class="mb-0">
-          <label class="form-label">Status</label>
-          <select id="menuIsActive" class="form-select">
-            <option value="1">Aktif</option>
-            <option value="0">Nonaktif</option>
-          </select>
-        </div>
+        <label class="form-label" for="menuProductId">Produk aktif yang belum tampil <span class="text-danger">*</span></label>
+        <select id="menuProductId" class="form-select" size="11" <?= empty($available_products) ? 'disabled' : '' ?>>
+          <?php foreach ($available_products as $product): ?>
+            <?php $searchText = strtolower(trim(($product['product_code'] ?? '') . ' ' . ($product['product_name'] ?? '') . ' ' . ($product['category_name'] ?? ''))); ?>
+            <option value="<?= (int)$product['id'] ?>" data-search="<?= html_escape($searchText) ?>">
+              [<?= html_escape($product['category_name'] ?? 'Tanpa kategori') ?>] <?= html_escape($product['product_name']) ?> &middot; Rp <?= number_format((float)$product['selling_price'], 0, ',', '.') ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+        <?php if (empty($available_products)): ?>
+          <div class="alert alert-info mt-3 mb-0 small">Semua produk aktif sudah ditandai tampil.</div>
+        <?php else: ?>
+          <div class="form-text">Data produk tidak disalin. Tombol ini hanya mengaktifkan <code>show_landing</code>.</div>
+        <?php endif; ?>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
-        <button type="button" class="btn btn-primary" id="menuSaveBtn">Simpan</button>
+        <button type="button" class="btn btn-primary" id="menuSaveBtn" <?= empty($available_products) ? 'disabled' : '' ?>>Tampilkan Produk</button>
       </div>
     </div>
   </div>
@@ -746,7 +796,10 @@ function lp_badge(int $active): string {
       var id     = btn.getAttribute('data-id');
       var name   = btn.getAttribute('data-name') || 'item ini';
       var baseUrl = entity === 'menu' ? MENU_URL : entity === 'gallery' ? GALLERY_URL : entity === 'link' ? LINK_URL : EMBED_URL;
-      if (!confirm('Hapus ' + name + '?')) return;
+      var prompt = entity === 'menu'
+        ? 'Sembunyikan ' + name + ' dari landing page? Data Master Produk tidak akan dihapus.'
+        : 'Hapus ' + name + '?';
+      if (!confirm(prompt)) return;
       btn.disabled = true;
       req(baseUrl + '/delete/' + id, { method: 'POST' })
         .then(function (p) {
@@ -761,43 +814,41 @@ function lp_badge(int $active): string {
   // ── Modal: Menu ────────────────────────────────────────────────────
   document.querySelectorAll('[data-lp-open-modal="menu"]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var mode = btn.getAttribute('data-lp-mode');
-      document.getElementById('menuModalTitle').textContent = mode === 'edit' ? 'Edit Menu' : 'Tambah Menu';
-      document.getElementById('menuId').value          = mode === 'edit' ? btn.getAttribute('data-id') : '';
-      document.getElementById('menuTitle').value       = mode === 'edit' ? (btn.getAttribute('data-title') || '') : '';
-      document.getElementById('menuDescription').value = mode === 'edit' ? (btn.getAttribute('data-description') || '') : '';
-      document.getElementById('menuImage').value       = mode === 'edit' ? (btn.getAttribute('data-image') || '') : '';
-      document.getElementById('menuPrice').value       = mode === 'edit' ? (btn.getAttribute('data-price') || '') : '';
-      document.getElementById('menuBestSeller').checked= mode === 'edit' ? btn.getAttribute('data-is_best_seller') === '1' : false;
-      document.getElementById('menuIsActive').value    = mode === 'edit' ? btn.getAttribute('data-is_active') : '1';
+      var search = document.getElementById('productSearch');
+      var select = document.getElementById('menuProductId');
+      if (search) search.value = '';
+      if (select) {
+        select.selectedIndex = -1;
+        Array.prototype.forEach.call(select.options, function (option) { option.hidden = false; });
+      }
       var m = getModal('menuModal'); if (m) m.show();
     });
   });
 
+  var productSearch = document.getElementById('productSearch');
+  var productSelect = document.getElementById('menuProductId');
+  if (productSearch && productSelect) {
+    productSearch.addEventListener('input', function () {
+      var query = productSearch.value.trim().toLowerCase();
+      Array.prototype.forEach.call(productSelect.options, function (option) {
+        option.hidden = query !== '' && (option.getAttribute('data-search') || '').indexOf(query) === -1;
+      });
+    });
+  }
+
   document.getElementById('menuSaveBtn').addEventListener('click', function () {
-    var id    = document.getElementById('menuId').value;
-    var title = document.getElementById('menuTitle').value.trim();
-    if (!title) { alert('Nama menu tidak boleh kosong.'); return; }
+    var productId = productSelect ? productSelect.value : '';
+    if (!productId) { alert('Pilih satu produk.'); return; }
 
-    var payload = {
-      title:          title,
-      description:    document.getElementById('menuDescription').value,
-      image:          document.getElementById('menuImage').value,
-      price:          document.getElementById('menuPrice').value,
-      is_best_seller: document.getElementById('menuBestSeller').checked ? '1' : '0',
-      is_active:      document.getElementById('menuIsActive').value,
-    };
-
-    var url = id ? MENU_URL + '/update/' + id : MENU_STORE;
     document.getElementById('menuSaveBtn').disabled = true;
-    req(url, { method: 'POST', body: formData(payload) })
+    req(MENU_STORE, { method: 'POST', body: formData({ product_id: productId }) })
       .then(function (p) {
         if (!p || !p.ok) throw new Error(p && p.message ? p.message : 'Gagal');
         var m = getModal('menuModal'); if (m) m.hide();
         toast(p.message || 'Berhasil.', true);
         reload();
       })
-      .catch(function (e) { toast(e.message || 'Gagal menyimpan.', false); document.getElementById('menuSaveBtn').disabled = false; });
+      .catch(function (e) { toast(e.message || 'Gagal menambahkan produk.', false); document.getElementById('menuSaveBtn').disabled = false; });
   });
 
   // ── Modal: Gallery ─────────────────────────────────────────────────
@@ -921,6 +972,7 @@ function lp_badge(int $active): string {
 
     var dragged = null;
     var saving  = false;
+    var initialOrder = '';
 
     function clearMarkers() {
       rows.forEach(function (r) { r.classList.remove('drag-over-top', 'drag-over-bottom'); });
@@ -950,6 +1002,7 @@ function lp_badge(int $active): string {
       row.addEventListener('dragstart', function (e) {
         if (saving) { e.preventDefault(); return; }
         dragged = row;
+        initialOrder = currentIds().join(',');
         row.classList.add('is-dragging');
         if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', row.getAttribute('data-row-id') || ''); }
       });
@@ -972,17 +1025,26 @@ function lp_badge(int $active): string {
       row.addEventListener('dragend', function () {
         row.classList.remove('is-dragging');
         clearMarkers();
-        var prev = Array.prototype.slice.call(tbody.querySelectorAll('.lp-sort-row')).map(function (r) { return r.getAttribute('data-row-id'); });
         var next = currentIds();
         dragged = null;
-        if (next.join(',') !== prev.join(',')) saveOrder();
+        if (next.join(',') !== initialOrder) saveOrder();
       });
     });
   }
 
-  initReorder('menuTbody',    <?= json_encode(site_url('landing-page/menu/reorder')) ?>);
   initReorder('galleryTbody', <?= json_encode(site_url('landing-page/gallery/reorder')) ?>);
   initReorder('linksTbody',   <?= json_encode(site_url('landing-page/links/reorder')) ?>);
+
+  function bindCharacterCount(inputId, outputId) {
+    var input = document.getElementById(inputId);
+    var output = document.getElementById(outputId);
+    if (!input || !output) return;
+    function update() { output.textContent = String(input.value.length); }
+    input.addEventListener('input', update);
+    update();
+  }
+  bindCharacterCount('seoTitle', 'seoTitleCount');
+  bindCharacterCount('seoDescription', 'seoDescriptionCount');
 
 })();
 </script>

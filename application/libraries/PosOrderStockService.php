@@ -2258,6 +2258,8 @@ class PosOrderStockService
             'movement_type' => $movementType,
             'qty_in' => $qtyIn,
             'qty_out' => $qtyOut,
+            'unit_cost' => $unitCost,
+            'total_cost' => $totalCost,
             'qty_before' => $qtyBefore,
             'qty_after' => $qtyAfter,
             'avg_after' => $avgAfter,
@@ -2293,9 +2295,13 @@ class PosOrderStockService
         )->row_array();
 
         $movementType = strtoupper((string)$ctx['movement_type']);
-        $movementValue = array_key_exists('movement_value_override', $ctx) && $ctx['movement_value_override'] !== null
-            ? round((float)$ctx['movement_value_override'], 2)
-            : round(((float)($ctx['qty_in'] ?? 0) > 0 ? (float)($ctx['qty_in'] ?? 0) : (float)($ctx['qty_out'] ?? 0)) * max((float)($ctx['avg_after'] ?? 0), 0), 2);
+        if (array_key_exists('movement_value_override', $ctx) && $ctx['movement_value_override'] !== null) {
+            $movementValue = round((float)$ctx['movement_value_override'], 2);
+        } else {
+            $movementTotalCost = $ctx['total_cost']
+                ?? (((float)($ctx['qty_in'] ?? 0) > 0 ? (float)($ctx['qty_in'] ?? 0) : (float)($ctx['qty_out'] ?? 0)) * (float)($ctx['unit_cost'] ?? 0));
+            $movementValue = round(abs((float)$movementTotalCost), 2);
+        }
         $reversalOriginType = strtoupper(trim((string)($ctx['reversal_of_movement_type'] ?? '')));
         $movementDate = (string)$ctx['movement_date'];
         $movementDayCount = (int)($row['movement_day_count'] ?? 0);

@@ -1087,6 +1087,8 @@ class ComponentStockWriter
             'movement_type' => $movementType,
             'qty_in' => $qtyIn,
             'qty_out' => $qtyOut,
+            'unit_cost' => $unitCost,
+            'total_cost' => $totalCost,
             'source_table' => (string)($p['source_table'] ?? ''),
             'source_id' => isset($p['source_id']) ? (int)$p['source_id'] : null,
             'notes' => $p['notes'] ?? '',
@@ -1125,7 +1127,11 @@ class ComponentStockWriter
         if ($row === null || (string)($row['last_movement_date'] ?? '') !== $movementDate) {
             $movementDayCount++;
         }
-        $movementValue = round(($qtyIn > 0 ? $qtyIn : $qtyOut) * max($avgAfter, 0), 2);
+        // Use the amount recorded for this movement. avgAfter is zero when the
+        // final unit is consumed and must not erase the month's COGS value.
+        $movementTotalCost = $movement['total_cost']
+            ?? (($qtyIn > 0 ? $qtyIn : $qtyOut) * (float)($movement['unit_cost'] ?? 0));
+        $movementValue = round(abs((float)$movementTotalCost), 2);
 
         $data = [
             'month_key' => $monthKey,

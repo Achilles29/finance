@@ -4,6 +4,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 class Roastery extends MY_Controller
 {
     private const PAGE_PACKAGING_LABEL = 'production.roastery.packaging_label.index';
+    private const LABEL_TEMPLATE_UNIVERSAL = 'universal-10cm';
 
     public function __construct()
     {
@@ -31,6 +32,8 @@ class Roastery extends MY_Controller
         $tableReady = $this->Coffee_packaging_label_model->table_ready();
         $editId = (int)$this->input->get('edit', true);
         $newMode = (int)$this->input->get('new', true) === 1;
+        $requestedTemplateRaw = trim((string)$this->input->get('template', true));
+        $requestedTemplate = $this->normalize_label_template($requestedTemplateRaw);
         $editRow = $editId > 0 && $tableReady ? $this->Coffee_packaging_label_model->find($editId) : null;
 
         if (!$tableReady) {
@@ -42,6 +45,14 @@ class Roastery extends MY_Controller
             return;
         }
 
+        $formMode = $newMode || $editId > 0;
+        $storedTemplate = !empty($editRow) && $this->is_universal_label($editRow)
+            ? self::LABEL_TEMPLATE_UNIVERSAL
+            : 'legacy-studio';
+        $selectedTemplate = $formMode && $requestedTemplateRaw !== ''
+            ? $requestedTemplate
+            : $storedTemplate;
+
         $this->render('roastery/coffee_packaging_label_index', [
             'page_title' => 'Label Packaging Kopi',
             'active_menu' => 'production.roastery.packaging_label',
@@ -52,6 +63,7 @@ class Roastery extends MY_Controller
             'logo_gallery' => $this->image_gallery('uploads/coffee-labels/logos', [], ['png', 'svg']),
             'edit_row' => $editRow,
             'form_mode' => $newMode || $editId > 0,
+            'label_template' => $selectedTemplate,
             'table_ready' => $tableReady,
             'can_create' => $this->can(self::PAGE_PACKAGING_LABEL, 'create'),
             'can_edit' => $this->can(self::PAGE_PACKAGING_LABEL, 'edit'),
@@ -63,11 +75,19 @@ class Roastery extends MY_Controller
     {
         $id = (int)$this->input->post('id', true);
         $this->require_permission(self::PAGE_PACKAGING_LABEL, $id > 0 ? 'edit' : 'create');
-        if (!$this->ensure_label_storage_ready([
+        $requestedTemplateRaw = trim((string)$this->input->post('label_template', true));
+        $requestedTemplate = $this->normalize_label_template($requestedTemplateRaw);
+        $returnUrl = 'roastery/packaging-labels' . ($id > 0
+            ? '?edit=' . $id . ($requestedTemplate === self::LABEL_TEMPLATE_UNIVERSAL ? '&template=' . self::LABEL_TEMPLATE_UNIVERSAL : '')
+            : '?new=1' . ($requestedTemplate === self::LABEL_TEMPLATE_UNIVERSAL ? '&template=' . self::LABEL_TEMPLATE_UNIVERSAL : ''));
+        $hasMediaUpload = !empty($_FILES['label_image']['name'])
+            || !empty($_FILES['logo_image']['name'])
+            || !empty($_FILES['badge_logo_image']['name']);
+        if ($hasMediaUpload && !$this->ensure_label_storage_ready([
             'uploads/coffee-labels',
             'uploads/coffee-labels/logos',
         ])) {
-            redirect('roastery/packaging-labels' . ($id > 0 ? '?edit=' . $id : '?new=1'));
+            redirect($returnUrl);
             return;
         }
 
@@ -84,12 +104,28 @@ class Roastery extends MY_Controller
             return;
         }
 
+        $labelName = trim((string)$this->input->post('label_name', true));
         $coffeeName = trim((string)$this->input->post('coffee_name', true));
         $origin = trim((string)$this->input->post('origin', true));
         $processMethod = trim((string)$this->input->post('process_method', true));
+        $productId = max(0, (int)$this->input->post('product_id', true));
+        if ($labelName === '') {
+            $this->session->set_flashdata('error', 'Nama label wajib diisi agar variasi label mudah dibedakan.');
+            redirect($returnUrl);
+            return;
+        }
+        if ($productId > 0) {
+            $product = $this->Coffee_packaging_label_model->find_roastery_product($productId);
+            if (empty($product)) {
+                $this->session->set_flashdata('error', 'Produk roastery yang dipilih tidak ditemukan atau sudah tidak aktif.');
+                redirect($returnUrl);
+                return;
+            }
+            $coffeeName = trim((string)($product['product_name'] ?? ''));
+        }
         if ($coffeeName === '') {
-            $this->session->set_flashdata('error', 'Nama kopi wajib diisi.');
-            redirect('roastery/packaging-labels' . ($id > 0 ? '?edit=' . $id : '?new=1'));
+            $this->session->set_flashdata('error', 'Nama produk wajib diisi.');
+            redirect($returnUrl);
             return;
         }
 
@@ -99,12 +135,19 @@ class Roastery extends MY_Controller
             $designData = [];
         }
         $designMeta = is_array($designData['meta'] ?? null) ? $designData['meta'] : [];
+        $labelTemplate = $requestedTemplateRaw !== ''
+            ? $requestedTemplate
+            : (!empty($existing) && $this->is_universal_label($existing)
+                ? self::LABEL_TEMPLATE_UNIVERSAL
+                : 'legacy-studio');
         $imagePath = (string)($existing['image_path'] ?? '');
         $logoPath = (string)($existing['logo_path'] ?? '');
         $badgeLogoPath = (string)($designMeta['badge_logo_path'] ?? '');
+        $artworkChanged = false;
         $galleryPath = $this->valid_gallery_image_path((string)$this->input->post('gallery_image_path', true), 'uploads/coffee-labels/');
         if ($galleryPath !== '') {
             $imagePath = $galleryPath;
+            $artworkChanged = true;
         }
         $logoGalleryPath = $this->valid_gallery_image_path((string)$this->input->post('gallery_logo_path', true), 'uploads/coffee-labels/logos/', ['png', 'svg']);
         if ($logoGalleryPath !== '') {
@@ -117,15 +160,16 @@ class Roastery extends MY_Controller
 
         $upload = $this->handle_png_upload_field('label_image', 'uploads/coffee-labels', (string)($existing['image_path'] ?? ''));
         if ($upload === false) {
-            redirect('roastery/packaging-labels' . ($id > 0 ? '?edit=' . $id : '?new=1'));
+            redirect($returnUrl);
             return;
         }
         if (is_array($upload) && !empty($upload['image_path'])) {
             $imagePath = $upload['image_path'];
+            $artworkChanged = true;
         }
         $logoUpload = $this->handle_logo_upload_field('logo_image', 'uploads/coffee-labels/logos');
         if ($logoUpload === false) {
-            redirect('roastery/packaging-labels' . ($id > 0 ? '?edit=' . $id : '?new=1'));
+            redirect($returnUrl);
             return;
         }
         if (is_array($logoUpload) && !empty($logoUpload['image_path'])) {
@@ -133,24 +177,44 @@ class Roastery extends MY_Controller
         }
         $badgeLogoUpload = $this->handle_logo_upload_field('badge_logo_image', 'uploads/coffee-labels/logos');
         if ($badgeLogoUpload === false) {
-            redirect('roastery/packaging-labels' . ($id > 0 ? '?edit=' . $id : '?new=1'));
+            redirect($returnUrl);
             return;
         }
         if (is_array($badgeLogoUpload) && !empty($badgeLogoUpload['image_path'])) {
             $badgeLogoPath = $badgeLogoUpload['image_path'];
         }
 
-        $imagePath = $this->ensure_named_artwork_path($imagePath, $coffeeName, $processMethod, $origin, $id);
+        if ($artworkChanged) {
+            $imagePath = $this->ensure_named_artwork_path($imagePath, $coffeeName, $processMethod, $origin, $id);
+        }
         if ($badgeLogoPath !== '') {
             $designMeta['badge_logo_path'] = $badgeLogoPath;
         } else {
             unset($designMeta['badge_logo_path']);
         }
         $designData['meta'] = $designMeta;
+        if ($labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL) {
+            $designData['layout'] = 'namua-universal-10cm-v1';
+            $designData['print'] = [
+                'paper' => 'A4',
+                'columns' => 2,
+                'label_width_mm' => 100,
+                'min_height_mm' => 68,
+            ];
+        } elseif (($designData['layout'] ?? '') === 'namua-universal-10cm-v1') {
+            unset($designData['layout']);
+        }
         $designJson = json_encode($designData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+
+        $themePreset = trim((string)$this->input->post('theme_preset', true));
+        if ($themePreset === 'namua-universal') {
+            $themePreset = 'heritage-cream';
+        }
 
         $userId = (int)($this->current_user['id'] ?? 0);
         $data = [
+            'label_name' => $labelName,
+            'product_id' => $productId > 0 ? $productId : null,
             'coffee_name' => $coffeeName,
             'origin' => $origin,
             'process_method' => $processMethod,
@@ -168,9 +232,15 @@ class Roastery extends MY_Controller
             'footer_note' => trim((string)$this->input->post('footer_note', true)),
             'image_path' => $imagePath,
             'logo_path' => $logoPath,
-            'canvas_width_mm' => max(40, min(160, (int)$this->input->post('canvas_width_mm', true))),
-            'canvas_height_mm' => max(60, min(240, (int)$this->input->post('canvas_height_mm', true))),
-            'theme_preset' => trim((string)$this->input->post('theme_preset', true)) ?: 'heritage-cream',
+            'canvas_width_mm' => $labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL
+                ? 100
+                : max(40, min(160, (int)$this->input->post('canvas_width_mm', true))),
+            'canvas_height_mm' => $labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL
+                ? 68
+                : max(60, min(240, (int)$this->input->post('canvas_height_mm', true))),
+            'theme_preset' => $labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL
+                ? 'namua-universal'
+                : ($themePreset ?: 'heritage-cream'),
             'design_json' => $designJson,
             'is_active' => (int)$this->input->post('is_active', true) === 0 ? 0 : 1,
             'updated_by' => $userId > 0 ? $userId : null,
@@ -186,7 +256,12 @@ class Roastery extends MY_Controller
             return;
         }
 
-        $this->session->set_flashdata('success', 'Label packaging kopi berhasil disimpan. Preview sudah siap dicetak.');
+        $this->session->set_flashdata(
+            'success',
+            $labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL
+                ? 'Label packaging kopi universal 10 cm berhasil disimpan.'
+                : 'Label packaging kopi studio berhasil disimpan.'
+        );
         redirect('roastery/packaging-labels');
     }
 
@@ -215,7 +290,11 @@ class Roastery extends MY_Controller
         $userId = (int)($this->current_user['id'] ?? 0);
         unset($source['id'], $source['created_at'], $source['updated_at']);
         $source['label_code'] = $this->Coffee_packaging_label_model->next_label_code();
-        $source['coffee_name'] = substr(trim((string)$source['coffee_name']) . ' - Copy', 0, 160);
+        if (array_key_exists('label_name', $source)) {
+            $source['label_name'] = substr(trim((string)($source['label_name'] ?? $source['coffee_name'])) . ' - Copy', 0, 160);
+        } else {
+            $source['coffee_name'] = substr(trim((string)$source['coffee_name']) . ' - Copy', 0, 160);
+        }
         $source['is_active'] = 1;
         $source['created_by'] = $userId > 0 ? $userId : null;
         $source['updated_by'] = $userId > 0 ? $userId : null;
@@ -248,6 +327,7 @@ class Roastery extends MY_Controller
             return;
         }
 
+        $isUniversalTemplate = $this->is_universal_label($row);
         $this->render('roastery/coffee_packaging_label_index', [
             'page_title' => 'Preview Cetak Label Kopi',
             'active_menu' => 'production.roastery.packaging_label',
@@ -258,6 +338,7 @@ class Roastery extends MY_Controller
             'logo_gallery' => $this->image_gallery('uploads/coffee-labels/logos', [], ['png', 'svg']),
             'edit_row' => $row,
             'form_mode' => true,
+            'label_template' => $isUniversalTemplate ? self::LABEL_TEMPLATE_UNIVERSAL : 'legacy-studio',
             'print_auto' => true,
             'table_ready' => $tableReady,
             'can_create' => $this->can(self::PAGE_PACKAGING_LABEL, 'create'),
@@ -377,6 +458,30 @@ class Roastery extends MY_Controller
             'image_path' => $relativePath,
             'image_mime' => 'image/svg+xml',
         ];
+    }
+
+    private function normalize_label_template(string $template): string
+    {
+        $template = strtolower(trim($template));
+        if (in_array($template, [self::LABEL_TEMPLATE_UNIVERSAL, 'namua-universal-10cm-v1'], true)) {
+            return self::LABEL_TEMPLATE_UNIVERSAL;
+        }
+
+        return 'legacy-studio';
+    }
+
+    private function is_universal_label(array $label): bool
+    {
+        if (trim((string)($label['theme_preset'] ?? '')) === 'namua-universal') {
+            return true;
+        }
+
+        $design = json_decode((string)($label['design_json'] ?? ''), true);
+        if (!is_array($design)) {
+            return false;
+        }
+
+        return $this->normalize_label_template((string)($design['layout'] ?? '')) === self::LABEL_TEMPLATE_UNIVERSAL;
     }
 
     private function nullable_date(string $value): ?string

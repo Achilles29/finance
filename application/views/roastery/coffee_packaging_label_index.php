@@ -7,6 +7,8 @@ $tableReady = !empty($table_ready);
 $formMode = !empty($form_mode);
 $autoPrint = !empty($print_auto);
 $isEditing = !empty($edit['id']);
+$labelTemplate = (string)($label_template ?? 'legacy-studio');
+$isUniversalTemplate = $labelTemplate === 'universal-10cm';
 $canSave = $isEditing ? !empty($can_edit) : !empty($can_create);
 $imagePath = trim((string)($edit['image_path'] ?? ''));
 $imageUrl = $imagePath !== '' ? base_url($imagePath) : '';
@@ -32,6 +34,8 @@ $selectedElevation = (string)($edit['elevation_text'] ?? ($designMeta['elevation
 $selectedBeanType = (string)($edit['bean_type'] ?? ($designMeta['bean_type'] ?? 'Whole Bean'));
 $selectedFooterNote = (string)($edit['footer_note'] ?? ($designMeta['footer_note'] ?? ''));
 $selectedRibbonText = (string)($designMeta['ribbon_text'] ?? ($selectedFooterNote !== '' ? $selectedFooterNote : 'Single Origin'));
+$selectedLabelName = trim((string)($edit['label_name'] ?? ($edit['coffee_name'] ?? '')));
+$selectedProductId = (int)($edit['product_id'] ?? 0);
 $badgeLogoPath = trim((string)($designMeta['badge_logo_path'] ?? ''));
 $badgeLogoUrl = $badgeLogoPath !== '' ? base_url($badgeLogoPath) : $logoUrl;
 $themePreset = (string)($edit['theme_preset'] ?? 'heritage-cream');
@@ -57,6 +61,10 @@ $statusTabs = [
     'INACTIVE' => 'Nonaktif',
     'ALL' => 'Semua',
 ];
+$editorQuery = $isEditing ? ['edit' => (int)$edit['id']] : ['new' => 1];
+$studioEditorUrl = site_url('roastery/packaging-labels?' . http_build_query(array_merge($editorQuery, ['template' => 'legacy-studio'])));
+$universalEditorUrl = site_url('roastery/packaging-labels?' . http_build_query(array_merge($editorQuery, ['template' => 'universal-10cm'])));
+$namuaRoastersLogoUrl = base_url('assets/roastery/logo%202.png');
 ?>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -260,12 +268,18 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
 @media(max-width:768px){.label-index-summary{grid-template-columns:1fr}.summary-tile{padding:.75rem}.saved-thumb{width:58px;height:82px}}
 @media(max-width:768px){.label-index-controls,.label-index-filter,.label-index-controls>.btn{width:100%}.label-index-filter .btn{flex:1 1 auto}.label-index-filter .form-control{flex-basis:100%}.label-status-tabs{width:100%;border-radius:18px}.label-status-tab{flex:1;justify-content:center}}
 @media(max-width:576px){.saved-card{gap:.65rem;padding:.7rem}.saved-actions{grid-template-columns:1fr}.label-status-tabs{border-radius:18px}.label-status-tab{flex:1;justify-content:center}}.saved-title{font-weight:900;color:#511c18}
+.label-template-picker{display:flex;align-items:center;justify-content:space-between;gap:.8rem;padding:.78rem;border:1px solid rgba(167,15,37,.18);border-radius:15px;background:linear-gradient(135deg,#fffaf2,#fff)}
+.label-template-copy b{display:block;color:#5d211b;font-size:.82rem}.label-template-copy small{display:block;margin-top:.15rem;color:#8c7068;font-size:.71rem;line-height:1.35}.label-template-actions{display:flex;flex-wrap:wrap;gap:.42rem}.label-template-actions .btn{border-radius:10px;font-size:.72rem;font-weight:800}.label-template-actions .btn.active{color:#fff;border-color:#a70f25;background:#a70f25;box-shadow:0 6px 14px rgba(167,15,37,.18)}
+.studio-only{display:contents}.coffee-label-page.is-universal-editor .studio-only{display:none!important}.universal-label-preview{display:none}.coffee-label-page.is-universal-editor .universal-label-preview{display:block}.coffee-label-page.is-universal-editor #labelCanvas{display:none!important}.coffee-label-page.is-universal-editor .preview-shell{min-height:500px}
+.namua-label{position:relative;isolation:isolate;width:100mm;min-height:68mm;max-width:100%;overflow:hidden;color:#40101c;background:#d9b37b;box-shadow:0 25px 45px rgba(56,25,27,.25);print-color-adjust:exact;-webkit-print-color-adjust:exact}.namua-label__artwork{position:absolute;inset:0;z-index:0;overflow:hidden;background:linear-gradient(135deg,#5b0d1d 0%,#a93443 48%,#edb26e 100%)}.namua-label__artwork img{display:block;width:100%;height:100%;object-fit:cover}.namua-label__artwork:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(255,249,231,.46) 0%,rgba(255,239,208,.12) 48%,rgba(255,244,220,.46) 100%)}.namua-label__artwork.no-image{background:linear-gradient(135deg,#701126 0%,#a42c3c 45%,#ebad68 100%)}.namua-label__rail{position:absolute;inset:0 auto 0 0;z-index:1;width:18mm;background:rgba(70,10,27,.94)}.namua-label__logo-shell{display:grid;width:11.5mm;aspect-ratio:1;margin:7.5mm auto 0;padding:1.2mm;place-items:center;border:1px solid rgba(255,228,174,.72);border-radius:50%;background:rgba(255,246,226,.96)}.namua-label__logo-shell img{display:block;width:100%;height:100%;object-fit:contain}.namua-label__side-rule{width:8mm;height:1px;margin:3.5mm auto 0;background:rgba(255,228,174,.72)}.namua-label__side-copy{position:absolute;inset:26mm 2.2mm 4.5mm;display:flex;flex-direction:column;color:#ffe6b4}.namua-label__side-series{padding:3px 0;border-top:1px solid rgba(255,228,174,.48);border-bottom:1px solid rgba(255,228,174,.48);font-size:4.7px;font-weight:700;letter-spacing:.1em;line-height:1.35;overflow-wrap:anywhere;text-align:center;text-transform:uppercase}.namua-label__side-motto{margin:4px 0 auto;color:#e7b86f;font-size:4.1px;font-weight:700;letter-spacing:.13em;line-height:1.55;text-align:center;text-transform:uppercase}.namua-label__side-meta{display:grid;gap:3px;margin-top:4px}.namua-label__side-meta-item{padding-top:3px;border-top:1px solid rgba(255,228,174,.32)}.namua-label__side-meta-label{display:block;color:#f0bc72;font-size:4.1px;font-weight:700;letter-spacing:.12em;line-height:1.15;text-transform:uppercase}.namua-label__side-meta-value{display:block;margin-top:1px;color:#fff0cd;font-size:5.2px;font-weight:700;line-height:1.25;overflow-wrap:anywhere;text-transform:uppercase}.namua-label__content{position:relative;z-index:2;isolation:isolate;display:flex;flex-direction:column;min-height:58mm;margin:5mm 5mm 5mm 22mm;padding:0;color:#4a1421;text-shadow:0 1px 8px rgba(255,249,229,.86)}.namua-label__content:before{content:"";position:absolute;inset:-9px -14px;z-index:-1;pointer-events:none;background:radial-gradient(ellipse at 32% 35%,rgba(255,250,234,.76) 0%,rgba(255,248,227,.42) 47%,rgba(255,248,227,0) 78%);filter:blur(6px)}.namua-label__title{max-width:100%;margin:0 0 5px;color:#48111f;font-family:'Playfair Display',serif;font-size:27px;font-weight:900;letter-spacing:-.055em;line-height:.9;overflow-wrap:anywhere;text-transform:uppercase}.namua-label__origin-stack{display:grid;gap:3px}.namua-label__origin,.namua-label__elevation{display:flex;align-items:flex-start;gap:4px;max-width:100%;color:#5e1e2b;font-size:7px;font-weight:700;letter-spacing:.045em;line-height:1.35;text-transform:uppercase}.namua-label__origin i{margin-top:1px;color:#8c1830;font-size:8px}.namua-label__elevation i{margin-top:1px;color:#8c1830;font-size:7px}.namua-label__notes{display:flex;flex-wrap:wrap;gap:4px;margin:9px 0 0}.namua-label__note{max-width:100%;padding:3px 5px;border:1px solid rgba(82,18,33,.48);border-radius:999px;background:rgba(255,249,232,.42);color:#571724;font-size:5.8px;font-weight:700;letter-spacing:.08em;line-height:1.2;overflow-wrap:anywhere;text-transform:uppercase}.namua-label__trace{display:flex;flex-wrap:wrap;gap:3px 8px;margin-top:auto;padding:5px 6px;border:1px solid rgba(255,229,180,.46);background:rgba(61,7,22,.78);color:#fff2d1;font-family:monospace;font-size:5px;line-height:1.25;text-shadow:none}.namua-label__trace strong{color:#f4ca85;font-weight:700}.namua-label__trace-item.is-empty,.namua-label__origin.is-empty,.namua-label__elevation.is-empty,.namua-label__side-meta-item.is-empty{display:none}
+.namua-label__note{display:inline-flex;align-items:center;gap:2px}.namua-label__note-icon{display:inline-flex;width:7px;height:7px;flex:none;align-items:center;justify-content:center}.namua-label__note-icon .taste-svg-icon{display:block;width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#universalPrintPortal{display:none}
 @media(max-width:1180px){.label-workbench{grid-template-columns:1fr}.label-preview-card{position:static}.label-form-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.label-tools{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:768px){.label-form-grid,.label-tools{grid-template-columns:1fr}}
-@page{margin:0}
-@media print{body.coffee-label-printing{margin:0!important;background:#fff!important;print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}body.coffee-label-printing *{print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}body.coffee-label-printing .layout-wrapper,body.coffee-label-printing .layout-menu,body.coffee-label-printing .layout-navbar,body.coffee-label-printing .content-footer{display:none!important}body.coffee-label-printing #printSheetPortal{display:grid!important;position:absolute!important;left:0!important;top:0!important;width:var(--print-paper-w,210mm)!important;height:var(--print-paper-h,297mm)!important;margin:0!important;padding:var(--print-margin,8mm)!important;gap:var(--print-gap,4mm)!important;grid-template-columns:repeat(var(--print-cols,2),var(--label-print-w,90mm));grid-auto-rows:var(--label-print-h,140mm);align-content:start;justify-content:center;box-sizing:border-box;background:#fff!important;page-break-after:auto!important;break-after:auto!important}body.coffee-label-printing #printSheetPortal .print-label-slot{position:relative;width:var(--label-print-w,90mm);height:var(--label-print-h,140mm);break-inside:avoid}body.coffee-label-printing #printSheetPortal .print-label-slot.cut-line:before{content:"";position:absolute;inset:-1.5mm;border:.25mm dashed #222;z-index:60;pointer-events:none}body.coffee-label-printing #printSheetPortal .label-canvas{display:block!important;width:var(--label-design-w,360px)!important;height:var(--label-design-h,560px)!important;max-width:none!important;box-shadow:none!important;outline:0!important;transform:scale(var(--label-print-scale,.944882))!important;transform-origin:top left!important}body.coffee-label-printing #printSheetPortal .label-logo{filter:none!important;image-rendering:auto!important}body.coffee-label-printing #printSheetPortal .label-bg img{image-rendering:auto!important}}
+@page{size:A4 portrait;margin:0}
+@media print{body.coffee-label-printing{margin:0!important;background:#fff!important;print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}body.coffee-label-printing *{print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}body.coffee-label-printing .layout-wrapper,body.coffee-label-printing .layout-menu,body.coffee-label-printing .layout-navbar,body.coffee-label-printing .content-footer{display:none!important}body.coffee-label-printing #printSheetPortal{display:grid!important;position:absolute!important;left:0!important;top:0!important;width:var(--print-paper-w,210mm)!important;height:var(--print-paper-h,297mm)!important;margin:0!important;padding:var(--print-margin,8mm)!important;gap:var(--print-gap,4mm)!important;grid-template-columns:repeat(var(--print-cols,2),var(--label-print-w,90mm));grid-auto-rows:var(--label-print-h,140mm);align-content:start;justify-content:center;box-sizing:border-box;background:#fff!important;page-break-after:auto!important;break-after:auto!important}body.coffee-label-printing #printSheetPortal .print-label-slot{position:relative;width:var(--label-print-w,90mm);height:var(--label-print-h,140mm);break-inside:avoid}body.coffee-label-printing #printSheetPortal .print-label-slot.cut-line:before{content:"";position:absolute;inset:-1.5mm;border:.25mm dashed #222;z-index:60;pointer-events:none}body.coffee-label-printing #printSheetPortal .label-canvas{display:block!important;width:var(--label-design-w,360px)!important;height:var(--label-design-h,560px)!important;max-width:none!important;box-shadow:none!important;outline:0!important;transform:scale(var(--label-print-scale,.944882))!important;transform-origin:top left!important}body.coffee-label-printing #printSheetPortal .label-logo{filter:none!important;image-rendering:auto!important}body.coffee-label-printing #printSheetPortal .label-bg img{image-rendering:auto!important}body.namua-label-printing{margin:0!important;background:#fff!important}body.namua-label-printing > *{display:none!important}body.namua-label-printing #universalPrintPortal{display:grid!important;width:210mm!important;min-height:297mm!important;grid-template-columns:repeat(2,100mm)!important;align-content:start!important;gap:2.5mm 0!important;padding:5mm!important;background:#fff!important;box-sizing:border-box!important;print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}body.namua-label-printing #universalPrintPortal .universal-print-slot{position:relative;width:100mm!important;break-inside:avoid!important;page-break-inside:avoid!important}body.namua-label-printing #universalPrintPortal .universal-print-slot:before{content:"";position:absolute;inset:-.5mm;border:.2mm dashed rgba(32,22,22,.55);pointer-events:none}body.namua-label-printing #universalPrintPortal .namua-label{width:100mm!important;min-height:68mm!important;max-width:none!important;box-shadow:none!important;print-color-adjust:exact!important;-webkit-print-color-adjust:exact!important}}
 </style>
 
-<div class="coffee-label-page">
+<div class="coffee-label-page <?php echo $isUniversalTemplate ? 'is-universal-editor' : ''; ?>">
   <div class="card coffee-hero mb-4"><div class="card-body p-4 p-lg-5 d-flex flex-wrap justify-content-between align-items-end gap-3">
     <div><div class="hero-kicker mb-2">Roastery Label Studio</div><h3 class="mb-2">Label Packaging Kopi</h3><div class="text-white-50"><?php echo $formMode ? 'Atur detail label, preview, lalu simpan untuk kembali ke daftar.' : 'Kelola label packaging kopi yang sudah dibuat. Duplikat template lama bila ingin produksi batch cepat.'; ?></div></div>
     <div class="d-flex flex-wrap align-items-center gap-2">
@@ -273,7 +287,7 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
       <?php if ($formMode): ?>
         <a class="btn btn-light fw-bold" href="<?php echo site_url('roastery/packaging-labels'); ?>"><i class="ri ri-arrow-left-line me-1"></i>Kembali ke Daftar</a>
       <?php elseif (!empty($can_create)): ?>
-        <a class="btn btn-light fw-bold" href="<?php echo site_url('roastery/packaging-labels?new=1'); ?>"><i class="ri ri-add-line me-1"></i>Tambah Label</a>
+        <a class="btn btn-light fw-bold" href="<?php echo site_url('roastery/packaging-labels?new=1'); ?>"><i class="ri ri-add-line me-1"></i>Buat Label</a>
       <?php endif; ?>
     </div>
   </div></div>
@@ -287,22 +301,36 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
         <form method="post" action="<?php echo site_url('roastery/packaging-labels/save'); ?>" enctype="multipart/form-data" id="coffeeLabelForm">
           <?php if ($this->config->item('csrf_protection')): ?><input type="hidden" name="<?php echo html_escape($this->security->get_csrf_token_name()); ?>" value="<?php echo html_escape($this->security->get_csrf_hash()); ?>"><?php endif; ?>
           <input type="hidden" name="id" value="<?php echo (int)($edit['id'] ?? 0); ?>">
+          <input type="hidden" name="label_template" value="<?php echo html_escape($labelTemplate); ?>">
           <input type="hidden" name="design_json" id="designJsonInput" value="<?php echo html_escape($designJson); ?>">
           <div class="label-form-grid">
-            <div class="label-section-title"><i class="ri ri-restaurant-line"></i><span>Data Kopi</span></div>
+            <div class="full label-template-picker">
+              <div class="label-template-copy"><b>Model label</b><small>Data kopi tetap sama. Simpan setelah memilih model untuk menerapkannya pada label ini.</small></div>
+              <div class="label-template-actions">
+                <a class="btn btn-sm btn-outline-danger <?php echo !$isUniversalTemplate ? 'active' : ''; ?>" href="<?php echo html_escape($studioEditorUrl); ?>"><i class="ri ri-layout-4-line me-1"></i>Model 1 Studio</a>
+                <a class="btn btn-sm btn-outline-danger <?php echo $isUniversalTemplate ? 'active' : ''; ?>" href="<?php echo html_escape($universalEditorUrl); ?>"><i class="ri ri-ruler-2-line me-1"></i>Model 2 Universal</a>
+              </div>
+            </div>
+            <div class="label-section-title"><i class="ri ri-restaurant-line"></i><span>Identitas Label & Produk</span></div>
             <div class="full">
-              <label class="form-label">Nama Kopi</label>
+              <label class="form-label">Nama Label</label>
+              <input class="form-control" name="label_name" value="<?php echo html_escape($selectedLabelName); ?>" placeholder="Contoh: Prau Red Wine - Kemasan 200 g" required>
+              <small class="text-muted">Penanda administrasi untuk membedakan variasi desain, ukuran, atau batch dari produk yang sama. Tidak dicetak pada kemasan.</small>
+            </div>
+            <div class="full">
+              <label class="form-label">Nama Produk</label>
               <div class="label-product-picker">
-                <select class="form-select" id="coffeeProductPick">
+                <select class="form-select" id="coffeeProductPick" name="product_id">
                   <option value="">Ambil dari master produk roastery...</option>
                   <?php foreach ($productOptions as $product): ?>
-                    <option value="<?php echo (int)($product['id'] ?? 0); ?>" data-name="<?php echo html_escape((string)($product['product_name'] ?? '')); ?>" data-code="<?php echo html_escape((string)($product['product_code'] ?? '')); ?>">
+                    <option value="<?php echo (int)($product['id'] ?? 0); ?>" data-name="<?php echo html_escape((string)($product['product_name'] ?? '')); ?>" data-code="<?php echo html_escape((string)($product['product_code'] ?? '')); ?>" <?php echo $selectedProductId === (int)($product['id'] ?? 0) ? 'selected' : ''; ?>>
                       <?php echo html_escape(trim((string)($product['product_name'] ?? '') . ' - ' . (string)($product['product_code'] ?? ''), ' -')); ?>
                     </option>
                   <?php endforeach; ?>
                 </select>
-                <input class="form-control" name="coffee_name" data-label-field="coffee_name" value="<?php echo html_escape((string)($edit['coffee_name'] ?? '')); ?>" placeholder="NAMUA HOUSE BLEND" required>
+                <input class="form-control" name="coffee_name" data-label-field="coffee_name" value="<?php echo html_escape((string)($edit['coffee_name'] ?? '')); ?>" placeholder="Nama produk yang tercetak" required>
               </div>
+              <small class="text-muted">Pilih master produk agar terhubung. Jika belum ada di master, nama produk tetap dapat diisi manual.</small>
             </div>
             <div><label class="form-label">Origin</label><input class="form-control" name="origin" data-label-field="origin" value="<?php echo html_escape((string)($edit['origin'] ?? '')); ?>" placeholder="Kintamani / Gayo"></div>
             <div><label class="form-label">Berat</label><input class="form-control" name="weight_text" data-label-field="weight_text" value="<?php echo html_escape((string)($edit['weight_text'] ?? '200 g')); ?>"></div>
@@ -352,6 +380,7 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
                 <div class="description-hint">Yang tampil di label adalah Footer Mini, Ribbon Kiri, Bean/Grind, berat, dan panel data. Catatan internal hanya tersimpan untuk administrasi.</div>
               </div>
             </div>
+            <div class="studio-only">
             <div class="full">
               <div class="label-section-title"><i class="ri ri-layout-grid-line"></i><span>Ukuran, Cetak & Visual</span></div>
               <label class="form-label">Ukuran Label</label>
@@ -382,6 +411,7 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
             <div><label class="form-label">Model Artwork</label><select class="form-select" id="artworkMode"><option value="full" <?php echo $artworkMode==='full'?'selected':''; ?>>Full Background</option><option value="rounded" <?php echo $artworkMode==='rounded'?'selected':''; ?>>Rounded Card</option><option value="circle" <?php echo $artworkMode==='circle'?'selected':''; ?>>Circle Medallion</option><option value="arch" <?php echo $artworkMode==='arch'?'selected':''; ?>>Arch Window</option></select></div>
             <div><label class="form-label">Fit Background</label><select class="form-select" id="artworkFit"><option value="stretch" <?php echo $artworkFit==='stretch'?'selected':''; ?>>Stretch / Sesuaikan</option><option value="contain" <?php echo $artworkFit==='contain'?'selected':''; ?>>Contain / Utuh</option><option value="cover" <?php echo $artworkFit==='cover'?'selected':''; ?>>Cover / Crop</option></select></div>
             <div><label class="form-label">Corak Label</label><select class="form-select" id="patternMode"><option value="contour" <?php echo $patternMode==='contour'?'selected':''; ?>>Contour Circle</option><option value="speckles" <?php echo $patternMode==='speckles'?'selected':''; ?>>Speckles</option><option value="diagonal" <?php echo $patternMode==='diagonal'?'selected':''; ?>>Diagonal Lines</option><option value="grid" <?php echo $patternMode==='grid'?'selected':''; ?>>Fine Grid</option><option value="waves" <?php echo $patternMode==='waves'?'selected':''; ?>>Organic Waves</option><option value="sunburst" <?php echo $patternMode==='sunburst'?'selected':''; ?>>Sunburst</option><option value="none" <?php echo $patternMode==='none'?'selected':''; ?>>Tanpa Corak</option></select></div>
+            </div>
             <div><label class="form-label">Artwork PNG</label><input class="form-control" type="file" name="label_image" id="labelImageInput" accept="image/png"><small class="text-muted">Upload PNG baru akan mengganti artwork lama.</small></div>
             <div class="full">
               <label class="form-label">Galeri Artwork Tersimpan</label>
@@ -400,6 +430,7 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
                 </div>
               <?php endif; ?>
             </div>
+            <div class="studio-only">
             <div><label class="form-label">Logo Utama</label><input class="form-control" type="file" name="logo_image" id="logoImageInput" accept="image/png,image/svg+xml,.svg"><small class="text-muted">Logo utama besar di tengah label. SVG resmi disarankan untuk cetak tajam.</small></div>
             <div>
               <label class="form-label">Galeri Logo Utama</label>
@@ -436,8 +467,10 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
                 </div>
               <?php endif; ?>
             </div>
+            </div>
             <div><label class="form-label">Status</label><select class="form-select" name="is_active"><option value="1" <?php echo (int)($edit['is_active'] ?? 1)===1?'selected':''; ?>>Aktif</option><option value="0" <?php echo (int)($edit['is_active'] ?? 1)===0?'selected':''; ?>>Nonaktif</option></select></div>
           </div>
+          <div class="studio-only">
           <hr class="my-4">
           <div class="label-tools">
             <div class="full">
@@ -446,7 +479,7 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
                 <option value="logo">Logo Utama</option>
                 <option value="badge_logo">Logo Badge Kanan Atas</option>
                 <option value="side_ribbon">Ribbon Kiri</option>
-                <option value="coffee_name">Nama Kopi</option>
+                <option value="coffee_name">Nama Produk di Label</option>
                 <option value="roastery_kicker">Footer Mini Atas</option>
                 <option value="taste_icons">Ikon + Teks Tasting</option>
                 <option value="brew_suggestion">Brew Suggestion</option>
@@ -475,13 +508,14 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
             <div class="full range-line"><small>Spasi</small><input type="range" id="letterSpacing" min="0" max="8" step=".1"><output id="letterSpacingOut"></output></div>
             <div class="full toggle-row"><button class="btn btn-sm btn-danger" type="button" id="resetPremiumLayout"><i class="ri ri-magic-line me-1"></i>Reset Layout Premium</button><button class="btn btn-sm btn-outline-dark" type="button" id="toggleBlockVisible"><i class="ri ri-eye-line me-1"></i><span>Tampil</span></button><button class="btn btn-sm btn-outline-dark" type="button" data-toggle-style="bold"><strong>B</strong> Bold</button><button class="btn btn-sm btn-outline-dark" type="button" data-toggle-style="italic"><em>I</em> Italic</button><button class="btn btn-sm btn-outline-dark" type="button" data-toggle-style="uppercase">Uppercase</button><button class="btn btn-sm btn-outline-dark" type="button" data-toggle-style="shadow">Kontras</button><button class="btn btn-sm btn-outline-dark" type="button" data-toggle-style="logoTint">Tint Logo</button><button class="btn btn-sm btn-outline-dark" type="button" data-align="left">Left</button><button class="btn btn-sm btn-outline-dark" type="button" data-align="center">Center</button><button class="btn btn-sm btn-outline-dark" type="button" data-align="right">Right</button></div>
           </div>
+          </div>
           <div class="d-flex flex-wrap gap-2 mt-4"><button class="btn btn-danger" type="submit" <?php echo (!$tableReady || !$canSave)?'disabled':''; ?>><i class="ri ri-save-line me-1"></i>Simpan Label</button><button class="btn btn-outline-dark" type="button" id="printLabelBtn"><i class="ri ri-printer-line me-1"></i>Print / Simpan PDF</button></div>
         </form>
       </div>
     </div>
 
-    <div class="label-panel label-preview-card print-target"><div class="label-panel-head"><div><h5>Live Preview</h5><small class="text-muted">Klik teks pada label untuk mengatur bloknya.</small></div><span class="badge bg-label-danger">Roastery</span></div>
-      <div class="label-panel-body"><div class="preview-shell"><div id="labelCanvas" class="label-canvas theme-<?php echo html_escape($themePreset); ?> artwork-mode-<?php echo html_escape($artworkMode); ?> artwork-fit-<?php echo html_escape($artworkFit); ?> pattern-mode-<?php echo html_escape($patternMode); ?>" style="--label-preview-w:<?php echo $canvasWidth * 4; ?>px;--label-preview-h:<?php echo $canvasHeight * 4; ?>px;--label-print-w:<?php echo $canvasWidth; ?>mm;--label-print-h:<?php echo $canvasHeight; ?>mm;">
+    <div class="label-panel label-preview-card print-target"><div class="label-panel-head"><div><h5><?php echo $isUniversalTemplate ? 'Preview Model 2' : 'Live Preview'; ?></h5><small class="text-muted"><?php echo $isUniversalTemplate ? 'Format landscape universal 100 x 68 mm.' : 'Klik teks pada label untuk mengatur bloknya.'; ?></small></div><span class="badge bg-label-danger">Roastery</span></div>
+      <div class="label-panel-body"><div class="preview-shell"><div class="universal-label-preview"><article id="universalLabel" class="namua-label"><div class="namua-label__artwork <?php echo $imageUrl === '' ? 'no-image' : ''; ?>" id="universalArtworkPreview"><img id="universalArtworkImage" src="<?php echo html_escape($imageUrl); ?>" alt="" <?php echo $imageUrl === '' ? 'style="display:none"' : ''; ?>></div><aside class="namua-label__rail"><div class="namua-label__logo-shell"><img src="<?php echo html_escape($namuaRoastersLogoUrl); ?>" alt="Namua Coffee Roasters"></div><div class="namua-label__side-rule"></div><div class="namua-label__side-copy"><span class="namua-label__side-series" data-universal-output="footer_note"><?php echo html_escape($selectedFooterNote !== '' ? $selectedFooterNote : 'Single Origin'); ?></span><span class="namua-label__side-motto">From origin<br>to character</span><div class="namua-label__side-meta"><div class="namua-label__side-meta-item" data-universal-row="brew_suggestion"><span class="namua-label__side-meta-label">Brew</span><span class="namua-label__side-meta-value" data-universal-output="brew_suggestion"></span></div><div class="namua-label__side-meta-item" data-universal-row="roast_level"><span class="namua-label__side-meta-label">Roast</span><span class="namua-label__side-meta-value" data-universal-output="roast_level"></span></div><div class="namua-label__side-meta-item" data-universal-row="body_level"><span class="namua-label__side-meta-label">Body</span><span class="namua-label__side-meta-value" data-universal-output="body_level"></span></div><div class="namua-label__side-meta-item" data-universal-row="process_method"><span class="namua-label__side-meta-label">Process</span><span class="namua-label__side-meta-value" data-universal-output="process_method"></span></div></div></div></aside><div class="namua-label__content"><h1 class="namua-label__title" data-universal-output="coffee_name"></h1><div class="namua-label__origin-stack"><div class="namua-label__origin" data-universal-row="origin"><i class="ri ri-map-pin-2-line"></i><span data-universal-output="origin"></span></div><div class="namua-label__elevation" data-universal-row="elevation_text"><i class="ri ri-landscape-line"></i><span data-universal-output="elevation_text"></span></div></div><div class="namua-label__notes" id="universalNotesPreview"></div><div class="namua-label__trace" id="universalTracePreview"><span class="namua-label__trace-item" data-universal-trace="batch_no"><strong>BATCH</strong> <span></span></span><span class="namua-label__trace-item" data-universal-trace="roast_date"><strong>ROASTED</strong> <span></span></span><span class="namua-label__trace-item" data-universal-trace="expiry_date"><strong>BEST BEFORE</strong> <span></span></span></div></div></article></div><div id="labelCanvas" class="label-canvas theme-<?php echo html_escape($themePreset); ?> artwork-mode-<?php echo html_escape($artworkMode); ?> artwork-fit-<?php echo html_escape($artworkFit); ?> pattern-mode-<?php echo html_escape($patternMode); ?>" style="--label-preview-w:<?php echo $canvasWidth * 4; ?>px;--label-preview-h:<?php echo $canvasHeight * 4; ?>px;--label-print-w:<?php echo $canvasWidth; ?>mm;--label-print-h:<?php echo $canvasHeight; ?>mm;">
         <div class="label-bg <?php echo $imageUrl===''?'no-image':''; ?>" id="labelBg"><?php if ($imageUrl !== ''): ?><img id="labelImagePreview" src="<?php echo html_escape($imageUrl); ?>" alt="Label artwork"><?php else: ?><img id="labelImagePreview" src="" alt="" style="display:none"><?php endif; ?></div>
         <div class="label-overlay"></div><div class="label-brand-panel"></div><div class="label-sensory-panel"></div><div class="label-orbit o1"></div><div class="label-orbit o2"></div><div class="label-orbit o3"></div><div class="label-speckles"></div><div class="label-side-ribbon" data-block="side_ribbon"><span><?php echo html_escape(strtoupper($selectedRibbonText)); ?></span><i class="ri ri-star-line"></i></div><div class="taste-icon-row" data-block="taste_icons"><span><b><i class="ri ri-flower-line"></i></b><small>HIBISCUS</small></span><span><b><i class="ri ri-apple-line"></i></b><small>RIPE PEACH</small></span><span><b><i class="ri ri-goblet-line"></i></b><small>RED WINE</small></span></div>
         <div class="label-roastery-kicker" data-block="roastery_kicker" data-info-value="footer_note"></div>
@@ -541,11 +575,13 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
         </div>
         <form class="label-index-filter d-flex flex-wrap gap-2" method="get" action="<?php echo site_url('roastery/packaging-labels'); ?>">
           <input type="hidden" name="status" value="<?php echo html_escape($currentStatus); ?>">
-          <input class="form-control" name="q" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Cari nama/origin" style="min-width:220px">
+          <input class="form-control" name="q" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="Cari label, produk, atau origin" style="min-width:220px">
           <button class="btn btn-outline-danger" type="submit"><i class="ri ri-search-line me-1"></i>Filter</button>
           <?php if (trim((string)($filters['q'] ?? '')) !== ''): ?><a class="btn btn-outline-secondary" href="<?php echo site_url('roastery/packaging-labels?status='.rawurlencode($currentStatus)); ?>">Clear</a><?php endif; ?>
         </form>
-        <?php if (!empty($can_create)): ?><a class="btn btn-danger" href="<?php echo site_url('roastery/packaging-labels?new=1'); ?>"><i class="ri ri-add-line me-1"></i>Tambah Label</a><?php endif; ?>
+        <?php if (!empty($can_create)): ?>
+          <a class="btn btn-danger" href="<?php echo site_url('roastery/packaging-labels?new=1'); ?>"><i class="ri ri-add-line me-1"></i>Buat Label</a>
+        <?php endif; ?>
       </div>
     </div>
     <div class="label-panel-body">
@@ -570,18 +606,28 @@ linear-gradient(135deg,rgba(255,255,255,.08),transparent 36%,rgba(86,29,33,.12) 
       <?php if (empty($labels)): ?>
         <div class="text-center py-5">
           <div class="mb-2 fw-bold text-muted">Belum ada label tersimpan.</div>
-          <?php if (!empty($can_create)): ?><a class="btn btn-danger" href="<?php echo site_url('roastery/packaging-labels?new=1'); ?>"><i class="ri ri-add-line me-1"></i>Buat Label Pertama</a><?php endif; ?>
+          <?php if (!empty($can_create)): ?>
+            <a class="btn btn-danger" href="<?php echo site_url('roastery/packaging-labels?new=1'); ?>"><i class="ri ri-add-line me-1"></i>Buat Label</a>
+          <?php endif; ?>
         </div>
       <?php else: ?>
         <div class="row g-3">
           <?php foreach ($labels as $row): ?>
+            <?php
+              $rowDesign = json_decode((string)($row['design_json'] ?? ''), true);
+              $isUniversalRow = trim((string)($row['theme_preset'] ?? '')) === 'namua-universal'
+                || (is_array($rowDesign) && (string)($rowDesign['layout'] ?? '') === 'namua-universal-10cm-v1');
+              $displayLabelName = trim((string)($row['label_name'] ?? $row['coffee_name'] ?? ''));
+              $displayProductName = trim((string)($row['coffee_name'] ?? ''));
+            ?>
             <div class="col-md-6 col-xl-4"><div class="saved-card h-100">
               <div class="saved-thumb"><?php if (!empty($row['image_path'])): ?><img src="<?php echo html_escape(base_url($row['image_path'])); ?>" alt=""><?php endif; ?></div>
               <div class="flex-grow-1 min-w-0">
                 <div class="d-flex justify-content-between gap-2">
-                  <div class="saved-title text-truncate"><?php echo html_escape((string)$row['coffee_name']); ?></div>
-                  <span class="badge <?php echo (int)($row['is_active'] ?? 1) === 1 ? 'bg-label-success' : 'bg-label-secondary'; ?>"><?php echo (int)($row['is_active'] ?? 1) === 1 ? 'Aktif' : 'Nonaktif'; ?></span>
+                  <div class="saved-title text-truncate"><?php echo html_escape($displayLabelName !== '' ? $displayLabelName : 'Tanpa nama label'); ?></div>
+                  <div class="d-flex flex-wrap justify-content-end gap-1"><span class="badge <?php echo $isUniversalRow ? 'bg-label-danger' : 'bg-label-secondary'; ?>"><?php echo $isUniversalRow ? 'Model 2' : 'Model 1'; ?></span><span class="badge <?php echo (int)($row['is_active'] ?? 1) === 1 ? 'bg-label-success' : 'bg-label-secondary'; ?>"><?php echo (int)($row['is_active'] ?? 1) === 1 ? 'Aktif' : 'Nonaktif'; ?></span></div>
                 </div>
+                <div class="small text-muted text-truncate"><i class="ri ri-cup-line me-1"></i>Produk: <?php echo html_escape($displayProductName !== '' ? $displayProductName : '-'); ?></div>
                 <div class="small text-muted text-truncate"><?php echo html_escape(trim((string)$row['origin'].' '.(string)$row['weight_text'])); ?></div>
                 <div class="small text-muted text-truncate"><?php echo html_escape((string)($row['label_code'] ?? '')); ?></div>
                 <div class="saved-actions">
@@ -611,6 +657,7 @@ const initialRaw=<?php echo json_encode($designJson, JSON_INVALID_UTF8_SUBSTITUT
 const el=id=>document.getElementById(id), fields=[...document.querySelectorAll('[data-label-field]')], metaFields=[...document.querySelectorAll('[data-meta-field]')], by=n=>document.querySelector('[data-label-field="'+n+'"]'), metaBy=n=>document.querySelector('[data-meta-field="'+n+'"]');
 const canvas=el('labelCanvas'), bg=el('labelBg'), img=el('labelImagePreview'), designInput=el('designJsonInput'), blockSelect=el('blockSelect'), blockSourceHint=el('blockSourceHint');
 const canvasWidthEl=el('canvasWidth'), canvasHeightEl=el('canvasHeight'), labelWidthRange=el('labelWidthRange'), labelHeightRange=el('labelHeightRange'), labelWidthOut=el('labelWidthOut'), labelHeightOut=el('labelHeightOut'), themePresetEl=el('themePreset'), artworkModeEl=el('artworkMode'), artworkFitEl=el('artworkFit'), patternModeEl=el('patternMode'), imageInput=el('labelImageInput'), logoInput=el('logoImageInput'), badgeLogoInput=el('badgeLogoInput'), galleryPath=el('galleryImagePath'), galleryLogoPath=el('galleryLogoPath'), galleryBadgeLogoPath=el('galleryBadgeLogoPath'), formEl=el('coffeeLabelForm'), printBtn=el('printLabelBtn'), resetPremiumLayout=el('resetPremiumLayout'), toggleBlockVisible=el('toggleBlockVisible'), logoEl=document.querySelector('.label-logo-main[data-block="logo"]'), badgeLogoEl=document.querySelector('.label-badge-logo[data-block="badge_logo"]'), tasteRows=el('tasteRows'), addTasteNote=el('addTasteNote'), tastingNotesValue=el('tastingNotesValue'), tasteIconRow=document.querySelector('.taste-icon-row[data-block="taste_icons"]'), printSheet=el('printSheet'), previewShell=document.querySelector('.preview-shell'), coffeeProductPick=el('coffeeProductPick'), printFitBadge=el('printFitBadge');
+const isUniversalTemplate=<?php echo $isUniversalTemplate ? 'true' : 'false'; ?>, universalLabel=el('universalLabel'), universalArtwork=el('universalArtworkPreview'), universalArtworkImage=el('universalArtworkImage'), universalNotes=el('universalNotesPreview'), universalTrace=el('universalTracePreview');
 const printControls={paper:el('printPaper'),orientation:el('printOrientation'),paperW:el('printPaperW'),paperH:el('printPaperH'),perSheet:el('printPerSheet'),margin:el('printMargin'),gap:el('printGap'),cutLine:el('printCutLine')};
 const guides={wrap:el('dragGuides'),centerV:el('guideCenterV'),centerH:el('guideCenterH'),currentV:el('guideCurrentV'),currentH:el('guideCurrentH'),badge:el('guideBadge')};
 const c={fontFamily:el('fontFamily'),fontColor:el('fontColor'),bgColor:el('bgColor'),fontSize:el('fontSize'),posX:el('posX'),posY:el('posY'),blockWidth:el('blockWidth'),panelHeight:el('panelHeight'),letterSpacing:el('letterSpacing')};
@@ -670,7 +717,7 @@ const blockHints={
   logo:'Sumber: upload logo utama / galeri logo utama. Ubah Warna lalu aktifkan Tint Logo untuk mengganti warna PNG transparan.',
   badge_logo:'Sumber: upload logo badge / galeri logo badge. Ubah Warna lalu aktifkan Tint Logo untuk mengganti warna PNG transparan.',
   side_ribbon:'Sumber: field Ribbon Kiri. Posisi, ukuran, warna teks, background, dan tinggi ribbon bisa diatur di sini.',
-  coffee_name:'Sumber: field Nama Kopi.',
+  coffee_name:'Sumber: field Nama Produk.',
   roastery_kicker:'Sumber: field Footer Mini.',
   tasting_notes:'Sumber: builder Tasting Notes + Icon.',
   taste_icons:'Sumber: builder Tasting Notes + Icon. Ukuran utama mengatur ikon, kontrol Teks Note mengatur tulisan note.',
@@ -813,6 +860,23 @@ function tasteIconSvg(icon){
   return '<svg class="taste-svg-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><g vector-effect="non-scaling-stroke">'+(shapes[icon]||shapes['ri-apple-line'])+'</g></svg>';
 }
 function noteList(){return (tastingNotesValue?.value||'').split(',').map(s=>s.trim()).filter(Boolean)}
+const universalDefaults={coffee_name:'Prau Red Wine',footer_note:'Single Origin',origin:'Mt. Prau, Dieng',process_method:'Wine Process',roast_level:'Medium',body_level:'Medium',brew_suggestion:'Filter',elevation_text:'1.200 - 1.500 mdpl',tasting_notes:'Hibiscus, Ripe Peach, Red Wine'};
+function universalInputValue(name){const input=formEl?.querySelector('[name="'+name+'"]');return input?(input.value||'').trim():''}
+function universalDisplayValue(name){const value=universalInputValue(name);return value!==''?value:(!<?php echo $isEditing ? 'true' : 'false'; ?>?(universalDefaults[name]||''):'')}
+function universalSetText(name,value){if(!universalLabel)return;universalLabel.querySelectorAll('[data-universal-output="'+name+'"]').forEach(node=>node.textContent=value)}
+function universalSetRow(name,value){if(!universalLabel)return;universalLabel.querySelectorAll('[data-universal-row="'+name+'"]').forEach(node=>node.classList.toggle('is-empty',value===''))}
+function universalDate(value){if(!value||!/^\d{4}-\d{2}-\d{2}$/.test(value))return'';const [year,month,day]=value.split('-').map(Number),date=new Date(year,month-1,day);return Number.isNaN(date.getTime())?value:date.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}).toUpperCase()}
+function refreshUniversalPreview(){
+  if(!universalLabel)return;
+  const values={};
+  ['coffee_name','footer_note','origin','process_method','roast_level','body_level','brew_suggestion','elevation_text','tasting_notes'].forEach(name=>{values[name]=universalDisplayValue(name);universalSetText(name,values[name])});
+  ['origin','elevation_text','process_method','roast_level','body_level','brew_suggestion'].forEach(name=>universalSetRow(name,values[name]));
+  if(universalNotes){const notes=values.tasting_notes.split(/[,;|\n]+/).map(note=>note.trim()).filter(Boolean).slice(0,4);universalNotes.innerHTML='';notes.forEach((note,index)=>{const chip=document.createElement('span'),iconWrap=document.createElement('span'),text=document.createElement('span');const icon=normalizeTasteIcon((state.tasteIcons&&state.tasteIcons[index])||suggestIcon(note),note);chip.className='namua-label__note';iconWrap.className='namua-label__note-icon';iconWrap.innerHTML=tasteIconSvg(icon);text.className='namua-label__note-text';text.textContent=note;chip.append(iconWrap,text);universalNotes.appendChild(chip)});universalNotes.style.display=notes.length?'flex':'none'}
+  let hasTrace=false;
+  ['batch_no','roast_date','expiry_date'].forEach(name=>{const value=name==='roast_date'||name==='expiry_date'?universalDate(universalInputValue(name)):universalInputValue(name);const node=universalLabel.querySelector('[data-universal-trace="'+name+'"]');if(!node)return;const out=node.querySelector('span');if(out)out.textContent=value;node.classList.toggle('is-empty',value==='');hasTrace=hasTrace||value!==''});
+  if(universalTrace)universalTrace.style.display=hasTrace?'flex':'none';
+  if(universalArtwork&&universalArtworkImage){const hasArtwork=!!(img&&!bg?.classList.contains('no-image')&&(img.currentSrc||img.src));if(hasArtwork){universalArtworkImage.src=img.currentSrc||img.src;universalArtworkImage.style.display='';universalArtwork.classList.remove('no-image')}else{universalArtworkImage.removeAttribute('src');universalArtworkImage.style.display='none';universalArtwork.classList.add('no-image')}}
+}
 state.tasteIcons=(state.tasteIcons||[]).map((icon,idx)=>normalizeTasteIcon(icon,noteList()[idx]||''));
 function syncTasteValueFromRows(){const noteInputs=[...tasteRows.querySelectorAll('[data-taste-note]')];const notes=noteInputs.map(i=>i.value.trim()).filter(Boolean);tastingNotesValue.value=notes.join(', ');state.tasteIcons=noteInputs.map((input,idx)=>{const raw=(input.value||'').trim();const select=input.closest('.taste-row')?.querySelector('[data-taste-icon]');return select?normalizeTasteIcon(select.value||suggestIcon(raw),raw):suggestIcon(raw)}).filter((_,idx)=>notes[idx]!==undefined);state.tasteIconSizes=noteInputs.map(input=>{const raw=(input.value||'').trim();const sizeField=input.closest('.taste-row')?.querySelector('[data-taste-icon-size]');return raw!==''?Math.max(10,Math.min(40,parseFloat(sizeField?.value||18)||18)):null}).filter(v=>v!==null);state.tasteTextSizes=noteInputs.map(input=>{const raw=(input.value||'').trim();const sizeField=input.closest('.taste-row')?.querySelector('[data-taste-text-size]');return raw!==''?Math.max(5,Math.min(20,parseFloat(sizeField?.value||6.8)||6.8)):null}).filter(v=>v!==null);if(state.tasteTextSizes.length){state.blocks.taste_icons=state.blocks.taste_icons||{};state.blocks.taste_icons.textSize=state.tasteTextSizes[0];if(tasteTextControl.input){tasteTextControl.input.value=state.tasteTextSizes[0];tasteTextControl.out.textContent=state.tasteTextSizes[0]+'px'}}refresh()}
 function renderTasteIconRow(){const notes=noteList();if(!tasteIconRow)return;tasteIconRow.innerHTML='';if(state.blocks?.taste_icons?.visible===false){tasteIconRow.style.setProperty('display','none','important');return}tasteIconRow.style.removeProperty('display');const globalTextSize=parseFloat(state.blocks?.taste_icons?.textSize||6.8)||6.8;tasteIconRow.style.setProperty('--taste-text-size',globalTextSize+'px');notes.slice(0,3).forEach((note,idx)=>{const icon=normalizeTasteIcon((state.tasteIcons&&state.tasteIcons[idx])||suggestIcon(note),note);if(!icon)return;const iconSize=((state.tasteIconSizes&&state.tasteIconSizes[idx])||18);const textSize=((state.tasteTextSizes&&state.tasteTextSizes[idx])||globalTextSize);const span=document.createElement('span');span.title=note;span.style.setProperty('--item-icon-size',iconSize+'px');span.style.setProperty('--item-text-size',textSize+'px');span.innerHTML='<b>'+tasteIconSvg(icon)+'</b><small style="font-size:'+textSize+'px!important">'+(note||'').toUpperCase()+'</small>';tasteIconRow.appendChild(span)});tasteIconRow.style.setProperty('display',tasteIconRow.children.length?'flex':'none','important')}
@@ -1311,7 +1375,7 @@ async function buildPrintSheet(){
   await waitForPrintAssets(target);
 }
 function syncSizeControls(w,h){canvasWidthEl.value=w;canvasHeightEl.value=h;labelWidthRange.value=w;labelHeightRange.value=h;labelWidthOut.textContent=w+'mm';labelHeightOut.textContent=h+'mm'}
-function refresh(){syncMetaFromFields();const w=Math.max(40,Math.min(160,parseInt(canvasWidthEl.value||90,10))),h=Math.max(60,Math.min(240,parseInt(canvasHeightEl.value||140,10))),t=themePresetEl.value||'heritage-cream',m=artworkModeEl.value||'full',fit=artworkFitEl?.value||'stretch',p=patternModeEl?.value||'contour'; syncSizeControls(w,h); state.canvas.theme=t; state.canvas.artworkMode=m; state.canvas.artworkFit=fit; state.canvas.patternMode=p; canvas.style.setProperty('--label-preview-w',(w*PRINT_PREVIEW_PX_PER_MM)+'px'); canvas.style.setProperty('--label-preview-h',(h*PRINT_PREVIEW_PX_PER_MM)+'px'); canvas.style.setProperty('--label-print-w',w+'mm'); canvas.style.setProperty('--label-print-h',h+'mm'); canvas.className='label-canvas theme-'+t+' artwork-mode-'+m+' artwork-fit-'+fit+' pattern-mode-'+p; Object.keys(state.blocks).forEach(apply); renderTasteIconRow(); renderInfoPanel(); updatePrintPreviewState(); designInput.value=JSON.stringify(state);bindDragHandles()}
+function refresh(){syncMetaFromFields();const w=Math.max(40,Math.min(160,parseInt(canvasWidthEl.value||90,10))),h=Math.max(60,Math.min(240,parseInt(canvasHeightEl.value||140,10))),t=themePresetEl.value||'heritage-cream',m=artworkModeEl.value||'full',fit=artworkFitEl?.value||'stretch',p=patternModeEl?.value||'contour'; syncSizeControls(w,h); state.canvas.theme=t; state.canvas.artworkMode=m; state.canvas.artworkFit=fit; state.canvas.patternMode=p; canvas.style.setProperty('--label-preview-w',(w*PRINT_PREVIEW_PX_PER_MM)+'px'); canvas.style.setProperty('--label-preview-h',(h*PRINT_PREVIEW_PX_PER_MM)+'px'); canvas.style.setProperty('--label-print-w',w+'mm'); canvas.style.setProperty('--label-print-h',h+'mm'); canvas.className='label-canvas theme-'+t+' artwork-mode-'+m+' artwork-fit-'+fit+' pattern-mode-'+p; Object.keys(state.blocks).forEach(apply); renderTasteIconRow(); renderInfoPanel(); updatePrintPreviewState();if(isUniversalTemplate)refreshUniversalPreview();designInput.value=JSON.stringify(state);bindDragHandles()}
 function outs(){o.fontSize.textContent=c.fontSize.value+'px';o.posX.textContent=c.posX.value+'%';o.posY.textContent=c.posY.value+'%';o.blockWidth.textContent=c.blockWidth.value+'%';o.panelHeight.textContent=c.panelHeight.value+'%';o.letterSpacing.textContent=c.letterSpacing.value+'px'}
 function updateTasteTextControl(s){if(!tasteTextControl.input)return;const enabled=active==='taste_icons';tasteTextControl.wrap.style.display=enabled?'grid':'none';tasteTextControl.wrap.style.opacity=enabled?'1':'.45';const size=parseFloat(s.textSize||state.blocks?.taste_icons?.textSize||6.8)||6.8;tasteTextControl.input.value=size;tasteTextControl.out.textContent=size+'px'}
 function setGlobalTasteTextSize(size){size=Math.max(5,Math.min(20,parseFloat(size)||6.8));state.blocks.taste_icons=state.blocks.taste_icons||{};state.blocks.taste_icons.textSize=size;state.tasteTextSizes=noteList().map(()=>size);tasteRows.querySelectorAll('[data-taste-text-size]').forEach(input=>{input.value=size});if(tasteIconRow)tasteIconRow.style.setProperty('--taste-text-size',size+'px');if(tasteTextControl.out)tasteTextControl.out.textContent=size+'px';refresh()}
@@ -1386,18 +1450,20 @@ blockSelect.addEventListener('change',function(){active=this.value;load()});docu
 document.querySelectorAll('[data-toggle-style]').forEach(b=>b.addEventListener('click',function(){const s=state.blocks[active]||(state.blocks[active]={});s[this.dataset.toggleStyle]=!s[this.dataset.toggleStyle];refresh()}));document.querySelectorAll('[data-align]').forEach(b=>b.addEventListener('click',function(){(state.blocks[active]||(state.blocks[active]={})).align=this.dataset.align;refresh()}));
 resetPremiumLayout.addEventListener('click',function(){state=merge(defaults,{});themePresetEl.value='heritage-cream';artworkModeEl.value='full';if(artworkFitEl)artworkFitEl.value='stretch';if(patternModeEl)patternModeEl.value='contour';active='logo';blockSelect.value=active;hydrateMetaFields();syncPrintControlsFromState();renderTasteRowsV2();load()});
 addTasteNote.addEventListener('click',function(){forceBlankTasteRow=true;renderTasteRowsV2();refresh()});
-document.querySelectorAll('#artworkGallery .gallery-tile').forEach(tile=>tile.addEventListener('click',function(){document.querySelectorAll('#artworkGallery .gallery-tile').forEach(t=>t.classList.remove('active'));this.classList.add('active');galleryPath.value=this.dataset.path||'';img.src=this.dataset.url||'';img.style.display='';bg.classList.remove('no-image')}));
+document.querySelectorAll('#artworkGallery .gallery-tile').forEach(tile=>tile.addEventListener('click',function(){document.querySelectorAll('#artworkGallery .gallery-tile').forEach(t=>t.classList.remove('active'));this.classList.add('active');galleryPath.value=this.dataset.path||'';img.src=this.dataset.url||'';img.style.display='';bg.classList.remove('no-image');if(isUniversalTemplate)refreshUniversalPreview()}));
 document.querySelectorAll('#logoGallery .gallery-tile').forEach(tile=>tile.addEventListener('click',function(){document.querySelectorAll('#logoGallery .gallery-tile').forEach(t=>t.classList.remove('active'));this.classList.add('active');galleryLogoPath.value=this.dataset.path||'';if(logoEl)logoEl.src=this.dataset.url||logoEl.src}));
 document.querySelectorAll('#badgeLogoGallery .gallery-tile').forEach(tile=>tile.addEventListener('click',function(){document.querySelectorAll('#badgeLogoGallery .gallery-tile').forEach(t=>t.classList.remove('active'));this.classList.add('active');galleryBadgeLogoPath.value=this.dataset.path||'';if(badgeLogoEl)badgeLogoEl.src=this.dataset.url||badgeLogoEl.src}));
-imageInput.addEventListener('change',function(){const f=this.files&&this.files[0];if(!f)return;if(f.type!=='image/png'){alert('Artwork harus PNG.');this.value='';return}galleryPath.value='';document.querySelectorAll('#artworkGallery .gallery-tile').forEach(t=>t.classList.remove('active'));const r=new FileReader();r.onload=e=>{img.src=e.target.result;img.style.display='';bg.classList.remove('no-image')};r.readAsDataURL(f)});
+imageInput.addEventListener('change',function(){const f=this.files&&this.files[0];if(!f)return;if(f.type!=='image/png'){alert('Artwork harus PNG.');this.value='';return}galleryPath.value='';document.querySelectorAll('#artworkGallery .gallery-tile').forEach(t=>t.classList.remove('active'));const r=new FileReader();r.onload=e=>{img.src=e.target.result;img.style.display='';bg.classList.remove('no-image');if(isUniversalTemplate)refreshUniversalPreview()};r.readAsDataURL(f)});
 function isLogoFile(f){return !!f&&(f.type==='image/png'||f.type==='image/svg+xml'||/\.svg$/i.test(f.name||''))}
 logoInput.addEventListener('change',function(){const f=this.files&&this.files[0];if(!f)return;if(!isLogoFile(f)){alert('Logo harus PNG atau SVG.');this.value='';return}galleryLogoPath.value='';document.querySelectorAll('#logoGallery .gallery-tile').forEach(t=>t.classList.remove('active'));const r=new FileReader();r.onload=e=>{if(logoEl)logoEl.src=e.target.result};r.readAsDataURL(f)});
 badgeLogoInput.addEventListener('change',function(){const f=this.files&&this.files[0];if(!f)return;if(!isLogoFile(f)){alert('Logo badge harus PNG atau SVG.');this.value='';return}galleryBadgeLogoPath.value='';document.querySelectorAll('#badgeLogoGallery .gallery-tile').forEach(t=>t.classList.remove('active'));const r=new FileReader();r.onload=e=>{if(badgeLogoEl)badgeLogoEl.src=e.target.result};r.readAsDataURL(f)});
 window.addEventListener('pointermove',moveDrag);
 window.addEventListener('pointerup',endDrag);
 window.addEventListener('pointercancel',endDrag);
-async function openPrint(){refresh();await buildPrintSheet();document.body.classList.add('coffee-label-printing');window.print();setTimeout(()=>document.body.classList.remove('coffee-label-printing'),500)}
-window.addEventListener('afterprint',()=>document.body.classList.remove('coffee-label-printing'));
+function ensureUniversalPrintPortal(){let portal=el('universalPrintPortal');if(!portal){portal=document.createElement('div');portal.id='universalPrintPortal';portal.setAttribute('aria-hidden','true');document.body.appendChild(portal)}return portal}
+async function buildUniversalPrintSheet(){refreshUniversalPreview();const portal=ensureUniversalPrintPortal();portal.innerHTML='';const count=Math.max(1,Math.min(24,parseInt(state.print?.perSheet||4,10)||4));for(let i=0;i<count;i++){const slot=document.createElement('div');slot.className='universal-print-slot';const copy=universalLabel.cloneNode(true);copy.removeAttribute('id');copy.querySelectorAll('[id]').forEach(node=>node.removeAttribute('id'));slot.appendChild(copy);portal.appendChild(slot)}await waitForPrintAssets(portal)}
+async function openPrint(){refresh();if(isUniversalTemplate){await buildUniversalPrintSheet();document.body.classList.add('namua-label-printing');window.print();setTimeout(()=>document.body.classList.remove('namua-label-printing'),500);return}await buildPrintSheet();document.body.classList.add('coffee-label-printing');window.print();setTimeout(()=>document.body.classList.remove('coffee-label-printing'),500)}
+window.addEventListener('afterprint',()=>{document.body.classList.remove('coffee-label-printing');document.body.classList.remove('namua-label-printing')});
 formEl.addEventListener('submit',function(){syncTasteValueFromRows();syncMetaFromFields();syncPrintStateFromControls();refresh()});printBtn.addEventListener('click',openPrint);syncMetaFromFields();syncPrintControlsFromState();renderTasteRowsV2();load();
 <?php if ($autoPrint): ?>setTimeout(openPrint,700);<?php endif; ?>
 })();

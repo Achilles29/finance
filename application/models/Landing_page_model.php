@@ -29,57 +29,100 @@ class Landing_page_model extends CI_Model
         }
     }
 
-    // ── MENU ─────────────────────────────────────────────────────────
+    // ── MENU (single source: mst_product) ───────────────────────────
 
-    public function get_menu(bool $all = false): array
+    public function get_landing_products(): array
     {
-        $q = $this->db->order_by('sort_order', 'ASC')->order_by('id', 'ASC');
-        if (!$all) $q->where('is_active', 1);
-        return $q->get('lp_menu')->result_array();
+        $salesSql = "(
+            SELECT pol.product_id, SUM(pol.qty) AS sales_qty
+            FROM pos_order_line pol
+            INNER JOIN pos_order po ON po.id = pol.order_id
+            WHERE po.ordered_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+              AND po.status NOT IN ('DRAFT', 'VOID', 'REFUND_FULL')
+              AND pol.line_status NOT IN ('VOID', 'REFUNDED_FULL')
+              AND pol.line_type <> 'BUNDLE_HEADER'
+            GROUP BY pol.product_id
+        ) landing_sales";
+
+        return $this->db
+            ->select(
+                'p.id, p.product_code, p.product_name AS title, p.description, '
+                . 'p.photo_path AS image, p.selling_price AS price, p.show_landing AS is_active, '
+                . 'p.product_category_id, c.name AS category_name, '
+                . 'COALESCE(landing_sales.sales_qty, 0) AS sales_qty',
+                false
+            )
+            ->from('mst_product p')
+            ->join('mst_product_category c', 'c.id = p.product_category_id', 'left')
+            ->join($salesSql, 'landing_sales.product_id = p.id', 'left', false)
+            ->where('p.show_landing', 1)
+            ->where('p.is_active', 1)
+            ->order_by('sales_qty', 'DESC')
+            ->order_by('c.sort_order', 'ASC')
+            ->order_by('p.product_name', 'ASC')
+            ->get()
+            ->result_array();
     }
 
-    public function find_menu(int $id): ?array
+    public function get_available_landing_products(): array
     {
-        $row = $this->db->where('id', $id)->get('lp_menu')->row_array();
+        return $this->db
+            ->select('p.id, p.product_code, p.product_name, p.selling_price, c.name AS category_name')
+            ->from('mst_product p')
+            ->join('mst_product_category c', 'c.id = p.product_category_id', 'left')
+            ->where('p.is_active', 1)
+            ->where('p.show_landing', 0)
+            ->order_by('c.sort_order', 'ASC')
+            ->order_by('p.product_name', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    public function get_product_categories(): array
+    {
+        return $this->db
+            ->select(
+                'c.id, c.name, COUNT(p.id) AS product_count, '
+                . 'COALESCE(SUM(CASE WHEN p.show_landing = 1 AND p.is_active = 1 THEN 1 ELSE 0 END), 0) AS landing_count',
+                false
+            )
+            ->from('mst_product_category c')
+            ->join('mst_product p', 'p.product_category_id = c.id AND p.is_active = 1', 'left')
+            ->where('c.is_active', 1)
+            ->group_by(['c.id', 'c.name', 'c.sort_order'])
+            ->having('COUNT(p.id) >', 0, false)
+            ->order_by('c.sort_order', 'ASC')
+            ->order_by('c.name', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    public function find_product(int $id): ?array
+    {
+        $row = $this->db->where('id', $id)->get('mst_product')->row_array();
         return $row ?: null;
     }
 
-    public function insert_menu(array $data): int
+    public function add_product_to_landing(int $id): bool
     {
-        $this->db->insert('lp_menu', $data);
-        return (int)$this->db->insert_id();
+        $this->db->where('id', $id)->where('is_active', 1)->update('mst_product', ['show_landing' => 1]);
+        return $this->db->affected_rows() > 0;
     }
 
-    public function update_menu(int $id, array $data): void
+    public function remove_product_from_landing(int $id): bool
     {
-        $this->db->where('id', $id)->update('lp_menu', $data);
+        $this->db->where('id', $id)->update('mst_product', ['show_landing' => 0]);
+        return $this->db->affected_rows() > 0;
     }
 
-    public function delete_menu(int $id): void
+    public function toggle_landing_product(int $id): int
     {
-        $this->db->where('id', $id)->delete('lp_menu');
-    }
+        $row = $this->db->select('show_landing')->where('id', $id)->get('mst_product')->row_array();
+        if (!$row) return -1;
 
-    public function toggle_menu(int $id): int
-    {
-        $row = $this->db->select('is_active')->where('id', $id)->get('lp_menu')->row_array();
-        if (!$row) return 0;
-        $new = (int)$row['is_active'] === 1 ? 0 : 1;
-        $this->db->where('id', $id)->update('lp_menu', ['is_active' => $new]);
+        $new = (int)$row['show_landing'] === 1 ? 0 : 1;
+        $this->db->where('id', $id)->update('mst_product', ['show_landing' => $new]);
         return $new;
-    }
-
-    public function reorder_menu(array $ids): void
-    {
-        foreach ($ids as $order => $id) {
-            $this->db->where('id', (int)$id)->update('lp_menu', ['sort_order' => (int)$order]);
-        }
-    }
-
-    public function next_menu_sort(): int
-    {
-        $row = $this->db->select_max('sort_order')->get('lp_menu')->row_array();
-        return (int)($row['sort_order'] ?? -1) + 1;
     }
 
     // ── GALLERY ───────────────────────────────────────────────────────

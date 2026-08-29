@@ -5,6 +5,9 @@ $submitterIds = (array)($pending_submitter_position_ids ?? []);
 $verifierL1Ids = (array)($pending_verifier_l1_position_ids ?? []);
 $verifierL2Ids = (array)($pending_verifier_l2_position_ids ?? []);
 $verifierL3Ids = (array)($pending_verifier_l3_position_ids ?? []);
+$scheduleOverridePositionIds = (array)($schedule_monthly_override_position_ids ?? []);
+$scheduleOverrideUserIds = (array)($schedule_monthly_override_user_ids ?? []);
+$userOptions = (array)($user_options ?? []);
 
 $val = static function ($key, $default = '') use ($policy) {
     $posted = set_value($key);
@@ -26,6 +29,8 @@ $selSubmitter = array_flip($selectedFromPostOrDefault('pending_submitter_positio
 $selL1 = array_flip($selectedFromPostOrDefault('pending_verifier_l1_position_ids', $verifierL1Ids));
 $selL2 = array_flip($selectedFromPostOrDefault('pending_verifier_l2_position_ids', $verifierL2Ids));
 $selL3 = array_flip($selectedFromPostOrDefault('pending_verifier_l3_position_ids', $verifierL3Ids));
+$selScheduleOverridePositions = array_flip($selectedFromPostOrDefault('schedule_monthly_override_position_ids', $scheduleOverridePositionIds));
+$selScheduleOverrideUsers = array_flip($selectedFromPostOrDefault('schedule_monthly_override_user_ids', $scheduleOverrideUserIds));
 
 $scope = strtoupper((string)$val('pending_request_scope', 'SELF_ONLY'));
 $approvalLevels = (int)$val('pending_approval_levels', 3);
@@ -307,6 +312,34 @@ if ($revisionWindowDays <= 0) {
               </option>
             <?php endforeach; ?>
           </select>
+        </div>
+
+        <div class="col-12"><hr class="my-1"></div>
+        <div class="col-12"><h6 class="mb-0">E. Otoritas Override Jadwal Bulanan</h6></div>
+        <div class="col-md-6">
+          <label class="form-label">Jabatan yang Boleh Override (multi)</label>
+          <select name="schedule_monthly_override_position_ids[]" class="form-select" multiple size="5">
+            <?php foreach ($positionOptions as $o): $pid=(int)$o['value']; ?>
+              <option value="<?php echo $pid; ?>" <?php echo isset($selScheduleOverridePositions[$pid]) ? 'selected' : ''; ?>>
+                <?php echo html_escape($o['label']); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+          <div class="form-text">Seluruh user aktif dengan jabatan terpilih dapat menyetujui jadwal yang melewati batas hari kerja bulanan.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">User Spesifik yang Boleh Override (multi)</label>
+          <select name="schedule_monthly_override_user_ids[]" class="form-select" multiple size="5">
+            <?php foreach ($userOptions as $o): $uid=(int)$o['value']; ?>
+              <option value="<?php echo $uid; ?>" <?php echo isset($selScheduleOverrideUsers[$uid]) ? 'selected' : ''; ?>>
+                <?php echo html_escape($o['label']); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+          <div class="form-text">Gunakan untuk pengecualian individual. Superadmin tetap selalu dapat override sebagai jalur pemulihan sistem.</div>
+        </div>
+        <div class="col-12">
+          <div class="form-text">Otoritas ini hanya membuka persetujuan saat total jadwal melebihi batas. User tetap wajib memiliki izin edit pada halaman Jadwal Shift.</div>
         </div>
       </div>
 

@@ -411,7 +411,13 @@ class Attendance_model extends CI_Model
         ];
     }
 
-    public function save_policy(array $payload, array $submitterPositionIds = [], array $verifierByLevel = []): void
+    public function save_policy(
+        array $payload,
+        array $submitterPositionIds = [],
+        array $verifierByLevel = [],
+        array $scheduleOverridePositionIds = [],
+        array $scheduleOverrideUserIds = []
+    ): void
     {
         $payload = $this->filter_existing_fields('att_attendance_policy', $payload);
         if (empty($payload)) {
@@ -440,6 +446,11 @@ class Attendance_model extends CI_Model
         if (!empty($policyId)) {
             $this->save_pending_submitter_positions($policyId, $submitterPositionIds);
             $this->save_pending_verifier_positions($policyId, $verifierByLevel);
+            $this->save_schedule_monthly_override_authorities(
+                $policyId,
+                $scheduleOverridePositionIds,
+                $scheduleOverrideUserIds
+            );
         }
         $this->db->trans_complete();
     }
@@ -460,6 +471,108 @@ class Attendance_model extends CI_Model
             ->where('is_active', 1)
             ->order_by('position_name', 'ASC')
             ->get()->result_array();
+    }
+
+    public function get_active_user_options(): array
+    {
+        if (!$this->db->table_exists('auth_user')) {
+            return [];
+        }
+
+        return $this->db->select("\n                u.id AS value,\n                CONCAT(\n                    COALESCE(NULLIF(e.employee_name, ''), u.username),\n                    ' (@', u.username, ')',\n                    CASE\n                        WHEN COALESCE(p.position_name, '') <> '' THEN CONCAT(' - ', p.position_name)\n                        ELSE ''\n                    END\n                ) AS label\n            ", false)
+            ->from('auth_user u')
+            ->join('org_employee e', 'e.id = u.employee_id', 'left')
+            ->join('org_position p', 'p.id = e.position_id', 'left')
+            ->where('u.is_active', 1)
+            ->order_by('e.employee_name', 'ASC')
+            ->order_by('u.username', 'ASC')
+            ->get()->result_array();
+    }
+
+    public function get_schedule_monthly_override_position_ids(int $policyId): array
+    {
+        if ($policyId <= 0 || !$this->db->table_exists('att_schedule_monthly_override_position')) {
+            return [];
+        }
+
+        $rows = $this->db->select('position_id')
+            ->from('att_schedule_monthly_override_position')
+            ->where('policy_id', $policyId)
+            ->order_by('position_id', 'ASC')
+            ->get()->result_array();
+
+        return array_map(static function ($row): int {
+            return (int)($row['position_id'] ?? 0);
+        }, $rows);
+    }
+
+    public function get_schedule_monthly_override_user_ids(int $policyId): array
+    {
+        if ($policyId <= 0 || !$this->db->table_exists('att_schedule_monthly_override_user')) {
+            return [];
+        }
+
+        $rows = $this->db->select('user_id')
+            ->from('att_schedule_monthly_override_user')
+            ->where('policy_id', $policyId)
+            ->order_by('user_id', 'ASC')
+            ->get()->result_array();
+
+        return array_map(static function ($row): int {
+            return (int)($row['user_id'] ?? 0);
+        }, $rows);
+    }
+
+    /**
+     * Superadmin remains the recovery path. Other accounts must be assigned
+     * explicitly through the active attendance policy, by user or position.
+     */
+    public function can_user_override_schedule_monthly_limit(int $userId, bool $isSuperadmin = false): bool
+    {
+        if ($isSuperadmin) {
+            return true;
+        }
+        if ($userId <= 0) {
+            return false;
+        }
+
+        $policyId = (int)($this->get_active_policy()['id'] ?? 0);
+        if ($policyId <= 0) {
+            return false;
+        }
+
+        if ($this->db->table_exists('att_schedule_monthly_override_user')) {
+            $userMatch = $this->db->select('authority.id')
+                ->from('att_schedule_monthly_override_user authority')
+                ->join('auth_user u', 'u.id = authority.user_id', 'inner')
+                ->where('authority.policy_id', $policyId)
+                ->where('authority.user_id', $userId)
+                ->where('u.is_active', 1)
+                ->limit(1)
+                ->get()->row_array();
+            if ($userMatch) {
+                return true;
+            }
+        }
+
+        if (!$this->db->table_exists('att_schedule_monthly_override_position')) {
+            return false;
+        }
+
+        $positionMatch = $this->db->select('authority.id')
+            ->from('auth_user u')
+            ->join('org_employee e', 'e.id = u.employee_id', 'inner')
+            ->join('org_position p', 'p.id = e.position_id', 'inner')
+            ->join('att_schedule_monthly_override_position authority', 'authority.position_id = e.position_id', 'inner')
+            ->where('u.id', $userId)
+            ->where('authority.policy_id', $policyId)
+            ->where('u.is_active', 1)
+            ->where('e.is_active', 1)
+            ->where('p.is_active', 1)
+            ->limit(1)
+            ->get()->row_array();
+
+        return (bool)$positionMatch;
     }
 
     public function get_pending_submitter_position_ids(int $policyId): array
@@ -555,6 +668,63 @@ class Attendance_model extends CI_Model
 
         if (!empty($batch)) {
             $this->db->insert_batch('att_pending_verifier_position', $batch);
+        }
+    }
+
+    private function save_schedule_monthly_override_authorities(
+        int $policyId,
+        array $positionIds,
+        array $userIds
+    ): void {
+        if ($policyId <= 0) {
+            return;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        if ($this->db->table_exists('att_schedule_monthly_override_position')) {
+            $this->db->where('policy_id', $policyId)->delete('att_schedule_monthly_override_position');
+
+            $positions = [];
+            foreach ($positionIds as $positionId) {
+                $positionId = (int)$positionId;
+                if ($positionId > 0) {
+                    $positions[$positionId] = true;
+                }
+            }
+            if (!empty($positions)) {
+                $batch = [];
+                foreach (array_keys($positions) as $positionId) {
+                    $batch[] = [
+                        'policy_id' => $policyId,
+                        'position_id' => $positionId,
+                        'created_at' => $now,
+                    ];
+                }
+                $this->db->insert_batch('att_schedule_monthly_override_position', $batch);
+            }
+        }
+
+        if ($this->db->table_exists('att_schedule_monthly_override_user')) {
+            $this->db->where('policy_id', $policyId)->delete('att_schedule_monthly_override_user');
+
+            $users = [];
+            foreach ($userIds as $userId) {
+                $userId = (int)$userId;
+                if ($userId > 0) {
+                    $users[$userId] = true;
+                }
+            }
+            if (!empty($users)) {
+                $batch = [];
+                foreach (array_keys($users) as $userId) {
+                    $batch[] = [
+                        'policy_id' => $policyId,
+                        'user_id' => $userId,
+                        'created_at' => $now,
+                    ];
+                }
+                $this->db->insert_batch('att_schedule_monthly_override_user', $batch);
+            }
         }
     }
 
@@ -2467,7 +2637,7 @@ class Attendance_model extends CI_Model
         $actorUserId = max(0, (int)($options['actor_user_id'] ?? 0));
         $reason = trim((string)($options['override_reason'] ?? ''));
         if ($reason === '') {
-            $reason = 'Override Superadmin untuk kebutuhan jadwal operasional.';
+            $reason = 'Override batas jadwal bulanan untuk kebutuhan operasional.';
         }
         $now = date('Y-m-d H:i:s');
         $payload = [
@@ -2586,12 +2756,13 @@ class Attendance_model extends CI_Model
             $maxSyntheticId = max($maxSyntheticId, (int)($ledgerRow['id'] ?? 0));
         }
 
-        $scheduledRows = $this->db->select("\n                ss.id AS schedule_id,\n                ss.schedule_date,\n                ss.shift_id,\n                ad.id AS daily_id,\n                ad.shift_id AS daily_shift_id,\n                ad.attendance_status,\n                daily_shift.shift_code AS daily_shift_code,\n                use_ledger.id AS use_ledger_id\n            ", false)
+        $scheduledRows = $this->db->select("\n                ss.id AS schedule_id,\n                ss.schedule_date,\n                ss.shift_id,\n                ad.id AS daily_id,\n                ad.shift_id AS daily_shift_id,\n                ad.attendance_status,\n                daily_shift.shift_code AS daily_shift_code,\n                use_ledger.id AS use_ledger_id,\n                void_ledger.id AS void_ledger_id\n            ", false)
             ->from('att_shift_schedule ss')
             ->join('att_shift s', 's.id = ss.shift_id', 'inner')
             ->join('att_daily ad', 'ad.employee_id = ss.employee_id AND ad.attendance_date = ss.schedule_date', 'left')
             ->join('att_shift daily_shift', 'daily_shift.id = ad.shift_id', 'left')
             ->join("att_employee_ph_ledger use_ledger", "use_ledger.employee_id = ss.employee_id AND use_ledger.tx_type = 'USE' AND use_ledger.ref_table = 'att_daily' AND use_ledger.ref_id = ad.id", 'left', false)
+            ->join("att_employee_ph_ledger void_ledger", "void_ledger.employee_id = ss.employee_id AND void_ledger.tx_type = 'VOID' AND void_ledger.ref_table = 'att_daily' AND void_ledger.ref_id = ad.id", 'left', false)
             ->where('ss.employee_id', $employeeId)
             ->where('ss.schedule_date <=', $candidateDate)
             ->where("UPPER(TRIM(COALESCE(s.shift_code, ''))) IN ('PH', 'PHB')", null, false)
@@ -2610,11 +2781,15 @@ class Attendance_model extends CI_Model
             $attendanceStatus = strtoupper((string)($scheduleRow['attendance_status'] ?? ''));
             $dailyShiftIsPh = $this->is_ph_shift_code((string)($scheduleRow['daily_shift_code'] ?? ''));
             $hasRecordedUse = (int)($scheduleRow['use_ledger_id'] ?? 0) > 0;
+            $hasVoidedUse = (int)($scheduleRow['void_ledger_id'] ?? 0) > 0;
+            $isBeforeEligibility = $scheduleDate < (string)($eligibility['effective_date'] ?? '');
             $isActualPastUse = $scheduleDate < $today
                 && $dailyShiftIsPh
                 && in_array($attendanceStatus, ['HOLIDAY', 'PRESENT', 'LATE'], true);
             $isFutureReservation = $scheduleDate >= $today;
-            if ($hasRecordedUse || (!$isActualPastUse && !$isFutureReservation)) {
+            // A void record or a schedule before PH eligibility is historical
+            // context, not a live debit against a newly granted PH balance.
+            if ($hasRecordedUse || $hasVoidedUse || $isBeforeEligibility || (!$isActualPastUse && !$isFutureReservation)) {
                 continue;
             }
             $ledgerRows[] = [
@@ -2715,18 +2890,23 @@ class Attendance_model extends CI_Model
         if ($override && (int)($override['approved_limit_days'] ?? 0) >= $scheduledAfter) {
             return [
                 'ok' => true,
-                'message' => 'Jadwal di atas batas standar memakai override Superadmin yang sudah tercatat.',
+                'message' => 'Jadwal di atas batas standar memakai override yang sudah tercatat.',
                 'warning' => true,
                 'scheduled_days' => $scheduledAfter,
                 'base_limit_days' => $baseLimit,
             ];
         }
 
-        $isSuperadmin = !empty($options['is_superadmin']);
-        if (!$isSuperadmin) {
+        $canMonthlyOverride = array_key_exists('can_monthly_override', $options)
+            ? !empty($options['can_monthly_override'])
+            : $this->can_user_override_schedule_monthly_limit(
+                (int)($options['actor_user_id'] ?? 0),
+                !empty($options['is_superadmin'])
+            );
+        if (!$canMonthlyOverride) {
             return [
                 'ok' => false,
-                'message' => 'Jadwal ditolak: total ' . $scheduledAfter . ' hari melebihi batas ' . $baseLimit . ' hari/bulan. Hanya Superadmin dapat membuka override untuk kebutuhan operasional.',
+                'message' => 'Jadwal ditolak: total ' . $scheduledAfter . ' hari melebihi batas ' . $baseLimit . ' hari/bulan. Hanya user atau jabatan yang diberi otoritas di Pengaturan Absensi yang dapat membuka override.',
                 'scheduled_days' => $scheduledAfter,
                 'base_limit_days' => $baseLimit,
             ];
@@ -2735,7 +2915,7 @@ class Attendance_model extends CI_Model
             return [
                 'ok' => false,
                 'requires_override' => true,
-                'message' => 'Total jadwal menjadi ' . $scheduledAfter . ' hari, melebihi batas ' . $baseLimit . ' hari/bulan. Setujui override Superadmin untuk melanjutkan.',
+                'message' => 'Total jadwal menjadi ' . $scheduledAfter . ' hari, melebihi batas ' . $baseLimit . ' hari/bulan. Setujui override untuk melanjutkan.',
                 'scheduled_days' => $scheduledAfter,
                 'base_limit_days' => $baseLimit,
             ];
@@ -2747,7 +2927,7 @@ class Attendance_model extends CI_Model
         }
         return [
             'ok' => true,
-            'message' => 'Override Superadmin dicatat: ' . $scheduledAfter . ' hari pada ' . date('F Y', strtotime($monthStart)) . '.',
+            'message' => 'Override jadwal dicatat: ' . $scheduledAfter . ' hari pada ' . date('F Y', strtotime($monthStart)) . '.',
             'warning' => true,
             'scheduled_days' => $scheduledAfter,
             'base_limit_days' => $baseLimit,

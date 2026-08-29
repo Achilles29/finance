@@ -115,3 +115,10 @@ dalam rumus hpp ada variable (berbeda beda tiap component / product)
 biaya variable ini seharusnya bisa mencover biaya operasional (gaji,litstrik dll) serta biaya penyusutan (waste , spoil dll)
 
 nah menurutmu bagaimana analisa yang tepat untuk menampilkannya? jadi jika sesuai hpp apakah pengeluaran non bahan baku kita bisa tercover oleh laba bersih (omzet dikurangi hpp)? apakah laba bersih bisa mengcover biaya operasional dan gaji? atau bagaimana?
+
+
+
+
+landing page:
+- ganti namua coffee and roastery
+- About Namua kok gambar nya qr code itu apa? dari mana? ganti donk

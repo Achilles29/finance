@@ -80,10 +80,18 @@ class Attendance extends MY_Controller
 
     private function schedule_guard_options(bool $allowMonthlyOverride = false, string $overrideReason = ''): array
     {
+        $actorUserId = (int)($this->current_user['id'] ?? 0);
+        $isSuperadmin = $this->is_superadmin();
+        $canMonthlyOverride = $this->Attendance_model->can_user_override_schedule_monthly_limit(
+            $actorUserId,
+            $isSuperadmin
+        );
+
         return [
-            'actor_user_id' => (int)($this->current_user['id'] ?? 0),
-            'is_superadmin' => $this->is_superadmin(),
-            'allow_monthly_override' => $allowMonthlyOverride && $this->is_superadmin(),
+            'actor_user_id' => $actorUserId,
+            'is_superadmin' => $isSuperadmin,
+            'can_monthly_override' => $canMonthlyOverride,
+            'allow_monthly_override' => $allowMonthlyOverride && $canMonthlyOverride,
             'override_reason' => trim($overrideReason),
         ];
     }
@@ -206,7 +214,9 @@ class Attendance extends MY_Controller
                     1 => (array)$this->input->post('pending_verifier_l1_position_ids'),
                     2 => (array)$this->input->post('pending_verifier_l2_position_ids'),
                     3 => (array)$this->input->post('pending_verifier_l3_position_ids'),
-                ]
+                ],
+                (array)$this->input->post('schedule_monthly_override_position_ids'),
+                (array)$this->input->post('schedule_monthly_override_user_ids')
             );
             $this->session->set_flashdata('success', 'Pengaturan absensi berhasil disimpan.');
             redirect('attendance/settings');
@@ -223,6 +233,9 @@ class Attendance extends MY_Controller
             'pending_verifier_l1_position_ids' => $this->Attendance_model->get_pending_verifier_position_ids($policyId, 1),
             'pending_verifier_l2_position_ids' => $this->Attendance_model->get_pending_verifier_position_ids($policyId, 2),
             'pending_verifier_l3_position_ids' => $this->Attendance_model->get_pending_verifier_position_ids($policyId, 3),
+            'schedule_monthly_override_position_ids' => $this->Attendance_model->get_schedule_monthly_override_position_ids($policyId),
+            'schedule_monthly_override_user_ids' => $this->Attendance_model->get_schedule_monthly_override_user_ids($policyId),
+            'user_options' => $this->Attendance_model->get_active_user_options(),
         ];
         $this->render('attendance/settings', $data);
     }
@@ -350,6 +363,10 @@ class Attendance extends MY_Controller
             'division_options' => $this->Attendance_model->get_division_options(),
             'shift_options' => $this->Attendance_model->get_shift_options(),
             'employee_options' => $this->Attendance_model->get_employee_options(!empty($filters['division_id']) ? (int)$filters['division_id'] : null),
+            'can_monthly_schedule_override' => $this->Attendance_model->can_user_override_schedule_monthly_limit(
+                (int)($this->current_user['id'] ?? 0),
+                $this->is_superadmin()
+            ),
         ];
         $this->render('attendance/schedules', $data);
     }
@@ -385,6 +402,10 @@ class Attendance extends MY_Controller
             'holiday_dates' => $this->Attendance_model->get_holiday_dates_between($start, $end),
             'schedule_limit_days' => max(1, (int)($this->Attendance_model->get_active_policy()['default_work_days_per_month'] ?? 26)),
             'is_superadmin' => $this->is_superadmin(),
+            'can_monthly_schedule_override' => $this->Attendance_model->can_user_override_schedule_monthly_limit(
+                (int)($this->current_user['id'] ?? 0),
+                $this->is_superadmin()
+            ),
         ];
         $this->render('attendance/schedules_v2', $data);
     }
