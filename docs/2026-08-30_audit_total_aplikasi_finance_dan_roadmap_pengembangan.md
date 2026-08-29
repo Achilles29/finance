@@ -1,10 +1,10 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
-**Tanggal audit:** 2026-08-30  
+**Tanggal audit:** 2026-08-30
 **Sifat audit:** Pemeriksaan baca-saja terhadap kode, struktur RBAC, sidebar,
-writer transaksi, dan snapshot database lokal.  
+writer transaksi, dan snapshot database lokal.
 **Status dokumen:** Pegangan perbaikan teknis. Dokumen ini tidak mengubah
-kode, database, saldo, stok, HPP, payroll, maupun hak akses.  
+kode, database, saldo, stok, HPP, payroll, maupun hak akses.
 **Dokumen terkait:**
 `docs/2026-08-28_roadmap_komersialisasi_finance_dan_lisensi.md` tetap menjadi
 pegangan arah produk dan lisensi. Dokumen ini menjelaskan kesiapan teknis yang
