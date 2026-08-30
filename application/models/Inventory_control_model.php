@@ -194,6 +194,8 @@ class Inventory_control_model extends CI_Model
             ->get()
             ->result_array();
         $events = $this->enrich_deficit_profile_metadata($events);
+        $events = $this->enrich_deficit_source_context($events);
+        $productCauses = $this->summarize_deficit_product_causes($events);
 
         $settlements = [];
         $eventIds = array_values(array_filter(array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $events)));
@@ -212,6 +214,7 @@ class Inventory_control_model extends CI_Model
         return [
             'header' => $header,
             'events' => $events,
+            'product_causes' => $productCauses,
             'settlements' => $settlements,
             'live_lots' => $this->get_deficit_live_lots($header),
             // A same-name material can have another active purchase profile.
@@ -1198,6 +1201,176 @@ class Inventory_control_model extends CI_Model
             ->result_array();
 
         return $this->finalize_deficit_profile_metadata($rows, $catalogRows);
+    }
+
+    /**
+     * POS stock commits can split one order line into several material or
+     * component consumptions. Deficits retain the commit-line reference, so
+     * resolve it here instead of duplicating product/order data in stock rows.
+     */
+    private function enrich_deficit_source_context(array $rows): array
+    {
+        if (empty($rows)) {
+            return $rows;
+        }
+
+        $posLineIds = [];
+        foreach ($rows as &$row) {
+            $row['cause_product_name'] = '';
+            $row['cause_product_type'] = '';
+            $row['cause_product_id'] = 0;
+            $row['cause_extra_id'] = 0;
+            $row['cause_order_no'] = '';
+            $row['cause_commit_no'] = '';
+            $row['cause_reference_label'] = '';
+
+            $sourceTable = strtolower(trim((string)($row['source_table'] ?? '')));
+            if ($sourceTable === 'pos_stock_commit') {
+                $sourceLineId = (int)($row['source_line_id'] ?? 0);
+                if ($sourceLineId > 0) {
+                    $posLineIds[$sourceLineId] = $sourceLineId;
+                } elseif ((int)($row['source_id'] ?? 0) > 0) {
+                    $row['cause_reference_label'] = 'Commit POS #' . (int)$row['source_id'];
+                }
+            } elseif ($sourceTable === 'inv_stock_adjustment') {
+                $row['cause_reference_label'] = 'Penyesuaian stok';
+            }
+        }
+        unset($row);
+
+        if (
+            empty($posLineIds)
+            || !$this->db->table_exists('pos_stock_commit_line')
+            || !$this->db->table_exists('pos_stock_commit')
+            || !$this->db->table_exists('pos_order')
+            || !$this->db->table_exists('mst_product')
+            || !$this->db->table_exists('mst_extra')
+        ) {
+            return $rows;
+        }
+
+        $contextRows = $this->db
+            ->select('cl.id AS source_line_id, cl.commit_id AS source_id, cl.line_type, cl.product_id, cl.extra_id')
+            ->select('c.commit_no, po.order_no, p.product_name, e.extra_name')
+            ->from('pos_stock_commit_line cl')
+            ->join('pos_stock_commit c', 'c.id = cl.commit_id', 'left')
+            ->join('pos_order po', 'po.id = cl.order_id', 'left')
+            ->join('mst_product p', 'p.id = cl.product_id', 'left')
+            ->join('mst_extra e', 'e.id = cl.extra_id', 'left')
+            ->where_in('cl.id', array_values($posLineIds))
+            ->get()
+            ->result_array();
+
+        $contextByLineId = [];
+        foreach ($contextRows as $context) {
+            $sourceLineId = (int)($context['source_line_id'] ?? 0);
+            if ($sourceLineId > 0) {
+                $contextByLineId[$sourceLineId] = $context;
+            }
+        }
+
+        foreach ($rows as &$row) {
+            if (strtolower(trim((string)($row['source_table'] ?? ''))) !== 'pos_stock_commit') {
+                continue;
+            }
+
+            $sourceLineId = (int)($row['source_line_id'] ?? 0);
+            $context = $contextByLineId[$sourceLineId] ?? [];
+            if (empty($context)) {
+                continue;
+            }
+
+            $lineType = strtoupper(trim((string)($context['line_type'] ?? 'PRODUCT')));
+            $isExtra = $lineType === 'EXTRA';
+            $productName = trim((string)($isExtra
+                ? ($context['extra_name'] ?? '')
+                : ($context['product_name'] ?? '')));
+            $fallbackId = (int)($isExtra ? ($context['extra_id'] ?? 0) : ($context['product_id'] ?? 0));
+
+            $row['cause_product_name'] = $productName !== ''
+                ? $productName
+                : (($isExtra ? 'Extra POS' : 'Produk POS') . ($fallbackId > 0 ? ' #' . $fallbackId : ''));
+            $row['cause_product_type'] = $isExtra ? 'Extra POS' : 'Produk POS';
+            $row['cause_product_id'] = (int)($context['product_id'] ?? 0);
+            $row['cause_extra_id'] = (int)($context['extra_id'] ?? 0);
+            $row['cause_order_no'] = trim((string)($context['order_no'] ?? ''));
+            $row['cause_commit_no'] = trim((string)($context['commit_no'] ?? ''));
+            $row['cause_reference_label'] = $row['cause_order_no'] !== ''
+                ? $row['cause_order_no']
+                : ($row['cause_commit_no'] !== '' ? $row['cause_commit_no'] : 'Commit POS #' . (int)($context['source_id'] ?? 0));
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    /**
+     * Combine repeated material/component shortages from the same POS product
+     * so the detail page can show the operational cause, not only the stock
+     * item that happened to be unavailable.
+     */
+    private function summarize_deficit_product_causes(array $events): array
+    {
+        $groups = [];
+        foreach ($events as $event) {
+            $productName = trim((string)($event['cause_product_name'] ?? ''));
+            if ($productName === '') {
+                continue;
+            }
+
+            $productType = trim((string)($event['cause_product_type'] ?? 'Produk POS'));
+            $productId = (int)($event['cause_product_id'] ?? 0);
+            $extraId = (int)($event['cause_extra_id'] ?? 0);
+            $key = $productType . '|' . $productId . '|' . $extraId . '|' . strtolower($productName);
+            if (!isset($groups[$key])) {
+                $groups[$key] = [
+                    'product_name' => $productName,
+                    'product_type' => $productType,
+                    'event_count' => 0,
+                    'requested_qty' => 0.0,
+                    'issued_qty' => 0.0,
+                    'qty_remaining' => 0.0,
+                    'order_labels' => [],
+                ];
+            }
+
+            $groups[$key]['event_count']++;
+            $groups[$key]['requested_qty'] += (float)($event['requested_qty'] ?? 0);
+            $groups[$key]['issued_qty'] += (float)($event['issued_qty'] ?? 0);
+            $groups[$key]['qty_remaining'] += (float)($event['qty_remaining'] ?? 0);
+
+            $reference = trim((string)($event['cause_order_no'] ?? ''));
+            if ($reference === '') {
+                $reference = trim((string)($event['cause_commit_no'] ?? ''));
+            }
+            if ($reference !== '') {
+                $groups[$key]['order_labels'][$reference] = $reference;
+            }
+        }
+
+        $causes = array_values($groups);
+        foreach ($causes as &$cause) {
+            $cause['requested_qty'] = round((float)$cause['requested_qty'], 4);
+            $cause['issued_qty'] = round((float)$cause['issued_qty'], 4);
+            $cause['qty_remaining'] = round((float)$cause['qty_remaining'], 4);
+            $cause['order_labels'] = array_values($cause['order_labels']);
+            $cause['order_count'] = count($cause['order_labels']);
+        }
+        unset($cause);
+
+        usort($causes, static function (array $left, array $right): int {
+            $remainingCompare = (float)($right['qty_remaining'] ?? 0) <=> (float)($left['qty_remaining'] ?? 0);
+            if ($remainingCompare !== 0) {
+                return $remainingCompare;
+            }
+            $requestedCompare = (float)($right['requested_qty'] ?? 0) <=> (float)($left['requested_qty'] ?? 0);
+            if ($requestedCompare !== 0) {
+                return $requestedCompare;
+            }
+            return strcasecmp((string)($left['product_name'] ?? ''), (string)($right['product_name'] ?? ''));
+        });
+
+        return $causes;
     }
 
     /**

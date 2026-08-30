@@ -396,6 +396,63 @@ class Inventory_tools extends CI_Controller
         ], JSON_PRETTY_PRINT) . PHP_EOL);
     }
 
+    /**
+     * CLI-only correction for the legacy POS void path that created stock
+     * returns without an original stock-out. The service performs a strict
+     * audit first and refuses any candidate outside the supplied commit list.
+     */
+    public function repair_unpaired_pos_void_reversal_artifacts()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $commitIds = trim((string)($cliArgs['commit_ids'] ?? ''));
+        $apply = in_array(strtolower((string)($cliArgs['apply'] ?? '0')), ['1', 'true', 'yes', 'y'], true);
+        $confirm = trim((string)($cliArgs['confirm'] ?? ''));
+
+        if ($apply && $confirm !== 'REPAIR_POS_VOID_ARTIFACTS') {
+            fwrite(STDERR, json_encode([
+                'ok' => false,
+                'message' => 'Apply ditolak. Gunakan confirm REPAIR_POS_VOID_ARTIFACTS setelah memeriksa dry run.',
+            ], JSON_PRETTY_PRINT) . PHP_EOL);
+            return;
+        }
+
+        $this->load->library('PosVoidArtifactRepairService');
+        $result = $this->posvoidartifactrepairservice->repair([
+            'commit_ids' => $commitIds,
+            'dry_run' => !$apply,
+        ]);
+        $output = json_encode($result, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE);
+        fwrite(!empty($result['ok']) ? STDOUT : STDERR, ($output ?: '{"ok":false,"message":"Output repair tidak dapat diserialisasi."}') . PHP_EOL);
+    }
+
+    /**
+     * Rebuilds the stock projection of one already-VOID adjustment after its
+     * reversal has been audited. It does not change the document, movement,
+     * or FIFO lot; it only regenerates derived monthly stock rows.
+     *
+     * Usage:
+     * php index.php inventory_tools rebuild_void_stock_adjustment_history adjustment_id 2811 confirm REBUILD_VOID_ADJUSTMENT_HISTORY
+     */
+    public function rebuild_void_stock_adjustment_history()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $adjustmentId = (int)($cliArgs['adjustment_id'] ?? 0);
+        $confirm = trim((string)($cliArgs['confirm'] ?? ''));
+        $userId = (int)($cliArgs['user_id'] ?? 0);
+
+        if ($adjustmentId <= 0 || $confirm !== 'REBUILD_VOID_ADJUSTMENT_HISTORY') {
+            fwrite(STDERR, json_encode([
+                'ok' => false,
+                'message' => 'Perintah ditolak. Gunakan adjustment_id valid dan confirm REBUILD_VOID_ADJUSTMENT_HISTORY.',
+            ], JSON_PRETTY_PRINT) . PHP_EOL);
+            return;
+        }
+
+        $result = $this->Purchase_model->rebuild_void_stock_adjustment_history($adjustmentId, $userId);
+        $output = json_encode($result, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE);
+        fwrite(!empty($result['ok']) ? STDOUT : STDERR, ($output ?: '{"ok":false,"message":"Output rebuild tidak dapat diserialisasi."}') . PHP_EOL);
+    }
+
     public function smoke_test()
     {
         $cliArgs = $this->parseCliArgs();

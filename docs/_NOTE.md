@@ -310,3 +310,21 @@ kembangkan lagi sesuai dengan pengetahuanmu. kejutkan saya!
 
 
 sepertinya perlu dipisahkan nama label dan nama produk agar tidak salah dan mudah memberi tanda. karena bisa saja produk yang sama punya beberapa jenis label
+
+
+perbaiki tampilan /inventory/stock/adjustment/division tab per nota agar tidak terlalu lebar dan kolom aksi terlihat. persempit kolom No Adjustment. lalu tambahkan rincian produk nya dibawhanya
+
+perbaiki /store-requests kolom pencarian agar bisa mencari nama juga
+
+lalu tambahkan flare di purchase dan store-request jika ada bahan yang tidak sesuai peruntukannya dalam range bulan. misal material tapi tidak untuk produksi melainkan operasional. 
+
+
+
+
+/inventory/stock/adjustment/division tambahkan tab kedua berdasarkan status. baik di per nota maupun per rincian
+
+
+clear cookies semua sesi login superadmin agar login ulang (khusus superadmin)
+
+
+pastikan flare Peruntukan belanja perlu ditinjau hanya untuk transaksi yang bersifta paid atau sebelum paid.

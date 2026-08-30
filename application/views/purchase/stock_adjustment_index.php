@@ -20,6 +20,9 @@ if ($selectedDestination === '') { $selectedDestination = $isDivisionScope ? 'OT
 
 $activeTab = strtolower(trim((string)($active_tab ?? 'input')));
 if (!in_array($activeTab, ['input', 'rincian'], true)) { $activeTab = 'input'; }
+$selectedStatus = strtoupper(trim((string)($status ?? 'ALL')));
+if (!in_array($selectedStatus, ['ALL', 'DRAFT', 'POSTED', 'VOID'], true)) { $selectedStatus = 'ALL'; }
+$statusCounts = is_array($status_counts ?? null) ? $status_counts : [];
 
 $dateFrom = (string)($date_from ?? '');
 $dateTo   = (string)($date_to   ?? '');
@@ -194,6 +197,7 @@ if ($dateTo !== '')                $pBase['date_to']     = $dateTo;
 if ($qSearch !== '')               $pBase['q']           = $qSearch;
 if ($isDivisionScope && $selectedDivisionId > 0)      $pBase['division_id'] = $selectedDivisionId;
 if ($isDivisionScope && $selectedDestination !== 'ALL') $pBase['destination'] = $selectedDestination;
+if ($isDivisionScope && $selectedStatus !== 'ALL')      $pBase['status'] = $selectedStatus;
 $pNota    = array_merge($pBase, ['tab' => 'input']);
 $pQsNota  = http_build_query($pNota);
 
@@ -222,6 +226,23 @@ $detailSummary['net_value'] = $detailSummary['addition_value'] - $detailSummary[
 // Tab URLs (for switching tabs while preserving all filter params)
 $inputTabUrl  = $baseUrl . '?' . $pQsNota;
 $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
+
+$statusTabs = [
+  'ALL' => ['label' => 'Semua', 'icon' => 'ri-layout-grid-line', 'class' => 'all'],
+  'DRAFT' => ['label' => 'Draft', 'icon' => 'ri-draft-line', 'class' => 'draft'],
+  'POSTED' => ['label' => 'Posted', 'icon' => 'ri-checkbox-circle-line', 'class' => 'posted'],
+  'VOID' => ['label' => 'Void', 'icon' => 'ri-close-circle-line', 'class' => 'void'],
+];
+$statusTabUrls = [];
+foreach ($statusTabs as $statusKey => $statusTab) {
+  $statusParams = $pBase;
+  $statusParams['tab'] = $activeTab;
+  unset($statusParams['status']);
+  if ($statusKey !== 'ALL') { $statusParams['status'] = $statusKey; }
+  $statusTabUrls[$statusKey] = $baseUrl . '?' . http_build_query($statusParams);
+}
+$statusCountMode = $activeTab === 'rincian' ? 'lines' : 'documents';
+$statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
 ?>
 
 <style>
@@ -249,6 +270,31 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
   .adj-filter-btn { grid-column: span 2; }
 }
 
+/* ── Secondary status tabs for division adjustments ── */
+.adj-status-tabs {
+  display:flex; flex-wrap:wrap; align-items:center; gap:.45rem;
+  padding:.6rem .85rem; border:1px solid #ecd9d1; border-top:0;
+  border-radius:0 0 14px 14px; background:#fffaf7; margin-bottom:.8rem;
+}
+.adj-status-tabs-label { color:#77584d; font-size:.7rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; margin-right:.1rem; }
+.adj-status-tab {
+  display:inline-flex; align-items:center; gap:.35rem; min-height:31px;
+  padding:.26rem .58rem; border:1px solid #ead7ce; border-radius:999px;
+  background:#fff; color:#6f5145; font-size:.75rem; font-weight:700; text-decoration:none;
+  transition:all .15s ease;
+}
+.adj-status-tab:hover { border-color:#b66a53; color:#6a2d3c; background:#fff6f1; }
+.adj-status-tab .count { min-width:1.35rem; padding:.02rem .32rem; border-radius:999px; background:#f1e4df; color:#785545; text-align:center; font-size:.68rem; }
+.adj-status-tab.is-active { color:#fff; background:#6a2d3c; border-color:#6a2d3c; box-shadow:0 5px 12px rgba(106,45,60,.18); }
+.adj-status-tab.is-active .count { background:rgba(255,255,255,.19); color:#fff; }
+.adj-status-tab.draft:not(.is-active) { color:#8a5900; border-color:#ecd694; }
+.adj-status-tab.posted:not(.is-active) { color:#12653a; border-color:#bee0c9; }
+.adj-status-tab.void:not(.is-active) { color:#9b2d2d; border-color:#efc4c4; }
+@media (max-width:575px) {
+  .adj-status-tabs { gap:.35rem; }
+  .adj-status-tabs-label { flex-basis:100%; }
+}
+
 /* ── KPI ── */
 .adj-kpi-row { display:grid; grid-template-columns:repeat(6,1fr); gap:.6rem; margin-bottom:1rem; }
 @media (max-width:1199px) { .adj-kpi-row { grid-template-columns:repeat(3,1fr); } }
@@ -271,11 +317,54 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
 .adj-kpi-6 { background:linear-gradient(135deg,#1c7ed6,#4dabf7); }
 
 /* ── Table ── */
-.adj-table-wrap { overflow-x:auto; overflow-y:auto; max-height:72vh; }
+.adj-table-wrap { position:relative; overflow-x:auto; overflow-y:auto; max-height:72vh; }
 .adj-table-wrap table thead th {
   position:sticky; top:0; z-index:2;
   background:#fff8f4; box-shadow:inset 0 -1px 0 #e8d1c5;
   white-space:nowrap;
+}
+#adj-nota-table.adj-nota-table--division { width:100%; min-width:860px; table-layout:fixed; }
+#adj-nota-table.adj-nota-table--division th,
+#adj-nota-table.adj-nota-table--division td { vertical-align:top; }
+#adj-nota-table.adj-nota-table--division th:nth-child(1),
+#adj-nota-table.adj-nota-table--division tbody > tr:not(.adj-nota-detail-row) > td:nth-child(1) { width:110px; }
+#adj-nota-table.adj-nota-table--division th:nth-child(2),
+#adj-nota-table.adj-nota-table--division tbody > tr:not(.adj-nota-detail-row) > td:nth-child(2) { width:86px; }
+#adj-nota-table.adj-nota-table--division th:nth-child(3),
+#adj-nota-table.adj-nota-table--division tbody > tr:not(.adj-nota-detail-row) > td:nth-child(3) { width:120px; }
+#adj-nota-table.adj-nota-table--division th:nth-child(4),
+#adj-nota-table.adj-nota-table--division tbody > tr:not(.adj-nota-detail-row) > td:nth-child(4) { width:82px; }
+#adj-nota-table.adj-nota-table--division th:nth-child(5),
+#adj-nota-table.adj-nota-table--division tbody > tr:not(.adj-nota-detail-row) > td:nth-child(5) { width:54px; }
+#adj-nota-table.adj-nota-table--division th:nth-child(6),
+#adj-nota-table.adj-nota-table--division tbody > tr:not(.adj-nota-detail-row) > td:nth-child(6) { width:102px; }
+#adj-nota-table.adj-nota-table--division th:nth-child(7),
+#adj-nota-table.adj-nota-table--division tbody > tr:not(.adj-nota-detail-row) > td:nth-child(7) { width:144px; }
+#adj-nota-table.adj-nota-table--division th:nth-child(8),
+#adj-nota-table.adj-nota-table--division tbody > tr:not(.adj-nota-detail-row) > td:nth-child(8) { width:108px; }
+#adj-nota-table.adj-nota-table--division th:nth-child(9),
+#adj-nota-table.adj-nota-table--division tbody > tr:not(.adj-nota-detail-row) > td:nth-child(9) { width:76px; }
+#adj-nota-table .adj-nota-number { overflow-wrap:anywhere; line-height:1.25; }
+#adj-nota-table.adj-nota-table--division .adj-adjustment-description { min-width:0; }
+#adj-nota-table.adj-nota-table--division .adj-adjustment-kind { white-space:normal; }
+#adj-nota-table .adj-nota-action {
+  position:sticky; right:0; z-index:3; background:#fff;
+  box-shadow:-8px 0 12px rgba(77,40,30,.08);
+}
+#adj-nota-table thead .adj-nota-action { z-index:4; background:#fff8f4; }
+#adj-nota-table tbody tr:hover > .adj-nota-action { background:#fff7f2; }
+.adj-nota-detail-row > td { padding:.4rem .7rem .65rem; background:#fffaf7; border-top:0; }
+.adj-nota-detail-wrap { display:flex; flex-wrap:wrap; align-items:flex-start; gap:.45rem .8rem; }
+.adj-nota-detail-group { display:flex; flex:1 1 420px; flex-wrap:wrap; align-items:center; gap:.35rem; min-width:0; }
+.adj-nota-detail-label { color:#815546; font-size:.7rem; font-weight:800; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+.adj-nota-product-list { display:flex; flex:1 1 260px; flex-wrap:wrap; gap:.28rem; min-width:0; }
+.adj-nota-product-chip { display:inline-flex; align-items:center; max-width:100%; padding:.16rem .46rem; border:1px solid #efd8cd; border-radius:999px; background:#fff; color:#69453a; font-size:.72rem; line-height:1.25; overflow-wrap:anywhere; }
+.adj-nota-product-more { color:#8a6255; font-size:.72rem; font-weight:700; }
+.adj-nota-note { flex:1 1 220px; color:#6f625d; font-size:.74rem; line-height:1.35; overflow-wrap:anywhere; }
+.adj-nota-note i { color:#a65a42; margin-right:.24rem; }
+@media (max-width:767.98px) {
+  #adj-nota-table.adj-nota-table--division { min-width:760px; }
+  .adj-nota-detail-group { flex-basis:100%; }
 }
 
 /* ── Pagination ── */
@@ -378,6 +467,23 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
   </li>
 </ul>
 
+<?php if ($isDivisionScope): ?>
+<div class="adj-status-tabs" aria-label="Filter status adjustment">
+  <span class="adj-status-tabs-label"><i class="ri ri-filter-3-line me-1"></i>Status</span>
+  <?php foreach ($statusTabs as $statusKey => $statusTab): ?>
+    <?php $statusCount = (int)($statusCounts[$statusKey][$statusCountMode] ?? 0); ?>
+    <a class="adj-status-tab <?php echo html_escape($statusTab['class']); ?><?php echo $selectedStatus === $statusKey ? ' is-active' : ''; ?>"
+       href="<?php echo html_escape($statusTabUrls[$statusKey]); ?>"
+       title="<?php echo number_format($statusCount); ?> <?php echo html_escape($statusCountLabel); ?>">
+      <i class="<?php echo html_escape($statusTab['icon']); ?>"></i>
+      <?php echo html_escape($statusTab['label']); ?>
+      <span class="count"><?php echo number_format($statusCount); ?></span>
+    </a>
+  <?php endforeach; ?>
+  <span class="small text-muted ms-auto">Menampilkan <?php echo html_escape($statusCountLabel); ?> sesuai filter aktif.</span>
+</div>
+<?php endif; ?>
+
 <!-- ════════════════ TAB 1: PER NOTA ════════════════ -->
 <?php if ($activeTab === 'input'): ?>
 
@@ -386,6 +492,9 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
   <div class="card-body py-2">
     <form method="get" action="<?php echo $baseUrl; ?>" id="adj-nota-filter-form">
       <input type="hidden" name="tab" value="input">
+      <?php if ($isDivisionScope): ?>
+        <input type="hidden" name="status" value="<?php echo html_escape($selectedStatus); ?>">
+      <?php endif; ?>
       <div class="adj-filter-grid <?php echo $isDivisionScope ? 'div-scope' : 'wh-scope'; ?>">
         <?php if ($isDivisionScope): ?>
         <div>
@@ -495,10 +604,10 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
     <?php endif; ?>
   </div>
   <div class="adj-table-wrap">
-    <table class="table table-sm table-hover mb-0" id="adj-nota-table">
+    <table class="table table-sm table-hover mb-0<?php echo $isDivisionScope ? ' adj-nota-table--division' : ''; ?>" id="adj-nota-table">
       <thead>
         <tr>
-          <th>No Adjustment</th>
+          <th class="adj-nota-col-no">No Adjustment</th>
           <th>Tanggal</th>
           <?php if ($isDivisionScope): ?><th>Divisi / Tujuan</th><?php endif; ?>
           <th>Status</th>
@@ -514,7 +623,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
             <th class="text-end"><?php echo html_escape($adjustmentPlusColumnLabel); ?></th>
           <?php endif; ?>
           <th class="text-end">Nilai Total</th>
-          <th>Aksi</th>
+          <th class="adj-nota-action">Aksi</th>
         </tr>
       </thead>
       <tbody>
@@ -539,11 +648,21 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
                 $documentShrinkQty += (float)$documentAdjustmentPart['qty'];
               }
             }
+            $documentProductNames = array_values(array_unique(array_filter(array_map(static function ($name) {
+              return trim((string)$name);
+            }, explode('||', (string)($row['adjusted_product_names'] ?? ''))), static function ($name) {
+              return $name !== '' && $name !== '-';
+            })));
+            $visibleDocumentProductNames = array_slice($documentProductNames, 0, 8);
+            $remainingDocumentProductCount = max(0, count($documentProductNames) - count($visibleDocumentProductNames));
+            $documentNotes = trim((string)($row['notes'] ?? ''));
           ?>
           <tr id="stock-adjustment-<?php echo (int)($row['id'] ?? 0); ?>">
-            <td>
-              <div class="fw-semibold small"><?php echo html_escape((string)($row['adjustment_no'] ?? '-')); ?></div>
-              <small class="text-muted"><?php echo html_escape((string)($row['notes'] ?? '')); ?></small>
+            <td class="adj-nota-col-no">
+              <div class="fw-semibold small adj-nota-number"><?php echo html_escape((string)($row['adjustment_no'] ?? '-')); ?></div>
+              <?php if (!$isDivisionScope && $documentNotes !== ''): ?>
+                <small class="text-muted"><?php echo html_escape($documentNotes); ?></small>
+              <?php endif; ?>
             </td>
             <td class="small"><?php echo html_escape((string)($row['adjustment_date'] ?? '-')); ?></td>
             <?php if ($isDivisionScope): ?>
@@ -586,7 +705,7 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
               <td class="text-end small"><?php echo ui_num((float)($row['total_adjustment_plus_buy'] ?? 0)); ?></td>
             <?php endif; ?>
             <td class="text-end small fw-semibold"><?php echo html_escape($fmtMoney($documentTotalValue)); ?></td>
-            <td>
+            <td class="adj-nota-action">
               <?php if ($rowStatus === 'DRAFT'): ?>
                 <div class="d-flex gap-1 flex-nowrap">
                   <button type="button" class="btn btn-sm btn-outline-success action-icon-btn btn-post-doc" data-id="<?php echo (int)$row['id']; ?>" title="Post"><i class="ri ri-upload-2-line"></i></button>
@@ -599,6 +718,30 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
               <?php endif; ?>
             </td>
           </tr>
+          <?php if ($isDivisionScope && (!empty($visibleDocumentProductNames) || $documentNotes !== '')): ?>
+          <tr class="adj-nota-detail-row">
+            <td colspan="9">
+              <div class="adj-nota-detail-wrap">
+                <?php if (!empty($visibleDocumentProductNames)): ?>
+                <div class="adj-nota-detail-group">
+                  <span class="adj-nota-detail-label"><i class="ri ri-shopping-basket-2-line"></i> Rincian bahan / produk</span>
+                  <div class="adj-nota-product-list">
+                    <?php foreach ($visibleDocumentProductNames as $productName): ?>
+                      <span class="adj-nota-product-chip"><?php echo html_escape($productName); ?></span>
+                    <?php endforeach; ?>
+                    <?php if ($remainingDocumentProductCount > 0): ?>
+                      <span class="adj-nota-product-more">+<?php echo number_format($remainingDocumentProductCount); ?> lainnya</span>
+                    <?php endif; ?>
+                  </div>
+                </div>
+                <?php endif; ?>
+                <?php if ($documentNotes !== ''): ?>
+                  <div class="adj-nota-note"><i class="ri ri-sticky-note-line"></i><?php echo html_escape($documentNotes); ?></div>
+                <?php endif; ?>
+              </div>
+            </td>
+          </tr>
+          <?php endif; ?>
         <?php endforeach; ?>
       <?php endif; ?>
       </tbody>
@@ -632,6 +775,9 @@ $rincianTabUrl = $baseUrl . '?' . $pQsRincian;
   <div class="card-body py-2">
     <form method="get" action="<?php echo $baseUrl; ?>" id="adj-rincian-filter-form">
       <input type="hidden" name="tab" value="rincian">
+      <?php if ($isDivisionScope): ?>
+        <input type="hidden" name="status" value="<?php echo html_escape($selectedStatus); ?>">
+      <?php endif; ?>
       <div class="adj-filter-grid <?php echo $isDivisionScope ? 'div-scope' : 'wh-scope'; ?>">
         <?php if ($isDivisionScope): ?>
         <div>

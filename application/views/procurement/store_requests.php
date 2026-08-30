@@ -17,6 +17,7 @@ $canCreate = !empty($can_create);
 $canEdit = !empty($can_edit);
 $canRepairHistory = !empty($can_repair_history);
 $monthAttentionSummary = (array)($month_attention_summary ?? []);
+$usagePurposeAttention = (array)($usage_purpose_attention ?? []);
 
 $baseFilters = [
   'q' => (string)($filters['q'] ?? ''),
@@ -46,6 +47,14 @@ $statusLabel = static function (string $value): string {
     return 'Semua';
   }
   return ucwords(strtolower(str_replace('_', ' ', $value)));
+};
+$usagePurposeLabel = static function (string $purpose): string {
+  return strtoupper(trim($purpose)) === 'OPERASIONAL' ? 'Operasional' : 'Persediaan Produksi';
+};
+$usagePurposeIssueLabel = static function (string $issueType): string {
+  return strtoupper(trim($issueType)) === 'MATERIAL_AS_OPERATIONAL'
+    ? 'Material sebagai operasional'
+    : 'Tujuan berbeda dari master';
 };
 $buildStatusTabUrl = static function (string $statusValue) use ($baseFilters, $activeTab): string {
   $filters = $baseFilters;
@@ -450,6 +459,27 @@ foreach ($lineRows as $lineRow) {
     border-radius: 16px;
     box-shadow: 0 10px 24px rgba(185, 28, 28, .08);
   }
+  .sr-purpose-flare {
+    border: 1px solid #e8c47e;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #fffaf0 0%, #fff4de 100%);
+    box-shadow: 0 10px 24px rgba(176, 111, 26, .08);
+    color: #5b4123;
+  }
+  .sr-purpose-flare-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.85rem; }
+  .sr-purpose-flare-icon { display:inline-flex; align-items:center; justify-content:center; width:2.35rem; height:2.35rem; border-radius:.85rem; background:#9c5b10; color:#fff; flex:0 0 auto; }
+  .sr-purpose-flare-title { color:#72420b; font-weight:800; }
+  .sr-purpose-flare-meta { color:#806043; font-size:.76rem; line-height:1.35; }
+  .sr-purpose-flare-chips { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.35rem; }
+  .sr-purpose-flare-chip { display:inline-flex; align-items:center; border:1px solid #e5bd81; border-radius:999px; padding:.2rem .52rem; background:rgba(255,255,255,.72); color:#775027; font-size:.69rem; font-weight:700; }
+  .sr-purpose-flare-list { display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:.45rem; margin-top:.75rem; }
+  .sr-purpose-flare-item { display:block; padding:.52rem .62rem; border:1px solid rgba(173,111,27,.22); border-radius:12px; background:rgba(255,255,255,.72); color:inherit; text-decoration:none; }
+  .sr-purpose-flare-item:hover { border-color:#b86d17; color:inherit; background:#fff; }
+  .sr-purpose-flare-doc { display:flex; align-items:center; justify-content:space-between; gap:.45rem; color:#75430d; font-size:.72rem; font-weight:800; }
+  .sr-purpose-flare-line { display:block; margin-top:.15rem; color:#2e2b28; font-size:.78rem; font-weight:700; line-height:1.25; }
+  .sr-purpose-flare-item small { display:block; margin-top:.2rem; color:#806043; font-size:.68rem; line-height:1.25; }
+  .sr-status-audit { display:block; margin-top:.35rem; color:#806043; font-size:.68rem; line-height:1.3; white-space:normal; }
+  .sr-status-audit strong { color:#5d3519; }
   .sr-board-card .action-icon-btn,
   #srCreateModal .action-icon-btn {
     width: 30px !important;
@@ -528,6 +558,7 @@ foreach ($lineRows as $lineRow) {
       width: 100%;
       justify-content: center;
     }
+    .sr-purpose-flare-chips { justify-content:flex-start; }
   }
 </style>
 
@@ -576,7 +607,7 @@ foreach ($lineRows as $lineRow) {
   <div class="card-body">
     <form class="sr-filter-grid" method="get" action="<?php echo site_url('store-requests'); ?>">
       <input type="hidden" name="tab" value="<?php echo html_escape($activeTab); ?>">
-      <div class="sr-filter-field sr-filter-field--search"><label class="form-label mb-1">Cari</label><input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No SR / catatan"></div>
+      <div class="sr-filter-field sr-filter-field--search"><label class="form-label mb-1">Cari</label><input type="text" name="q" class="form-control" value="<?php echo html_escape((string)($filters['q'] ?? '')); ?>" placeholder="No. SR, catatan, nama bahan / produk"></div>
       <div class="sr-filter-field sr-filter-field--status"><label class="form-label mb-1">Status</label><select name="status" class="form-select"><option value="">Semua</option><?php foreach($statusOptions as $st): ?><option value="<?php echo html_escape($st); ?>" <?php echo ((string)($filters['status'] ?? '') === $st) ? 'selected' : ''; ?>><?php echo html_escape($st); ?></option><?php endforeach; ?></select></div>
       <div class="sr-filter-field sr-filter-field--division"><label class="form-label mb-1">Divisi</label><select name="division_id" class="form-select"><option value="">Semua</option><?php foreach($divisionOptions as $d): ?><option value="<?php echo (int)$d['id']; ?>" <?php echo ((int)($filters['division_id'] ?? 0) === (int)$d['id']) ? 'selected' : ''; ?>><?php echo html_escape((string)($d['division_name'] ?? $d['name'] ?? ('DIV#'.$d['id']))); ?></option><?php endforeach; ?></select></div>
       <div class="sr-filter-field sr-filter-field--destination"><label class="form-label mb-1">Tujuan</label><select name="destination_type" class="form-select"><option value="">Semua</option><?php foreach($destinationOptions as $op): ?><option value="<?php echo html_escape((string)$op['value']); ?>" <?php echo ((string)($filters['destination_type'] ?? '') === (string)$op['value']) ? 'selected' : ''; ?>><?php echo html_escape((string)$op['label']); ?></option><?php endforeach; ?></select></div>
@@ -590,6 +621,46 @@ foreach ($lineRows as $lineRow) {
     </form>
   </div>
 </div>
+
+<?php if ((int)($usagePurposeAttention['total_lines'] ?? 0) > 0): ?>
+<div class="sr-purpose-flare mb-3 p-3" role="alert">
+  <div class="sr-purpose-flare-head">
+    <div class="d-flex gap-2">
+      <span class="sr-purpose-flare-icon"><i class="ri ri-alarm-warning-line"></i></span>
+      <div>
+        <div class="sr-purpose-flare-title">Peruntukan bahan Store Request perlu ditinjau</div>
+        <div class="sr-purpose-flare-meta">
+          <?php echo number_format((int)($usagePurposeAttention['total_lines'] ?? 0)); ?> line pada
+          <?php echo number_format((int)($usagePurposeAttention['document_count'] ?? 0)); ?> SR di rentang tanggal ini
+          tidak selaras dengan default master, atau merupakan material yang ditandai operasional. Data tidak diubah otomatis.
+        </div>
+      </div>
+    </div>
+    <div class="sr-purpose-flare-chips">
+      <?php if ((int)($usagePurposeAttention['material_operational_count'] ?? 0) > 0): ?>
+        <span class="sr-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['material_operational_count']); ?> material operasional</span>
+      <?php endif; ?>
+      <?php if ((int)($usagePurposeAttention['purpose_mismatch_count'] ?? 0) > 0): ?>
+        <span class="sr-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['purpose_mismatch_count']); ?> tujuan ≠ master</span>
+      <?php endif; ?>
+    </div>
+  </div>
+  <?php if (!empty($usagePurposeAttention['rows'])): ?>
+  <div class="sr-purpose-flare-list">
+    <?php foreach ((array)$usagePurposeAttention['rows'] as $attentionRow): ?>
+      <a class="sr-purpose-flare-item" href="<?php echo site_url('store-requests/detail/' . (int)($attentionRow['store_request_id'] ?? 0)); ?>">
+        <span class="sr-purpose-flare-doc">
+          <span><?php echo html_escape((string)($attentionRow['sr_no'] ?? '-')); ?> · <?php echo html_escape((string)($attentionRow['request_date'] ?? '-')); ?></span>
+          <span><?php echo html_escape($usagePurposeIssueLabel((string)($attentionRow['issue_type'] ?? ''))); ?></span>
+        </span>
+        <span class="sr-purpose-flare-line"><?php echo html_escape((string)($attentionRow['line_name'] ?? '-')); ?></span>
+        <small>Transaksi: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['actual_usage_purpose'] ?? ''))); ?> · Master: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['default_usage_purpose'] ?? ''))); ?></small>
+      </a>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
 
 <div class="card sr-board-card">
   <div class="card-body pb-0">
@@ -629,11 +700,36 @@ foreach ($lineRows as $lineRow) {
             <?php endif; ?>
           </td>
         </tr>
-      <?php else: foreach($rows as $r): $st=strtoupper((string)($r['status'] ?? 'DRAFT')); $rid=(int)($r['id'] ?? 0); $remainBuy=(float)($r['req_buy_total'] ?? 0) - (float)($r['fulfilled_buy_total'] ?? 0); $remainContent=(float)($r['req_content_total'] ?? 0) - (float)($r['fulfilled_content_total'] ?? 0); $statusClass = 'secondary'; if ($st === 'APPROVED') { $statusClass = 'success'; } elseif ($st === 'SUBMITTED') { $statusClass = 'primary'; } elseif ($st === 'PARTIAL_FULFILLED') { $statusClass = 'warning text-dark'; } elseif ($st === 'FULFILLED') { $statusClass = 'dark'; } elseif (in_array($st, ['REJECTED', 'VOID'], true)) { $statusClass = 'danger'; } ?>
+      <?php else: foreach($rows as $r): ?>
+        <?php
+          $st = strtoupper((string)($r['status'] ?? 'DRAFT'));
+          $rid = (int)($r['id'] ?? 0);
+          $remainBuy = (float)($r['req_buy_total'] ?? 0) - (float)($r['fulfilled_buy_total'] ?? 0);
+          $remainContent = (float)($r['req_content_total'] ?? 0) - (float)($r['fulfilled_content_total'] ?? 0);
+          $timeline = (array)($timelineMap[$rid] ?? []);
+          $approvalTrail = (array)($timeline['approvals'] ?? []);
+          $latestReject = null;
+          foreach ($approvalTrail as $approvalEvent) {
+            if (strtoupper((string)($approvalEvent['action'] ?? '')) === 'REJECT') {
+              $latestReject = $approvalEvent;
+            }
+          }
+          $statusClass = 'secondary';
+          if ($st === 'APPROVED') { $statusClass = 'success'; }
+          elseif ($st === 'SUBMITTED') { $statusClass = 'primary'; }
+          elseif ($st === 'PARTIAL_FULFILLED') { $statusClass = 'warning text-dark'; }
+          elseif ($st === 'FULFILLED') { $statusClass = 'dark'; }
+          elseif (in_array($st, ['REJECTED', 'VOID'], true)) { $statusClass = 'danger'; }
+        ?>
         <tr>
-          <td class="sr-note-meta"><div class="sr-request-meta"><strong><?php echo html_escape((string)($r['sr_no'] ?? '-')); ?></strong><span class="small text-muted"><?php echo html_escape((string)($r['request_date'] ?? '-')); ?></span><span class="small text-muted">By <?php echo html_escape((string)($r['created_by_username'] ?? '-')); ?></span></div></td>
+          <td class="sr-note-meta"><div class="sr-request-meta"><strong><?php echo html_escape((string)($r['sr_no'] ?? '-')); ?></strong><span class="small text-muted"><?php echo html_escape((string)($r['request_date'] ?? '-')); ?></span><span class="small text-muted">Dibuat oleh <?php echo html_escape((string)($r['created_by_username'] ?? '-')); ?></span></div></td>
           <td class="sr-note-meta"><div class="sr-request-meta"><strong><?php echo html_escape((string)($r['division_name'] ?? '-')); ?> | <?php echo html_escape((string)($r['destination_type'] ?? '-')); ?></strong><span class="small text-muted">Need <?php echo html_escape((string)($r['needed_date'] ?? '-')); ?></span><span class="small text-muted">Line <?php echo (int)($r['line_count'] ?? 0); ?></span></div></td>
-          <td><span class="badge bg-<?php echo $statusClass; ?> sr-status-badge"><?php echo html_escape($st); ?></span></td>
+          <td>
+            <span class="badge bg-<?php echo $statusClass; ?> sr-status-badge"><?php echo html_escape($st); ?></span>
+            <?php if ($st === 'REJECTED' && !empty($latestReject)): ?>
+              <span class="sr-status-audit" title="<?php echo html_escape((string)($latestReject['notes'] ?? '')); ?>">Ditolak oleh <strong><?php echo html_escape((string)($latestReject['actor_username'] ?? '-')); ?></strong><br><?php echo html_escape((string)($latestReject['created_at'] ?? '-')); ?></span>
+            <?php endif; ?>
+          </td>
           <td class="text-end sr-note-qty"><div class="sr-qty-stack"><strong><?php echo ui_num((float)($r['req_buy_total'] ?? 0)); ?> pack</strong><small>Fulfilled <?php echo ui_num((float)($r['fulfilled_buy_total'] ?? 0)); ?> pack</small><small>Sisa <?php echo ui_num($remainBuy); ?> pack</small></div></td>
           <td class="action-cell">
             <div class="d-flex gap-1 flex-nowrap justify-content-end">
@@ -787,6 +883,31 @@ foreach ($lineRows as $lineRow) {
 </div>
 <?php endif; ?>
 
+<?php if ($canEdit): ?>
+<div class="modal fade" id="srRejectModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title text-danger"><i class="ri ri-close-circle-line me-1"></i>Tolak Store Request</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning py-2 small mb-3">Penolakan mengakhiri proses SR ini. Stok tidak akan dipindahkan ke divisi melalui dokumen ini.</div>
+        <div class="small text-muted mb-2">Dokumen: <strong id="srRejectDocumentNo">-</strong></div>
+        <div id="srRejectAlert"></div>
+        <label for="srRejectReason" class="form-label">Alasan penolakan <span class="text-danger">*</span></label>
+        <textarea id="srRejectReason" class="form-control" rows="3" maxlength="255" placeholder="Contoh: request duplikat, stok sudah dipenuhi dari SR lain" required></textarea>
+        <div class="form-text">Alasan akan tersimpan dalam jejak status dan tidak dapat dikosongkan.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmSrReject"><i class="ri ri-close-circle-line me-1"></i>Tolak SR</button>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
 <div class="modal fade" id="srSplitModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
@@ -829,6 +950,12 @@ foreach ($lineRows as $lineRow) {
   var splitModalBody = document.getElementById('srSplitModalBody');
   var splitFulfillBtn = document.getElementById('btnSrSplitFulfill');
   var splitGenPoBtn = document.getElementById('btnSrSplitGenPo');
+  var rejectModalEl = document.getElementById('srRejectModal');
+  var rejectReasonEl = document.getElementById('srRejectReason');
+  var rejectAlertBox = document.getElementById('srRejectAlert');
+  var rejectDocumentNoEl = document.getElementById('srRejectDocumentNo');
+  var rejectConfirmBtn = document.getElementById('btnConfirmSrReject');
+  var rejectRequestId = 0;
   var createLines = [];
   var profileSearchTimer = null;
   var profileSearchAbort = null;
@@ -838,6 +965,7 @@ foreach ($lineRows as $lineRow) {
   function flashCreate(type, msg){ if(!createAlertBox) return; createAlertBox.innerHTML='<div class="alert alert-'+type+' py-2 mb-2">'+msg+'</div>'; }
   function num(v){ var n=Number(v||0); return Number.isFinite(n)?n:0; }
   function esc(s){ return String(s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function flashReject(type, msg){ if(!rejectAlertBox) return; rejectAlertBox.innerHTML='<div class="alert alert-'+type+' py-2 mb-2">'+esc(msg)+'</div>'; }
   function fmtMoney(v){ return 'Rp ' + num(v).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2}); }
   function fmtDate(v){ return v ? esc(v) : '-'; }
   function normalizeUsagePurpose(value){ return String(value || '').toUpperCase().trim() === 'OPERASIONAL' ? 'OPERASIONAL' : 'BAHAN_BAKU'; }
@@ -1081,6 +1209,18 @@ foreach ($lineRows as $lineRow) {
       e.preventDefault();
       var id=parseInt(act.getAttribute('data-id')||'0',10); var action=String(act.getAttribute('data-action')||'').toUpperCase();
       if(id<=0 || !action) return;
+      if(action === 'REJECT'){
+        if(!rejectModalEl || !window.bootstrap){ flash('danger','Modal alasan penolakan tidak tersedia. Muat ulang halaman lalu coba lagi.'); return; }
+        rejectRequestId=id;
+        if(rejectReasonEl) rejectReasonEl.value='';
+        if(rejectAlertBox) rejectAlertBox.innerHTML='';
+        var row=act.closest('tr');
+        var docEl=row ? row.querySelector('.sr-request-meta strong') : null;
+        if(rejectDocumentNoEl) rejectDocumentNoEl.textContent=docEl ? String(docEl.textContent || '').trim() : ('SR #' + id);
+        window.bootstrap.Modal.getOrCreateInstance(rejectModalEl).show();
+        window.setTimeout(function(){ if(rejectReasonEl) rejectReasonEl.focus(); }, 180);
+        return;
+      }
       var old=act.innerHTML; act.disabled=true; act.innerHTML='<span class="spinner-border spinner-border-sm"></span>';
       fetchJson(actionUrlBase+id, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:action, notes:''}) })
         .then(function(res){ if(!res || !res.ok){ flash('danger',(res&&res.message)?res.message:'Gagal aksi SR.'); act.disabled=false; act.innerHTML=old; return; } window.location.href=reloadUrl; })
@@ -1144,6 +1284,32 @@ foreach ($lineRows as $lineRow) {
       return;
     }
   });
+
+  if(rejectConfirmBtn){
+    rejectConfirmBtn.addEventListener('click', function(){
+      var reason=String((rejectReasonEl||{}).value||'').trim();
+      if(rejectRequestId<=0){ flashReject('danger','Dokumen Store Request tidak valid.'); return; }
+      if(reason.length<3){ flashReject('warning','Alasan penolakan wajib diisi minimal 3 karakter.'); if(rejectReasonEl) rejectReasonEl.focus(); return; }
+      setBusy(rejectConfirmBtn, true);
+      fetchJson(actionUrlBase+rejectRequestId, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'REJECT', notes:reason}) })
+        .then(function(res){
+          if(!res || !res.ok){
+            flashReject('danger',(res&&res.message)?res.message:'Gagal menolak Store Request.');
+            setBusy(rejectConfirmBtn, false);
+            return;
+          }
+          window.location.href=reloadUrl;
+        })
+        .catch(function(){ flashReject('danger','Gagal menolak Store Request.'); setBusy(rejectConfirmBtn, false); });
+    });
+  }
+  if(rejectModalEl){
+    rejectModalEl.addEventListener('hidden.bs.modal', function(){
+      rejectRequestId=0;
+      if(rejectReasonEl) rejectReasonEl.value='';
+      if(rejectAlertBox) rejectAlertBox.innerHTML='';
+    });
+  }
 
   document.addEventListener('change', function(e){
     var usage = e.target.closest('.sr-usage-purpose');

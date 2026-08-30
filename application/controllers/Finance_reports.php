@@ -8,6 +8,7 @@ class Finance_reports extends MY_Controller
         parent::__construct();
         $this->load->model('Finance_report_model');
         $this->load->model('Finance_cash_reconciliation_model');
+        $this->load->model('Finance_revenue_reconciliation_model');
     }
 
     private function per_page(int $default = 25): int
@@ -186,6 +187,59 @@ class Finance_reports extends MY_Controller
             'header' => $header,
             'redirect_url' => site_url('finance-reports/cash-reconciliation') . '?' . $query,
         ]);
+    }
+
+    public function revenue_reconciliation()
+    {
+        $this->require_permission('finance.revenue_reconciliation.index', 'view');
+        $reconciliationDate = trim((string)$this->input->get('date', true));
+        $revenueDate = trim((string)$this->input->get('revenue_date', true));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $reconciliationDate)) $reconciliationDate = date('Y-m-d');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $revenueDate)) $revenueDate = date('Y-m-d', strtotime('-1 day'));
+        $reconciliationId = max(0, (int)$this->input->get('reconciliation_id', true));
+        $this->render('finance/revenue_reconciliation', [
+            'page_title' => 'Rekonsiliasi Pendapatan',
+            'active_menu' => 'finance.cash_reconciliation',
+            'finance_tab_active' => 'revenue-reconciliation',
+            'dashboard' => $this->Finance_revenue_reconciliation_model->dashboard($reconciliationDate, $revenueDate, $reconciliationId),
+            'can_reconcile_edit' => $this->can('finance.revenue_reconciliation.index', 'edit'),
+            'save_url' => site_url('finance-reports/revenue-reconciliation/line-save'),
+            'post_url' => site_url('finance-reports/revenue-reconciliation/line-post'),
+            'round_create_url' => site_url('finance-reports/revenue-reconciliation/round-create'),
+        ]);
+    }
+
+    public function revenue_reconciliation_line_save()
+    {
+        if ($this->input->method() !== 'post') show_404();
+        $this->require_permission('finance.revenue_reconciliation.index', 'edit');
+        $payload = $this->cash_reconciliation_payload();
+        $result = $this->Finance_revenue_reconciliation_model->save_line($payload, $this->actor_user_id());
+        $this->cash_reconciliation_json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    public function revenue_reconciliation_line_post()
+    {
+        if ($this->input->method() !== 'post') show_404();
+        $this->require_permission('finance.revenue_reconciliation.index', 'edit');
+        $payload = $this->cash_reconciliation_payload();
+        $result = $this->Finance_revenue_reconciliation_model->post_line((int)($payload['line_id'] ?? 0), $this->actor_user_id());
+        $this->cash_reconciliation_json($result, empty($result['ok']) ? 422 : 200);
+    }
+
+    public function revenue_reconciliation_round_create()
+    {
+        if ($this->input->method() !== 'post') show_404();
+        $this->require_permission('finance.revenue_reconciliation.index', 'edit');
+        $payload = $this->cash_reconciliation_payload();
+        $result = $this->Finance_revenue_reconciliation_model->create_round($payload, $this->actor_user_id());
+        if (!empty($result['ok'])) {
+            $header = (array)$result['header'];
+            $result['redirect_url'] = site_url('finance-reports/revenue-reconciliation') . '?' . http_build_query([
+                'date'=>$header['reconciliation_date'], 'revenue_date'=>$header['revenue_date'], 'reconciliation_id'=>$header['id'],
+            ]);
+        }
+        $this->cash_reconciliation_json($result, empty($result['ok']) ? 422 : 200);
     }
 
     public function cash_vault_daily()

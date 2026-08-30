@@ -62,6 +62,8 @@ class Procurement extends MY_Controller
             : [];
         $rangeFilters = $filters;
         $rangeFilters['status'] = '';
+        $purposeAttentionFilters = $rangeFilters;
+        $purposeAttentionFilters['q'] = '';
         $ids = array_values(array_filter(array_map(static function ($row) {
             return (int)($row['id'] ?? 0);
         }, $rows), static function ($id) {
@@ -82,6 +84,7 @@ class Procurement extends MY_Controller
             'summary' => $this->Procurement_model->get_store_request_summary($rangeFilters),
             'filtered_summary' => $this->Procurement_model->get_store_request_summary($filters),
             'line_summary' => $this->Procurement_model->get_store_request_line_summary($filters),
+            'usage_purpose_attention' => $this->Procurement_model->get_store_request_usage_purpose_attention($purposeAttentionFilters),
             'month_attention_summary' => $this->Procurement_model->get_store_request_summary([
                 'q' => '',
                 'status' => '',
@@ -824,7 +827,8 @@ class Procurement extends MY_Controller
                 $id,
                 $action,
                 $notes,
-                (int)($this->current_user['id'] ?? 0)
+                (int)($this->current_user['id'] ?? 0),
+                (string)$this->input->ip_address()
             );
         } finally {
             $this->db->db_debug = $dbDebugBefore;

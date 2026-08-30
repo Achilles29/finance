@@ -1590,6 +1590,7 @@ class Pos_model extends CI_Model
         }
 
         $customerDisplayExpr = $this->order_customer_display_expr('o', 'm');
+        $hasOnlineDeliveryTable = $this->db->table_exists('pos_online_food_delivery_order');
         $rows = $this->db
             ->select('
                 o.id,

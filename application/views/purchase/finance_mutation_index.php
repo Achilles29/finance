@@ -59,6 +59,7 @@ $moduleLabel = static function (string $module, string $table): string {
         case 'PURCHASE':          return 'Purchase';
         case 'POS':               return 'POS';
         case 'FINANCE_RECON':     return 'Rekonsiliasi Kas';
+        case 'REVENUE_RECON':     return 'Rekon Pendapatan';
         case 'FINANCE_TRANSFER':  return 'Transfer';
         case 'FINANCE_PAYABLE':   return 'Utang';
         case 'FINANCE_RECEIVABLE':return 'Piutang';
@@ -76,6 +77,7 @@ $moduleBadgeClass = static function (string $module): string {
         case 'PURCHASE':           return 'bg-label-danger';
         case 'POS':                return 'bg-label-success';
         case 'FINANCE_RECON':      return 'bg-label-warning';
+        case 'REVENUE_RECON':      return 'bg-label-primary';
         case 'FINANCE_TRANSFER':   return 'bg-label-info';
         case 'FINANCE_PAYABLE':    return 'bg-label-warning';
         case 'FINANCE_RECEIVABLE': return 'bg-label-primary';
@@ -111,6 +113,7 @@ $moduleFilterOptions = [
     'PURCHASE' => 'PO / Purchase',
     'FINANCE' => 'Manual',
     'FINANCE_RECON' => 'Rekonsiliasi Kas',
+    'REVENUE_RECON' => 'Rekonsiliasi Pendapatan',
     'FINANCE_TRANSFER' => 'Transfer',
     'FINANCE_PAYABLE' => 'Utang',
     'FINANCE_RECEIVABLE' => 'Piutang',
@@ -245,10 +248,14 @@ $moduleFilterOptions = [
     max-height: 68vh;
     overflow-y: auto;
     overflow-x: auto;
+    border: 1px solid #eee6e1;
+    border-radius: 14px;
+    scrollbar-color: #c9bab2 #f7f3f1;
+    scrollbar-width: thin;
   }
   .mut-table {
     table-layout: fixed;
-    min-width: 1024px;
+    min-width: 1160px;
     width: 100%;
     font-size: .77rem;
   }
@@ -275,16 +282,15 @@ $moduleFilterOptions = [
   .mut-table tbody tr:hover td { background: rgba(255,245,242,.7); }
   .mut-table tbody tr:last-child td { border-bottom: 0; }
 
-  /* column widths — total = 1024px, keep min-width in sync */
-  .mut-col-date  { width: 98px; }
-  .mut-col-no    { width: 130px; }
-  .mut-col-acct  { width: 126px; }
-  .mut-col-type  { width: 48px;  text-align: center; }
-  .mut-col-mod   { width: 74px;  text-align: center; }
-  .mut-col-amt   { width: 118px; text-align: right; }
-  .mut-col-bal   { width: 108px; text-align: right; }
-  .mut-col-ref   { width: 120px; }
-  .mut-col-notes { width: 94px; white-space: normal; word-break: break-word; overflow: hidden; }
+  .mut-col-date  { width: 100px; }
+  .mut-col-no    { width: 145px; }
+  .mut-col-acct  { width: 150px; }
+  .mut-col-type  { width: 58px;  text-align: center; }
+  .mut-col-mod   { width: 105px; text-align: center; }
+  .mut-col-amt   { width: 135px; text-align: right; }
+  .mut-col-bal   { width: 120px; text-align: right; }
+  .mut-col-ref   { width: 135px; }
+  .mut-col-notes { width: 192px; white-space: normal; word-break: break-word; overflow: visible; }
 
   /* amount colors */
   .mut-amt-in  { color: #0f766e; font-weight: 700; }
@@ -317,6 +323,33 @@ $moduleFilterOptions = [
   }
   .mut-ref-link:hover { color: #8a1538; border-bottom-color: #8a1538; }
   .mut-ref-link i { font-size: .78rem; opacity: .7; }
+
+  @media (min-width: 768px) and (max-width: 1199.98px) {
+    .mut-board-card > .card-body { padding:.8rem .8rem 0; }
+    .mut-table { min-width:1040px; }
+    .mut-table thead .mut-col-date,
+    .mut-table tbody .mut-col-date { position:sticky;left:0;z-index:3;background:#fff;box-shadow:inset -1px 0 0 #e8ddd7,4px 0 8px rgba(50,35,30,.06); }
+    .mut-table thead .mut-col-date { z-index:5; }
+    .mut-col-notes { width:150px; }
+  }
+
+  @media (max-width: 767.98px) {
+    .mut-hero { border-radius:16px; }.mut-hero-body { padding:.85rem; }.mut-hero-title { font-size:1.15rem; }
+    .mut-hero-actions { width:100%; }.mut-hero-actions .btn { flex:1; }
+    .mut-card { border-radius:15px; }.mut-card .card-body { padding:.72rem; }.mut-card-value { font-size:.86rem;overflow-wrap:anywhere; }.mut-card-icon { display:none; }
+    .mut-acct-card { height:100%; }.mut-board-card { border-radius:16px;background:transparent;box-shadow:none; }.mut-board-card > .card-body { padding:0; }
+    .mut-filter-card .card-body { padding:.75rem !important; }.mut-filter-card form > div:last-child { width:100%;justify-content:space-between; }
+    .mut-table-scroll { max-height:none;overflow:visible;border:0;border-radius:0; }
+    .mut-table { display:block;min-width:0;width:100%;table-layout:auto; }.mut-table thead { display:none; }.mut-table tbody { display:grid;gap:.7rem; }
+    .mut-table tbody tr { display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1px solid #e8ddd7;border-radius:14px;background:#fff;box-shadow:0 6px 16px rgba(67,89,113,.07);overflow:hidden; }
+    .mut-table tbody td,.mut-table tbody td[class^="mut-col-"],.mut-table tbody td[class*=" mut-col-"] { display:block;width:auto;min-width:0;padding:.58rem .68rem;border:0;border-bottom:1px solid #f0e9e5;white-space:normal;overflow:visible;text-overflow:clip;text-align:left; }
+    .mut-table tbody td::before { content:attr(data-label);display:block;margin-bottom:.18rem;color:#8a7d77;font-size:.58rem;font-weight:800;letter-spacing:.055em;text-transform:uppercase; }
+    .mut-table tbody .mut-col-date,.mut-table tbody .mut-col-no,.mut-table tbody .mut-col-notes { grid-column:1 / -1; }
+    .mut-table tbody .mut-col-date { background:#fff8f5; }.mut-table tbody .mut-col-date > div:first-child { font-size:.82rem !important;font-weight:800;color:#2c2225; }
+    .mut-table tbody .mut-col-no { font-size:.7rem !important;overflow-wrap:anywhere; }.mut-table tbody .mut-col-amt { font-size:.82rem; }.mut-table tbody .mut-col-ref { overflow-wrap:anywhere; }
+    .mut-table tbody .mut-col-notes { border-bottom:0;line-height:1.45; }.mut-table tbody tr.mut-empty-row { display:block; }.mut-table tbody tr.mut-empty-row td { text-align:center;border:0; }.mut-table tbody tr.mut-empty-row td::before { display:none; }
+    .mut-table-footer { padding:.75rem .25rem;justify-content:center; }.mut-table-footer > small { width:100%;text-align:center; }.mut-table-footer .pagination { flex-wrap:wrap;justify-content:center; }
+  }
 
   /* ─── Modal ──────────────────────────────────────────────────── */
   .mut-modal .modal-content {
@@ -535,7 +568,10 @@ $moduleFilterOptions = [
           </div>
           <div class="col-8 col-md-auto d-flex gap-2 align-items-end">
             <button class="btn btn-sm btn-outline-primary" type="submit">Filter</button>
-            <a href="<?php echo $baseUrl; ?>" class="btn btn-sm btn-outline-danger">Clear</a>
+            <a href="<?php echo site_url('finance/mutations?' . $buildQuery([
+              'mutation_type' => 'ALL', 'module_filter' => 'ALL', 'account_id' => '',
+              'date_from' => date('Y-m-01'), 'date_to' => date('Y-m-d'), 'page' => 1,
+            ])); ?>" class="btn btn-sm btn-outline-danger">Clear</a>
             <small class="text-muted ms-1 align-self-center">
               Hal <?php echo (int)($pg['page'] ?? 1); ?>/<?php echo (int)($pg['total_pages'] ?? 1); ?>
               &bull; <?php echo number_format((int)($pg['total'] ?? 0)); ?> baris
@@ -564,7 +600,7 @@ $moduleFilterOptions = [
           </thead>
           <tbody>
             <?php if (empty($rows)): ?>
-              <tr><td colspan="10" class="text-center text-muted py-5">
+              <tr class="mut-empty-row"><td colspan="10" class="text-center text-muted py-5">
                 <i class="ri ri-inbox-line" style="font-size:2rem;display:block;margin-bottom:.5rem;"></i>
                 Belum ada data mutasi pada periode ini.
               </td></tr>
@@ -581,25 +617,25 @@ $moduleFilterOptions = [
               ?>
               <tr>
                 <?php $dt = (string)($r['mutation_date'] ?? ''); ?>
-                <td class="mut-col-date" title="<?php echo html_escape($dt); ?>">
+                <td class="mut-col-date" data-label="Tanggal" title="<?php echo html_escape($dt); ?>">
                   <div style="font-size:.73rem;"><?php echo html_escape(strlen($dt) >= 10 ? substr($dt, 0, 10) : $dt); ?></div>
                   <?php if (strlen($dt) >= 16): ?>
                     <div style="font-size:.63rem;color:#9ca3af;"><?php echo html_escape(substr($dt, 11, 5)); ?></div>
                   <?php endif; ?>
                 </td>
-                <td class="mut-col-no" style="font-family:monospace;font-size:.71rem;"><?php echo html_escape((string)($r['mutation_no'] ?? '')); ?></td>
-                <td class="mut-col-acct">
+                <td class="mut-col-no" data-label="No Mutasi" style="font-family:monospace;font-size:.71rem;"><?php echo html_escape((string)($r['mutation_no'] ?? '')); ?></td>
+                <td class="mut-col-acct" data-label="Rekening">
                   <div style="font-weight:600;font-size:.76rem;color:#1f2a39;"><?php echo html_escape((string)($r['account_name'] ?? '')); ?></div>
                   <div style="font-size:.67rem;color:#6b7280;"><?php echo html_escape((string)($r['account_code'] ?? '')); ?></div>
                 </td>
-                <td class="mut-col-type">
+                <td class="mut-col-type" data-label="Tipe">
                   <?php if ($isIn): ?>
                     <span class="badge bg-label-success" style="font-size:.64rem;">IN</span>
                   <?php else: ?>
                     <span class="badge bg-label-danger"  style="font-size:.64rem;">OUT</span>
                   <?php endif; ?>
                 </td>
-                <td class="mut-col-mod">
+                <td class="mut-col-mod" data-label="Modul">
                   <?php if ($mod !== ''): ?>
                     <span class="badge <?php echo $moduleBadgeClass($mod); ?>" style="font-size:.62rem;">
                       <?php echo html_escape($moduleLabel($mod, $tbl)); ?>
@@ -608,19 +644,19 @@ $moduleFilterOptions = [
                     <span class="text-muted">–</span>
                   <?php endif; ?>
                 </td>
-                <td class="mut-col-amt <?php echo $isIn ? 'mut-amt-in' : 'mut-amt-out'; ?>">
+                <td class="mut-col-amt <?php echo $isIn ? 'mut-amt-in' : 'mut-amt-out'; ?>" data-label="Nominal">
                   <?php echo ($isIn ? '+' : '-'); ?>Rp&nbsp;<?php echo number_format((float)($r['amount'] ?? 0), 0, ',', '.'); ?>
                 </td>
-                <td class="mut-col-bal" style="color:#6b7280;font-size:.73rem;"><?php echo number_format((float)($r['balance_before'] ?? 0), 0, ',', '.'); ?></td>
-                <td class="mut-col-bal" style="font-weight:600;font-size:.73rem;"><?php echo number_format((float)($r['balance_after'] ?? 0), 0, ',', '.'); ?></td>
-                <td class="mut-col-ref" style="font-size:.71rem;color:#6b7280;" title="<?php echo html_escape($refNo); ?>">
+                <td class="mut-col-bal" data-label="Saldo Sebelum" style="color:#6b7280;font-size:.73rem;"><?php echo number_format((float)($r['balance_before'] ?? 0), 0, ',', '.'); ?></td>
+                <td class="mut-col-bal" data-label="Saldo Sesudah" style="font-weight:600;font-size:.73rem;"><?php echo number_format((float)($r['balance_after'] ?? 0), 0, ',', '.'); ?></td>
+                <td class="mut-col-ref" data-label="Referensi" style="font-size:.71rem;color:#6b7280;" title="<?php echo html_escape($refNo); ?>">
                   <?php if ($refNo !== '' && $refUrl !== ''): ?>
                     <a href="<?php echo html_escape($refUrl); ?>" class="mut-ref-link" target="_blank" style="font-size:.71rem;"><?php echo html_escape($refNo); ?></a>
                   <?php else: ?>
                     <?php echo html_escape($refNo !== '' ? $refNo : '–'); ?>
                   <?php endif; ?>
                 </td>
-                <td class="mut-col-notes">
+                <td class="mut-col-notes" data-label="Catatan">
                   <?php if ($notes !== ''): ?>
                     <?php if ($refUrl !== ''): ?>
                       <a href="<?php echo html_escape($refUrl); ?>" class="mut-ref-link" target="_blank">

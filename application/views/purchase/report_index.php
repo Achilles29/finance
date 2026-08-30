@@ -59,25 +59,59 @@ $reportDetailBaseUrl = site_url('purchase-orders/report/detail');
   }
   .pur-daily-pager-buttons .btn { min-width: 40px; }
   .pur-matrix th, .pur-matrix td { white-space: nowrap; font-size: .74rem; }
+  .pur-matrix {
+    border-collapse: separate;
+    border-spacing: 0;
+    margin-bottom: 0;
+  }
   .pur-matrix-wrap {
-    max-height: 68vh;
+    height: 68vh;
+    min-height: 420px;
+    max-height: 760px;
     overflow: auto;
+    position: relative;
     border: 1px solid #eadfd8;
     border-radius: 12px;
     background: #fff;
+    overscroll-behavior: contain;
   }
-  .pur-matrix thead th {
+  .pur-matrix thead {
     position: sticky;
     top: 0;
-    z-index: 4;
-    background: #b80f28;
-    color: #fff;
+    z-index: 20;
   }
-  .pur-matrix .type-col { min-width: 260px; position: sticky; left: 0; background: #fff; z-index: 2; }
-  .pur-matrix thead .type-col { z-index: 6; background: #a90d24; color: #fff; }
+  .pur-matrix thead th {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 20;
+    background: #b80f28;
+    background-clip: padding-box;
+    color: #fff;
+    box-shadow: inset 0 -1px 0 #87091d;
+  }
+  .pur-matrix .type-col {
+    min-width: 260px;
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background: #fff;
+    box-shadow: inset -1px 0 0 #d8cbc5, 5px 0 8px rgba(70, 45, 40, .08);
+  }
+  .pur-matrix tbody tr:nth-of-type(odd) .type-col { background: #fbf8f6; }
+  .pur-matrix thead .type-col {
+    top: 0 !important;
+    left: 0 !important;
+    z-index: 30 !important;
+    background: #a90d24;
+    color: #fff;
+    box-shadow: inset -1px -1px 0 #780719, 5px 0 8px rgba(70, 15, 25, .18);
+  }
   .pur-matrix .date-cell { text-align: right; min-width: 100px; }
   .pur-matrix details summary { cursor: pointer; font-size: .72rem; color: #7a6a62; }
   .pur-matrix .expand-list { font-size: .72rem; margin-top: .3rem; max-height: 120px; overflow: auto; }
+  @media (max-width: 767.98px) {
+    .pur-matrix-wrap { height: 65vh; min-height: 360px; }
+  }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">

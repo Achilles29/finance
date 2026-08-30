@@ -106,6 +106,7 @@ if (!function_exists('_get_ri_icon')) {
             'finance.party'         => 'ri-team-line',
             'finance.cash_position' => 'ri-funds-box-line',
             'finance.cash_reconciliation' => 'ri-scales-3-line',
+            'finance.revenue_reconciliation' => 'ri-hand-coin-line',
             'finance.period_close'  => 'ri-calendar-check-line',
             'finance.target'        => 'ri-focus-3-line',
             'fin.transactions'      => 'ri-exchange-line',

@@ -590,6 +590,120 @@ class Procurement_model extends CI_Model
         return $summary;
     }
 
+    /**
+     * Read-only audit for Store Request lines whose selected purpose conflicts
+     * with the item master, including raw materials used as operational items.
+     */
+    public function get_store_request_usage_purpose_attention(array $filters, int $limit = 8): array
+    {
+        $attention = [
+            'total_lines' => 0,
+            'document_count' => 0,
+            'material_operational_count' => 0,
+            'purpose_mismatch_count' => 0,
+            'rows' => [],
+        ];
+
+        if (!$this->has_store_request_schema()) {
+            return $attention;
+        }
+
+        // A keyword search must not hide a period-level control warning.
+        $filters['q'] = '';
+        $limit = max(1, min(20, $limit));
+
+        $hasItem = $this->db->table_exists('mst_item');
+        $hasMaterial = $this->db->table_exists('mst_material');
+        $hasItemMaterial = $hasItem && $this->db->field_exists('material_id', 'mst_item');
+        $hasItemDefaultPurpose = $hasItem && $this->db->field_exists('default_usage_purpose', 'mst_item');
+        $hasLinePurpose = $this->has_store_request_usage_purpose_column();
+
+        $productionPurpose = self::USAGE_PURPOSE_PRODUCTION;
+        $operationalPurpose = self::USAGE_PURPOSE_OPERATIONAL;
+        $actualUsageExpr = $hasLinePurpose
+            ? "CASE WHEN UPPER(TRIM(COALESCE(NULLIF(srl.usage_purpose, ''), '{$productionPurpose}'))) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
+            : "'{$productionPurpose}'";
+        $defaultUsageExpr = $hasItemDefaultPurpose
+            ? "CASE WHEN UPPER(TRIM(COALESCE(NULLIF(i.default_usage_purpose, ''), '{$productionPurpose}'))) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
+            : "'{$productionPurpose}'";
+        $effectiveMaterialExpr = $hasItemMaterial
+            ? 'COALESCE(NULLIF(srl.material_id, 0), NULLIF(i.material_id, 0), 0)'
+            : 'COALESCE(NULLIF(srl.material_id, 0), 0)';
+        $materialOperationalCondition = "({$effectiveMaterialExpr} > 0 AND {$actualUsageExpr} = '{$operationalPurpose}')";
+        $purposeMismatchCondition = "({$actualUsageExpr} <> {$defaultUsageExpr})";
+        $issueCondition = "({$materialOperationalCondition} OR {$purposeMismatchCondition})";
+
+        $lineNameParts = ["NULLIF(TRIM(srl.profile_name), '')"];
+        if ($hasMaterial) {
+            $lineNameParts[] = "NULLIF(TRIM(m.material_name), '')";
+        }
+        if ($hasItem) {
+            $lineNameParts[] = "NULLIF(TRIM(i.item_name), '')";
+        }
+        $lineNameParts[] = "'-'";
+        $lineNameExpr = 'COALESCE(' . implode(', ', $lineNameParts) . ')';
+
+        $applyMasterJoins = function () use ($hasItem, $hasMaterial, $hasItemMaterial): void {
+            if ($hasItem) {
+                $this->db->join('mst_item i', 'i.id = srl.item_id', 'left');
+            }
+            if ($hasMaterial) {
+                $materialJoin = $hasItemMaterial
+                    ? 'm.id = COALESCE(NULLIF(srl.material_id, 0), NULLIF(i.material_id, 0))'
+                    : 'm.id = srl.material_id';
+                $this->db->join('mst_material m', $materialJoin, 'left', false);
+            }
+        };
+
+        $this->db
+            ->select('COUNT(srl.id) AS total_lines', false)
+            ->select('COUNT(DISTINCT sr.id) AS document_count', false)
+            ->select("SUM(CASE WHEN {$materialOperationalCondition} THEN 1 ELSE 0 END) AS material_operational_count", false)
+            ->select("SUM(CASE WHEN {$purposeMismatchCondition} THEN 1 ELSE 0 END) AS purpose_mismatch_count", false)
+            ->from('pur_store_request_line srl')
+            ->join('pur_store_request sr', 'sr.id = srl.store_request_id', 'inner');
+        $applyMasterJoins();
+        $this->apply_store_request_filters($filters, 'sr');
+        $summary = $this->db
+            ->where($issueCondition, null, false)
+            ->get()
+            ->row_array();
+
+        if ($summary) {
+            $attention['total_lines'] = (int)($summary['total_lines'] ?? 0);
+            $attention['document_count'] = (int)($summary['document_count'] ?? 0);
+            $attention['material_operational_count'] = (int)($summary['material_operational_count'] ?? 0);
+            $attention['purpose_mismatch_count'] = (int)($summary['purpose_mismatch_count'] ?? 0);
+        }
+
+        if ($attention['total_lines'] <= 0) {
+            return $attention;
+        }
+
+        $this->db
+            ->select('sr.id AS store_request_id, sr.sr_no, sr.request_date, sr.status, sr.destination_type', false)
+            ->select('srl.id AS line_id, srl.line_no, srl.profile_brand', false)
+            ->select($lineNameExpr . ' AS line_name', false)
+            ->select($actualUsageExpr . ' AS actual_usage_purpose', false)
+            ->select($defaultUsageExpr . ' AS default_usage_purpose', false)
+            ->select($effectiveMaterialExpr . ' AS effective_material_id', false)
+            ->select("CASE WHEN {$materialOperationalCondition} THEN 'MATERIAL_AS_OPERATIONAL' ELSE 'PURPOSE_MISMATCH' END AS issue_type", false)
+            ->from('pur_store_request_line srl')
+            ->join('pur_store_request sr', 'sr.id = srl.store_request_id', 'inner');
+        $applyMasterJoins();
+        $this->apply_store_request_filters($filters, 'sr');
+        $attention['rows'] = $this->db
+            ->where($issueCondition, null, false)
+            ->order_by('sr.request_date', 'DESC')
+            ->order_by('sr.id', 'DESC')
+            ->order_by('srl.line_no', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+
+        return $attention;
+    }
+
     public function list_store_requests(array $filters, int $limit, int $offset): array
     {
         if (!$this->has_store_request_schema()) {
@@ -720,7 +834,7 @@ class Procurement_model extends CI_Model
 
         if ($this->db->table_exists('pur_store_request_approval')) {
             $rows = $this->db
-                ->select('a.store_request_id, a.action, a.notes, a.created_at, u.username AS actor_username')
+                ->select("a.store_request_id, a.action, a.notes, a.created_at, COALESCE(NULLIF(a.actor_name_snapshot, ''), u.username, '-') AS actor_username", false)
                 ->from('pur_store_request_approval a')
                 ->join('auth_user u', 'u.id = a.actor_user_id', 'left')
                 ->where_in('a.store_request_id', $ids)
@@ -1868,8 +1982,10 @@ class Procurement_model extends CI_Model
         $header = $this->db
             ->select('sr.*')
             ->select($divisionNameSelect, false)
+            ->select('creator.username AS created_by_username', false)
             ->from('pur_store_request sr')
             ->join('mst_operational_division d', 'd.id = sr.request_division_id', 'left')
+            ->join('auth_user creator', 'creator.id = sr.created_by', 'left')
             ->where('sr.id', $requestId)
             ->limit(1)
             ->get()
@@ -2007,11 +2123,24 @@ class Procurement_model extends CI_Model
             }
         }
 
+        $approvals = [];
+        if ($this->db->table_exists('pur_store_request_approval')) {
+            $approvals = $this->db
+                ->select("a.id, a.action, a.actor_user_id, COALESCE(NULLIF(a.actor_name_snapshot, ''), u.username, '-') AS actor_name, a.notes, a.created_at", false)
+                ->from('pur_store_request_approval a')
+                ->join('auth_user u', 'u.id = a.actor_user_id', 'left')
+                ->where('a.store_request_id', $requestId)
+                ->order_by('a.id', 'ASC')
+                ->get()
+                ->result_array();
+        }
+
         return [
             'header' => $header,
             'lines' => $lines,
             'fulfillments' => $fulfillments,
             'movement_rows' => $movementRows,
+            'approvals' => $approvals,
         ];
     }
 
@@ -2114,7 +2243,7 @@ class Procurement_model extends CI_Model
         ];
     }
 
-    public function apply_store_request_action(int $requestId, string $action, string $notes, int $userId): array
+    public function apply_store_request_action(int $requestId, string $action, string $notes, int $userId, string $sourceIp = ''): array
     {
         if (!$this->has_store_request_schema()) {
             return ['ok' => false, 'message' => 'Schema Store Request belum tersedia.'];
@@ -2125,6 +2254,7 @@ class Procurement_model extends CI_Model
         }
 
         $action = strtoupper(trim($action));
+        $notes = trim($notes);
         $allowed = ['SUBMIT', 'APPROVE', 'REJECT', 'VOID'];
         if (!in_array($action, $allowed, true)) {
             return ['ok' => false, 'message' => 'Action tidak valid.'];
@@ -2133,6 +2263,10 @@ class Procurement_model extends CI_Model
         $request = $this->db->get_where('pur_store_request', ['id' => $requestId])->row_array();
         if (!$request) {
             return ['ok' => false, 'message' => 'Store Request tidak ditemukan.'];
+        }
+
+        if ($action === 'REJECT' && strlen($notes) < 3) {
+            return ['ok' => false, 'message' => 'Alasan penolakan wajib diisi agar jejak Store Request dapat ditelusuri.'];
         }
 
         $status = strtoupper((string)($request['status'] ?? 'DRAFT'));
@@ -2165,6 +2299,26 @@ class Procurement_model extends CI_Model
             $nextStatus = 'VOID';
         }
 
+        $actorNameSnapshot = null;
+        if ($userId > 0 && $this->db->table_exists('auth_user')) {
+            $actor = $this->db
+                ->select('username')
+                ->from('auth_user')
+                ->where('id', $userId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $actorNameSnapshot = $this->nullable_string($actor['username'] ?? null);
+        }
+
+        $beforeAuditPayload = [
+            'status' => $status,
+            'approved_by' => $request['approved_by'] ?? null,
+            'approved_at' => $request['approved_at'] ?? null,
+            'voided_by' => $request['voided_by'] ?? null,
+            'voided_at' => $request['voided_at'] ?? null,
+        ];
+
         $this->db->trans_begin();
         if ($needsReverseFulfillment) {
             $reverseResult = $this->reverse_fulfillments_before_void($requestId, $notes, $userId);
@@ -2193,8 +2347,30 @@ class Procurement_model extends CI_Model
                 'store_request_id' => $requestId,
                 'action' => $action === 'APPROVE' ? 'APPROVE' : ($action === 'REJECT' ? 'REJECT' : ($action === 'SUBMIT' ? 'SUBMIT' : 'VOID')),
                 'actor_user_id' => $userId > 0 ? $userId : null,
-                'actor_name_snapshot' => null,
+                'actor_name_snapshot' => $actorNameSnapshot,
                 'notes' => $this->nullable_string($notes),
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        if ($this->db->table_exists('aud_transaction_log')) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'PROCUREMENT',
+                'action_code' => 'STORE_REQUEST_' . $action,
+                'entity_table' => 'pur_store_request',
+                'entity_id' => $requestId,
+                'transaction_no' => (string)($request['sr_no'] ?? ''),
+                'ref_table' => 'pur_store_request',
+                'ref_id' => $requestId,
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'source_ip' => $sourceIp !== '' ? $sourceIp : null,
+                'before_payload' => json_encode($beforeAuditPayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                'after_payload' => json_encode([
+                    'status' => $nextStatus,
+                    'action' => $action,
+                    'notes' => $this->nullable_string($notes),
+                ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+                'notes' => 'Aksi Store Request: ' . $action,
                 'created_at' => date('Y-m-d H:i:s'),
             ]);
         }
@@ -3110,9 +3286,28 @@ class Procurement_model extends CI_Model
         $dateEnd = $this->normalize_date((string)($filters['date_end'] ?? ''));
 
         if ($q !== '') {
+            $like = $this->db->escape('%' . $this->db->escape_like_str($q) . '%');
+            $lineSearchSql = "EXISTS (
+                SELECT 1
+                FROM pur_store_request_line srl_search
+                LEFT JOIN mst_item i_search ON i_search.id = srl_search.item_id
+                LEFT JOIN mst_material m_search ON m_search.id = srl_search.material_id
+                WHERE srl_search.store_request_id = {$alias}.id
+                  AND (
+                    srl_search.profile_name LIKE {$like} ESCAPE '!'
+                    OR srl_search.profile_brand LIKE {$like} ESCAPE '!'
+                    OR srl_search.profile_description LIKE {$like} ESCAPE '!'
+                    OR srl_search.notes LIKE {$like} ESCAPE '!'
+                    OR i_search.item_code LIKE {$like} ESCAPE '!'
+                    OR i_search.item_name LIKE {$like} ESCAPE '!'
+                    OR m_search.material_code LIKE {$like} ESCAPE '!'
+                    OR m_search.material_name LIKE {$like} ESCAPE '!'
+                  )
+            )";
             $this->db->group_start()
                 ->like($alias . '.sr_no', $q)
                 ->or_like($alias . '.notes', $q)
+                ->or_where($lineSearchSql, null, false)
                 ->group_end();
         }
         if ($status !== '' && $status !== 'ALL') {

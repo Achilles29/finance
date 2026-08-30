@@ -7,6 +7,7 @@ $monthAttentionUnpaidDetails = (array)($month_attention_unpaid_details ?? []);
 $allAttentionUnpaidDetails = (array)($all_attention_unpaid_details ?? []);
 $paymentMethodBreakdown = (array)($payment_method_breakdown ?? []);
 $typeBreakdown = (array)($type_breakdown ?? []);
+$usagePurposeAttention = (array)($usage_purpose_attention ?? []);
 $paidRows = (array)($paid_rows ?? []);
 $paidSummary = (array)($paid_summary ?? []);
 $poPaidPageCount = count($paidRows);
@@ -69,6 +70,14 @@ $statusBadgeClass = function (string $status): string {
         'VOID' => 'bg-secondary',
     ];
     return $map[$status] ?? 'bg-secondary';
+};
+$usagePurposeLabel = static function (string $purpose): string {
+    return strtoupper(trim($purpose)) === 'OPERASIONAL' ? 'Operasional' : 'Persediaan Produksi';
+};
+$usagePurposeIssueLabel = static function (string $issueType): string {
+    return strtoupper(trim($issueType)) === 'MATERIAL_AS_OPERATIONAL'
+        ? 'Material sebagai operasional'
+        : 'Tujuan berbeda dari master';
 };
 
 $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purchase.order.index']['can_edit']);
@@ -607,6 +616,44 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         border-width: 1px;
         box-shadow: 0 10px 24px rgba(185, 28, 28, 0.08);
     }
+    .po-purpose-flare {
+        border: 1px solid #efc98f;
+        border-radius: 18px;
+        background: linear-gradient(135deg, #fffaf0 0%, #fff4df 100%);
+        box-shadow: 0 10px 24px rgba(176, 111, 26, 0.08);
+        color: #5b4123;
+    }
+    .po-purpose-flare-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: .85rem;
+    }
+    .po-purpose-flare-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.35rem;
+        height: 2.35rem;
+        border-radius: .85rem;
+        background: #9c5b10;
+        color: #fff;
+        flex: 0 0 auto;
+    }
+    .po-purpose-flare-title { font-weight: 800; color: #72420b; }
+    .po-purpose-flare-meta { color: #806043; font-size: .76rem; line-height: 1.35; }
+    .po-purpose-flare-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; }
+    .po-purpose-flare-chip { display: inline-flex; align-items: center; border: 1px solid #e5bd81; border-radius: 999px; padding: .2rem .52rem; background: rgba(255,255,255,.72); color: #775027; font-size: .69rem; font-weight: 700; }
+    .po-purpose-flare-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .45rem; margin-top: .75rem; }
+    .po-purpose-flare-item { display: block; padding: .52rem .62rem; border: 1px solid rgba(173, 111, 27, .22); border-radius: 12px; background: rgba(255,255,255,.72); color: inherit; text-decoration: none; }
+    .po-purpose-flare-item:hover { border-color: #b86d17; color: inherit; background: #fff; }
+    .po-purpose-flare-doc { display: flex; align-items: center; justify-content: space-between; gap: .45rem; color: #75430d; font-size: .72rem; font-weight: 800; }
+    .po-purpose-flare-line { display: block; margin-top: .15rem; color: #2e2b28; font-size: .78rem; font-weight: 700; line-height: 1.25; }
+    .po-purpose-flare-item small { display: block; margin-top: .2rem; color: #806043; font-size: .68rem; line-height: 1.25; }
+    @media (max-width: 767.98px) {
+        .po-purpose-flare-head { align-items: flex-start; }
+        .po-purpose-flare-chips { justify-content: flex-start; }
+    }
     .po-month-unpaid-list {
         display: grid;
         gap: .45rem;
@@ -772,6 +819,47 @@ $allUnpaidCount = (int)($allAttentionUnpaidDetails['total_count'] ?? 0);
                 </a>
             <?php endforeach; ?>
         </div>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<?php if ((int)($usagePurposeAttention['total_lines'] ?? 0) > 0): ?>
+<div class="po-purpose-flare mb-3 p-3" role="alert">
+    <div class="po-purpose-flare-head">
+        <div class="d-flex gap-2">
+            <span class="po-purpose-flare-icon"><i class="ri ri-alarm-warning-line"></i></span>
+            <div>
+                <div class="po-purpose-flare-title">Peruntukan belanja perlu ditinjau</div>
+                <div class="po-purpose-flare-meta">
+                    <?php echo number_format((int)($usagePurposeAttention['total_lines'] ?? 0)); ?> line pada
+                    <?php echo number_format((int)($usagePurposeAttention['document_count'] ?? 0)); ?> PO di rentang tanggal ini
+                    tidak selaras dengan default master, atau merupakan material yang ditandai operasional. Hanya PO aktif sampai tahap PAID yang dihitung; REJECTED dan VOID dikecualikan. Data tidak diubah otomatis.
+                </div>
+            </div>
+        </div>
+        <div class="po-purpose-flare-chips">
+            <?php if ((int)($usagePurposeAttention['material_operational_count'] ?? 0) > 0): ?>
+                <span class="po-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['material_operational_count']); ?> material operasional</span>
+            <?php endif; ?>
+            <?php if ((int)($usagePurposeAttention['purpose_mismatch_count'] ?? 0) > 0): ?>
+                <span class="po-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['purpose_mismatch_count']); ?> tujuan ≠ master</span>
+            <?php endif; ?>
+            <span class="po-purpose-flare-chip">Rp <?php echo number_format((float)($usagePurposeAttention['total_value'] ?? 0), 2, ',', '.'); ?></span>
+        </div>
+    </div>
+    <?php if (!empty($usagePurposeAttention['rows'])): ?>
+    <div class="po-purpose-flare-list">
+        <?php foreach ((array)$usagePurposeAttention['rows'] as $attentionRow): ?>
+            <a class="po-purpose-flare-item" href="<?php echo site_url('purchase-orders/detail/' . (int)($attentionRow['purchase_order_id'] ?? 0)); ?>">
+                <span class="po-purpose-flare-doc">
+                    <span><?php echo html_escape((string)($attentionRow['po_no'] ?? '-')); ?> · <?php echo html_escape((string)($attentionRow['request_date'] ?? '-')); ?></span>
+                    <span><?php echo html_escape($usagePurposeIssueLabel((string)($attentionRow['issue_type'] ?? ''))); ?></span>
+                </span>
+                <span class="po-purpose-flare-line"><?php echo html_escape((string)($attentionRow['line_name'] ?? '-')); ?></span>
+                <small>Transaksi: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['actual_usage_purpose'] ?? ''))); ?> · Master: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['default_usage_purpose'] ?? ''))); ?></small>
+            </a>
+        <?php endforeach; ?>
+    </div>
     <?php endif; ?>
 </div>
 <?php endif; ?>

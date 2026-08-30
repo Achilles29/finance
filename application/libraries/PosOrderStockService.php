@@ -220,7 +220,10 @@ class PosOrderStockService
                         : $reverseQty;
                     if ($policy === 'RETURN_TO_STOCK' && $returnedQty > 0.0001) {
                         $physicalReturns++;
-                    } else {
+                    } elseif ($policy === 'ADJUSTMENT_ONLY') {
+                        // A skipped stock return is not an adjustment. It only
+                        // means the old POS line has no provable stock-out to
+                        // reverse, so never manufacture a waste/adjustment row.
                         if (strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT') {
                             $this->collect_component_adjustment_only_line($componentAdjustmentGroups, $snapshot['header'], $line, $reverseQty, $meta);
                         } else {
@@ -834,7 +837,11 @@ class PosOrderStockService
             }
             $reverseQty = round(max(0, $reverseQty - (float)($deficitReverse['reversed_qty'] ?? 0)), 4);
             if ($reverseQty <= 0.0001) {
-                return ['ok' => true, 'notes' => 'Retur menutup defisit POS; tidak ada lot yang perlu dikembalikan.'];
+                return [
+                    'ok' => true,
+                    'returned_qty' => 0.0,
+                    'notes' => 'Retur menutup defisit POS; tidak ada lot yang perlu dikembalikan.',
+                ];
             }
         }
 
@@ -1199,21 +1206,48 @@ class PosOrderStockService
             }
             $reverseQty = round(max(0, $reverseQty - (float)($deficitReverse['reversed_qty'] ?? 0)), 4);
             if ($reverseQty <= 0.0001) {
-                return ['ok' => true, 'notes' => 'Retur menutup defisit POS; tidak ada lot component yang perlu dikembalikan.'];
+                return [
+                    'ok' => true,
+                    'returned_qty' => 0.0,
+                    'notes' => 'Retur menutup defisit POS; tidak ada lot component yang perlu dikembalikan.',
+                ];
             }
         }
 
-        $lotRollback = $this->rollback_or_restore_component_lots($header, $line, $reverseQty, $meta, $movementDate, $locationType, $divisionId);
-        if (!($lotRollback['ok'] ?? false)) {
-            return $lotRollback;
-        }
+        if ($movementRefType === 'COMPONENT_LOT_ISSUE') {
+            // A component lot issue is sufficient evidence for a physical
+            // return, but never create a synthetic lot when its source is
+            // missing or incomplete. That was the path that produced phantom
+            // stock for failed/void POS snapshots.
+            if (!$this->is_component_lot_issue_reference($header, $line)) {
+                return $this->skip_unlinked_component_return(
+                    $header,
+                    $line,
+                    $reverseQty,
+                    'Jejak lot pemakaian component tidak cocok dengan snapshot POS. Sistem tidak menambah stok tanpa lot pasangan.'
+                );
+            }
 
-        if (in_array($movementRefType, ['COMPONENT_LOT_ISSUE', 'COMPONENT_MOVEMENT'], true)) {
+            $lotRollback = $this->rollback_component_issue_lots_only($header, $line, $reverseQty, $meta);
+            if (!($lotRollback['ok'] ?? false)) {
+                return $lotRollback;
+            }
+
+            $rolledQty = round((float)($lotRollback['data']['rolled_qty'] ?? 0), 4);
+            if ($rolledQty <= 0.0001) {
+                return $this->skip_unlinked_component_return(
+                    $header,
+                    $line,
+                    $reverseQty,
+                    'Jejak lot pemakaian component tidak memiliki kuantitas yang dapat dikembalikan.'
+                );
+            }
+
             $movementRollback = $this->rollback_component_usage_movement(
                 (int)($header['id'] ?? 0),
                 (int)($line['id'] ?? 0),
-                $reverseQty,
-                $movementRefType === 'COMPONENT_MOVEMENT' ? (int)($line['movement_ref_id'] ?? 0) : 0,
+                $rolledQty,
+                0,
                 [
                     'component_id' => (int)($line['component_id'] ?? 0),
                     'uom_id' => (int)($line['required_uom_id'] ?? 0),
@@ -1228,7 +1262,14 @@ class PosOrderStockService
             );
             if (!($movementRollback['ok'] ?? false)) {
                 if ($this->is_missing_rollback_movement_message((string)($movementRollback['message'] ?? ''))) {
-                    return $this->post_component_rollback_fallback($header, $line, $reverseQty, $meta, $locationType, $divisionId, 'Component rollback fallback: movement usage lama tidak ditemukan.');
+                    // The lot was proven and safely returned. Do not post a
+                    // new aggregate ledger return when the old usage ledger is
+                    // absent, because that would create stock from nothing.
+                    return [
+                        'ok' => true,
+                        'returned_qty' => $rolledQty,
+                        'warning' => 'Lot component dikembalikan, tetapi movement usage lama tidak ditemukan sehingga tidak dibuat movement reversal sintetis.',
+                    ];
                 }
                 return $movementRollback;
             }
@@ -1238,31 +1279,72 @@ class PosOrderStockService
                 return $rebuild;
             }
 
-            return ['ok' => true];
+            return ['ok' => true, 'returned_qty' => $rolledQty];
         }
 
-        $fallback = $this->post_component_aggregate_movement([
-            'movement_date' => $movementDate,
-            'location_type' => $locationType,
-            'division_id' => $divisionId,
-            'component_id' => (int)($line['component_id'] ?? 0),
-            'uom_id' => (int)($line['required_uom_id'] ?? 0),
-            'movement_type' => 'VOID_REVERSE',
-            'qty' => $reverseQty,
-            'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
-            'source_module' => 'POS',
-            'source_table' => 'pos_stock_commit_reversal',
-            'source_id' => (int)($header['id'] ?? 0),
-            'source_line_id' => (int)($line['id'] ?? 0),
-            'notes' => 'POS return to stock component reversal.',
-            'actor_employee_id' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0,
-            'allow_negative' => true,
-        ]);
-        if (!($fallback['ok'] ?? false)) {
-            return $fallback;
+        if ($movementRefType === 'COMPONENT_MOVEMENT') {
+            $evidence = $this->find_component_usage_movement_for_reversal(
+                (int)($header['id'] ?? 0),
+                (int)($line['id'] ?? 0),
+                (int)($line['movement_ref_id'] ?? 0),
+                [
+                    'component_id' => (int)($line['component_id'] ?? 0),
+                    'uom_id' => (int)($line['required_uom_id'] ?? 0),
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                ]
+            );
+            if (!($evidence['ok'] ?? false)) {
+                return $this->skip_unlinked_component_return(
+                    $header,
+                    $line,
+                    $reverseQty,
+                    (string)($evidence['message'] ?? 'Movement usage component tidak dapat dibuktikan dari snapshot POS.')
+                );
+            }
+
+            // A proven historical aggregate usage can legitimately need a
+            // fallback lot, because older data may predate component FIFO.
+            $lotRollback = $this->rollback_or_restore_component_lots($header, $line, $reverseQty, $meta, $movementDate, $locationType, $divisionId);
+            if (!($lotRollback['ok'] ?? false)) {
+                return $lotRollback;
+            }
+
+            $movementRollback = $this->rollback_component_usage_movement(
+                (int)($header['id'] ?? 0),
+                (int)($line['id'] ?? 0),
+                $reverseQty,
+                (int)($evidence['row']['id'] ?? 0),
+                [
+                    'component_id' => (int)($line['component_id'] ?? 0),
+                    'uom_id' => (int)($line['required_uom_id'] ?? 0),
+                    'location_type' => $locationType,
+                    'division_id' => $divisionId,
+                    'movement_date' => $movementDate,
+                    'reversal_source_table' => 'pos_stock_commit_reversal',
+                    'reversal_source_id' => (int)($header['id'] ?? 0),
+                    'notes' => (string)($meta['notes'] ?? 'Void/refund POS'),
+                    'actor_employee_id' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0,
+                ]
+            );
+            if (!($movementRollback['ok'] ?? false)) {
+                return $movementRollback;
+            }
+
+            $rebuild = $this->rebuild_component_history_after_pos_rollback($line, $locationType, $divisionId);
+            if (!($rebuild['ok'] ?? false)) {
+                return $rebuild;
+            }
+
+            return ['ok' => true, 'returned_qty' => $reverseQty];
         }
 
-        return $this->rebuild_component_history_after_pos_rollback($line, $locationType, $divisionId);
+        return $this->skip_unlinked_component_return(
+            $header,
+            $line,
+            $reverseQty,
+            'Snapshot tidak memiliki jejak lot, movement, atau defisit component yang dapat dibuktikan. Sistem tidak menambah stok tanpa sumber pemakaian.'
+        );
     }
 
     private function apply_material_fifo_usage_rollback_to_movements(array $header, array $line, array $issueData, int $divisionId, string $destinationType, array $allocations, array $meta, string $movementDate): array
@@ -1594,61 +1676,164 @@ class PosOrderStockService
         ];
     }
 
-    private function rollback_component_usage_movement(int $commitId, int $commitLineId, float $reverseQty, int $movementId = 0, array $fallbackContext = []): array
+    private function skip_unlinked_component_return(array $header, array $line, float $qty, string $reason): array
     {
-        if (!$this->ci->db->table_exists('inv_component_movement_log')) {
-            return ['ok' => true];
+        $warning = 'Pengembalian stok component tidak diposting: ' . trim($reason);
+        log_message(
+            'error',
+            'POS component reversal skipped without paired evidence | commit #' . (int)($header['id'] ?? 0)
+            . ' | line #' . (int)($line['id'] ?? 0)
+            . ' | qty ' . number_format(max(0, $qty), 4, '.', '')
+            . ' | ' . $reason
+        );
+
+        return [
+            'ok' => true,
+            'returned_qty' => 0.0,
+            'skipped_qty' => round(max(0, $qty), 4),
+            'warning' => $warning,
+        ];
+    }
+
+    /**
+     * Roll back only a recorded component lot issue. Unlike the historical
+     * fallback helper, this never manufactures a replacement lot.
+     */
+    private function rollback_component_issue_lots_only(array $header, array $line, float $qty, array $meta): array
+    {
+        if ($qty <= 0.0001 || !file_exists(APPPATH . 'libraries/ComponentLotManager.php')) {
+            return ['ok' => true, 'data' => ['rolled_qty' => 0.0, 'remaining_qty' => $qty]];
         }
 
-        $row = null;
+        $this->ci->load->library('ComponentLotManager');
+        return $this->ci->componentlotmanager->rollbackIssueLotsBySource(
+            'pos_stock_commit',
+            (int)($header['id'] ?? 0),
+            (int)($line['id'] ?? 0),
+            (string)($meta['notes'] ?? 'Void/refund POS'),
+            $qty,
+            true
+        );
+    }
+
+    /**
+     * Resolve a component USAGE movement only when it can be tied to this
+     * exact POS commit line. Legacy rows without source_line_id are accepted
+     * solely when their component scope produces one unambiguous candidate.
+     */
+    private function find_component_usage_movement_for_reversal(int $commitId, int $commitLineId, int $movementId = 0, array $scope = []): array
+    {
+        if ($commitId <= 0 || $commitLineId <= 0 || !$this->ci->db->table_exists('inv_component_movement_log')) {
+            return ['ok' => false, 'message' => 'Movement usage component tidak tersedia untuk rollback.'];
+        }
+
+        $matchesScope = static function (array $row) use ($commitId, $commitLineId, $scope): bool {
+            if (
+                strtoupper(trim((string)($row['movement_type'] ?? ''))) !== 'USAGE'
+                || strtolower(trim((string)($row['source_table'] ?? ''))) !== 'pos_stock_commit'
+                || (int)($row['source_id'] ?? 0) !== $commitId
+            ) {
+                return false;
+            }
+            if (!empty($scope['component_id']) && (int)($row['component_id'] ?? 0) !== (int)$scope['component_id']) {
+                return false;
+            }
+            if (!empty($scope['uom_id']) && (int)($row['uom_id'] ?? 0) !== (int)$scope['uom_id']) {
+                return false;
+            }
+            if (!empty($scope['location_type']) && strtoupper((string)($row['location_type'] ?? '')) !== strtoupper((string)$scope['location_type'])) {
+                return false;
+            }
+            if (array_key_exists('division_id', $scope)) {
+                $expectedDivisionId = $scope['division_id'];
+                $actualDivisionId = $row['division_id'] ?? null;
+                if ($expectedDivisionId === null || $expectedDivisionId === '') {
+                    if ($actualDivisionId !== null && $actualDivisionId !== '') {
+                        return false;
+                    }
+                } elseif ((int)$actualDivisionId !== (int)$expectedDivisionId) {
+                    return false;
+                }
+            }
+
+            $sourceLineId = $row['source_line_id'] ?? null;
+            return $sourceLineId === null || $sourceLineId === '' || (int)$sourceLineId === $commitLineId;
+        };
+
         if ($movementId > 0) {
             $row = $this->ci->db->from('inv_component_movement_log')
                 ->where('id', $movementId)
                 ->limit(1)
                 ->get()
                 ->row_array() ?: null;
-        }
-        if (!$row) {
-            $row = $this->ci->db->from('inv_component_movement_log')
-                ->where('source_table', 'pos_stock_commit')
-                ->where('source_id', $commitId)
-                ->where('source_line_id', $commitLineId)
-                ->where('movement_type', 'USAGE')
-                ->order_by('id', 'DESC')
-                ->limit(1)
-                ->get()
-                ->row_array() ?: null;
-        }
-        if (!$row) {
-            $this->ci->db->from('inv_component_movement_log')
-                ->where('source_table', 'pos_stock_commit')
-                ->where('source_id', $commitId)
-                ->where('movement_type', 'USAGE');
-            if (!empty($fallbackContext['component_id'])) {
-                $this->ci->db->where('component_id', (int)$fallbackContext['component_id']);
+            if ($row && $matchesScope($row)) {
+                return ['ok' => true, 'row' => $row, 'match' => 'movement_ref_id'];
             }
-            if (!empty($fallbackContext['uom_id'])) {
-                $this->ci->db->where('uom_id', (int)$fallbackContext['uom_id']);
-            }
-            if (!empty($fallbackContext['location_type'])) {
-                $this->ci->db->where('location_type', (string)$fallbackContext['location_type']);
-            }
-            if (array_key_exists('division_id', $fallbackContext)) {
-                if ($fallbackContext['division_id'] === null || $fallbackContext['division_id'] === '') {
-                    $this->ci->db->where('division_id IS NULL', null, false);
-                } else {
-                    $this->ci->db->where('division_id', (int)$fallbackContext['division_id']);
-                }
-            }
-            $row = $this->ci->db
-                ->order_by('id', 'DESC')
-                ->limit(1)
-                ->get()
-                ->row_array() ?: null;
         }
-        if (!$row) {
-            return ['ok' => false, 'message' => 'Movement komponen tidak ditemukan untuk rollback.'];
+
+        $row = $this->ci->db->from('inv_component_movement_log')
+            ->where('source_table', 'pos_stock_commit')
+            ->where('source_id', $commitId)
+            ->where('source_line_id', $commitLineId)
+            ->where('movement_type', 'USAGE')
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array() ?: null;
+        if ($row && $matchesScope($row)) {
+            return ['ok' => true, 'row' => $row, 'match' => 'source_line_id'];
         }
+
+        $query = $this->ci->db->from('inv_component_movement_log')
+            ->where('source_table', 'pos_stock_commit')
+            ->where('source_id', $commitId)
+            ->where('movement_type', 'USAGE')
+            ->where('source_line_id IS NULL', null, false);
+        if (!empty($scope['component_id'])) {
+            $query->where('component_id', (int)$scope['component_id']);
+        }
+        if (!empty($scope['uom_id'])) {
+            $query->where('uom_id', (int)$scope['uom_id']);
+        }
+        if (!empty($scope['location_type'])) {
+            $query->where('location_type', (string)$scope['location_type']);
+        }
+        if (array_key_exists('division_id', $scope)) {
+            if ($scope['division_id'] === null || $scope['division_id'] === '') {
+                $query->where('division_id IS NULL', null, false);
+            } else {
+                $query->where('division_id', (int)$scope['division_id']);
+            }
+        }
+        $rows = $query->order_by('id', 'DESC')->get()->result_array();
+        if (count($rows) === 1 && $matchesScope($rows[0])) {
+            return ['ok' => true, 'row' => $rows[0], 'match' => 'legacy_unambiguous'];
+        }
+
+        return [
+            'ok' => false,
+            'message' => empty($rows)
+                ? 'Movement usage component tidak ditemukan untuk snapshot POS.'
+                : 'Movement usage component tidak unik untuk snapshot POS; stok tidak dikembalikan otomatis.',
+        ];
+    }
+
+    private function rollback_component_usage_movement(int $commitId, int $commitLineId, float $reverseQty, int $movementId = 0, array $fallbackContext = []): array
+    {
+        if (!$this->ci->db->table_exists('inv_component_movement_log')) {
+            return ['ok' => true];
+        }
+
+        $evidence = $this->find_component_usage_movement_for_reversal(
+            $commitId,
+            $commitLineId,
+            $movementId,
+            $fallbackContext
+        );
+        if (!($evidence['ok'] ?? false)) {
+            return ['ok' => false, 'message' => (string)($evidence['message'] ?? 'Movement komponen tidak ditemukan untuk rollback.')];
+        }
+        $row = (array)($evidence['row'] ?? []);
 
         $movementRowId = (int)($row['id'] ?? 0);
         $currentQtyOut = round((float)($row['qty_out'] ?? 0), 4);

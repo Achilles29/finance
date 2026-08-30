@@ -59,6 +59,7 @@ class Purchase extends MY_Controller
             'card_summary' => $this->Purchase_model->get_purchase_order_filtered_summary($q, $rangeStatus, $dateStart, $dateEnd),
             'filtered_summary' => $this->Purchase_model->get_purchase_order_filtered_summary($q, $status, $dateStart, $dateEnd),
             'line_summary' => $this->Purchase_model->get_purchase_order_line_filtered_summary($q, $status, $dateStart, $dateEnd),
+            'usage_purpose_attention' => $this->Purchase_model->get_purchase_order_usage_purpose_attention($rangeStatus, $dateStart, $dateEnd),
             'month_attention_summary' => $this->Purchase_model->get_purchase_order_filtered_summary('', 'ALL', date('Y-m-01'), date('Y-m-t')),
             'month_attention_unpaid_details' => $this->Purchase_model->list_purchase_order_month_unpaid_details(date('Y-m-01'), date('Y-m-t'), 30),
             'all_attention_unpaid_details' => $this->Purchase_model->list_purchase_order_month_unpaid_details('', '', 80),
@@ -657,7 +658,7 @@ class Purchase extends MY_Controller
             $mutationType = 'ALL';
         }
         $moduleFilter = strtoupper(trim((string)$this->input->get('module_filter', true)));
-        $allowedModuleFilters = ['ALL', 'POS', 'PURCHASE', 'FINANCE', 'FINANCE_RECON', 'FINANCE_TRANSFER', 'FINANCE_PAYABLE', 'FINANCE_RECEIVABLE', 'PAYROLL'];
+        $allowedModuleFilters = ['ALL', 'POS', 'PURCHASE', 'FINANCE', 'FINANCE_RECON', 'REVENUE_RECON', 'FINANCE_TRANSFER', 'FINANCE_PAYABLE', 'FINANCE_RECEIVABLE', 'PAYROLL'];
         if (!in_array($moduleFilter, $allowedModuleFilters, true)) {
             $moduleFilter = 'ALL';
         }
@@ -1557,6 +1558,10 @@ class Purchase extends MY_Controller
         if (!in_array($activeTab, ['input', 'rincian'], true)) {
             $activeTab = 'input';
         }
+        $status = strtoupper(trim((string)$this->input->get('status', true)));
+        if (!in_array($status, ['ALL', 'DRAFT', 'POSTED', 'VOID'], true)) {
+            $status = 'ALL';
+        }
         $divisionId  = (int)$this->input->get('division_id', true);
         $destination = strtoupper(trim((string)$this->input->get('destination', true)));
         if ($destination === '') {
@@ -1580,6 +1585,76 @@ class Purchase extends MY_Controller
         $divisions           = $this->Purchase_model->list_active_operational_divisions();
         $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
         $destination         = $this->normalizeDestinationForDivisionFilter($destination, $divisionId, $destinationGuardMap);
+        $allRows = $this->Purchase_model->list_stock_adjustments(
+            'DIVISION',
+            $month,
+            $q,
+            500,
+            $divisionId > 0 ? $divisionId : null,
+            $destination,
+            $dateFrom,
+            $dateTo,
+            'ALL'
+        );
+        $rows = $status === 'ALL'
+            ? $allRows
+            : $this->Purchase_model->list_stock_adjustments(
+                'DIVISION',
+                $month,
+                $q,
+                500,
+                $divisionId > 0 ? $divisionId : null,
+                $destination,
+                $dateFrom,
+                $dateTo,
+                $status
+            );
+        $allLineRows = $activeTab === 'rincian'
+            ? $this->Purchase_model->list_stock_adjustment_detail_rows(
+                'DIVISION',
+                $month,
+                $q,
+                500,
+                $divisionId > 0 ? $divisionId : null,
+                $destination,
+                $dateFrom,
+                $dateTo,
+                'ALL'
+            )
+            : [];
+        $lineRows = $activeTab !== 'rincian'
+            ? []
+            : ($status === 'ALL'
+                ? $allLineRows
+                : $this->Purchase_model->list_stock_adjustment_detail_rows(
+                    'DIVISION',
+                    $month,
+                    $q,
+                    500,
+                    $divisionId > 0 ? $divisionId : null,
+                    $destination,
+                    $dateFrom,
+                    $dateTo,
+                    $status
+                ));
+        $statusCounts = [
+            'ALL' => ['documents' => count($allRows), 'lines' => count($allLineRows)],
+            'DRAFT' => ['documents' => 0, 'lines' => 0],
+            'POSTED' => ['documents' => 0, 'lines' => 0],
+            'VOID' => ['documents' => 0, 'lines' => 0],
+        ];
+        foreach ($allRows as $adjustmentRow) {
+            $rowStatus = strtoupper((string)($adjustmentRow['status'] ?? 'DRAFT'));
+            if (isset($statusCounts[$rowStatus])) {
+                $statusCounts[$rowStatus]['documents']++;
+            }
+        }
+        foreach ($allLineRows as $adjustmentLineRow) {
+            $lineStatus = strtoupper((string)($adjustmentLineRow['status'] ?? 'DRAFT'));
+            if (isset($statusCounts[$lineStatus])) {
+                $statusCounts[$lineStatus]['lines']++;
+            }
+        }
 
         $this->render('purchase/stock_adjustment_index', [
             'title'               => 'Adjustment Bahan Baku',
@@ -1596,10 +1671,10 @@ class Purchase extends MY_Controller
             'destination'         => $destination,
             'limit'               => $limit,
             'page'                => $page,
-            'rows'                => $this->Purchase_model->list_stock_adjustments('DIVISION', $month, $q, 500, $divisionId > 0 ? $divisionId : null, $destination, $dateFrom, $dateTo),
-            'line_rows'           => $activeTab === 'rincian'
-                ? $this->Purchase_model->list_stock_adjustment_detail_rows('DIVISION', $month, $q, 500, $divisionId > 0 ? $divisionId : null, $destination, $dateFrom, $dateTo)
-                : [],
+            'status'              => $status,
+            'status_counts'       => $statusCounts,
+            'rows'                => $rows,
+            'line_rows'           => $lineRows,
             'divisions'           => $divisions,
             'destination_guard_map' => $destinationGuardMap,
         ]);

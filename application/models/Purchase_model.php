@@ -2830,6 +2830,7 @@ class Purchase_model extends CI_Model
         $hasMovementDestination = $stockScope === 'DIVISION' && $this->db->field_exists('destination_type', 'inv_stock_movement_log');
         $hasMovementAdjustmentCategory = $this->db->field_exists('adjustment_category', 'inv_stock_movement_log');
         $hasMovementProfileExpiredDate = $this->db->field_exists('profile_expired_date', 'inv_stock_movement_log');
+        $hasMovementReversalLink = $this->db->field_exists('reversal_of_movement_id', 'inv_stock_movement_log');
         $divisionCodeColumn = $this->db->field_exists('division_code', 'mst_operational_division')
             ? 'division_code'
             : ($this->db->field_exists('code', 'mst_operational_division') ? 'code' : null);
@@ -2847,6 +2848,23 @@ class Purchase_model extends CI_Model
             ->join('mst_material m', 'm.id = COALESCE(l.material_id, i.material_id)', 'left')
             ->where('l.movement_scope', $stockScope)
             ->where('l.movement_date <=', $dateTo);
+
+        if ($hasMovementReversalLink) {
+            $this->db
+                ->select('l.reversal_of_movement_id')
+                ->select('origin.movement_type AS reversal_origin_movement_type')
+                ->select($hasMovementAdjustmentCategory ? 'origin.adjustment_category AS reversal_origin_adjustment_category' : 'NULL AS reversal_origin_adjustment_category', false)
+                ->select('origin.qty_buy_delta AS reversal_origin_qty_buy_delta')
+                ->select('origin.qty_content_delta AS reversal_origin_qty_content_delta')
+                ->join('inv_stock_movement_log origin', 'origin.id = l.reversal_of_movement_id', 'left');
+        } else {
+            $this->db
+                ->select('NULL AS reversal_of_movement_id', false)
+                ->select('NULL AS reversal_origin_movement_type', false)
+                ->select('NULL AS reversal_origin_adjustment_category', false)
+                ->select('NULL AS reversal_origin_qty_buy_delta', false)
+                ->select('NULL AS reversal_origin_qty_content_delta', false);
+        }
 
         if ($hasMovementStockDomain) {
             $this->db->select('"ITEM" AS stock_domain', false);
@@ -2906,33 +2924,13 @@ class Purchase_model extends CI_Model
             ->get()
             ->result_array();
 
-        // Identifikasi void pair yang keduanya ada di window yang sama.
-        // Keduanya di-skip dari display — net effect = 0, seolah tidak pernah terjadi.
-        // Void lintas periode (originalnya di periode lain) TIDAK di-skip.
-        $voidPairKeys   = [];
-        $originPairKeys = [];
-        foreach ($movementRows as $_r) {
-            $_mt = strtoupper(trim((string)($_r['movement_type'] ?? '')));
-            $_rt = (string)($_r['ref_table'] ?? '');
-            $_ri = (int)($_r['ref_id'] ?? 0);
-            if ($_rt === '' || $_ri <= 0) { continue; }
-            $_pk = $_rt . '|' . $_ri;
-            if ($_mt === 'VOID_REVERSE') {
-                $voidPairKeys[$_pk] = true;
-            } else {
-                $originPairKeys[$_pk] = true;
-            }
-        }
-        $skipVoidPairKeys = array_intersect_key($voidPairKeys, $originPairKeys);
+        // Fully linked reversal pairs are audit-only: their operational stock
+        // effect is zero, so they must not create a zero-balance profile row.
+        $movementRows = $this->filterFullyReversedInventoryHistoryMovements($movementRows);
 
         $states = [];
         $daily = [];
         foreach ($movementRows as $movementRow) {
-            $_rt = (string)($movementRow['ref_table'] ?? '');
-            $_ri = (int)($movementRow['ref_id'] ?? 0);
-            if ($_rt !== '' && $_ri > 0 && isset($skipVoidPairKeys[$_rt . '|' . $_ri])) {
-                continue; // skip: pasangan void dalam window yang sama
-            }
             $movementDay = (string)($movementRow['movement_date'] ?? '');
             if ($movementDay === '') {
                 continue;
@@ -3034,7 +3032,14 @@ class Purchase_model extends CI_Model
                 $entry['opening_qty_buy'] = round((float)$entry['opening_qty_buy'] + max(0, $qtyBuyDelta), 4);
                 $entry['opening_qty_content'] = round((float)$entry['opening_qty_content'] + max(0, $qtyContentDelta), 4);
             } else {
-                $deltaPack = $this->buildInventoryDailyDeltaPack($movementType, $qtyBuyDelta, $qtyContentDelta, $adjustmentCategory, (float)$state['avg_cost_per_content']);
+                $deltaPack = $this->buildInventoryDailyDeltaPack(
+                    $movementType,
+                    $qtyBuyDelta,
+                    $qtyContentDelta,
+                    $adjustmentCategory,
+                    (float)$state['avg_cost_per_content'],
+                    $this->resolveInventoryReversalOrigin($movementRow)
+                );
                 $entry['in_qty_buy'] = round((float)$entry['in_qty_buy'] + (float)$deltaPack['delta']['in_qty_buy'], 4);
                 $entry['in_qty_content'] = round((float)$entry['in_qty_content'] + (float)$deltaPack['delta']['in_qty_content'], 4);
                 $entry['out_qty_buy'] = round((float)$entry['out_qty_buy'] + (float)$deltaPack['delta']['out_qty_buy'], 4);
@@ -7596,6 +7601,7 @@ class Purchase_model extends CI_Model
         $hasMovementDestination = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
         $hasMovementAdjustmentCategory = $this->db->field_exists('adjustment_category', 'inv_stock_movement_log');
         $hasMovementProfileExpiredDate = $this->db->field_exists('profile_expired_date', 'inv_stock_movement_log');
+        $hasMovementReversalLink = $this->db->field_exists('reversal_of_movement_id', 'inv_stock_movement_log');
         $movementColumns = [
             'l.id, l.movement_date, l.movement_type, l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id, l.profile_key',
             'l.profile_name, l.profile_brand, l.profile_description, l.profile_content_per_buy, l.profile_buy_uom_code, l.profile_content_uom_code',
@@ -7603,6 +7609,11 @@ class Purchase_model extends CI_Model
         ];
         $movementColumns[] = $hasMovementAdjustmentCategory ? 'l.adjustment_category' : 'NULL AS adjustment_category';
         $movementColumns[] = $hasMovementProfileExpiredDate ? 'l.profile_expired_date' : 'NULL AS profile_expired_date';
+        $movementColumns[] = $hasMovementReversalLink ? 'l.reversal_of_movement_id' : 'NULL AS reversal_of_movement_id';
+        $movementColumns[] = $hasMovementReversalLink ? 'origin.movement_type AS reversal_origin_movement_type' : 'NULL AS reversal_origin_movement_type';
+        $movementColumns[] = ($hasMovementReversalLink && $hasMovementAdjustmentCategory) ? 'origin.adjustment_category AS reversal_origin_adjustment_category' : 'NULL AS reversal_origin_adjustment_category';
+        $movementColumns[] = $hasMovementReversalLink ? 'origin.qty_buy_delta AS reversal_origin_qty_buy_delta' : 'NULL AS reversal_origin_qty_buy_delta';
+        $movementColumns[] = $hasMovementReversalLink ? 'origin.qty_content_delta AS reversal_origin_qty_content_delta' : 'NULL AS reversal_origin_qty_content_delta';
         if ($hasMovementDestination) {
             $movementColumns[] = 'l.destination_type';
         }
@@ -7612,12 +7623,16 @@ class Purchase_model extends CI_Model
             ->from('inv_stock_movement_log l')
             ->where('l.movement_scope', 'DIVISION')
             ->where('l.movement_date <=', $asOfDate);
+        if ($hasMovementReversalLink) {
+            $this->db->join('inv_stock_movement_log origin', 'origin.id = l.reversal_of_movement_id', 'left');
+        }
         $this->applyInventoryHistoryIdentityFilter('l', 'DIVISION', $identity, $hasMovementDestination);
         $movementRows = $this->db
             ->order_by('l.movement_date', 'ASC')
             ->order_by('l.id', 'ASC')
             ->get()
             ->result_array();
+        $movementRows = $this->filterFullyReversedInventoryHistoryMovements($movementRows);
 
         $this->db->trans_begin();
 
@@ -7678,7 +7693,14 @@ class Purchase_model extends CI_Model
                 if ($adjustmentCategory === null) {
                     $adjustmentCategory = $this->resolveInventoryAdjustmentCategoryFromMovement($movementType, $qtyBuyDelta, $qtyContentDelta);
                 }
-                $deltaPack = $this->buildInventoryDailyDeltaPack($movementType, $qtyBuyDelta, $qtyContentDelta, $adjustmentCategory, $currentAvg);
+                $deltaPack = $this->buildInventoryDailyDeltaPack(
+                    $movementType,
+                    $qtyBuyDelta,
+                    $qtyContentDelta,
+                    $adjustmentCategory,
+                    $currentAvg,
+                    $this->resolveInventoryReversalOrigin($movementRow)
+                );
                 foreach ($deltaPack['delta'] as $field => $value) {
                     $deltaMaps['delta'][$field] = round($deltaMaps['delta'][$field] + $value, 4);
                 }
@@ -10453,7 +10475,7 @@ class Purchase_model extends CI_Model
         return ['ok' => true, 'id' => $id];
     }
 
-    public function list_stock_adjustments(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null, string $dateFrom = '', string $dateTo = ''): array
+    public function list_stock_adjustments(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null, string $dateFrom = '', string $dateTo = '', string $status = 'ALL'): array
     {
         if (!$this->db->table_exists('inv_stock_adjustment')) {
             return [];
@@ -10474,6 +10496,7 @@ class Purchase_model extends CI_Model
         if ($dateTo   !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)   !== 1) { $dateTo   = ''; }
         $q = trim($q);
         $limit = max(1, min(500, $limit));
+        $status = $this->normalizeStockAdjustmentStatus($status);
 
         $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
             ? 'division_name'
@@ -10483,6 +10506,7 @@ class Purchase_model extends CI_Model
         $this->db
             ->select('h.*, ' . $divisionNameSelect, false)
             ->select('COUNT(l.id) AS line_count', false)
+            ->select("GROUP_CONCAT(DISTINCT CONCAT_WS(' · ', COALESCE(NULLIF(TRIM(m.material_name), ''), NULLIF(TRIM(i.item_name), ''), NULLIF(TRIM(l.profile_name), ''), '-'), NULLIF(TRIM(l.profile_brand), ''), NULLIF(TRIM(l.profile_description), '')) ORDER BY COALESCE(NULLIF(TRIM(m.material_name), ''), NULLIF(TRIM(i.item_name), ''), NULLIF(TRIM(l.profile_name), '')) SEPARATOR '||') AS adjusted_product_names", false)
             ->select('SUM(COALESCE(l.qty_waste_content, 0)) AS total_waste_content', false)
             ->select('SUM(CASE WHEN COALESCE(l.profile_content_per_buy, 0) > 0 THEN COALESCE(l.qty_waste_content, 0) / l.profile_content_per_buy ELSE 0 END) AS total_waste_buy', false)
             ->select('SUM(COALESCE(l.qty_waste_content, 0) * COALESCE(l.unit_cost, 0)) AS total_waste_value', false)
@@ -10500,6 +10524,8 @@ class Purchase_model extends CI_Model
             ->select('SUM(COALESCE(l.qty_adjustment_plus_content, 0) * COALESCE(l.unit_cost, 0)) AS total_adjustment_plus_value', false)
             ->from('inv_stock_adjustment h')
             ->join('inv_stock_adjustment_line l', 'l.adjustment_id = h.id', 'left')
+            ->join('mst_item i', 'i.id = l.item_id', 'left')
+            ->join('mst_material m', 'm.id = l.material_id', 'left')
             ->join('mst_operational_division d', 'd.id = h.division_id', 'left')
             ->where('h.stock_scope', $scope);
 
@@ -10514,6 +10540,9 @@ class Purchase_model extends CI_Model
         $destination = $this->normalizeStockAdjustmentDestination($destination, false);
         if ($scope === 'DIVISION' && $destination !== null && $destination !== 'ALL') {
             $this->db->where('COALESCE(h.destination_type, "OTHER") =', $destination, false);
+        }
+        if ($status !== 'ALL') {
+            $this->db->where('h.status', $status);
         }
         if ($q !== '') {
             $this->db->group_start()
@@ -10535,7 +10564,7 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
-    public function list_stock_adjustment_detail_rows(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null, string $dateFrom = '', string $dateTo = ''): array
+    public function list_stock_adjustment_detail_rows(string $scope, string $month, string $q, int $limit, ?int $divisionId = null, ?string $destination = null, string $dateFrom = '', string $dateTo = '', string $status = 'ALL'): array
     {
         if (!$this->db->table_exists('inv_stock_adjustment') || !$this->db->table_exists('inv_stock_adjustment_line')) {
             return [];
@@ -10557,6 +10586,7 @@ class Purchase_model extends CI_Model
         $q = trim($q);
         $limit = max(1, min(500, $limit));
         $lineLimit = max(50, min(2000, $limit * 5));
+        $status = $this->normalizeStockAdjustmentStatus($status);
 
         $divisionNameColumn = $this->db->field_exists('division_name', 'mst_operational_division')
             ? 'division_name'
@@ -10594,6 +10624,9 @@ class Purchase_model extends CI_Model
         $destination = $this->normalizeStockAdjustmentDestination($destination, false);
         if ($scope === 'DIVISION' && $destination !== null && $destination !== 'ALL') {
             $this->db->where('COALESCE(h.destination_type, "OTHER") =', $destination, false);
+        }
+        if ($status !== 'ALL') {
+            $this->db->where('h.status', $status);
         }
 
         if ($q !== '') {
@@ -11360,6 +11393,123 @@ class Purchase_model extends CI_Model
             'id' => $id,
             'rebuild_targets' => count($rebuildTargets),
             'voided_deficit_count' => $voidedDeficitCount,
+        ];
+    }
+
+    /**
+     * Rebuilds the operational projection of an already-voided adjustment.
+     * This is for historical documents posted before a projection/reversal
+     * fix; it never reopens or rewrites the adjustment, FIFO lot, or ledger.
+     */
+    public function rebuild_void_stock_adjustment_history(int $id, int $userId = 0): array
+    {
+        $header = $this->get_stock_adjustment($id);
+        if (!$header) {
+            return ['ok' => false, 'message' => 'Dokumen adjustment tidak ditemukan.'];
+        }
+        if (strtoupper((string)($header['status'] ?? '')) !== 'VOID') {
+            return ['ok' => false, 'message' => 'Hanya adjustment berstatus VOID yang dapat direbuild ulang.'];
+        }
+
+        $lines = $this->get_stock_adjustment_lines($id);
+        if (empty($lines)) {
+            return ['ok' => false, 'message' => 'Dokumen adjustment VOID tidak memiliki line.'];
+        }
+
+        $scope = strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE'));
+        if (!in_array($scope, ['WAREHOUSE', 'DIVISION'], true)) {
+            return ['ok' => false, 'message' => 'Scope adjustment VOID tidak valid.'];
+        }
+        $divisionId = !empty($header['division_id']) ? (int)$header['division_id'] : null;
+        $destinationType = $scope === 'DIVISION'
+            ? $this->normalizeStockAdjustmentDestination((string)($header['destination_type'] ?? ''), true)
+            : null;
+        if ($scope === 'DIVISION' && ($divisionId === null || $destinationType === null)) {
+            return ['ok' => false, 'message' => 'Identitas divisi/destinasi adjustment VOID tidak valid.'];
+        }
+
+        $adjustmentDate = $this->normalizeDate((string)($header['adjustment_date'] ?? ''));
+        if ($adjustmentDate === null) {
+            return ['ok' => false, 'message' => 'Tanggal adjustment VOID tidak valid.'];
+        }
+
+        $rebuildTargets = [];
+        foreach ($lines as $line) {
+            $this->registerVoidRollbackRebuildTarget($rebuildTargets, $scope, $adjustmentDate, [
+                'stock_domain' => 'ITEM',
+                'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                'destination_type' => $scope === 'DIVISION' ? $destinationType : null,
+                'item_id' => $this->nullableInt($line['item_id'] ?? null),
+                'material_id' => $this->nullableInt($line['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($line['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($line['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                'profile_name' => $this->nullableString($line['profile_name'] ?? null),
+                'profile_brand' => $this->nullableString($line['profile_brand'] ?? null),
+                'profile_description' => $this->nullableString($line['profile_description'] ?? null),
+                'profile_expired_date' => $this->normalizeDate((string)($line['profile_expired_date'] ?? '')),
+                'profile_content_per_buy' => (float)($line['profile_content_per_buy'] ?? 0),
+                'profile_buy_uom_code' => $this->nullableString($line['profile_buy_uom_code'] ?? null),
+                'profile_content_uom_code' => $this->nullableString($line['profile_content_uom_code'] ?? null),
+            ]);
+        }
+
+        $this->db->trans_begin();
+        foreach ($rebuildTargets as $target) {
+            $rebuild = $this->rebuild_inventory_history_for_identity(
+                (string)$target['scope'],
+                (string)$target['start_date'],
+                (array)$target['identity']
+            );
+            if (!($rebuild['ok'] ?? false)) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => (string)($rebuild['message'] ?? 'Gagal rebuild histori stok adjustment VOID.'),
+                ];
+            }
+        }
+
+        $warehouseAggregateSync = $this->syncWarehouseAggregateTargets($rebuildTargets);
+        if (!($warehouseAggregateSync['ok'] ?? false)) {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'message' => (string)($warehouseAggregateSync['message'] ?? 'Gagal sinkron agregat stok setelah rebuild adjustment VOID.'),
+            ];
+        }
+
+        if ($this->db->table_exists('aud_transaction_log')) {
+            $this->db->insert('aud_transaction_log', [
+                'module_code' => 'INVENTORY',
+                'action_code' => $scope === 'DIVISION'
+                    ? 'DIVISION_ADJUSTMENT_VOID_HISTORY_REBUILD'
+                    : 'WAREHOUSE_ADJUSTMENT_VOID_HISTORY_REBUILD',
+                'entity_table' => 'inv_stock_adjustment',
+                'entity_id' => $id,
+                'transaction_no' => (string)($header['adjustment_no'] ?? ''),
+                'actor_user_id' => $userId > 0 ? $userId : null,
+                'after_payload' => json_encode([
+                    'header_id' => $id,
+                    'adjustment_no' => (string)($header['adjustment_no'] ?? ''),
+                    'status' => 'VOID',
+                    'rebuild_targets' => count($rebuildTargets),
+                ]),
+                'notes' => 'Rebuild histori stok untuk adjustment VOID; ledger audit dan lot tidak diubah',
+            ]);
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal menyimpan rebuild adjustment VOID.'];
+        }
+
+        $this->db->trans_commit();
+        return [
+            'ok' => true,
+            'id' => $id,
+            'adjustment_no' => (string)($header['adjustment_no'] ?? ''),
+            'rebuild_targets' => count($rebuildTargets),
         ];
     }
 
@@ -12377,6 +12527,12 @@ class Purchase_model extends CI_Model
         return $value;
     }
 
+    private function normalizeStockAdjustmentStatus(?string $value): string
+    {
+        $value = strtoupper(trim((string)$value));
+        return in_array($value, ['DRAFT', 'POSTED', 'VOID'], true) ? $value : 'ALL';
+    }
+
     private function convertStockAdjustmentQtyBuy(float $qtyContent, float $contentPerBuy, bool $hasBuyUom): float
     {
         if (!$hasBuyUom) {
@@ -12924,6 +13080,7 @@ class Purchase_model extends CI_Model
         $hasMovementDestination = $stockScope === 'DIVISION' && $this->db->field_exists('destination_type', 'inv_stock_movement_log');
         $hasMovementAdjustmentCategory = $this->db->field_exists('adjustment_category', 'inv_stock_movement_log');
         $hasMovementProfileExpiredDate = $this->db->field_exists('profile_expired_date', 'inv_stock_movement_log');
+        $hasMovementReversalLink = $this->db->field_exists('reversal_of_movement_id', 'inv_stock_movement_log');
         $movementRows = [];
         if ($hasMovementLog) {
             $movementColumns = [
@@ -12933,6 +13090,11 @@ class Purchase_model extends CI_Model
             ];
             $movementColumns[] = $hasMovementAdjustmentCategory ? 'l.adjustment_category' : 'NULL AS adjustment_category';
             $movementColumns[] = $hasMovementProfileExpiredDate ? 'l.profile_expired_date' : 'NULL AS profile_expired_date';
+            $movementColumns[] = $hasMovementReversalLink ? 'l.reversal_of_movement_id' : 'NULL AS reversal_of_movement_id';
+            $movementColumns[] = $hasMovementReversalLink ? 'origin.movement_type AS reversal_origin_movement_type' : 'NULL AS reversal_origin_movement_type';
+            $movementColumns[] = ($hasMovementReversalLink && $hasMovementAdjustmentCategory) ? 'origin.adjustment_category AS reversal_origin_adjustment_category' : 'NULL AS reversal_origin_adjustment_category';
+            $movementColumns[] = $hasMovementReversalLink ? 'origin.qty_buy_delta AS reversal_origin_qty_buy_delta' : 'NULL AS reversal_origin_qty_buy_delta';
+            $movementColumns[] = $hasMovementReversalLink ? 'origin.qty_content_delta AS reversal_origin_qty_content_delta' : 'NULL AS reversal_origin_qty_content_delta';
             if ($stockScope === 'DIVISION' && $hasMovementDestination) {
                 $movementColumns[] = 'l.destination_type';
             }
@@ -12944,12 +13106,16 @@ class Purchase_model extends CI_Model
                 ->where('l.movement_date >=', $startDate)
                 ->where('l.movement_date <=', $today)
                 ->where("COALESCE(l.ref_table,'') <> " . $this->db->escape($openingTable), null, false);
+            if ($hasMovementReversalLink) {
+                $this->db->join('inv_stock_movement_log origin', 'origin.id = l.reversal_of_movement_id', 'left');
+            }
             $this->applyInventoryHistoryIdentityFilter('l', $stockScope, $identity, $hasMovementDestination);
             $movementRows = $this->db
                 ->order_by('l.movement_date', 'ASC')
                 ->order_by('l.id', 'ASC')
                 ->get()
                 ->result_array();
+            $movementRows = $this->filterFullyReversedInventoryHistoryMovements($movementRows);
         }
 
         $this->db
@@ -13086,7 +13252,14 @@ class Purchase_model extends CI_Model
                 if ($adjustmentCategory === null) {
                     $adjustmentCategory = $this->resolveInventoryAdjustmentCategoryFromMovement($movementType, $qtyBuyDelta, $qtyContentDelta);
                 }
-                $deltaPack = $this->buildInventoryDailyDeltaPack($movementType, $qtyBuyDelta, $qtyContentDelta, $adjustmentCategory, $currentAvg);
+                $deltaPack = $this->buildInventoryDailyDeltaPack(
+                    $movementType,
+                    $qtyBuyDelta,
+                    $qtyContentDelta,
+                    $adjustmentCategory,
+                    $currentAvg,
+                    $this->resolveInventoryReversalOrigin($movementRow)
+                );
                 foreach ($deltaPack['delta'] as $field => $value) {
                     $deltaMaps['delta'][$field] = round($deltaMaps['delta'][$field] + $value, 4);
                 }
@@ -13319,7 +13492,14 @@ class Purchase_model extends CI_Model
         ];
     }
 
-    private function buildInventoryDailyDeltaPack(string $movementType, float $qtyBuyDelta, float $qtyContentDelta, ?string $adjustmentCategory, float $avgCostPerContent): array
+    private function buildInventoryDailyDeltaPack(
+        string $movementType,
+        float $qtyBuyDelta,
+        float $qtyContentDelta,
+        ?string $adjustmentCategory,
+        float $avgCostPerContent,
+        array $reversalOrigin = []
+    ): array
     {
         $pack = $this->emptyInventoryDailyDeltaMaps();
         $mutationValue = round(abs($qtyContentDelta) * max(0, $avgCostPerContent), 2);
@@ -13327,13 +13507,97 @@ class Purchase_model extends CI_Model
             $pack['delta']['in_qty_buy'] = max(0, $qtyBuyDelta);
             $pack['delta']['in_qty_content'] = max(0, $qtyContentDelta);
         } elseif ($movementType === 'VOID_REVERSE') {
-            // Cancel the original IN/OUT bucket rather than creating an adjustment.
-            if ($qtyContentDelta >= 0 || ($qtyContentDelta == 0.0 && $qtyBuyDelta >= 0)) {
-                $pack['delta']['out_qty_buy'] = -max(0, $qtyBuyDelta);
-                $pack['delta']['out_qty_content'] = -max(0, $qtyContentDelta);
+            // A reversal must cancel the bucket used by its linked source, not
+            // be interpreted as a new inbound/outbound movement. This matters
+            // especially for ADJUSTMENT_IN: a voided adjustment must disappear
+            // from both stock and the adjustment column.
+            $originType = strtoupper(trim((string)($reversalOrigin['movement_type'] ?? '')));
+            $originCategory = $this->normalizeInventoryAdjustmentCategory((string)($reversalOrigin['adjustment_category'] ?? ''));
+            $originQtyBuy = round((float)($reversalOrigin['qty_buy_delta'] ?? 0), 4);
+            $originQtyContent = round((float)($reversalOrigin['qty_content_delta'] ?? 0), 4);
+            $cancelBuy = -abs($qtyBuyDelta);
+            $cancelContent = -abs($qtyContentDelta);
+            $restoreBuy = abs($qtyBuyDelta);
+            $restoreContent = abs($qtyContentDelta);
+            $cancelValue = -$mutationValue;
+
+            if (in_array($originType, ['PURCHASE_IN', 'TRANSFER_IN'], true)) {
+                $pack['delta']['in_qty_buy'] = $cancelBuy;
+                $pack['delta']['in_qty_content'] = $cancelContent;
+            } elseif (in_array($originType, ['TRANSFER_OUT', 'USAGE_OUT'], true)) {
+                $pack['delta']['out_qty_buy'] = $cancelBuy;
+                $pack['delta']['out_qty_content'] = $cancelContent;
+            } elseif ($originType === 'DISCARDED_OUT') {
+                $pack['delta']['discarded_qty_buy'] = $cancelBuy;
+                $pack['delta']['discarded_qty_content'] = $cancelContent;
+                $pack['delta']['waste_qty_buy'] = $cancelBuy;
+                $pack['delta']['waste_qty_content'] = $cancelContent;
+                $pack['delta']['adjustment_qty_buy'] = $restoreBuy;
+                $pack['delta']['adjustment_qty_content'] = $restoreContent;
+                $pack['value']['waste_total_value'] = $cancelValue;
+            } elseif ($originType === 'SPOIL_OUT') {
+                $pack['delta']['spoil_qty_buy'] = $cancelBuy;
+                $pack['delta']['spoil_qty_content'] = $cancelContent;
+                $pack['delta']['adjustment_qty_buy'] = $restoreBuy;
+                $pack['delta']['adjustment_qty_content'] = $restoreContent;
+                $pack['value']['spoilage_total_value'] = $cancelValue;
+            } elseif ($originType === 'WASTE_OUT') {
+                $pack['delta']['waste_qty_buy'] = $cancelBuy;
+                $pack['delta']['waste_qty_content'] = $cancelContent;
+                $pack['delta']['adjustment_qty_buy'] = $restoreBuy;
+                $pack['delta']['adjustment_qty_content'] = $restoreContent;
+                $pack['value']['waste_total_value'] = $cancelValue;
+            } elseif ($originType === 'PROCESS_LOSS_OUT') {
+                $pack['delta']['process_loss_qty_buy'] = $cancelBuy;
+                $pack['delta']['process_loss_qty_content'] = $cancelContent;
+                $pack['delta']['adjustment_qty_buy'] = $restoreBuy;
+                $pack['delta']['adjustment_qty_content'] = $restoreContent;
+                $pack['value']['process_loss_total_value'] = $cancelValue;
+            } elseif ($originType === 'VARIANCE_OUT') {
+                $pack['delta']['variance_qty_buy'] = $cancelBuy;
+                $pack['delta']['variance_qty_content'] = $cancelContent;
+                $pack['delta']['adjustment_qty_buy'] = $restoreBuy;
+                $pack['delta']['adjustment_qty_content'] = $restoreContent;
+                $pack['value']['variance_total_value'] = $cancelValue;
+            } elseif ($originType === 'ADJUSTMENT_IN') {
+                $pack['delta']['adjustment_plus_qty_buy'] = $cancelBuy;
+                $pack['delta']['adjustment_plus_qty_content'] = $cancelContent;
+                $pack['delta']['adjustment_qty_buy'] = $cancelBuy;
+                $pack['delta']['adjustment_qty_content'] = $cancelContent;
+                $pack['value']['adjustment_plus_total_value'] = $cancelValue;
+            } elseif ($originType === 'ADJUSTMENT') {
+                $originWasPlus = $originQtyBuy > 0 || $originQtyContent > 0;
+                $pack['delta']['adjustment_qty_buy'] = $originWasPlus ? $cancelBuy : $restoreBuy;
+                $pack['delta']['adjustment_qty_content'] = $originWasPlus ? $cancelContent : $restoreContent;
+
+                if ($originWasPlus) {
+                    $pack['delta']['adjustment_plus_qty_buy'] = $cancelBuy;
+                    $pack['delta']['adjustment_plus_qty_content'] = $cancelContent;
+                    $pack['value']['adjustment_plus_total_value'] = $cancelValue;
+                } elseif ($originCategory === 'WASTE') {
+                    $pack['delta']['waste_qty_buy'] = $cancelBuy;
+                    $pack['delta']['waste_qty_content'] = $cancelContent;
+                    $pack['value']['waste_total_value'] = $cancelValue;
+                } elseif ($originCategory === 'SPOILAGE') {
+                    $pack['delta']['spoil_qty_buy'] = $cancelBuy;
+                    $pack['delta']['spoil_qty_content'] = $cancelContent;
+                    $pack['value']['spoilage_total_value'] = $cancelValue;
+                } elseif ($originCategory === 'PROCESS_LOSS') {
+                    $pack['delta']['process_loss_qty_buy'] = $cancelBuy;
+                    $pack['delta']['process_loss_qty_content'] = $cancelContent;
+                    $pack['value']['process_loss_total_value'] = $cancelValue;
+                } elseif ($originCategory === 'VARIANCE') {
+                    $pack['delta']['variance_qty_buy'] = $cancelBuy;
+                    $pack['delta']['variance_qty_content'] = $cancelContent;
+                    $pack['value']['variance_total_value'] = $cancelValue;
+                }
+            } elseif ($qtyContentDelta >= 0 || ($qtyContentDelta == 0.0 && $qtyBuyDelta >= 0)) {
+                // Compatibility fallback for legacy reverse rows without a link.
+                $pack['delta']['out_qty_buy'] = $cancelBuy;
+                $pack['delta']['out_qty_content'] = $cancelContent;
             } else {
-                $pack['delta']['in_qty_buy'] = -abs($qtyBuyDelta);
-                $pack['delta']['in_qty_content'] = -abs($qtyContentDelta);
+                $pack['delta']['in_qty_buy'] = $cancelBuy;
+                $pack['delta']['in_qty_content'] = $cancelContent;
             }
         } elseif (in_array($movementType, ['TRANSFER_OUT', 'USAGE_OUT'], true)) {
             $pack['delta']['out_qty_buy'] = abs(min(0, $qtyBuyDelta));
@@ -13404,6 +13668,91 @@ class Purchase_model extends CI_Model
         }
 
         return $pack;
+    }
+
+    /**
+     * Normalizes the source metadata selected alongside a VOID_REVERSE row.
+     * The data is optional so pre-migration ledgers keep their legacy fallback.
+     */
+    private function resolveInventoryReversalOrigin(array $movementRow): array
+    {
+        return [
+            'movement_type' => $movementRow['reversal_origin_movement_type'] ?? null,
+            'adjustment_category' => $movementRow['reversal_origin_adjustment_category'] ?? null,
+            'qty_buy_delta' => $movementRow['reversal_origin_qty_buy_delta'] ?? null,
+            'qty_content_delta' => $movementRow['reversal_origin_qty_content_delta'] ?? null,
+        ];
+    }
+
+    /**
+     * Full document voids retain both rows in the audit ledger. They have no
+     * operational stock effect, however, and must not recreate a zero-balance
+     * monthly profile merely because the two audit movements still exist.
+     */
+    private function filterFullyReversedInventoryHistoryMovements(array $movementRows): array
+    {
+        if (empty($movementRows)) {
+            return [];
+        }
+
+        $sourceAmounts = [];
+        $reversedAmounts = [];
+        foreach ($movementRows as $row) {
+            $movementId = (int)($row['id'] ?? 0);
+            if ($movementId <= 0) {
+                continue;
+            }
+
+            $reversalOfId = (int)($row['reversal_of_movement_id'] ?? 0);
+            $movementType = strtoupper(trim((string)($row['movement_type'] ?? '')));
+            if ($reversalOfId > 0 && $movementType === 'VOID_REVERSE') {
+                if (!isset($reversedAmounts[$reversalOfId])) {
+                    $reversedAmounts[$reversalOfId] = ['buy' => 0.0, 'content' => 0.0];
+                }
+                $reversedAmounts[$reversalOfId]['buy'] = round(
+                    (float)$reversedAmounts[$reversalOfId]['buy'] + abs((float)($row['qty_buy_delta'] ?? 0)),
+                    4
+                );
+                $reversedAmounts[$reversalOfId]['content'] = round(
+                    (float)$reversedAmounts[$reversalOfId]['content'] + abs((float)($row['qty_content_delta'] ?? 0)),
+                    4
+                );
+                continue;
+            }
+
+            $sourceAmounts[$movementId] = [
+                'buy' => abs(round((float)($row['qty_buy_delta'] ?? 0), 4)),
+                'content' => abs(round((float)($row['qty_content_delta'] ?? 0), 4)),
+            ];
+        }
+
+        $fullyReversedSourceIds = [];
+        foreach ($sourceAmounts as $sourceId => $sourceAmount) {
+            $reversed = $reversedAmounts[$sourceId] ?? null;
+            if ($reversed === null) {
+                continue;
+            }
+
+            $sourceContent = (float)$sourceAmount['content'];
+            $sourceBuy = (float)$sourceAmount['buy'];
+            $isFullyReversed = $sourceContent > 0.0001
+                ? (float)$reversed['content'] >= ($sourceContent - 0.0001)
+                : ((float)$reversed['buy'] >= ($sourceBuy - 0.0001));
+            if ($isFullyReversed) {
+                $fullyReversedSourceIds[$sourceId] = true;
+            }
+        }
+
+        if (empty($fullyReversedSourceIds)) {
+            return array_values($movementRows);
+        }
+
+        return array_values(array_filter($movementRows, static function (array $row) use ($fullyReversedSourceIds): bool {
+            $movementId = (int)($row['id'] ?? 0);
+            $reversalOfId = (int)($row['reversal_of_movement_id'] ?? 0);
+            return !isset($fullyReversedSourceIds[$movementId])
+                && !isset($fullyReversedSourceIds[$reversalOfId]);
+        }));
     }
 
     private function applyInventoryHistoryMovement(float $currentBuy, float $currentContent, float $currentAvg, float $qtyBuyDelta, float $qtyContentDelta, float $unitCost): array
@@ -15066,6 +15415,145 @@ class Purchase_model extends CI_Model
             ->limit($limit)
             ->get()
             ->result_array();
+    }
+
+    /**
+     * Returns read-only attention data for active PO lines whose saved purpose
+     * no longer matches the item master, or raw materials marked operational.
+     * Rejected and voided documents are excluded; the control only follows the
+     * financial lifecycle through PAID.
+     */
+    public function get_purchase_order_usage_purpose_attention(string $status, string $dateStart, string $dateEnd, int $limit = 8): array
+    {
+        $attention = [
+            'total_lines' => 0,
+            'document_count' => 0,
+            'material_operational_count' => 0,
+            'purpose_mismatch_count' => 0,
+            'total_value' => 0.0,
+            'rows' => [],
+        ];
+
+        if (!$this->db->table_exists('pur_purchase_order') || !$this->db->table_exists('pur_purchase_order_line')) {
+            return $attention;
+        }
+
+        $from = $this->normalizeDate($dateStart);
+        $to = $this->normalizeDate($dateEnd);
+        $status = strtoupper(trim($status));
+        $limit = max(1, min(20, $limit));
+        $attentionStatuses = ['DRAFT', 'APPROVED', 'ORDERED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID'];
+
+        $hasItem = $this->db->table_exists('mst_item');
+        $hasMaterial = $this->db->table_exists('mst_material');
+        $hasItemMaterial = $hasItem && $this->db->field_exists('material_id', 'mst_item');
+        $hasItemDefaultPurpose = $hasItem && $this->db->field_exists('default_usage_purpose', 'mst_item');
+        $hasLinePurpose = $this->hasPurchaseOrderUsagePurposeColumn();
+
+        $productionPurpose = self::USAGE_PURPOSE_PRODUCTION;
+        $operationalPurpose = self::USAGE_PURPOSE_OPERATIONAL;
+        $actualUsageExpr = $hasLinePurpose
+            ? "CASE WHEN UPPER(TRIM(COALESCE(NULLIF(pol.usage_purpose, ''), '{$productionPurpose}'))) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
+            : "'{$productionPurpose}'";
+        $defaultUsageExpr = $hasItemDefaultPurpose
+            ? "CASE WHEN UPPER(TRIM(COALESCE(NULLIF(i.default_usage_purpose, ''), '{$productionPurpose}'))) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
+            : "'{$productionPurpose}'";
+        $effectiveMaterialExpr = $hasItemMaterial
+            ? 'COALESCE(NULLIF(pol.material_id, 0), NULLIF(i.material_id, 0), 0)'
+            : 'COALESCE(NULLIF(pol.material_id, 0), 0)';
+        $materialOperationalCondition = "({$effectiveMaterialExpr} > 0 AND {$actualUsageExpr} = '{$operationalPurpose}')";
+        $purposeMismatchCondition = "({$actualUsageExpr} <> {$defaultUsageExpr})";
+        $issueCondition = "({$materialOperationalCondition} OR {$purposeMismatchCondition})";
+
+        $lineNameParts = [
+            "NULLIF(TRIM(pol.snapshot_material_name), '')",
+            "NULLIF(TRIM(pol.snapshot_item_name), '')",
+        ];
+        if ($hasMaterial) {
+            $lineNameParts[] = "NULLIF(TRIM(m.material_name), '')";
+        }
+        if ($hasItem) {
+            $lineNameParts[] = "NULLIF(TRIM(i.item_name), '')";
+        }
+        $lineNameParts[] = "NULLIF(TRIM(pol.line_description), '')";
+        $lineNameParts[] = "'-'";
+        $lineNameExpr = 'COALESCE(' . implode(', ', $lineNameParts) . ')';
+
+        $applyMasterJoins = function () use ($hasItem, $hasMaterial, $hasItemMaterial): void {
+            if ($hasItem) {
+                $this->db->join('mst_item i', 'i.id = pol.item_id', 'left');
+            }
+            if ($hasMaterial) {
+                $materialJoin = $hasItemMaterial
+                    ? 'm.id = COALESCE(NULLIF(pol.material_id, 0), NULLIF(i.material_id, 0))'
+                    : 'm.id = pol.material_id';
+                $this->db->join('mst_material m', $materialJoin, 'left', false);
+            }
+        };
+        $applyFilters = function () use ($from, $to, $status, $attentionStatuses): void {
+            // This is an active expenditure control, not a historical alert
+            // for PO that were rejected or fully voided.
+            $this->db->where_in('po.status', $attentionStatuses);
+            if ($status !== '' && $status !== 'ALL') {
+                $this->db->where('po.status', $status);
+            }
+            if ($from !== null) {
+                $this->db->where('po.request_date >=', $from);
+            }
+            if ($to !== null) {
+                $this->db->where('po.request_date <=', $to);
+            }
+        };
+
+        $this->db
+            ->select('COUNT(pol.id) AS total_lines', false)
+            ->select('COUNT(DISTINCT po.id) AS document_count', false)
+            ->select("SUM(CASE WHEN {$materialOperationalCondition} THEN 1 ELSE 0 END) AS material_operational_count", false)
+            ->select("SUM(CASE WHEN {$purposeMismatchCondition} THEN 1 ELSE 0 END) AS purpose_mismatch_count", false)
+            ->select('COALESCE(SUM(pol.line_subtotal), 0) AS total_value', false)
+            ->from('pur_purchase_order_line pol')
+            ->join('pur_purchase_order po', 'po.id = pol.purchase_order_id', 'inner');
+        $applyMasterJoins();
+        $applyFilters();
+        $summary = $this->db
+            ->where($issueCondition, null, false)
+            ->get()
+            ->row_array();
+
+        if ($summary) {
+            $attention['total_lines'] = (int)($summary['total_lines'] ?? 0);
+            $attention['document_count'] = (int)($summary['document_count'] ?? 0);
+            $attention['material_operational_count'] = (int)($summary['material_operational_count'] ?? 0);
+            $attention['purpose_mismatch_count'] = (int)($summary['purpose_mismatch_count'] ?? 0);
+            $attention['total_value'] = round((float)($summary['total_value'] ?? 0), 2);
+        }
+
+        if ($attention['total_lines'] <= 0) {
+            return $attention;
+        }
+
+        $this->db
+            ->select('po.id AS purchase_order_id, po.po_no, po.request_date, po.status', false)
+            ->select('pol.id AS line_id, pol.line_no, pol.line_subtotal', false)
+            ->select($lineNameExpr . ' AS line_name', false)
+            ->select($actualUsageExpr . ' AS actual_usage_purpose', false)
+            ->select($defaultUsageExpr . ' AS default_usage_purpose', false)
+            ->select($effectiveMaterialExpr . ' AS effective_material_id', false)
+            ->select("CASE WHEN {$materialOperationalCondition} THEN 'MATERIAL_AS_OPERATIONAL' ELSE 'PURPOSE_MISMATCH' END AS issue_type", false)
+            ->from('pur_purchase_order_line pol')
+            ->join('pur_purchase_order po', 'po.id = pol.purchase_order_id', 'inner');
+        $applyMasterJoins();
+        $applyFilters();
+        $attention['rows'] = $this->db
+            ->where($issueCondition, null, false)
+            ->order_by('po.request_date', 'DESC')
+            ->order_by('po.id', 'DESC')
+            ->order_by('pol.line_no', 'ASC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
+
+        return $attention;
     }
 
     public function list_purchase_order_lines_dashboard(string $q, string $status, string $dateStart, string $dateEnd, int $limit): array

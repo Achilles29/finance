@@ -3,6 +3,7 @@ $detail = (array)($detail ?? []);
 $header = (array)($detail['header'] ?? []);
 $lines = (array)($detail['lines'] ?? []);
 $fulfillments = (array)($detail['fulfillments'] ?? []);
+$approvals = (array)($detail['approvals'] ?? []);
 $formatAuditQty = static function ($value): string {
   return number_format((float)$value, 2, ',', '.');
 };
@@ -20,6 +21,17 @@ $statusClass = [
     'REJECTED' => 'bg-danger',
     'VOID' => 'bg-secondary',
 ][$status] ?? 'bg-secondary';
+$actionLabel = static function (string $action): string {
+    $labels = [
+        'SUBMIT' => 'Disubmit',
+        'APPROVE' => 'Disetujui',
+        'REJECT' => 'Ditolak',
+        'OVERRIDE_APPROVE' => 'Disetujui override',
+        'VOID' => 'Divoid',
+    ];
+    $key = strtoupper(trim($action));
+    return $labels[$key] ?? ($key !== '' ? $key : '-');
+};
 ?>
 
 <style>
@@ -53,10 +65,41 @@ $statusClass = [
     <div class="row g-2">
       <div class="col-md-3"><small class="text-muted d-block">Tanggal Request</small><strong><?php echo html_escape((string)($header['request_date'] ?? '-')); ?></strong></div>
       <div class="col-md-3"><small class="text-muted d-block">Tanggal Butuh</small><strong><?php echo html_escape((string)($header['needed_date'] ?? '-')); ?></strong></div>
-      <div class="col-md-3"><small class="text-muted d-block">Created At</small><strong><?php echo html_escape((string)($header['created_at'] ?? '-')); ?></strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Dibuat Oleh</small><strong><?php echo html_escape((string)($header['created_by_username'] ?? '-')); ?></strong><div class="small text-muted"><?php echo html_escape((string)($header['created_at'] ?? '-')); ?></div></div>
       <div class="col-md-3"><small class="text-muted d-block">Updated At</small><strong><?php echo html_escape((string)($header['updated_at'] ?? '-')); ?></strong></div>
       <div class="col-12"><small class="text-muted d-block">Catatan</small><strong><?php echo html_escape((string)($header['notes'] ?? '-')); ?></strong></div>
     </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+      <div>
+        <h6 class="mb-0">Jejak Status</h6>
+        <small class="text-muted">Aksi, pelaku, waktu, dan alasan perubahan status Store Request.</small>
+      </div>
+      <span class="badge bg-light text-dark"><?php echo count($approvals); ?> aksi</span>
+    </div>
+    <?php if (empty($approvals)): ?>
+      <div class="text-muted small">Belum ada jejak aksi status.</div>
+    <?php else: ?>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Aksi</th><th>Pelaku</th><th>Waktu</th><th>Alasan / Catatan</th></tr></thead>
+          <tbody>
+            <?php foreach ($approvals as $approval): ?>
+              <tr>
+                <td><strong><?php echo html_escape($actionLabel((string)($approval['action'] ?? ''))); ?></strong></td>
+                <td><?php echo html_escape((string)($approval['actor_name'] ?? '-')); ?></td>
+                <td><?php echo html_escape((string)($approval['created_at'] ?? '-')); ?></td>
+                <td><?php echo html_escape((string)($approval['notes'] ?? '-')); ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    <?php endif; ?>
   </div>
 </div>
 
