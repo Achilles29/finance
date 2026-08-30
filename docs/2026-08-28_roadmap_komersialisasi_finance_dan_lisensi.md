@@ -1,30 +1,40 @@
 # Roadmap Komersialisasi Finance POS
 
-**Status:** Konsep produk dan arsitektur lisensi final untuk menjadi acuan
-implementasi. Dokumen ini belum mengubah kode, database, lisensi, atau
-perilaku aplikasi yang sedang dipakai.
+**Status:** Keputusan produk dan arsitektur lisensi untuk menjadi acuan
+implementasi. Diperbarui 31 Agustus 2026 dengan keputusan satu codebase,
+entitlement per paket, dan productization/branding. Dokumen ini belum mengubah
+kode, database, lisensi, atau perilaku aplikasi yang sedang dipakai.
 
 ## Keputusan Final Singkat
 
 1. Finance dijual sebagai **lisensi perpetual per organisasi dan instalasi**,
    bukan penjualan source code.
-2. Paket awal mencakup **1 outlet dan 3 terminal POS aktif**. Outlet, terminal,
-   APK POS, dan modul tertentu dapat ditambah sebagai add-on lisensi.
-3. Customer tetap dapat memakai versi yang telah dibeli setelah masa support
+2. Semua paket memakai **satu codebase, satu skema database, dan satu jalur
+   update**. Kita tidak membuat source code Starter, Operations, dan Control
+   secara terpisah.
+3. Paket Starter dimulai dari **1 outlet dan 1 terminal POS aktif**. Paket
+   Operations menjadi titik awal yang disarankan untuk 3 terminal. Outlet,
+   terminal, APK POS, dan modul tertentu dapat ditambah sebagai add-on.
+4. Fitur berbayar hanya dapat diaktifkan oleh entitlement bertanda tangan dari
+   License Hub. Pengaturan lokal customer tidak boleh menaikkan paket sendiri.
+5. Customer tetap dapat memakai versi yang telah dibeli setelah masa support
    berakhir. Yang berhenti adalah update dan dukungan baru, bukan akses data
    atau transaksi kasir.
-4. Masa update dan dukungan standar adalah **12 bulan** sejak aktivasi.
+6. Masa update dan dukungan standar adalah **12 bulan** sejak aktivasi.
    Perpanjangan maintenance membuka kembali akses release dan support tanpa
    mengubah hak pakai perpetual yang sudah dimiliki.
-5. Lisensi menentukan paket dan kapasitas customer. RBAC tetap menentukan
+7. Lisensi menentukan paket dan kapasitas customer. RBAC tetap menentukan
    pegawai mana di customer tersebut yang boleh memakai fitur.
-6. Setiap customer pada tahap awal memakai database dan instalasi sendiri.
+8. Setiap customer pada tahap awal memakai database dan instalasi sendiri.
    Multi-tenant cloud bukan bagian dari rilis komersial pertama.
-7. Update dilakukan melalui paket rilis bertanda tangan dan migration yang
+9. Update dilakukan melalui paket rilis bertanda tangan dan migration yang
    diaudit, bukan melalui `git pull` di server customer.
-8. Aplikasi tidak boleh mati mendadak ketika internet putus. Lisensi memakai
+10. Aplikasi tidak boleh mati mendadak ketika internet putus. Lisensi memakai
    cache bertanda tangan dengan grace period offline 30 hari dan jalur aktivasi
    offline untuk lokasi tanpa internet stabil.
+11. Nama usaha, logo, ikon, warna, alamat, tautan publik, dan identitas dokumen
+    menjadi pengaturan customer. Tidak boleh ada identitas Namua, MPP, Pemkab,
+    domain, atau alamat tertentu yang menjadi hardcode runtime.
 
 ### Bentuk Produk yang Dijual
 
@@ -92,11 +102,12 @@ menyimpan public key untuk memverifikasi tanda tangan. Dengan pola ini aplikasi
 tetap dapat memeriksa keaslian lisensi saat offline tanpa menyimpan rahasia
 penerbit di server customer.
 
-### Tiga device bukan tiga akun
+### Terminal adalah device, bukan akun
 
-Untuk contoh lisensi tiga device, definisinya sebaiknya:
+Jumlah slot mengikuti paket atau add-on. Starter memiliki satu slot terminal,
+sedangkan Operations direkomendasikan memiliki tiga. Definisinya:
 
-- maksimal tiga **terminal POS aktif** yang terdaftar pada satu instalasi;
+- maksimal sejumlah **terminal POS aktif** yang tertulis pada lisensi;
 - satu terminal dapat memiliki beberapa akun kasir sesuai RBAC;
 - akun web admin tidak otomatis dihitung sebagai terminal POS;
 - customer dapat menonaktifkan device lama dan mengaktifkan device pengganti
@@ -134,10 +145,59 @@ Paket komersial awal yang dipakai sebagai standar:
 
 | Paket | Cakupan kandidat |
 | --- | --- |
-| Essential POS | Kasir, katalog, produk, pembayaran, printer dasar, laporan penjualan dasar, user/role dasar, dan 1 outlet dengan 3 terminal POS. |
-| Operations | Semua Essential ditambah gudang, purchase order, store request, adjustment, stok harian, member, promo, voucher, self order, reservasi, dan outlet tambahan. |
+| Starter POS | Kasir, katalog, produk, pembayaran, printer dasar, laporan penjualan dasar, user/role dasar, 1 outlet, dan 1 terminal POS. |
+| Operations | Semua Starter ditambah gudang, purchase order, store request, adjustment, stok harian, member, promo, voucher, self order, reservasi, 1 outlet, dan sampai 3 terminal POS. |
 | Control | Semua Operations ditambah recipe, produksi component, HPP, defisit stok, period lock, stock health, audit penjualan/HPP, laporan keuangan lanjutan, attendance, dan payroll. |
 | Enterprise | Semua Control ditambah APK POS, integrasi API, online order, automasi khusus, SSO, custom report, serta source escrow hanya bila disepakati secara terpisah. |
+
+### Hipotesis harga awal untuk pilot
+
+Harga berikut adalah pegangan pengujian pasar, bukan harga permanen di dalam
+source code. Nilainya wajib dievaluasi kembali setelah dua atau tiga customer
+pilot dan setelah biaya instalasi/support nyata diketahui.
+
+| Paket | Harga pengenalan kandidat | Arah harga normal kandidat |
+| --- | ---: | ---: |
+| Starter POS | Mulai Rp1.000.000 | Rp1.500.000 |
+| Operations | Rp3.500.000 | Rp4.500.000 |
+| Control | Rp7.500.000 | Rp9.500.000 |
+| Enterprise | Mulai Rp15.000.000 | Berdasarkan kebutuhan dan kontrak |
+
+Biaya implementasi, migrasi data, perangkat, perjalanan, integrasi khusus,
+terminal tambahan, outlet tambahan, dan support di luar cakupan tidak otomatis
+masuk harga lisensi. Semua harus terlihat terpisah pada penawaran agar margin
+support tidak hilang.
+
+### Keputusan pemisahan fitur: jangan memisahkan source code
+
+Kita tidak membuat folder, branch, atau build manual yang berbeda untuk setiap
+paket. Pola itu akan menyebabkan perbaikan bug harus disalin berkali-kali,
+migration mudah berbeda, dan customer lama berisiko tertinggal.
+
+Pola implementasi yang disepakati:
+
+1. Semua customer menerima artefak release yang sama sesuai versi produknya.
+2. License Hub menerbitkan daftar entitlement dan limit yang ditandatangani.
+3. Finance menyimpan cache lisensi yang terverifikasi untuk operasi offline.
+4. Satu `FeatureGate` memeriksa lisensi pada menu, route/controller, API/APK,
+   export, laporan, cron, worker, dan proses latar belakang.
+5. RBAC diperiksa setelah FeatureGate: lisensi menjawab apakah perusahaan
+   membeli modul, RBAC menjawab pegawai mana yang boleh menggunakannya.
+6. Pengaturan lokal hanya menampilkan status paket dan menerima activation
+   file bertanda tangan. Superadmin customer tidak dapat mencentang sendiri
+   fitur berbayar yang belum dibeli.
+7. Feature flag teknis untuk pilot/rollback dipisahkan dari entitlement
+   komersial dan tidak tersedia sebagai bypass pada UI customer.
+
+Jika paket diturunkan atau add-on berakhir, data modul tidak dihapus. Modul
+masuk keadaan `READ_ONLY` bila diperlukan agar riwayat dapat dibaca/diekspor,
+tetapi transaksi baru ditolak. Saat paket dinaikkan, modul aktif kembali tanpa
+mengganti source code atau memindahkan database.
+
+Setiap fitur juga mempunyai dependency eksplisit. Contoh: produksi resep tidak
+boleh aktif tanpa inventory dan recipe; payroll yang memakai kehadiran tidak
+boleh aktif tanpa HR dan attendance. License Hub menolak kombinasi paket yang
+tidak valid sebelum lisensi diterbitkan.
 
 Fitur yang cocok menjadi add-on terpisah:
 
@@ -176,17 +236,33 @@ Fondasi database yang disarankan pada instalasi customer:
 | Tabel konsep | Fungsi |
 | --- | --- |
 | `lic_installation` | Identitas unik instalasi, public key perangkat/server, versi aplikasi, dan status aktivasi. |
-| `lic_license` | Salinan lisensi terverifikasi, edisi, batas pemakaian, masa maintenance, dan status lokal. |
+| `lic_license_cache` | Salinan payload lisensi dan signature terakhir yang terverifikasi, edisi, batas pemakaian, masa maintenance, grace period, dan status lokal. |
 | `lic_feature` | Daftar kode fitur resmi aplikasi. |
-| `lic_license_feature` | Fitur yang aktif pada lisensi customer. |
+| `lic_feature_cache` | Fitur, mode akses, dependency, dan limit yang aktif pada lisensi customer. |
 | `lic_device_activation` | Terminal POS terdaftar, public key device, outlet, status, waktu aktivasi, dan jejak penggantian. |
 | `lic_activation_audit` | Jejak aktivasi, deaktifasi, reset, serta alasan. |
+| `lic_heartbeat_queue` | Antrean metadata kesehatan lisensi minimum saat koneksi License Hub sedang putus. |
+| `lic_runtime_audit` | Jejak hasil verifikasi, penolakan feature gate, perubahan mode, dan kejadian grace period. |
 | `lic_update_history` | Riwayat pemeriksaan, download, backup, apply, dan rollback release. |
 
 Server lisensi pusat hanya perlu menyimpan data minimum: customer, lisensi,
 status aktivasi, daftar device, versi aplikasi, dan metadata update. Jangan
 mengirim transaksi, nama customer kasir, atau data keuangan customer ke server
 lisensi kecuali mereka memberi persetujuan eksplisit untuk support bundle.
+
+### Runtime lisensi yang dilindungi
+
+Komponen verifikasi lisensi boleh dipaketkan dengan PHP encoder setelah alur
+release stabil. Ia memverifikasi signature, instalasi, device, entitlement,
+masa maintenance, dan grace period. Bagian penting aplikasi memanggil kontrak
+runtime yang sama sehingga menghapus satu file membuat health check gagal.
+
+Namun dependensi tidak boleh dibuat sebagai satu titik kegagalan yang langsung
+mematikan kasir. Runtime harus mempunyai cache offline sah, pesan diagnostik,
+grace period, dan mode pemulihan. Encoder adalah hambatan teknis untuk pengguna
+awam, bukan jaminan bahwa programmer tidak dapat menulis ulang sistem. Kontrak,
+distribusi release, private repository, signature, dan License Hub tetap
+menjadi lapisan perlindungan utama.
 
 ## 6. Halaman yang Perlu Ada
 
@@ -260,7 +336,124 @@ tidak kompatibel tanpa pesan pembaruan yang jelas.
 - Buat kebijakan reset device agar customer yang ganti HP, PC, atau printer
   tidak terkunci dari kasir saat jam operasional.
 
-## 9. Roadmap Implementasi
+## 9. Productization dan Penghapusan Hardcode Identitas
+
+Finance belum boleh dijual sebagai template customer umum selama identitas
+Namua, MPP, Pemkab, alamat, domain, warna, atau path agent tertentu masih
+menjadi keputusan hardcode runtime. Satu perubahan identitas harus berlaku
+konsisten pada login, sidebar, browser title, favicon, laporan, dokumen, struk,
+QR ulasan, member/self order, landing page, email/WhatsApp, dan APK.
+
+### Tiga kelompok konfigurasi yang tidak boleh dicampur
+
+| Kelompok | Contoh | Siapa yang boleh mengubah |
+| --- | --- | --- |
+| Profil usaha dan branding | Nama usaha, nama aplikasi yang tampil, logo, favicon, warna, alamat, kontak, tagline, footer, tautan publik. | Owner/Superadmin customer melalui UI dan audit trail. |
+| Deployment dan secret | Database, encryption key, URL internal, storage, mail/WhatsApp credential, cron/worker, backup path, printer agent host/port. | Installer atau operator server melalui environment/config deployment, bukan UI umum. |
+| Paket dan entitlement | Modul aktif, batas outlet, terminal, APK, maintenance, mode read-only. | License Hub melalui payload bertanda tangan; UI customer hanya membaca status. |
+
+Dengan pemisahan ini, mengganti logo tidak membutuhkan developer, tetapi
+customer juga tidak dapat mengaktifkan payroll atau multi-outlet hanya dengan
+mengubah baris database pengaturan biasa.
+
+### Halaman pengaturan yang perlu dibangun
+
+Tambahkan halaman **System > Profil Usaha & Tampilan** dengan bagian berikut:
+
+- Identitas usaha: nama legal, nama dagang, nama singkat, NPWP bila dipakai,
+  alamat, telepon, email, website, zona waktu, bahasa, dan mata uang.
+- Logo dan ikon: logo terang/gelap, favicon, gambar login, serta aset dokumen.
+- Warna dan tampilan: warna utama, warna aksen, latar, sidebar, serta pilihan
+  kontras yang tetap menjaga keterbacaan.
+- Tautan publik: member, self order, reservasi, ulasan, landing page, bantuan,
+  kebijakan privasi, dan WhatsApp.
+- Dokumen dan cetak: identitas default nota/laporan, header/footer, tanda tangan,
+  serta fallback yang kemudian dapat dioverride per outlet atau layout printer.
+- Preview: login, sidebar, struk 58/80 mm, QR ulasan, laporan, dan halaman publik
+  sebelum perubahan diterapkan.
+- Riwayat perubahan dan tombol kembali ke tema netral bawaan produk.
+
+Konsep tabel yang perlu divalidasi terhadap schema yang sudah ada:
+
+| Tabel konsep | Fungsi |
+| --- | --- |
+| `sys_business_profile` | Identitas legal dan operasional organisasi. |
+| `sys_branding_setting` | Nama aplikasi yang tampil, tema, footer, dan pilihan white-label. |
+| `sys_brand_asset` | Logo, favicon, gambar login, versi file, serta status aktif. |
+| `sys_external_url` | URL publik member, self order, reservasi, review, support, dan privasi. |
+| `sys_branding_audit` | Siapa mengubah identitas, nilai sebelum/sesudah, dan waktu perubahan. |
+| `pos_outlet` | Tetap menjadi sumber override nama, alamat, kontak, dan identitas per outlet. |
+
+Jangan membuat data ganda bila struktur yang setara sudah ada. Sebagai contoh,
+`pos_outlet` dan `pos_print_general_setting` sudah menyediakan sebagian data
+outlet/struk. Keduanya perlu dihubungkan ke profil usaha sebagai fallback,
+bukan diganti secara serampangan.
+
+Urutan sumber identitas harus selalu jelas:
+
+1. override outlet atau dokumen tertentu;
+2. profil usaha customer;
+3. default produk yang netral.
+
+Default terakhir tidak boleh berisi nama Namua, alamat Rembang, domain customer,
+atau identitas proyek lama. Nama vendor seperti `Finance POS` dapat tetap
+ditampilkan sebagai `Powered by Finance POS`. Opsi white-label penuh dapat
+menjadi entitlement Enterprise, bukan hardcode per customer.
+
+### Temuan hardcode yang sudah terpetakan
+
+| Area | Kondisi yang ditemukan | Target perbaikan |
+| --- | --- | --- |
+| Login dan autentikasi | `Finance App`, `NAMUA COFFEE & EATERY`, logo statis, dan title masih tersebar. | Baca nama aplikasi, nama usaha, logo, favicon, dan gambar login dari branding service. |
+| Header, sidebar, dan footer | Masih ada fallback `MPP`, `Pemkab Rembang`, serta tautan DPMPTSP. | Gunakan profil usaha dan footer produk netral. Hapus template/demo yang tidak dipakai setelah dependency scan. |
+| Tema visual | Warna merah/krem utama masih tetap di CSS. | Hasilkan CSS variables dari setting yang tervalidasi, dengan tema netral sebagai fallback. |
+| Struk dan preview printer | Fallback nama/alamat Namua dan logo file lokal masih ada walaupun setting printer sudah tersedia. | Printer memakai outlet -> profil usaha -> default netral; layout hanya menentukan data mana yang ditampilkan. |
+| Landing, member, self order, reservasi, dan ulasan | Nama Namua, domain, SEO, nomor kontak, dan URL publik masih tersebar. | Semua URL dan identitas memakai `sys_external_url` dan profil usaha. |
+| Printer agent | Nama folder, hostname, base URL, dan dokumentasi masih berorientasi Namua. | Buat agent produk generik, installer, config hasil pairing, serta panduan Windows/Linux yang netral. |
+| Dokumen HR, roastery, label, email/WhatsApp | Sebagian template membawa identitas Namua langsung. | Pisahkan isi bisnis customer dari template produk; sediakan preset yang dapat diedit. |
+| Konfigurasi server | Beberapa secret dan mode keamanan masih berada di file konfigurasi proyek. | Pindahkan secret ke environment, sediakan installer/preflight, dan jangan tampilkan nilainya di UI. |
+
+### Kesiapan jual di luar branding
+
+Productization tidak cukup dengan mengganti logo. Sebelum pilot berbayar,
+Finance juga harus memenuhi hal berikut:
+
+- Temuan kritis audit transaksi, stok, HPP, void/refund, PH, payroll, RBAC, dan
+  migration sudah ditutup atau dinyatakan sebagai batas produk secara jujur.
+- RBAC seed, role matrix, menu, page code, endpoint, export, cron, dan worker
+  mempunyai pemeriksaan konsistensi otomatis.
+- Secret database/API/encryption tidak ikut Git atau paket customer; CSRF,
+  secure cookie, error page production, dan environment production aktif.
+- Installer meminta profil usaha, outlet pertama, akun owner, zona waktu,
+  mata uang, storage, backup, printer, dan worker tanpa mengedit source code.
+- Tersedia data demo opsional yang terpisah dari data customer dan dapat
+  dihapus bersih.
+- Backup, restore, migration, rollback, health check, dan smoke test dapat
+  dijalankan berulang pada Windows dan Linux.
+- Format tanggal, angka, mata uang, timezone, pajak/service, penomoran dokumen,
+  serta aturan lokal tidak bergantung pada satu usaha.
+- Semua error teknis memiliki correlation ID dan pesan user yang aman; stack
+  trace/SQL tidak tampil kepada operator production.
+- Dokumentasi onboarding, SOP support, batas paket, privasi telemetry, EULA,
+  dan kepemilikan data tersedia sebelum penjualan pertama.
+
+### Urutan implementasi productization yang disepakati
+
+1. Buat katalog fitur dan dependency dalam dokumen/machine-readable registry;
+   belum langsung menutup menu agar aplikasi aktif tidak terganggu.
+2. Bangun profil usaha dan branding service terpusat beserta tema netral.
+3. Ganti hardcode runtime per area dan tambahkan regression test untuk login,
+   sidebar, struk, laporan, QR, halaman publik, serta printer agent.
+4. Pasang `FeatureGate` dalam mode audit untuk merekam semua jalur penggunaan
+   fitur sebelum enforcement dinyalakan.
+5. Bangun License Hub MVP, signed entitlement, cache offline, dan activation
+   file; setelah hasil audit bersih baru aktifkan enforcement paket.
+6. Stabilkan installer/updater dan baru kemudian lindungi runtime inti dengan
+   encoder pada artefak production.
+7. Uji Starter, Operations, Control, upgrade, downgrade read-only, internet
+   putus, ganti terminal, restore backup, dan rollback update pada pilot.
+
+## 10. Roadmap Implementasi
 
 ### Fase 0 - Keputusan Produk dan Kontrak
 
@@ -337,7 +530,7 @@ Hasil yang harus ada:
 - dokumentasi installer, onboarding, dan knowledge base;
 - evaluasi apakah perlu SaaS multi-tenant atau tetap on-premise.
 
-## 10. Urutan Pengerjaan yang Harus Kita Jalankan
+## 11. Urutan Pengerjaan yang Harus Kita Jalankan
 
 Urutan ini sengaja dimulai dari fondasi rilis. Lisensi yang bagus tidak akan
 membantu jika pemasangan, migration, dan pemulihan update belum aman.
@@ -345,8 +538,8 @@ membantu jika pemasangan, migration, dan pemulihan update belum aman.
 ### Langkah 1 - Kunci produk yang dijual
 
 Sebelum coding lisensi, buat satu dokumen komersial yang berisi harga, paket,
-add-on, jumlah outlet, tiga terminal awal, durasi maintenance, dan SOP ganti
-device. Dokumen ini juga menjadi bahan kontrak/EULA. Hasilnya: tim sales,
+add-on, jumlah outlet, slot terminal tiap paket, durasi maintenance, dan SOP
+ganti device. Dokumen ini juga menjadi bahan kontrak/EULA. Hasilnya: tim sales,
 support, dan developer memakai definisi produk yang sama.
 
 ### Langkah 2 - Rapikan release engineering Finance
@@ -369,7 +562,7 @@ Tabel minimum di License Hub:
 | Tabel | Isi utama |
 | --- | --- |
 | `lic_customer` | Identitas organisasi customer dan kontak pemilik. |
-| `lic_plan` | Essential POS, Operations, Control, Enterprise. |
+| `lic_plan` | Starter POS, Operations, Control, Enterprise. |
 | `lic_feature` dan `lic_plan_feature` | Katalog fitur serta fitur milik setiap paket. |
 | `lic_license` | Nomor lisensi, status, batas outlet/terminal, dan masa maintenance. |
 | `lic_license_entitlement` | Add-on dan limit yang spesifik untuk satu customer. |
@@ -412,18 +605,18 @@ tetapi kontrak lisensi dan proses distribusi tetap menjadi perlindungan utama.
 
 ### Langkah 8 - Pilot sebelum dijual luas
 
-Pilih satu sampai dua instalasi pilot. Uji pembelian lisensi, aktivasi tiga
-terminal, ganti HP/PC, internet putus, maintenance habis, feature gate,
-update, rollback, dan ekspor data. Hanya setelah seluruh skenario ini lolos,
-paket dijual ke customer berikutnya.
+Pilih satu sampai dua instalasi pilot. Uji pembelian lisensi Starter satu
+terminal dan Operations tiga terminal, ganti HP/PC, internet putus,
+maintenance habis, feature gate, update, rollback, dan ekspor data. Hanya
+setelah seluruh skenario ini lolos, paket dijual ke customer berikutnya.
 
-## 11. Kriteria Siap Jual Versi Pertama
+## 12. Kriteria Siap Jual Versi Pertama
 
 Produk dianggap siap dijual ketika seluruh poin berikut telah terbukti pada
 instalasi pilot:
 
 - customer bisa memasang aplikasi tanpa akses Git atau source code;
-- lisensi membatasi 1 outlet dan 3 terminal sesuai kontrak, termasuk APK;
+- lisensi membatasi outlet dan terminal sesuai paket/kontrak, termasuk APK;
 - owner dapat melihat dan mengganti device dengan audit trail;
 - RBAC dan FeatureGate sama-sama menolak akses yang tidak berhak;
 - POS tetap beroperasi saat koneksi License Hub terputus dalam grace period;
@@ -434,7 +627,7 @@ instalasi pilot:
 - kontrak lisensi, SOP instalasi, SOP support, dan kebijakan privasi siap
   dipakai.
 
-## 12. Hal yang Sebaiknya Tidak Dilakukan
+## 13. Hal yang Sebaiknya Tidak Dilakukan
 
 - Jangan menjanjikan source code "tidak mungkin disalin".
 - Jangan menjadikan MAC address, IP, atau cookie browser sebagai satu-satunya
@@ -447,14 +640,15 @@ instalasi pilot:
 - Jangan mengirim data transaksi customer ke server lisensi demi pemeriksaan
   aktivasi biasa.
 
-## 13. Keputusan yang Sudah Ditetapkan Sebelum Mulai Coding
+## 14. Keputusan yang Sudah Ditetapkan Sebelum Mulai Coding
 
 1. Penjualan awal adalah on-premise per organisasi; managed server dapat
    ditawarkan sebagai layanan instalasi/support, bukan perubahan model produk.
 2. Lisensi dihitung per organisasi, outlet, terminal POS, dan add-on.
-3. Paket awal mencakup 1 outlet dan 3 terminal aktif dengan grace period
-   offline 30 hari serta jalur penggantian device berjejak.
-4. Paket awal adalah Essential POS, Operations, Control, dan Enterprise.
+3. Starter mencakup 1 outlet dan 1 terminal aktif; Operations menjadi paket
+   awal dengan sampai 3 terminal. Semua memakai grace period offline 30 hari
+   serta jalur penggantian device berjejak.
+4. Paket awal adalah Starter POS, Operations, Control, dan Enterprise.
 5. Maintenance standar 12 bulan; aplikasi perpetual tetap berjalan setelahnya,
    sedangkan update/support baru memerlukan perpanjangan.
 6. Kontrak lisensi, EULA, dan SOP support harus ditinjau pihak hukum sebelum
@@ -462,18 +656,22 @@ instalasi pilot:
 7. Pengerjaan dimulai dari Langkah 1 dan 2, lalu lisensi dasar. Obfuscation dan
    APK locking tidak boleh mendahului release engineering.
 
-## 14. Ringkasan Arah Produk
+## 15. Ringkasan Arah Produk
 
 Untuk versi pertama yang akan dijual, arah finalnya adalah:
 
-- jual **perpetual on-premise per organisasi** dengan 1 outlet dan 3 terminal
-  POS sebagai paket awal;
+- jual **perpetual on-premise per organisasi**; Starter membawa 1 outlet dan
+  1 terminal POS, sedangkan Operations menjadi pilihan awal untuk 3 terminal;
 - customer memperoleh versi saat pembelian dan 12 bulan update/support;
 - update berikutnya setelah masa itu melalui renewal maintenance, tanpa
   mematikan aplikasi yang sudah dibeli;
 - source repository tidak diserahkan;
 - gunakan lisensi offline-signed ditambah aktivasi terminal online/offline;
 - jadikan APK POS sebagai add-on per terminal;
+- pertahankan satu codebase dan aktifkan paket melalui entitlement yang
+  ditandatangani, bukan melalui source code berbeda atau toggle lokal;
+- selesaikan profil usaha/branding terpusat dan penghapusan hardcode identitas
+  sebelum instalasi pilot customer;
 - mulai feature tier dari paket yang tidak terlalu banyak agar support tetap
   sederhana, lalu perluas setelah data penggunaan nyata terkumpul.
 
