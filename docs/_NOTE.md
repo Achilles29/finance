@@ -10,7 +10,7 @@ ini adalah pengembangan dan penyempurnaan dari repo core (C:\xampp\htdocs\core).
 - refund
 - shift kasir
 - produk paket -->
-<!-- 
+<!--
 - pengaturan printer - bisa adopsi dari core, tapi perlu beberapa penyesuaian di seting printer dan tampilan printernya. karena nantinya kita juga akan membangun aplikasi mobile untuk POS nya, jadi seting tampilan printerdiatur di database umum (dipakai baik di desktop maupun mobile), sementar setting printernya berbeda antara desktop dan mobile, namun untuk setting printer mobile kita lakukan nanti saja kalau sudah mau develop mobile
 - dan database lain yang dapat kamu baca dari core.
 
@@ -292,7 +292,7 @@ sekarang aku ingin kamu lakukan pengecekan:
 
 - harus ada guarding saat admin / HOD melakukan input shift pegawa, PH tidak boleh melebihi jatah sisa. misal EKO tidak punya jatah PH tersisa, dan admin/hod melakukan input jadwal PH untuk eko di tanggal kedepan maka tertolak. 
 - jumlah hari masuk adalah 26 hari (sesuai pengaturan di /attendance/settings), jadi harus ada guarding jadwal absen pegawai tidak bisa lebih dari 26 hari dalam sebulan termasuk PH, kecuali ditentukan lain. kecuali security. jadi kalau admin/hod melakukan input jadwal melebih hari pengaturan nanti ada warning, nanti superadmin yang akan menentukan apakah dibuka untuk lebih dari hari sesuai pengaturan atau tidak -->
-
+<!--
 
 sekarang buatkan modul halaman reservasi.
 reservasi digunakan untuk mencatat reservasi customer, kemudian disimpan ke database. 
@@ -327,4 +327,36 @@ lalu tambahkan flare di purchase dan store-request jika ada bahan yang tidak ses
 clear cookies semua sesi login superadmin agar login ulang (khusus superadmin)
 
 
-pastikan flare Peruntukan belanja perlu ditinjau hanya untuk transaksi yang bersifta paid atau sebelum paid.
+pastikan flare Peruntukan belanja perlu ditinjau hanya untuk transaksi yang bersifta paid atau sebelum paid. -->
+
+
+ya maksud saya begitu, dashboard monitoring itu aplikasi terpisah milik kita.
+lalu file di source code yang melaporkan ke dashboard kita encrypt dan seluruh source code tergantung pada file itu. jad prinsipnya tidak dapat diubah untuk user awam, tapi untuk user yang cukup paham sebagai programer dia bisa menulis ulang source code kita
+bagaimana menurutmu? kalau bisa kita implementasikan, coba buatkan langkahnya. mungkin dengan membagi paket dulu, misal harga standar termurah di 1 juta
+
+
+ya saya setuju dengan idemu. jangan lupa tuliskan agar kita tidak lupa.
+setelah membaca langkah implementatif:
+1. untuk pemisahan fitur nya bagaimana? apakah kita perlu memodifikasi finance kita agar bisa langusng implementatif mengaktifkan dan menonaktifkan modul yang dipesan sesuai paket dalam pengaturan? atau kita perlu memodifikasi secara manual untuk memisahkan paketnya?
+2. kalau secara manual, maka akan ada beberapa source code berbeda dan agak menyulitkan jika ada update terutama update bug.
+3. lalu apa saja yang masih perlu diperbaiki di finance agar lebih siap jual? seperti contoh pengaturan nama aplikasi, logo, warna tema, seharusnya bisa diatur oleh user bukan hardcode. hardcode hardcode yang sifatnya identitas namua perlu lebih di variabelkan.
+
+setelah itu kita bisa lanjutkan tahapannya?
+
+
+1. jangan lakukan push ketika saya tidak memerintahkannya
+2. cek semua yang perlu diperbaiki terkait sistem dulu termasuk tambahan pengaturan system agar lebih siap jual
+3. sebelumnya kita sudah buat 2026-08-30_audit_total_aplikasi_finance_dan_roadmap_pengembangan , nah masukkan disana sekalian / lakukan update.
+4. setelah itu update roadmapnya mulai dari perbaikan sampai pemaketan dan licensi, dan lainnya, sampai dengan siap jual
+
+
+terkait data dump database dan log tentu saja nanti kita exclude ketika membuat paketnya.
+termasuk database juga kita atur data apa saja yang harus ada di database sebagai data awal nanti.
+jadi kita buatkan juga modul untuk menggenerate instalasinya tersebut.
+
+atau mungkin perlu kita buat aplikasi khusus termasuk dashboard monitoring tadi, yang berguna untuk hal hal tersebut. karena kedepan yang kita jual bukan hanya finance ini, tapi rencana akan banyak aplikasi lain. jadi perlu semacam aplikasi pusat sebagai pengaturan pengaturannya yang menyimpan source code2 nya, dan berfungsi monitoring dan menggenerate berdasarkan paket nya
+
+
+cek ulang, update roadmap / audit nya, dan lakukan push termasuk _NOTE.md ini, kecuali database.php
+
+setelah push sukses, sleep laptop

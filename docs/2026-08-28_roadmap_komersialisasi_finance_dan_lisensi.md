@@ -1,9 +1,10 @@
 # Roadmap Komersialisasi Finance POS
 
-**Status:** Keputusan produk dan arsitektur lisensi untuk menjadi acuan
-implementasi. Diperbarui 31 Agustus 2026 dengan keputusan satu codebase,
-entitlement per paket, dan productization/branding. Dokumen ini belum mengubah
-kode, database, lisensi, atau perilaku aplikasi yang sedang dipakai.
+**Status:** Keputusan produk dan urutan implementasi menuju siap jual.
+Diperbarui 31 Agustus 2026 berdasarkan
+`docs/2026-08-30_audit_total_aplikasi_finance_dan_roadmap_pengembangan.md`.
+Dokumen ini belum mengubah kode, database, lisensi, atau perilaku aplikasi yang
+sedang dipakai.
 
 ## Keputusan Final Singkat
 
@@ -35,6 +36,39 @@ kode, database, lisensi, atau perilaku aplikasi yang sedang dipakai.
 11. Nama usaha, logo, ikon, warna, alamat, tautan publik, dan identitas dokumen
     menjadi pengaturan customer. Tidak boleh ada identitas Namua, MPP, Pemkab,
     domain, atau alamat tertentu yang menjadi hardcode runtime.
+12. Implementasi dimulai dari remediasi keamanan, RBAC, integritas transaksi,
+    pembersihan artefak rilis, dan automated test. License Hub tidak boleh
+    dibangun untuk menutupi fondasi aplikasi yang belum lolos audit.
+13. License Hub dikembangkan sebagai bagian dari aplikasi vendor terpisah
+    bernama sementara **Product Control Center**. Control plane ini menangani
+    banyak produk: katalog, repository privat, build, artefak, generator
+    instalasi, paket, lisensi, update, monitoring, approval, dan audit.
+14. Source tetap berada di Git privat dan artefak berada di object/artifact
+    storage. Database Product Control Center hanya menyimpan metadata,
+    referensi commit/tag immutable, manifest, checksum, lokasi artefak, dan
+    audit; source tidak disimpan sebagai blob database biasa.
+15. Database customer dibuat dari migration dan seed kanonis. Dump produksi,
+    backup, log, upload, transaksi, pegawai, customer, stok, payroll, credential,
+    dan konfigurasi device tidak pernah menjadi data awal paket.
+
+### Prasyarat Sebelum Menjual Lisensi Pertama
+
+Finance saat ini merupakan aplikasi internal yang kaya fitur, tetapi belum
+boleh dipaketkan langsung untuk customer. Repository masih membawa backup,
+upload, konfigurasi instalasi, dan identitas bisnis lama; beberapa endpoint
+mutasi belum mempunyai guard per aksi; production security, Printer Agent,
+migration, dependency, dan test juga belum memenuhi standar produk.
+
+Karena itu roadmap ini mempunyai dua jalur yang berurutan:
+
+1. **Product readiness:** membersihkan artefak, menutup bug dan akses, menguji
+   transaksi, membuat pengaturan usaha, installer, updater, serta support SOP.
+2. **Commercial control:** memetakan paket, menerapkan FeatureGate, membangun
+   License Hub, aktivasi device, signed update, dan monitoring lisensi.
+
+Jalur kedua baru boleh enforcement setelah jalur pertama lulus. License runtime
+tidak boleh dibuat sebagai satu file yang bila rusak mematikan seluruh sistem;
+kasir dan akses ekspor data harus tetap mempunyai kegagalan yang aman.
 
 ### Bentuk Produk yang Dijual
 
@@ -150,6 +184,30 @@ Paket komersial awal yang dipakai sebagai standar:
 | Control | Semua Operations ditambah recipe, produksi component, HPP, defisit stok, period lock, stock health, audit penjualan/HPP, laporan keuangan lanjutan, attendance, dan payroll. |
 | Enterprise | Semua Control ditambah APK POS, integrasi API, online order, automasi khusus, SSO, custom report, serta source escrow hanya bila disepakati secara terpisah. |
 
+Peta awal modul dalam bahasa user:
+
+| Yang dikerjakan customer | Modul yang diterima | Paket minimum kandidat |
+| --- | --- | --- |
+| Menata usaha dan pegawai aplikasi | Profil usaha, outlet, user, role, metode bayar, rekening dasar | Starter POS |
+| Melayani penjualan di kasir | Katalog, produk, extra, bundle, draft, pembayaran, void dasar, printer kasir | Starter POS |
+| Melihat hasil penjualan | Penjualan harian, transaksi, produk/extra, metode bayar, tutup kasir | Starter POS |
+| Mengelola pelanggan dan promosi | Member, point, stamp, promo, voucher, pemakaian voucher, review | Operations |
+| Menerima pesanan selain kasir | Self order, reservasi, online order dasar sesuai add-on | Operations |
+| Membeli dan meminta barang | Purchase Order, penerimaan, Store Request, fulfillment | Operations |
+| Menjaga stok operasional | Gudang, stok divisi, adjustment, lot, stok harian, recon dasar | Operations |
+| Membuat bahan prepare/component | Resep, formula, batch produksi, trace pemakaian | Control |
+| Mengendalikan biaya dan HPP | HPP produk, HPP penjualan, cost control, defisit, Stock Health | Control |
+| Menutup dan mengaudit periode | Period lock, audit commit, audit penjualan/HPP, koreksi berjejak | Control |
+| Mengelola uang dan laporan | Kas/bank, mutasi, hutang/piutang, laporan keuangan lanjutan | Control |
+| Mengelola kehadiran dan gaji | Jadwal, presensi, PH, pengajuan, payroll | Control atau add-on HR |
+| Mengelola aset | Pendataan, lock aset, laporan kejadian, perubahan berapproval | Control atau add-on Asset |
+| Memakai perangkat/mobile tambahan | APK POS, API, pairing device, terminal tambahan | Add-on/Enterprise |
+| Memakai automasi/integrasi khusus | WhatsApp, SSO, custom report, marketplace/perangkat | Add-on/Enterprise |
+
+Peta ini masih kandidat komersial. Finalisasi dilakukan setelah dependency
+fitur dan biaya support diuji; pemindahan satu modul antar paket cukup mengubah
+entitlement, bukan membuat source code baru.
+
 ### Hipotesis harga awal untuk pilot
 
 Harga berikut adalah pegangan pengujian pasar, bukan harga permanen di dalam
@@ -264,6 +322,101 @@ awam, bukan jaminan bahwa programmer tidak dapat menulis ulang sistem. Kontrak,
 distribusi release, private repository, signature, dan License Hub tetap
 menjadi lapisan perlindungan utama.
 
+### Product Control Center multi-produk
+
+Dashboard vendor tidak dibatasi sebagai `Finance License Hub`. Ia dibuat
+sebagai control plane yang dapat melayani Finance, APK POS, dan aplikasi lain
+di masa depan. Source code tetap dikelola oleh Git privat yang terintegrasi;
+Product Control Center menyimpan metadata repository dan memerintahkan build
+runner terisolasi untuk mengambil commit/tag yang telah disetujui.
+
+| Modul pusat | Fungsi pengguna |
+| --- | --- |
+| Product Catalog | Mendaftarkan produk, versi, requirement, lifecycle, serta adapter build/install. |
+| Source Integration | Menghubungkan repository privat, branch policy, commit/tag immutable, webhook, dan approval. |
+| Build Orchestrator | Membuat clean checkout, menjalankan test/scan, dan menghasilkan build yang dapat diulang. |
+| Artifact Registry | Menyimpan metadata paket, checksum, SBOM, signature, channel, serta lokasi artifact storage. |
+| Installation Generator | Menggabungkan artefak generik dengan profil OS, migration, seed, onboarding, dan lisensi customer. |
+| Package & Feature Catalog | Mengelola paket jual, add-on, dependency fitur, kapasitas, dan versi komersial. |
+| License Hub | Mengelola customer, instalasi, entitlement, maintenance, aktivasi online/offline, device, revoke, dan transfer. |
+| Release & Update Center | Mengelola pilot/stable/critical-fix, compatibility, rollout, rollback, dan status update. |
+| Installation Monitor | Menampilkan versi, health minimal, penggunaan slot, heartbeat, dan hasil update berdasarkan persetujuan. |
+| Signing & Secret Service | Menjaga private key dan secret build agar tidak masuk repository atau server customer. |
+| Approval & Audit | Mencatat pembuat build, reviewer, penerbit lisensi, downloader, perubahan paket, dan operasi sensitif. |
+
+Database pusat menyimpan konsep seperti `prd_product`, `prd_repository`,
+`prd_build_definition`, `rel_release`, `rel_artifact`, `ins_profile`,
+`ins_seed_manifest`, `pkg_feature`, `pkg_plan`, `lic_license`,
+`lic_device_activation`, `ops_installation`, `ops_health_event`, dan
+`audit_event`. Nama final ditetapkan saat desain schema; batas datanya sudah
+ditetapkan sejak awal.
+
+Repository privat, artifact storage, database control plane, build runner, dan
+signing service harus dipisahkan secara akses. Build runner memakai credential
+jangka pendek, tidak menerima database produksi customer, dan dibuang setelah
+build. Private key signing tidak pernah dikirim ke runner umum atau aplikasi
+customer.
+
+Monitoring normal hanya memerlukan installation ID pseudonim, produk/versi,
+status lisensi, jumlah slot terpakai, health service, dan hasil update. Data
+transaksi, omzet, stok, resep, payroll, identitas pegawai/customer, dan dokumen
+customer tidak dikirim secara default. Diagnostic support yang lebih rinci
+harus dibuat terpisah, disamarkan, dibatasi waktu, dan disetujui admin customer.
+
+### Generator instalasi dan database awal
+
+Satu produk dan satu versi hanya menghasilkan satu artefak kode generik. Paket
+Starter, Operations, Control, atau Enterprise tidak dibuat dengan menyalin dan
+menghapus source secara manual. Generator memilih artefak yang sama, lalu
+menambahkan install profile, seed profile, onboarding profile, dan signed
+entitlement sesuai pesanan customer.
+
+Klasifikasi database instalasi baru:
+
+| Kelas | Contoh | Aturan |
+| --- | --- | --- |
+| Schema | Tabel, index, foreign key, view, registry migration | Selalu dari migration terurut dan ber-checksum. |
+| Seed platform wajib | Page/menu kanonis, action permission, status sistem | Netral, idempotent, deklaratif, dan dapat mencabut default lama yang salah. |
+| Seed referensi produk | Satuan, alasan transaksi, tipe dokumen, role/template default | Hanya dipasang bila dependency produk/fitur terpenuhi. |
+| Entitlement | Feature code, batas outlet/terminal, maintenance | Berasal dari lisensi bertanda tangan, bukan toggle/seed lokal. |
+| Onboarding | Profil usaha, owner, outlet, timezone, rekening, metode bayar | Diisi saat instalasi; secret dan password dibuat saat itu. |
+| Demo opsional | Data fiktif untuk demonstrasi | Artefak terpisah dan dapat dihapus penuh. |
+| Runtime | Queue, session, cache, log, upload, audit | Dibuat setelah instalasi; folder disiapkan kosong dengan permission yang tepat. |
+| Terlarang | Dump, backup, log lama, upload, transaksi, member/customer, pegawai, presensi, payroll, stok/lot/HPP, mutasi rekening, token, secret, PID, dan config device | Scanner menggagalkan build bila data ini ditemukan. |
+
+Setiap migration dan seed mempunyai ID stabil, versi produk, dependency,
+checksum, mode `insert/update/reconcile`, serta perilaku clean install dan
+upgrade. SQL audit/repair historis berada di jalur support terpisah dan tidak
+ikut update umum. Tidak ada seed yang menyalin isi database aktif Finance saat
+ini melalui dump atau `INSERT ... SELECT`.
+
+Alur generator:
+
+1. Operator memilih produk, versi, release channel, customer, paket, target OS,
+   mode online/offline, dan preset yang diizinkan.
+2. Sistem mengunci commit/tag sumber dan membuat clean checkout pada runner.
+3. Quality gate menjalankan test, lint, dependency scan, secret scan, data/PII
+   scan, serta pemeriksaan file terlarang.
+4. Sistem membangun artefak aplikasi generik dan memverifikasi reproducibility.
+5. Registry menyelesaikan dependency migration, seed, service, cron, Printer
+   Agent, WhatsApp, dan requirement lainnya.
+6. Sistem membuat `dry-run report` berisi seluruh file/data yang masuk dan
+   keluar, requirement, warning, serta alasan penolakan.
+7. Setelah approval, generator membuat profil onboarding dan entitlement
+   customer bertanda tangan tanpa menaruh private key di paket.
+8. Generator menyusun installer online atau bundle offline, SBOM, checksum,
+   signature, changelog, compatibility matrix, serta petunjuk instalasi.
+9. Artefak disimpan di registry, seluruh langkah diaudit, dan link download
+   dibatasi waktu serta customer.
+10. Installer menjalankan preflight, membuat database dari schema/seed kanonis,
+    meminta data onboarding, memasang service/cron, lalu mengirim hasil health
+    check minimum ke Product Control Center bila customer menyetujuinya.
+
+Hasil clean install, upgrade, dan repair/support adalah tiga jenis artefak
+berbeda. Build tidak boleh mengambil workspace developer yang sedang kotor.
+Ia wajib berasal dari tag/commit immutable dan gagal bila dump, log, upload,
+secret, identitas customer lama, atau file di luar allowlist masuk ke paket.
+
 ## 6. Halaman yang Perlu Ada
 
 ### Di aplikasi Finance customer
@@ -289,13 +442,17 @@ menjadi lapisan perlindungan utama.
    - memuat versi, schema, health check, error code, dan konfigurasi teknis;
    - tidak mengirim data bisnis penuh tanpa persetujuan admin.
 
-### Di portal pemilik produk
+### Di Product Control Center milik vendor
 
-1. Pengelolaan customer, lisensi, paket, add-on, dan masa maintenance.
-2. Penerbitan aktivasi, reset device, revoke darurat, dan riwayat audit.
-3. Penerbitan manifest release serta paket update yang ditandatangani.
-4. Dashboard versi customer agar support mengetahui siapa yang tertinggal
-   migration atau memiliki versi API APK yang tidak kompatibel.
+1. Katalog seluruh produk, repository, build definition, versi, requirement,
+   dan lifecycle.
+2. Generator clean install/upgrade berdasarkan package, customer, target OS,
+   migration manifest, dan seed profile.
+3. Pengelolaan customer, lisensi, paket, add-on, device, dan masa maintenance.
+4. Penerbitan aktivasi, reset device, revoke darurat, dan riwayat audit.
+5. Artifact registry, release approval, signature, rollout, serta rollback.
+6. Dashboard versi dan health minimum agar support mengetahui instalasi yang
+   tertinggal migration atau memiliki backend/APK yang tidak kompatibel.
 
 ## 7. Pola Update yang Aman
 
@@ -358,7 +515,10 @@ mengubah baris database pengaturan biasa.
 
 ### Halaman pengaturan yang perlu dibangun
 
-Tambahkan halaman **System > Profil Usaha & Tampilan** dengan bagian berikut:
+`Settings` yang ada sekarang terutama mengelola akun/password, sedangkan
+`System Tools` mengelola backup dan replikasi. Keduanya belum menjadi pusat
+konfigurasi produk. Tambahkan **System > Profil Usaha & Tampilan** dengan bagian
+berikut:
 
 - Identitas usaha: nama legal, nama dagang, nama singkat, NPWP bila dipakai,
   alamat, telepon, email, website, zona waktu, bahasa, dan mata uang.
@@ -372,6 +532,36 @@ Tambahkan halaman **System > Profil Usaha & Tampilan** dengan bagian berikut:
 - Preview: login, sidebar, struk 58/80 mm, QR ulasan, laporan, dan halaman publik
   sebelum perubahan diterapkan.
 - Riwayat perubahan dan tombol kembali ke tema netral bawaan produk.
+
+Tambahkan pula kelompok System berikut agar customer tidak perlu mengubah
+source code:
+
+- **Lokalisasi & Dokumen:** timezone, locale, mata uang, format angka/tanggal,
+  prefix dokumen, penomoran, rounding, dan override per outlet.
+- **Pajak & Service:** tarif, inklusif/eksklusif, service, tanggal berlaku,
+  akun tujuan, dan audit perubahan.
+- **Keamanan:** password policy, idle/absolute session timeout, MFA, session
+  device, re-authentication, dan audit login. Minimum vendor tidak boleh dapat
+  diturunkan oleh customer.
+- **Integrasi:** printer, WhatsApp, email, member/self order, payment gateway,
+  storage, dan URL publik. Secret bersifat write-only dan disimpan di secret
+  store, bukan tabel pengaturan bisnis.
+- **Data & Privasi:** retention log/review/bukti, consent, ekspor data, purge
+  terkontrol, telemetry opt-in, dan support bundle anonim.
+- **Job & Kesehatan:** database, queue, cron, worker POS, Printer Agent,
+  WhatsApp, storage, backup, serta error terakhir.
+- **Update:** versi aplikasi/schema, channel, preflight, backup, migration,
+  rollback, dan riwayat update.
+- **Lisensi & Aktivasi:** paket, entitlement, kuota, terminal, maintenance,
+  status offline, dan aktivasi. Entitlement hanya dapat dibaca dari payload
+  bertanda tangan.
+- **Onboarding:** checklist profil, outlet, akun owner, role, rekening,
+  printer, backup/restore, dan transaksi uji sebelum go-live.
+
+Konfigurasi deployment seperti password database, encryption key, private key,
+tunnel, dan credential replikasi tidak masuk halaman owner biasa. Teknisi hanya
+melihat status tersamarkan dan tindakan sensitif memerlukan hak khusus,
+re-authentication, serta audit.
 
 Konsep tabel yang perlu divalidasi terhadap schema yang sudah ada:
 
@@ -455,112 +645,278 @@ Finance juga harus memenuhi hal berikut:
 
 ## 10. Roadmap Implementasi
 
-### Fase 0 - Keputusan Produk dan Kontrak
+### Fase 0 - Baseline Bersih dan Pengamanan Data
 
-Hasil yang harus ada:
+Hasil wajib:
 
-- definisi paket, add-on, batas outlet, batas terminal, dan masa maintenance;
-- kebijakan penggantian device dan kondisi offline;
-- perjanjian lisensi, EULA, SOP support, dan kebijakan data;
-- keputusan apakah customer mendapat server managed, on-premise package, atau
-  pilihan keduanya.
+- repository/build context produk yang tidak membawa backup, upload, log, PID,
+  cache, dump, config device, data Namua, atau file probe;
+- secret yang pernah masuk Git dirotasi dan konfigurasi berpindah ke
+  environment/secret store;
+- branch/tag baseline internal, daftar dependency, dan inventaris schema;
+- backup database aktif diuji restore ke lingkungan terpisah;
+- keputusan tertulis mana aset customer yang menjadi preset opsional dan mana
+  yang tidak ikut produk.
 
-### Fase 1 - Siapkan Release Engineering
+**Gerbang:** build allowlist menghasilkan paket netral dan secret/data scan
+lulus. Sebelum gerbang ini lulus, paket tidak boleh diberikan kepada pilot.
 
-Hasil yang harus ada:
+### Fase 1 - Tutup Temuan Kritis Keamanan dan RBAC
 
-- nomor versi aplikasi resmi;
-- release manifest untuk seluruh SQL migration;
-- environment config dan secret yang tidak masuk Git;
-- build package Windows/Linux atau container yang terdokumentasi;
-- checklist upgrade, rollback, backup, dan smoke test POS.
+Hasil wajib:
 
-Ini adalah prioritas sebelum membuat pengunci lisensi. Tanpa proses rilis yang
-rapi, modul updater justru dapat merusak data customer.
+- seluruh writer `Master`, resep, formula, extra, bundle, mobile API, export,
+  cron, dan endpoint aksi memakai izin kanonis serta fail-closed;
+- bug delete role diperbaiki dan role matrix di-reset secara deklaratif;
+- scope outlet/divisi/lokasi diuji untuk setiap role operasional;
+- production config memakai HTTPS, secure cookie, CSRF/API exception yang
+  benar, login rate limit, session policy, MFA/re-authentication;
+- System Tools memisahkan hak secret, backup, restore, replication, sync, dan
+  failover;
+- Printer Agent memakai secure pairing dan authenticated request, bukan CORS
+  terbuka atau bootstrap tanpa key.
 
-### Fase 2 - Lisensi Dasar Per Instalasi
+**Gerbang:** direct URL, API, APK, dan action POST yang tidak berhak selalu 403
+dan tidak mengubah data. Security smoke test serta audit role lulus.
 
-Hasil yang harus ada:
+### Fase 2 - Kunci Integritas Transaksi dan Data
 
-- identitas instalasi dan lisensi bertanda tangan;
-- halaman status lisensi dan mode offline;
-- batas outlet/terminal dapat diperiksa dari server;
-- portal internal sederhana untuk menerbitkan lisensi dan activation file;
-- audit aktivasi tanpa mengirim data bisnis customer.
+Hasil wajib:
 
-### Fase 3 - Aktivasi Terminal POS dan APK
+- PO/SR/gudang, batch, adjustment/recon, POS, DP, voucher, reservasi,
+  void/refund, dan reversal memakai satu writer kuantitas/nilai/lot/movement;
+- transaksi normal baru tidak menghasilkan mismatch Stock Health;
+- defisit tetap bekerja tanpa stok lot negatif dan HPP tetap penuh;
+- laporan penjualan, HPP, rekening, payroll, PH, aset, serta dokumen sumber
+  dapat direkonsiliasi;
+- backdate, period lock, approval, idempotency, retry, dan server lambat diuji;
+- repair historis dipisahkan dari migration produk dan selalu preview-first.
 
-Hasil yang harus ada:
+**Gerbang:** satu periode simulasi transaksi lulus invariant tanpa repair
+manual. Seluruh reversal mengembalikan efek bisnis tanpa menghapus audit trail.
 
-- pairing terminal POS dengan batas lisensi;
-- reset device yang aman dan berjejak;
-- APK memakai identitas perangkat yang sama dengan lisensi instalasi;
-- dukungan aktivasi offline untuk lokasi dengan internet terbatas;
-- pengujian penggantian perangkat, kehilangan perangkat, dan koneksi putus.
+### Fase 3 - Automated Test dan Quality Gate
 
-### Fase 4 - Feature Gate dan Paket Produk
+Hasil wajib:
 
-Hasil yang harus ada:
+- unit test untuk permission, FeatureGate, perhitungan biaya, saldo, dan helper;
+- integration test untuk alur transaksi utama serta rollback gagal;
+- contract test backend dengan POS web, APK, Printer Agent, dan WhatsApp;
+- migration test pada database kosong dan minimal dua snapshot versi lama;
+- lint/static analysis PHP, JavaScript, Python, SQL preflight, dependency scan,
+  secret scan, dan build reproducibility di CI;
+- smoke test browser untuk role utama dan UI kritis.
 
-- katalog kode fitur yang stabil;
-- guard di server untuk menu, route, controller, API, cron, dan APK;
-- paket lisensi mengaktifkan fitur tanpa mengubah source code customer;
-- halaman admin yang menjelaskan fitur mana yang aktif atau belum dibeli;
-- regression test untuk memastikan fitur yang dibatasi tidak dapat dipanggil
-  langsung melalui URL/API.
+**Gerbang:** release tidak dapat dibuat bila test, scan, migration dry-run, atau
+restore verification gagal.
 
-### Fase 5 - Update Center
+### Fase 4 - Productization dan System Settings
 
-Hasil yang harus ada:
+Hasil wajib:
 
-- manifest rilis bertanda tangan;
-- preflight, backup otomatis, maintenance mode, migration runner, dan health
-  check;
-- log update serta SOP rollback;
-- kompatibilitas versi backend dan APK;
-- channel rilis `stable`, `pilot`, dan `critical fix`.
+- service profil usaha/branding terpusat dan tema produk netral;
+- halaman lokalisasi, dokumen, pajak/service, keamanan, integrasi, privasi,
+  health, backup, update, lisensi, dan onboarding sesuai batas kewenangannya;
+- seluruh hardcode identitas runtime diganti melalui urutan outlet -> profil
+  usaha -> default netral;
+- demo/preset Namua terpisah dan dapat dihapus tanpa merusak aplikasi;
+- error production aman, mempunyai correlation ID, dan tidak memunculkan SQL
+  atau stack trace kepada user;
+- upload/evidence mempunyai storage, MIME validation, access, quota, dan
+  retensi yang jelas.
 
-### Fase 6 - Operasi Produk dan Scale Up
+**Gerbang:** instalasi baru dapat di-branding dan dikonfigurasi tanpa edit
+source code, lalu semua preview/login/sidebar/dokumen/struk/QR ikut berubah.
 
-Hasil yang harus ada:
+### Fase 5 - Installer, Migration, dan Release Engineering
 
-- portal customer/licensing yang lebih matang;
-- support bundle aman;
-- telemetry kesehatan opsional dan consent-based;
-- dokumentasi installer, onboarding, dan knowledge base;
-- evaluasi apakah perlu SaaS multi-tenant atau tetap on-premise.
+Hasil wajib:
+
+- support matrix resmi PHP/MariaDB/extension/Node/Python dan dependency lock;
+- nomor versi aplikasi dan schema registry ber-checksum;
+- registry seed kanonis yang membedakan platform wajib, referensi produk,
+  onboarding, demo opsional, runtime, dan data terlarang;
+- generator instalasi dengan clean checkout, allowlist, `dry-run`, data/secret
+  scan, manifest dependency, approval, provenance, dan mode online/offline;
+- installer Windows/Linux untuk database, storage, cron/service, Printer Agent,
+  WhatsApp, akun owner, outlet pertama, dan preflight;
+- migration runner dengan lock, backup, maintenance mode, health check, resume,
+  serta rollback;
+- release manifest/SBOM/checksum/signature dan channel `pilot`, `stable`, serta
+  `critical-fix`;
+- server customer tidak memerlukan Git atau alat pengembangan.
+
+**Gerbang:** clean install dan upgrade dua versi lama menghasilkan schema,
+seed, dan perilaku yang sama; paket tidak membawa data/secret terlarang;
+provenance dapat menunjuk commit sumber; backup/restore drill lulus.
+
+### Fase 6 - Definisi Paket dan Katalog Fitur
+
+Hasil wajib:
+
+- daftar modul dalam bahasa user, feature code stabil, dependency fitur, dan
+  owner tiap fitur;
+- paket Starter, Operations, Control, Enterprise, add-on outlet/terminal/APK,
+  serta perilaku upgrade/downgrade;
+- harga pilot, biaya implementasi, maintenance, support, migrasi data, dan
+  perangkat dipisahkan pada penawaran;
+- EULA, kontrak lisensi, kebijakan data, SLA/support boundary, dan kebijakan
+  penggantian device ditinjau pihak hukum;
+- FeatureGate berjalan dalam mode audit untuk menemukan jalur yang terlewat
+  sebelum enforcement.
+
+**Gerbang:** satu katalog machine-readable menjadi sumber License Hub, aplikasi,
+dokumentasi, dan penawaran. Tidak ada paket yang dibuat lewat branch berbeda.
+
+### Fase 7 - Product Control Center dan Signed Entitlement
+
+Hasil wajib:
+
+- aplikasi terpisah milik vendor untuk banyak produk, repository integration,
+  build runner, artifact registry, installation profile, customer, paket,
+  lisensi, add-on, maintenance, device, release, monitoring, dan audit;
+- source tetap di Git privat, artefak di storage terlindungi, dan database
+  pusat hanya menyimpan metadata serta referensi immutable;
+- private key hanya berada di License Hub/signing service;
+- Finance menyimpan installation identity, public key, signed entitlement,
+  cache offline, dan audit status;
+- aktivasi online/offline, grace period 30 hari, renewal, revoke, transfer, dan
+  recovery terdokumentasi;
+- telemetry minimal dan consent-based; tidak mengirim transaksi, payroll, stok,
+  atau data pribadi untuk pemeriksaan lisensi biasa.
+
+**Gerbang:** modifikasi database lokal tidak dapat menaikkan paket, produk baru
+dapat memakai pipeline melalui manifest/adapter, dan gangguan Product Control
+Center tidak mematikan kasir atau akses ekspor data.
+
+### Fase 8 - FeatureGate, Terminal, dan APK
+
+Hasil wajib:
+
+- FeatureGate server dipakai oleh menu, URL, controller, API, export, cron,
+  worker, dan APK;
+- RBAC tetap diperiksa setelah entitlement; keduanya tidak saling menggantikan;
+- terminal POS/APK dipasangkan memakai key pair/device certificate, bukan MAC
+  atau cookie sebagai identitas tunggal;
+- owner dapat melihat, menonaktifkan, dan mengganti device dengan audit;
+- compatibility matrix backend/APK dan minimum supported version diterapkan;
+- downgrade menutup pembuatan transaksi fitur, tetapi data lama tetap dapat
+  dibaca/diekspor sesuai kebijakan.
+
+**Gerbang:** seluruh bypass UI/API/device test gagal dengan aman dan batas
+outlet/terminal selalu konsisten pada kondisi online maupun offline.
+
+### Fase 9 - Update Center dan Pilot Berbayar Terbatas
+
+Hasil wajib:
+
+- update terbantu dengan signature, preflight, backup, migration, health check,
+  rollback, dan log;
+- dua instalasi pilot mewakili Starter dan Operations/Control;
+- uji internet putus, disk penuh, service mati, device ganti, restore, upgrade,
+  downgrade, maintenance habis, refund/void, dan periode sibuk;
+- onboarding, knowledge base, support bundle aman, eskalasi, dan incident runbook;
+- feedback user, waktu instalasi, biaya support, serta kecocokan harga dicatat.
+
+**Gerbang:** pilot beroperasi stabil pada periode yang disepakati dan seluruh
+insiden P0/P1 ditutup sebelum customer umum.
+
+### Fase 10 - Siap Jual dan Operasi Produk
+
+Hasil wajib:
+
+- website/penawaran, demo netral, kontrak, invoice lisensi, dan channel support;
+- release stable pertama, installer, update channel, License Hub monitoring,
+  backup/recovery SOP, dan status page internal;
+- ownership produk, jadwal patch security, support hours, EOL policy, serta
+  proses disclosure kerentanan;
+- metrik yang dipantau: aktivasi, versi, health anonim, update success,
+  incident, support load, renewal, dan churn tanpa mengambil data bisnis;
+- evaluasi berkala harga/paket setelah data pilot, bukan mengubah codebase.
+
+**Gerbang:** seluruh kriteria siap jual pada bagian 12 telah dibuktikan dan
+ditandatangani oleh product owner, engineering, support, dan reviewer bisnis.
 
 ## 11. Urutan Pengerjaan yang Harus Kita Jalankan
 
-Urutan ini sengaja dimulai dari fondasi rilis. Lisensi yang bagus tidak akan
-membantu jika pemasangan, migration, dan pemulihan update belum aman.
+Urutan ini adalah antrean kerja, bukan pekerjaan paralel tanpa gerbang. Lisensi
+yang bagus tidak akan membantu jika aplikasi, data, permission, pemasangan,
+migration, dan pemulihan update belum aman.
 
-### Langkah 1 - Kunci produk yang dijual
+### Langkah 1 - Pisahkan produk dari data instalasi saat ini
+
+Buat clean product repository/build context berbasis allowlist. Backup,
+uploads, log, PID, cache, konfigurasi device, database config, SQL repair
+customer, dan identitas Namua tidak ikut. Rotasi secret yang pernah masuk Git,
+pisahkan data demo, dan uji bahwa paket baru dapat diekstrak tanpa membawa data
+pegawai/customer lama.
+
+### Langkah 2 - Tutup keamanan dan RBAC P0
+
+Guard Master/Master Relation/API/cron/export, perbaiki delete role, reset role
+matrix deklaratif, aktifkan production security, amankan System Tools, login,
+session, dan Printer Agent. Hasilnya dibuktikan melalui direct URL dan API test,
+bukan hanya menu yang tersembunyi.
+
+### Langkah 3 - Stabilkan writer dan laporan lintas modul
+
+Uji dan perbaiki PO, SR, gudang, batch, adjustment, POS, HPP, keuangan,
+void/refund, PH, payroll, aset, reservasi, printer, dan queue sampai transaksi
+baru tidak menghasilkan mismatch atau saldo yang tidak dapat ditelusuri.
+
+### Langkah 4 - Bangun automated quality gate
+
+Tambahkan test unit, integration, contract, migration, restore, RBAC, browser
+smoke, dependency/secret scan, dan CI. Release harus gagal otomatis bila satu
+gerbang gagal.
+
+### Langkah 5 - Jadikan identitas dan aturan umum sebagai pengaturan
+
+Bangun profil usaha, branding, lokalisasi, dokumen, pajak/service, security,
+integrasi, privasi, health, update, lisensi, dan onboarding. Semua pembaca
+identitas memakai service pusat dan fallback netral.
+
+### Langkah 6 - Buat registry data awal dan generator instalasi
+
+Tetapkan runtime support, lock dependency, app/schema version, migration
+registry, seed registry, klasifikasi data awal, installer Windows/Linux,
+service/cron setup, backup, rollback, health check, dan release signature.
+Generator wajib mempunyai dry-run, allowlist, secret/data scan, provenance,
+serta output online/offline. Clean install dan upgrade snapshot lama harus
+menghasilkan schema serta seed kanonis yang sama.
+
+### Langkah 7 - Kunci produk yang dijual
 
 Sebelum coding lisensi, buat satu dokumen komersial yang berisi harga, paket,
 add-on, jumlah outlet, slot terminal tiap paket, durasi maintenance, dan SOP
 ganti device. Dokumen ini juga menjadi bahan kontrak/EULA. Hasilnya: tim sales,
 support, dan developer memakai definisi produk yang sama.
 
-### Langkah 2 - Rapikan release engineering Finance
+### Langkah 8 - Finalisasi release engineering Finance
 
 Buat nomor versi resmi, changelog, migration manifest, backup database,
 rollback plan, dan smoke test. Buat release package dari branch/tag yang bersih
 di CI atau mesin build khusus. Server customer tidak lagi diupdate lewat Git.
 Hasilnya: satu release bisa dipasang ulang dan dipulihkan dengan cara yang sama
-di semua customer.
+di semua customer. Artefak generik ini menjadi input generator, bukan hasil
+copy workspace dan bukan source variant untuk masing-masing paket.
 
-### Langkah 3 - Bangun Finance License Hub
+### Langkah 9 - Bangun Product Control Center multi-produk
 
-Buat aplikasi/layanan internal terpisah untuk mengelola customer, paket,
-lisensi, activation code, terminal, masa maintenance, dan release. License Hub
-tidak menyimpan transaksi atau data keuangan customer. Ia hanya menjadi lemari
-kunci yang menerbitkan lisensi bertanda tangan.
+Buat aplikasi/layanan internal terpisah untuk mengelola banyak produk,
+repository integration, build, artefak, generator instalasi, customer, paket,
+lisensi, activation code, terminal, maintenance, release, monitoring, approval,
+dan audit. Product Control Center tidak menyimpan transaksi atau data keuangan
+customer. Ia mengatur source melalui referensi Git privat, menyimpan artefak di
+storage terlindungi, dan menerbitkan lisensi bertanda tangan.
 
-Tabel minimum di License Hub:
+Kelompok tabel minimum di Product Control Center:
 
-| Tabel | Isi utama |
+| Kelompok | Isi utama |
 | --- | --- |
+| `prd_product`, `prd_repository`, `prd_build_definition` | Produk, adapter, repository, commit policy, requirement, dan perintah build. |
+| `rel_release`, `rel_artifact`, `rel_build_run` | Versi, channel, build provenance, hasil test/scan, checksum, signature, dan lokasi artefak. |
+| `ins_profile`, `ins_migration_manifest`, `ins_seed_manifest` | Target OS/runtime, dependency migration/seed, onboarding, service, dan preset. |
 | `lic_customer` | Identitas organisasi customer dan kontak pemilik. |
 | `lic_plan` | Starter POS, Operations, Control, Enterprise. |
 | `lic_feature` dan `lic_plan_feature` | Katalog fitur serta fitur milik setiap paket. |
@@ -568,9 +924,10 @@ Tabel minimum di License Hub:
 | `lic_license_entitlement` | Add-on dan limit yang spesifik untuk satu customer. |
 | `lic_device_activation` | Device/terminal aktif, outlet, public key, dan statusnya. |
 | `lic_activation_audit` | Jejak aktivasi, reset, penggantian, dan alasan. |
-| `lic_release` | Manifest release, signature, versi minimum, dan channel rilis. |
+| `ops_installation`, `ops_health_event`, `ops_update_run` | Versi instalasi, health minimum, hasil update, dan consent telemetry. |
+| `audit_event`, `approval_request` | Jejak tindakan sensitif dan persetujuan release/lisensi/build. |
 
-### Langkah 4 - Integrasikan lisensi ke Finance tanpa mengganggu operasi
+### Langkah 10 - Integrasikan lisensi ke Finance tanpa mengganggu operasi
 
 Tambahkan halaman `System > Lisensi & Aktivasi`, cache lisensi bertanda tangan,
 dan pemeriksaan status yang tidak langsung mematikan kasir. Tambahkan satu
@@ -579,7 +936,7 @@ memakai gate yang sama. Saat belum ada lisensi pada masa migrasi, gunakan mode
 internal/development yang dicatat jelas dan hanya dapat dipakai oleh instalasi
 milik kita.
 
-### Langkah 5 - Aktifkan batas terminal dan APK POS
+### Langkah 11 - Aktifkan batas terminal dan APK POS
 
 Saat POS web terminal atau APK pertama kali dipasang, device melakukan pairing
 dengan kode aktivasi. Setiap device menyimpan pasangan kunci, bukan hanya MAC
@@ -587,7 +944,7 @@ address atau cookie. Owner dapat menonaktifkan device lama lalu memasangkan
 pengganti; semua tindakan masuk audit. APK POS harus memakai entitlement yang
 sama dan menghitung satu slot terminal.
 
-### Langkah 6 - Buat Update Center secara bertahap
+### Langkah 12 - Buat Update Center secara bertahap
 
 Versi pertama cukup berupa update terbantu: admin melihat release, sistem
 melakukan preflight dan backup, lalu admin menerapkan paket yang sudah
@@ -595,7 +952,7 @@ ditandatangani. Setelah proses itu stabil, baru aktifkan download dan update
 otomatis terjadwal. Setiap update wajib membuat backup, menjalankan migration,
 health check, dan menyediakan rollback yang diuji.
 
-### Langkah 7 - Paketkan dan lindungi release production
+### Langkah 13 - Paketkan dan lindungi release production
 
 Pisahkan repository private dari artefak pelanggan. Rilis production berisi
 kode yang diperlukan aplikasi, konfigurasi template, installer, dan checksum;
@@ -603,7 +960,7 @@ tidak berisi Git, secret, private key, atau alat pengembangan. Evaluasi PHP
 encoder setelah installer/updater stabil. Encoder memperkuat hambatan menyalin,
 tetapi kontrak lisensi dan proses distribusi tetap menjadi perlindungan utama.
 
-### Langkah 8 - Pilot sebelum dijual luas
+### Langkah 14 - Pilot sebelum dijual luas
 
 Pilih satu sampai dua instalasi pilot. Uji pembelian lisensi Starter satu
 terminal dan Operations tiga terminal, ganti HP/PC, internet putus,
@@ -615,15 +972,31 @@ setelah seluruh skenario ini lolos, paket dijual ke customer berikutnya.
 Produk dianggap siap dijual ketika seluruh poin berikut telah terbukti pada
 instalasi pilot:
 
+- artefak customer tidak membawa backup, upload, log, secret, config device,
+  identitas customer lama, Git, atau alat repair internal;
+- generator menunjukkan dry-run file/data, provenance commit, dependency
+  migration/seed, checksum, signature, dan hasil seluruh quality gate;
+- database kosong terbentuk dari migration serta seed kanonis tanpa dump
+  produksi, akun/password default, atau data operasional instalasi lain;
 - customer bisa memasang aplikasi tanpa akses Git atau source code;
+- nama usaha, logo, tema, locale, dokumen, URL publik, outlet, rekening, dan
+  aturan pajak/service dapat disiapkan melalui onboarding tanpa edit source;
+- runtime/dependency, versi aplikasi, versi schema, checksum migration, dan
+  signature release dapat dibuktikan;
 - lisensi membatasi outlet dan terminal sesuai paket/kontrak, termasuk APK;
 - owner dapat melihat dan mengganti device dengan audit trail;
 - RBAC dan FeatureGate sama-sama menolak akses yang tidak berhak;
+- Printer Agent, WhatsApp, cron, worker, upload, dan endpoint publik telah
+  melalui security/abuse test serta mempunyai health/retention;
 - POS tetap beroperasi saat koneksi License Hub terputus dalam grace period;
 - masa maintenance habis tidak mengunci transaksi maupun data;
 - update memiliki preflight, backup, migration, health check, dan rollback;
+- automated test transaksi, rollback, RBAC, migration, restore, dan browser
+  smoke lulus pada release candidate yang sama dengan paket customer;
 - support dapat membaca status versi/aktivasi tanpa menerima data transaksi
   customer secara default;
+- Product Control Center dapat menghasilkan ulang artefak customer yang sama
+  dari source immutable dan menambahkan produk baru melalui manifest/adapter;
 - kontrak lisensi, SOP instalasi, SOP support, dan kebijakan privasi siap
   dipakai.
 
@@ -639,6 +1012,10 @@ instalasi pilot:
   bisnis cloud benar-benar dibutuhkan.
 - Jangan mengirim data transaksi customer ke server lisensi demi pemeriksaan
   aktivasi biasa.
+- Jangan menyimpan repository source sebagai blob biasa di database Product
+  Control Center; gunakan Git privat dan artifact storage dengan akses terpisah.
+- Jangan membuat dump database aktif sebagai seed customer baru atau
+  mencampurkan clean install, upgrade, dan repair historis dalam satu paket.
 
 ## 14. Keputusan yang Sudah Ditetapkan Sebelum Mulai Coding
 
@@ -653,19 +1030,34 @@ instalasi pilot:
    sedangkan update/support baru memerlukan perpanjangan.
 6. Kontrak lisensi, EULA, dan SOP support harus ditinjau pihak hukum sebelum
    penjualan pertama.
-7. Pengerjaan dimulai dari Langkah 1 dan 2, lalu lisensi dasar. Obfuscation dan
+7. Pengerjaan dimulai dari Langkah 1 sampai 6: pemisahan data, keamanan/RBAC,
+   integritas transaksi, automated test, productization, dan installer. Lisensi
+   dasar baru dimulai setelah gerbang fondasi tersebut lulus. Obfuscation dan
    APK locking tidak boleh mendahului release engineering.
+8. Aplikasi pusat final adalah Product Control Center multi-produk. Finance
+   menjadi produk pertama; produk berikutnya masuk lewat katalog, adapter,
+   manifest build/install, dan registry fitur tanpa membuat control plane baru.
+9. Satu artefak kode digunakan untuk seluruh paket pada versi yang sama.
+   Perbedaan customer dihasilkan melalui install profile, onboarding, dan
+   signed entitlement, bukan modifikasi manual source.
 
 ## 15. Ringkasan Arah Produk
 
 Untuk versi pertama yang akan dijual, arah finalnya adalah:
 
+- selesaikan gerbang audit, clean product build, automated test, pengaturan
+  sistem, dan installer sebelum mengaktifkan enforcement lisensi;
 - jual **perpetual on-premise per organisasi**; Starter membawa 1 outlet dan
   1 terminal POS, sedangkan Operations menjadi pilihan awal untuk 3 terminal;
 - customer memperoleh versi saat pembelian dan 12 bulan update/support;
 - update berikutnya setelah masa itu melalui renewal maintenance, tanpa
   mematikan aplikasi yang sudah dibeli;
 - source repository tidak diserahkan;
+- kelola source di Git privat dan seluruh build, artefak, generator instalasi,
+  lisensi, update, monitoring, approval, serta audit melalui Product Control
+  Center multi-produk;
+- bentuk database customer dari migration dan seed kanonis; exclude dump,
+  backup, log, upload, data bisnis, secret, dan konfigurasi device;
 - gunakan lisensi offline-signed ditambah aktivasi terminal online/offline;
 - jadikan APK POS sebagai add-on per terminal;
 - pertahankan satu codebase dan aktifkan paket melalui entitlement yang

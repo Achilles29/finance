@@ -1,8 +1,10 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
-**Tanggal audit:** 2026-08-30
+**Tanggal audit awal:** 2026-08-30
+**Pembaruan kesiapan jual:** 2026-08-31
 **Sifat audit:** Pemeriksaan baca-saja terhadap kode, struktur RBAC, sidebar,
-writer transaksi, dan snapshot database lokal.
+writer transaksi, snapshot database lokal, konfigurasi sistem, artefak rilis,
+integrasi lokal, dan kebutuhan operasional.
 **Status dokumen:** Pegangan perbaikan teknis. Dokumen ini tidak mengubah
 kode, database, saldo, stok, HPP, payroll, maupun hak akses.
 **Dokumen terkait:**
@@ -45,6 +47,18 @@ Kesimpulan utama:
    updater otomatis dan distribusi ke banyak customer.
 8. **Migration deployment belum terkelola.** SQL masih dijalankan manual dan
    belum ada satu registry yang membuktikan versi schema setiap instalasi.
+9. **Repository saat ini tidak boleh dijadikan paket customer.** Backup
+   database, upload pelanggan, log, PID, konfigurasi perangkat, dan kredensial
+   instalasi masih bercampur dengan source pengembangan.
+10. **Pengaturan sistem belum menjadi pusat identitas produk.** Nama aplikasi,
+    nama usaha, logo, alamat, domain, warna, identitas dokumen, dan URL publik
+    masih tersebar di banyak file atau tabel khusus modul.
+11. **Printer Agent dan layanan pendamping belum siap didistribusikan.** API
+    lokal cetak belum memiliki autentikasi request, bootstrap server dapat
+    fail-open, dan proses masih memakai development server Flask.
+12. **Kebutuhan runtime belum dinyatakan dengan benar.** Kode memakai fitur
+    PHP 8, tetapi `composer.json` masih menyatakan PHP 5.3.7; dependency PHP
+    dan Python juga belum dikunci untuk build yang dapat direproduksi.
 
 Prioritas yang disarankan adalah menghentikan sementara penambahan fitur besar,
 menyelesaikan Fase 0 sampai Fase 3 pada roadmap di dokumen ini, lalu melanjutkan
@@ -263,6 +277,93 @@ error setelah kode baru dipasang tetapi SQL pendukung belum dijalankan.
 hasil, dan versi aplikasi. Updater harus menjalankan preflight, backup,
 migration terurut, smoke test, lalu menandai release berhasil.
 
+### K-08. Repository membawa data operasional dan artefak instalasi
+
+Snapshot Git pada audit ini menunjukkan:
+
+- 950 file di `backup/` dengan ukuran working tree sekitar 3,47 GB;
+- 321 file di `uploads/` dengan ukuran sekitar 339,54 MB;
+- 582 file di `assets/` dengan ukuran sekitar 550,30 MB;
+- ukuran pack Git sekitar 6,73 GB;
+- `application/config/database.php`, konfigurasi Printer Agent, log agent,
+  cache Python, log WhatsApp, dan PID layanan masih dilacak Git.
+
+Backup database dan upload bukan aset program. Isinya dapat membawa transaksi,
+pegawai, customer, nomor telepon, kredensial, foto bukti, dan data usaha milik
+instalasi saat ini.
+
+**Klarifikasi keputusan:** dump, log, upload, dan konfigurasi lokal memang
+tidak akan menjadi isi paket penjualan. Temuan ini tidak berarti backup aktif
+harus dihapus dari laptop/server operasional sekarang. Temuan ini berarti paket
+tidak boleh dibuat dengan ZIP/copy workspace dan proses build wajib membuktikan
+semua jalur runtime tersebut sudah dikeluarkan.
+
+**Dampak untuk bisnis:** menyalin repository atau membuat ZIP dari workspace
+dapat membocorkan data customer lama ke customer baru. Menghapus file dari
+working tree saja juga belum menghapusnya dari riwayat Git.
+
+**Perbaikan wajib:**
+
+1. Jangan menjadikan repository/workspace sekarang sebagai ZIP customer.
+2. Generator memakai clean checkout dari tag/commit produk yang immutable,
+   bukan folder aplikasi yang sedang berjalan.
+3. `backup/`, `uploads/`, log, PID, cache, dump, `.git`, konfigurasi device,
+   database config, dan file probe masuk daftar larangan global.
+4. Build paket menggunakan allowlist dan fail bila path terlarang, secret,
+   data pribadi, atau identitas instalasi terdeteksi pada staging artifact.
+5. Runtime directory dibuat installer di lokasi/volume terpisah dan tidak
+   pernah dimasukkan kembali ke update package.
+6. Source tetap berada di private Git; generator menyimpan referensi commit dan
+   artefak hasil build, bukan menyalin source mentah ke database dashboard.
+7. Putuskan terpisah apakah riwayat Git lama perlu dibersihkan dan rotasi semua
+   secret yang pernah masuk Git sebelum distribusi eksternal.
+
+### K-09. Printer Agent masih fail-open dan perintah cetak lokal tidak diautentikasi
+
+**Bukti kode:** `application/controllers/Pos_printer_agent.php` dan
+`tools/pos_printer_agent/agent.py`.
+
+- Jika `POS_PRINTER_BOOTSTRAP_KEY` kosong, endpoint bootstrap tetap dibuka.
+- Key dapat dikirim lewat query string selain header.
+- Local Agent memakai `CORS(app)` tanpa pembatasan origin.
+- Endpoint `POST /cetak` menerima payload cetak tanpa token, signature,
+  timestamp, nonce, atau pemeriksaan origin.
+- Satu development server Flask dibuat per printer dan `/health` mengekspos
+  identitas perangkat lokal.
+
+**Dampak untuk user:** halaman web berbahaya yang dibuka di komputer kasir
+berpotensi mengirim perintah ke port localhost. Konfigurasi printer juga dapat
+diambil tanpa key bila environment belum disiapkan dengan benar.
+
+**Perbaikan wajib:** bootstrap harus fail-closed, key tidak boleh berada di
+URL, pairing menghasilkan secret per instalasi/agent, setiap request cetak
+ditandatangani dan dilindungi dari replay, CORS dibatasi atau dihapus, payload
+dan jumlah copy dibatasi, dan agent dijalankan sebagai satu service produksi
+dengan audit serta health check.
+
+### K-10. Rahasia dan operasi server bercampur dengan pengaturan aplikasi
+
+`System_tools` saat ini menyimpan `backup.db_pass` dan `repl.repl_pass` di
+`sys_app_config`. Form tes koneksi juga mengirim password melalui query string.
+Halaman yang sama dapat menjalankan backup, sinkronisasi, konfigurasi MySQL,
+replikasi, tunnel, dan failover dengan izin CRUD generik.
+
+**Dampak:** secret dapat ikut backup database, terlihat di browser history,
+access log, reverse proxy, atau diagnostic capture. Izin `edit` biasa menjadi
+terlalu kuat untuk operasi server yang dapat menimpa data atau mengubah arah
+replikasi.
+
+**Perbaikan wajib:**
+
+1. Secret deployment disimpan di environment/secret store dengan encryption
+   key di luar database; UI hanya menampilkan status dan nilai tersamarkan.
+2. Semua tes koneksi memakai POST dan tidak pernah mengembalikan DSN/password.
+3. Pisahkan hak `manage_secret`, `run_backup`, `restore_backup`,
+   `configure_replication`, `initial_sync`, dan `failover`.
+4. Operasi berbahaya memerlukan re-authentication, konfirmasi bernama,
+   approval dua pihak untuk produksi, dan audit before/after.
+5. Halaman biasa untuk pemilik usaha tidak boleh memperoleh shell access.
+
 ## 5. Temuan Tinggi
 
 ### T-01. Nilai bulanan component dapat berbeda dari nilai lot FIFO
@@ -330,6 +431,57 @@ Konsep yang harus berlaku untuk semua modul:
 
 Tidak boleh ada controller yang hanya mengubah monthly stock, hanya mengubah
 lot, atau hanya membuat movement tanpa pasangan lainnya.
+
+### T-04. Kontrak runtime dan dependency tidak sesuai dengan kode aktual
+
+Pemeriksaan menemukan aplikasi memakai `match`, `str_contains`, dan
+`str_ends_with`, sehingga baseline aktual minimal PHP 8.0. Namun,
+`composer.json` masih merupakan metadata framework CodeIgniter dan menyatakan
+PHP `>=5.3.7`. `composer.lock` juga diabaikan Git. Dependency Printer Agent
+memakai rentang versi luas dan WhatsApp Engine memakai dependency kandidat
+rilis.
+
+**Dampak:** installer dapat menyatakan server kompatibel padahal aplikasi akan
+fatal error. Dua customer dengan versi dependency berbeda juga dapat menerima
+perilaku berbeda dari source yang sama.
+
+**Perbaikan:** tetapkan dan uji support matrix resmi, misalnya PHP 8.0/8.1,
+MariaDB minimum yang disepakati, extension wajib, Node LTS, serta Python yang
+didukung. Gunakan lockfile/checksum, dependency scan, dan preflight installer.
+Build harus gagal bila versi atau extension tidak memenuhi kontrak.
+
+### T-05. Pengaturan sistem dan identitas bisnis masih terfragmentasi
+
+`Settings` saat ini pada dasarnya hanya mengelola akun dan password user.
+Identitas usaha sebagian berada di outlet dan pengaturan printer, sementara
+nama `NAMUA`, `MPP`, `Pemkab`, alamat Magnolia/Kabongan/Rembang, domain, logo,
+dan warna masih muncul langsung di template, laporan, review, aset, menu book,
+landing page, serta fallback service printer.
+
+**Dampak untuk customer:** mengganti nama dan logo pada satu layar belum tentu
+mengubah login, sidebar, dokumen, QR review, kontrak HR, label aset, atau hasil
+cetak. Hal ini menimbulkan risiko identitas customer lama tampil pada instalasi
+customer baru.
+
+**Perbaikan:** bangun satu `System > Profil Usaha & Tampilan` dengan aturan
+precedence yang jelas: override outlet/dokumen, lalu profil usaha pusat, lalu
+default produk netral. Semua pembaca identitas wajib memakai service yang sama,
+bukan fallback hardcode masing-masing.
+
+### T-06. Belum ada produk installer, release manifest, dan jalur rollback resmi
+
+Workspace masih memuat file probe di root, 67 SQL aktif dan 386 SQL di
+`sql/_old`, tanpa manifest yang menjelaskan SQL install, migration, seed,
+audit, repair, atau retired. Tidak ditemukan version endpoint, schema registry,
+CI pipeline, atau test proyek.
+
+**Dampak:** teknisi dapat menjalankan SQL yang salah atau urutannya keliru;
+customer A dan B dapat mempunyai schema berbeda walaupun mengaku memakai versi
+aplikasi yang sama.
+
+**Perbaikan:** buat installer database kosong, migration registry ber-checksum,
+manifest release bertanda tangan, preflight, backup, maintenance mode, health
+check, rollback, dan build bersih yang tidak mengambil file di luar allowlist.
 
 ## 6. Temuan Sedang
 
@@ -427,6 +579,43 @@ membuktikan hak akses, transaksi, rollback, HPP, atau saldo benar.
 Ini menjadi penghambat utama updater otomatis karena setiap update customer
 harus dapat membuktikan perilaku penting tetap sama.
 
+### S-09. Upload dan data publik memerlukan kebijakan keamanan yang seragam
+
+Upload produk dan aset sudah membatasi tipe gambar, mengacak nama file, dan
+membatasi ukuran. Itu merupakan fondasi yang baik. Namun kebijakan belum
+terpusat, SVG mempunyai jalur sanitasi tersendiri, dan file runtime masih
+berada di bawah web root serta ikut repository.
+
+**Perbaikan:** buat satu upload service yang memeriksa MIME dari isi file,
+decode/re-encode gambar raster, menolak polyglot, menonaktifkan eksekusi script
+di folder upload, menyimpan evidence privat di luar public web root, serta
+memberi signed download untuk bukti yang sensitif. Tambahkan quota, retensi,
+antivirus opsional, dan audit penghapusan.
+
+### S-10. Worker, cron, Printer Agent, dan WhatsApp belum memiliki lifecycle produk
+
+POS sudah mempunyai endpoint CLI untuk runtime job dan availability queue,
+tetapi pemasangan cron masih bergantung pada salin perintah. Printer Agent dan
+WhatsApp juga membawa config, log, serta cara start/stop yang belum seragam.
+
+**Perbaikan:** installer membuat service/Task Scheduler dan cron secara aman,
+halaman aplikasi hanya memonitor tanpa shell umum, serta health center
+menampilkan heartbeat, backlog, versi worker, error terakhir, dan tombol retry
+yang terotorisasi. Uninstall, upgrade, rotasi log, dan recovery service harus
+didokumentasikan untuk Windows dan Linux.
+
+### S-11. Kebijakan security account belum cukup untuk produk multi-customer
+
+Password minimum masih enam karakter, sesi dapat bertahan satu tahun, cookie
+tidak secure/HttpOnly, tidak ada login throttling, dan belum ada MFA untuk akun
+berisiko tinggi. Header keamanan web juga belum mempunyai baseline produksi.
+
+**Perbaikan:** tetapkan password policy modern, idle timeout dan absolute
+timeout terpisah, logout semua device, session version setelah perubahan role,
+MFA/re-authentication untuk Superadmin dan operasi berbahaya, allowed-host
+validation, trusted proxy, CSP bertahap, HSTS, frame/referrer policy, serta
+audit login dan perubahan credential.
+
 ## 7. Utang Data Historis
 
 ### 7.1 Eligibility PH lama
@@ -494,7 +683,216 @@ Karena itu implementasi defisit tidak otomatis menghapus mismatch. Mismatch
 baru berhenti ketika seluruh writer memakai lot, movement, monthly stock, dan
 nilai biaya yang sama dalam satu transaksi database.
 
-## 9. Roadmap Pengembangan
+## 9. Audit Kesiapan Produk dan Pengaturan Sistem
+
+### 9.1 Snapshot teknis yang sudah diverifikasi
+
+Pembaruan 31 Agustus 2026 menghasilkan bukti berikut:
+
+- 442 file PHP di `application/` lolos lint; tidak ada syntax error PHP.
+- Tidak ditemukan folder test proyek atau pipeline CI.
+- Terdapat 946 deklarasi route dan 6 key route ganda untuk outlet/terminal.
+- Terdapat 453 file SQL: 67 di root aktif dan 386 di `sql/_old`.
+- Migration CodeIgniter masih nonaktif dan versi schema masih 0.
+- Semua page aktif pada snapshot mempunyai minimal satu permission dan tidak
+  ada menu aktif yang menunjuk page hilang.
+- Masih ada dua menu aktif yang menuju `/pos/reports/sales`.
+- Hak database beberapa role terlalu luas untuk tugasnya. Contoh snapshot:
+  KASIR memiliki 106 view, 84 create, 84 edit, dan 74 delete; BARISTA memiliki
+  117 view, 87 create, 85 edit, dan 81 delete. Angka ini bukan bukti semua izin
+  salah, tetapi cukup untuk mewajibkan reset berbasis matrix tugas.
+
+Lint yang bersih adalah hasil positif, tetapi belum membuktikan transaksi,
+otorisasi, rollback, atau laporan benar. Status komersial tetap mengikuti
+acceptance test per modul.
+
+### 9.2 Tiga lapisan konfigurasi yang tidak boleh dicampur
+
+| Lapisan | Contoh | Siapa yang boleh mengubah | Penyimpanan yang benar |
+| --- | --- | --- | --- |
+| Pengaturan usaha | Nama usaha, logo, warna, alamat, pajak, nomor dokumen, locale | Owner/Management sesuai RBAC | Database dengan audit trail |
+| Konfigurasi deployment | Database, encryption key, SMTP/API secret, backup, tunnel, private storage | Installer/teknisi berotorisasi | Environment atau secret store di luar database bisnis |
+| Entitlement lisensi | Paket, fitur, batas outlet, terminal, maintenance | License Hub milik vendor | Dokumen/cache bertanda tangan; lokal hanya dapat membaca dan mengaktifkan |
+
+Owner customer tidak boleh dapat menaikkan paket melalui toggle lokal. Sebaliknya,
+vendor lisensi juga tidak boleh menerima transaksi, payroll, atau detail stok
+customer hanya untuk memeriksa lisensi.
+
+### 9.3 Halaman System Settings yang perlu dibangun
+
+| Halaman | Isi utama untuk user | Catatan implementasi |
+| --- | --- | --- |
+| Profil Usaha | Nama aplikasi/customer, badan usaha, NPWP, alamat, telepon, email, sosial | Menjadi sumber identitas pusat |
+| Branding & Tema | Logo light/dark, favicon, warna utama/aksen, login, sidebar | Preview desktop, mobile, dan print |
+| Outlet & Dokumen | Identitas per outlet, prefix nota, invoice, label, footer, tanda tangan | Override outlet di atas profil pusat |
+| Lokalisasi | Zona waktu, locale, mata uang, format tanggal/angka, bahasa | Tidak boleh hardcode WIB/Rupiah bila produk diperluas |
+| Pajak, Service & Pembulatan | Tarif, inklusif/eksklusif, service, rounding, tanggal berlaku | Perubahan bertanggal dan berjejak |
+| Keamanan Akun | Password policy, idle timeout, MFA, device/session, IP policy opsional | Batas minimum vendor tidak boleh diturunkan |
+| Integrasi | Printer, WhatsApp, self-order, online order, payment gateway, SMTP | Secret write-only; tampilkan status, bukan nilainya |
+| Data & Privasi | Retensi log, bukti, review, data member, ekspor dan penghapusan | Sesuai consent dan kontrak customer |
+| Job & Kesehatan | Queue POS, cron, worker, Printer Agent, WA, storage, DB | Monitor dan retry terotorisasi, bukan shell umum |
+| Backup & Recovery | Jadwal, retensi, hasil verifikasi restore | Hak sangat terbatas dan re-authentication |
+| Update | Versi aplikasi/schema, channel, preflight, backup, rollback | Paket dan manifest wajib bertanda tangan |
+| Lisensi & Aktivasi | Paket, fitur aktif, kuota outlet/terminal, masa support, status offline | Read-only dari entitlement kecuali aktivasi |
+| Onboarding | Checklist profil, outlet, rekening, role, printer, backup, tes transaksi | Menandai instalasi layak go-live |
+
+Struktur data kandidat adalah `sys_business_profile`, `sys_branding_setting`,
+`sys_brand_asset`, `sys_localization_setting`, `sys_document_setting`,
+`sys_public_url`, `sys_security_policy`, dan `sys_config_audit`. Nama tabel final
+ditentukan setelah dependency scan; jangan membuat tabel baru bila data kanonis
+sudah tersedia di outlet atau pengaturan modul.
+
+Aturan pembacaan identitas:
+
+1. override dokumen/outlet bila ada;
+2. profil usaha pusat;
+3. default produk yang netral, bukan identitas Namua atau MPP.
+
+### 9.4 Matriks kesiapan modul
+
+| Area user | Kondisi saat audit | Gerbang sebelum dijual |
+| --- | --- | --- |
+| Login, user, role, sidebar | Berfungsi, tetapi permission melebar dan security policy lemah | Guard per aksi, reset matrix, login throttling, session aman, audit role |
+| Master barang/pegawai/vendor/rekening | Fitur lengkap, tetapi CRUD generik belum fail-closed | Registry entity-page dan direct URL/API test semua role |
+| Resep, formula, extra, bundle | Berfungsi dan berdampak langsung ke HPP | Guard writer, versioning formula, audit before/after |
+| Purchase Order, SR, gudang | Alur operasional tersedia | Test receipt parsial/penuh/void, fulfillment, lot, nilai, rekening, RBAC |
+| Inventory, produksi, adjustment | Defisit dan lot negatif sudah lebih sehat | Satu writer kuantitas/nilai/lot, hentikan mismatch baru, test reversal |
+| POS, voucher, DP, reservasi | Cakupan transaksi sangat lengkap | Test reguler/extra/bundle/DP/voucher/refund/void dan queue pada server lambat |
+| HPP dan laporan penjualan | Audit dan laporan sudah tersedia | Rekonsiliasi order-item-HPP-stock-finance serta correction workflow |
+| Keuangan | Saldo snapshot seimbang | Urutan posted/effective date, closing period, audit backdate, export |
+| Attendance dan PH | Saldo/guard terakhir sehat | Test cutover, grant/use/expiry, schedule guard, timezone, payroll link |
+| Payroll | Perhitungan ada | Slip transparan, approval/lock, makan terpisah, reversal dan export |
+| Aset | Lock master dan change request tersedia | Test permission, approval, evidence privat, rekonsiliasi bulanan |
+| Member, promo, review | Loyalty dan QR tersedia | Consent, anti-spam, dedupe nomor, privacy/retention, moderation |
+| Printer | Konfigurasi terpusat mulai terbentuk | Secure pairing, signed request, service installer, retry/audit, fail-closed |
+| WhatsApp | Engine dan UI tersedia | Secret production, service lifecycle, dependency stabil, consent dan opt-out |
+| Landing/menu/roastery | Kaya konten tetapi sangat khusus Namua | Jadikan template/preset opsional atau keluarkan dari paket generik |
+| APK/POS mobile API | Token tersedia | RBAC per endpoint, device key, revocation, version compatibility, rate limit |
+| Backup/replikasi/system tools | Fitur teknis sangat kuat | Pisahkan secret dan hak berbahaya, test restore, approval, audit operator |
+| Installer/update | Belum tersedia sebagai produk | Clean install, upgrade, checksum, signature, preflight, rollback, health check |
+
+### 9.5 Matrix RBAC yang harus menjadi sumber tunggal
+
+RBAC final harus disusun dari pekerjaan user, bukan dari menyalin hak role lain.
+Setiap baris matrix minimal mempunyai:
+
+- `page_code` kanonis;
+- aksi `view/create/edit/delete/export/approve/post/void` sesuai kebutuhan;
+- scope organisasi, outlet, divisi, lokasi, atau data milik sendiri;
+- apakah aksi memerlukan re-authentication atau approval;
+- feature code lisensi yang menjadi prasyarat;
+- skenario direct URL/API yang membuktikan penolakan.
+
+Seed instalasi harus bersifat deklaratif: hasil akhir role sama pada database
+kosong maupun database lama. Seed aditif `ON DUPLICATE KEY UPDATE` saja tidak
+dapat mencabut izin lama yang sudah tidak semestinya.
+
+### 9.6 Artefak rilis customer yang benar
+
+Paket customer hanya boleh berisi kode runtime, aset generik, migration yang
+masih berlaku, dependency lock, installer, public key lisensi/update, dan
+dokumentasi. Paket tidak boleh berisi:
+
+- folder `.git`, backup, upload, log, PID, cache, dump, atau file probe;
+- database config, API key, private key, token, atau konfigurasi printer lokal;
+- SQL audit/repair customer lain dan seluruh arsip `sql/_old`;
+- materi brand Namua kecuali dipilih sebagai demo/preset terpisah;
+- alat internal yang dapat menjalankan repair massal tanpa otorisasi.
+
+Setiap build menghasilkan SBOM/dependency list, checksum, signature, versi
+aplikasi, versi schema minimum/maksimum, changelog, migration manifest, dan
+hasil automated test.
+
+### 9.7 Batas audit ini
+
+Audit ini menggabungkan pemeriksaan kode, konfigurasi, struktur repository,
+lint PHP, dan snapshot database lokal. Audit belum menggantikan penetration
+test, review hukum lisensi/privasi, load test, restore drill, atau regression
+test otomatis karena fasilitas tersebut belum tersedia. Karena itu istilah
+"sehat" pada dokumen ini berarti tidak ditemukan anomali pada pemeriksaan yang
+dilakukan, bukan jaminan bahwa modul bebas bug.
+
+### 9.8 Data awal database dan generator instalasi
+
+Paket customer tidak boleh dibuat dari dump database instalasi Namua. Database
+baru harus dibangun dari migration dan seed kanonis yang mempunyai versi,
+dependency, checksum, serta aturan idempotensi. Data dibagi sebagai berikut:
+
+| Kelas data | Contoh | Perlakuan saat instalasi |
+| --- | --- | --- |
+| Struktur schema | Tabel, index, foreign key, view, dan registry migration | Dibuat oleh migration terurut; tidak berasal dari dump produksi. |
+| Seed platform wajib | Katalog aksi permission, page/menu kanonis, status sistem, dan konfigurasi minimum | Selalu dipasang sesuai versi produk dan dapat direkonsiliasi secara deklaratif. |
+| Seed referensi produk | Satuan, alasan transaksi, tipe dokumen, template default, dan role bawaan | Dipasang bila dependency fiturnya aktif; harus netral dan tidak memuat identitas Namua. |
+| Entitlement paket | Edisi, feature code, batas outlet/terminal, dan masa maintenance | Tidak menjadi seed biasa; berasal dari lisensi bertanda tangan milik customer. |
+| Data onboarding | Nama usaha, logo, timezone, mata uang, outlet pertama, owner, rekening, dan metode bayar | Diisi customer saat wizard instalasi; password/secret dibuat saat itu, bukan default di paket. |
+| Data demo opsional | Produk, resep, pegawai, transaksi, dan contoh laporan fiktif | Artefak terpisah, berlabel demo, dan dapat dihapus penuh tanpa merusak instalasi. |
+| Data runtime | Queue, session, audit, cache, log, file upload, dan hasil worker | Dibuat aplikasi setelah instalasi; direktori runtime dibuat kosong dengan izin yang tepat. |
+| Data terlarang | Transaksi asli, customer/member, pegawai, presensi, payroll, stok, lot, HPP, mutasi rekening, credential, token, backup, dump, log, upload, PID, dan config device | Build harus gagal bila scanner menemukan data ini di artefak customer. |
+
+Setiap seed wajib memiliki pemilik modul, versi mulai/berakhir, dependency
+fitur, mode `insert/update/reconcile`, checksum, dan perilaku saat upgrade.
+Seed RBAC harus mampu mencabut grant bawaan yang sudah tidak sah, bukan hanya
+menambah baris melalui `ON DUPLICATE KEY UPDATE`. Tidak boleh ada seed customer
+yang dibentuk melalui `INSERT ... SELECT` dari database operasional saat ini.
+
+Generator instalasi harus menyediakan mode `dry-run` sebelum build. Laporannya
+menjelaskan versi sumber, paket, fitur, migration, seed, file yang disertakan,
+file yang dilarang/dikeluarkan, requirement runtime, serta alasan bila build
+ditolak. Hasil generator minimum adalah:
+
+1. artefak aplikasi generik untuk satu produk dan versi;
+2. install manifest dan requirement matrix;
+3. migration manifest dan seed manifest ber-checksum;
+4. template bootstrap/environment tanpa secret;
+5. profil onboarding dan entitlement customer bertanda tangan;
+6. checksum, SBOM, release signature, changelog, dan dokumentasi;
+7. installer online atau bundle offline yang dapat diverifikasi tanpa Git.
+
+Artefak `clean install`, `upgrade`, dan `repair/support` harus dipisahkan.
+SQL audit atau repair historis tidak boleh ikut jalur update umum. Clean install
+dan upgrade minimal dua versi lama wajib menghasilkan schema serta seed
+kanonis yang sama.
+
+### 9.9 Product Control Center multi-produk
+
+Karena produk yang akan dijual tidak hanya Finance, dashboard lisensi sebaiknya
+dikembangkan menjadi aplikasi vendor terpisah bernama sementara **Product
+Control Center**. Aplikasi ini menjadi control plane seluruh produk, bukan
+bagian yang dipasang di server customer.
+
+| Komponen | Tanggung jawab |
+| --- | --- |
+| Product Catalog | Produk, versi, edisi, feature code, dependency, requirement, dan lifecycle. |
+| Repository Integration | Referensi repository privat, branch policy, commit/tag immutable, dan webhook; source tidak disimpan sebagai blob database. |
+| Build Orchestrator | Menjalankan clean checkout dan build pada runner terisolasi dengan test, secret scan, data scan, serta approval. |
+| Artifact Registry | Menyimpan metadata artefak, checksum, SBOM, signature, channel, dan lokasi object/artifact storage terlindungi. |
+| Installation Profile | Manifest schema/seed, preset netral, onboarding, target OS, service, cron, dan dependency per produk. |
+| Package & Feature Catalog | Paket jual, add-on, kapasitas, dependency fitur, serta harga/versi komersial. |
+| License Hub | Customer, instalasi, outlet, terminal, entitlement, maintenance, aktivasi online/offline, revoke, dan transfer. |
+| Release & Update Center | Channel pilot/stable/critical-fix, compatibility, rollout, rollback, dan status update. |
+| Installation Monitor | Versi, kesehatan minimal, hasil update, kapasitas lisensi, dan heartbeat berbasis persetujuan. |
+| Signing & Secret Service | Menjaga private key dan secret build di luar source serta di luar server customer. |
+| Audit & Approval | Jejak siapa membuat build, memilih paket, menerbitkan lisensi, menyetujui release, dan mengunduh artefak. |
+
+Metadata Product Control Center berada di database pusat, source berada di Git
+privat, dan binary/package berada di artifact storage. Pemisahan ini mencegah
+dashboard menjadi gudang source tunggal yang berisiko bocor. Build runner tidak
+boleh memperoleh secret produksi customer dan harus dibuang setelah pekerjaan
+selesai.
+
+Satu versi produk menghasilkan satu artefak kode generik. Generator kemudian
+menggabungkannya dengan install profile, seed profile, dan signed entitlement
+customer. Paket Starter, Operations, atau Control tidak dibuat dengan
+menghapus file source secara manual; perbedaannya ditegakkan oleh FeatureGate
+dan lisensi. Untuk produk lain, Product Control Center memakai adapter/manifest
+produk sehingga pipeline, lisensi, audit, dan updater dapat digunakan ulang.
+
+Monitoring lisensi hanya boleh mengirim installation ID pseudonim, versi,
+status lisensi, jumlah device terpakai, health service, dan hasil update yang
+telah disetujui. Transaksi, omzet, stok, payroll, identitas pegawai/customer,
+dan isi dokumen tidak boleh dikirim secara default.
+
+## 10. Roadmap Pengembangan
 
 Roadmap ini memakai gerbang hasil, bukan sekadar urutan tanggal. Fase berikutnya
 baru dimulai setelah acceptance criteria fase sebelumnya terpenuhi.
@@ -505,12 +903,15 @@ baru dimulai setelah acceptance criteria fase sebelumnya terpenuhi.
 
 Pekerjaan:
 
-1. Tag commit baseline stabil.
-2. Catat checksum seluruh SQL yang pernah dijalankan di lokal dan server.
-3. Buat backup database dan uji restore ke database terpisah.
-4. Buat halaman/version endpoint yang menampilkan versi aplikasi, schema, dan
+1. Bekukan baseline internal dan jangan membuat paket customer dari repository
+   yang membawa backup/upload saat ini.
+2. Buat clean product repository atau build context berbasis allowlist, lalu
+   rotasi secret yang pernah masuk Git.
+3. Catat checksum seluruh SQL yang pernah dijalankan di lokal dan server.
+4. Buat backup database dan uji restore ke database terpisah.
+5. Buat halaman/version endpoint yang menampilkan versi aplikasi, schema, dan
    migration terakhir tanpa membuka rahasia.
-5. Pisahkan credential lokal, staging, dan produksi.
+6. Pisahkan credential lokal, staging, produksi, dan data demo.
 
 **Selesai bila:** clone bersih dapat dipasang ke database kosong, migration
 berjalan terurut, login berhasil, dan versi schema dapat dibuktikan.
@@ -530,6 +931,9 @@ Pekerjaan:
 7. Pindahkan secret ke environment, aktifkan keamanan cookie, CSRF, HTTPS, dan
    rate limit login.
 8. Tambahkan audit log untuk perubahan role, permission, scope, dan token.
+9. Ubah Printer Agent menjadi pairing fail-closed dan autentikasi setiap
+   request cetak.
+10. Pisahkan hak backup/restore/replikasi/failover dari izin edit biasa.
 
 **Selesai bila:** setiap role hanya dapat membuka dan memposting aksi yang
 tercantum pada matrix; direct URL dan API menghasilkan 403; perubahan role
@@ -615,17 +1019,23 @@ atau keputusan tertulis.
 Pekerjaan:
 
 1. Buat migration runner dengan checksum dan lock.
-2. Buat release manifest bertanda tangan.
-3. Jalankan preflight requirement PHP, MariaDB, extension, printer agent, dan
+2. Buat registry schema/seed kanonis serta generator instalasi dengan
+   `dry-run`, allowlist, data scan, secret scan, dan manifest dependency.
+3. Buat clean build dari commit/tag immutable; simpan artefak, SBOM, checksum,
+   provenance, dan release manifest bertanda tangan.
+4. Betulkan kontrak runtime dan lock dependency PHP, Node, serta Python.
+5. Jalankan preflight requirement PHP, MariaDB, extension, printer agent, dan
    kapasitas disk.
-4. Tambahkan health check database, queue, cron, printer agent, dan storage.
-5. Buat backup otomatis sebelum update dan rollback release.
-6. Tampilkan status update dengan bahasa user, bukan raw error HTML/PHP.
-7. Tambahkan alert untuk queue gagal, mismatch baru, saldo negatif, dan log
+6. Tambahkan health check database, queue, cron, printer agent, WA, dan storage.
+7. Buat backup otomatis sebelum update dan rollback release.
+8. Tampilkan status update dengan bahasa user, bukan raw error HTML/PHP.
+9. Tambahkan alert untuk queue gagal, mismatch baru, saldo negatif, dan log
    yang membesar.
 
-**Selesai bila:** update dapat diuji di clone database, berhenti aman bila
-preflight gagal, dan tidak meninggalkan schema setengah terpasang.
+**Selesai bila:** generator menghasilkan clean install dan upgrade yang sama
+dari sumber immutable, menolak data/secret terlarang, update dapat diuji di
+clone database, berhenti aman bila preflight gagal, dan tidak meninggalkan
+schema setengah terpasang.
 
 ### Fase 7. Kesiapan komersialisasi dan leveling fitur
 
@@ -634,33 +1044,44 @@ preflight gagal, dan tidak meninggalkan schema setengah terpasang.
 Pekerjaan mengikuti
 `docs/2026-08-28_roadmap_komersialisasi_finance_dan_lisensi.md`:
 
-1. Feature entitlement terpisah dari RBAC.
-2. Lisensi organisasi, outlet, dan terminal POS.
-3. Aktivasi online/offline dan pencabutan terminal.
-4. Paket fitur bertingkat tanpa menghapus data customer.
-5. Installer, updater, dokumentasi, support bundle, dan diagnostic export.
-6. Penandatanganan release dan pemisahan private key dari aplikasi customer.
-7. Uji upgrade dari minimal dua versi lama ke versi terbaru.
+1. Profil usaha, branding, lokalisasi, dokumen, dan onboarding menjadi
+   pengaturan customer, bukan hardcode.
+2. Pisahkan konfigurasi usaha, deployment secret, dan entitlement lisensi.
+3. Feature entitlement terpisah dari RBAC.
+4. Lisensi organisasi, outlet, dan terminal POS.
+5. Aktivasi online/offline dan pencabutan terminal.
+6. Paket fitur bertingkat tanpa menghapus data customer.
+7. Bangun Product Control Center multi-produk untuk katalog produk, integrasi
+   repository, build runner, artifact registry, generator instalasi, lisensi,
+   release, monitoring, approval, dan audit.
+8. Installer, updater, dokumentasi, support bundle, dan diagnostic export.
+9. Penandatanganan release dan pemisahan private key dari aplikasi customer.
+10. Uji upgrade dari minimal dua versi lama ke versi terbaru.
 
 **Selesai bila:** customer dapat memasang, mengaktifkan, memperbarui, membuat
-backup, dan mengekspor datanya tanpa akses repository pengembangan.
+backup, dan mengekspor datanya tanpa akses repository pengembangan; produk baru
+dapat ditambahkan ke Product Control Center melalui manifest/adapter tanpa
+membangun ulang sistem lisensi dan generator dari nol.
 
-## 10. Urutan Implementasi yang Disarankan
+## 11. Urutan Implementasi yang Disarankan
 
 | Urutan | Pekerjaan | Alasan |
 | ---: | --- | --- |
-| 1 | Guard Master dan Master Relation | Menutup perubahan data tanpa izin. |
-| 2 | Perbaiki Role delete dan reset RBAC | Menghentikan overgrant dan kerusakan permission. |
-| 3 | Guard API mobile dan token lifecycle | Wajib sebelum APK digunakan luas. |
-| 4 | Security production config | Wajib sebelum instalasi customer. |
-| 5 | Writer nilai component | Menghentikan mismatch nilai baru. |
-| 6 | Writer lot gudang dan SR operasional | Menghentikan mismatch gudang baru. |
-| 7 | Test integrasi transaksi | Membuktikan perbaikan tidak merusak modul lain. |
+| 1 | Karantina data dari artefak produk dan rotasi secret | Mencegah data instalasi Namua ikut ke customer. |
+| 2 | Guard Master dan Master Relation | Menutup perubahan data tanpa izin. |
+| 3 | Perbaiki Role delete dan reset RBAC | Menghentikan overgrant dan kerusakan permission. |
+| 4 | Guard API mobile dan token lifecycle | Wajib sebelum APK digunakan luas. |
+| 5 | Security production, System Tools, dan Printer Agent | Menutup akses web/local service yang berbahaya. |
+| 6 | Writer nilai component, gudang, dan SR | Menghentikan mismatch baru pada server normal. |
+| 7 | Automated test transaksi dan RBAC | Membuktikan perbaikan tidak merusak modul lain. |
 | 8 | Payroll dan riwayat backdate | Membuat laporan mudah direkonsiliasi. |
-| 9 | Migration/updater | Membuat deploy lokal, server, dan customer seragam. |
-| 10 | Cleanup historis dan komersialisasi | Dilakukan setelah writer dan test stabil. |
+| 9 | Profil usaha, branding, lokalisasi, dan onboarding | Menghapus identitas hardcode sebelum pilot. |
+| 10 | Runtime contract, registry schema/seed, Install Generator, dan updater | Membuat setiap instalasi dapat direproduksi dan versinya dapat dibuktikan. |
+| 11 | Katalog fitur, paket, dan FeatureGate | Satu codebase dapat melayani paket berbeda. |
+| 12 | Product Control Center, License Hub, artifact registry, device activation, dan signed update | Menjadi control plane aman untuk Finance dan produk berikutnya tanpa menyandera data. |
+| 13 | Pilot, restore drill, support SOP, dan legal review | Gerbang akhir sebelum penjualan luas. |
 
-## 11. Matrix Pengujian Manual oleh Pemilik
+## 12. Matrix Pengujian Manual oleh Pemilik
 
 Pengujian manual dilakukan setelah test internal otomatis lulus. Gunakan data
 uji yang mudah dikenali dan catat nomor dokumennya.
@@ -717,7 +1138,7 @@ uji yang mudah dikenali dan catat nomor dokumennya.
    rollback tanpa schema setengah jadi.
 4. Uji backup dan restore sebelum rilis dinyatakan siap.
 
-## 12. Aturan Kerja untuk Fase Berikutnya
+## 13. Aturan Kerja untuk Fase Berikutnya
 
 Setiap fase pengembangan harus ditutup dengan format yang sama:
 
@@ -734,7 +1155,7 @@ Setiap fase pengembangan harus ditutup dengan format yang sama:
 8. **Status:** nyatakan `CLEAR`, `PERLU TEST MANUAL`, atau `BLOCKED`; jangan
    menyebut selesai bila acceptance criteria belum terpenuhi.
 
-## 13. Keputusan yang Tidak Boleh Diubah Diam-diam
+## 14. Keputusan yang Tidak Boleh Diubah Diam-diam
 
 1. POS tetap boleh menjual saat stok sistem kurang; kekurangan menjadi defisit,
    bukan stok minus.
@@ -752,34 +1173,45 @@ Setiap fase pengembangan harus ditutup dengan format yang sama:
 8. Setiap perubahan schema wajib memperbarui seluruh UI, writer, report, API,
    permission, seed, dan test yang terdampak.
 
-## 14. Definisi Siap Dijual
+## 15. Definisi Siap Dijual
 
 Finance baru dinyatakan siap dipasang ke customer berbayar bila seluruh syarat
 berikut terpenuhi:
 
 - Tidak ada endpoint mutasi tanpa permission per aksi.
 - Tidak ada secret customer atau private key produk di repository/package.
+- Tidak ada backup, upload, log, PID, cache, data Namua, atau konfigurasi
+  perangkat lokal di artefak customer.
+- Nama usaha, logo, tema, locale, identitas dokumen, dan URL publik dapat
+  diatur tanpa mengubah source code.
 - Instalasi bersih dan upgrade lama lulus migration otomatis.
 - Test transaksi kritis berjalan otomatis dan lulus.
 - Tidak ada mismatch baru dari transaksi normal pada periode uji.
 - Backup dan restore telah diuji, bukan hanya dijadwalkan.
 - Log dan queue mempunyai retensi serta alert.
+- Printer Agent dan layanan pendamping memakai pairing/authentication, service
+  manager produksi, rotasi log, dan health check.
 - APK dapat dicabut per terminal dan mengikuti perubahan RBAC.
 - Laporan penjualan, HPP, stok, rekening, payroll, void, dan refund dapat
   direkonsiliasi sampai dokumen sumber.
+- FeatureGate menolak fitur di luar paket pada UI, URL, API, job, dan APK tanpa
+  menghapus data customer.
+- Versi aplikasi, schema, dependency, dan release signature dapat dibuktikan
+  dari halaman System tanpa membuka secret.
 - Customer memiliki panduan instalasi, update, backup, recovery, dan diagnostic
   export dengan bahasa nonteknis.
 
-## 15. Kesimpulan Akhir
+## 16. Kesimpulan Akhir
 
 Finance tidak perlu dibangun ulang. Arsitektur bisnis utamanya sudah bernilai
 dan sebagian besar modul telah bekerja. Fokus berikutnya adalah mengubah
 aplikasi dari **sistem internal yang kaya fitur** menjadi **produk yang aman,
 deterministik, dapat diuji, dan dapat dipelihara di banyak instalasi**.
 
-Langkah paling tepat setelah dokumen ini adalah memulai Fase 1 dari guard CRUD
-master dan canonical RBAC. Setelah pintu akses aman, lanjutkan writer nilai
-component dan lot gudang, lalu kunci semuanya dengan test integrasi. Fitur
-lisensi, updater customer, dan leveling paket baru dibangun di atas fondasi
-tersebut agar tidak memperbanyak instalasi yang mempunyai bug atau schema
-berbeda.
+Langkah paling tepat setelah dokumen ini adalah menyiapkan baseline produk yang
+tidak membawa data/secret instalasi, lalu memulai guard CRUD master dan
+canonical RBAC. Setelah pintu akses aman, lanjutkan writer nilai component dan
+lot gudang, lalu kunci semuanya dengan test integrasi. Profil usaha dan
+installer diselesaikan sebelum pilot; fitur lisensi, updater customer, dan
+leveling paket baru dibangun di atas fondasi tersebut agar tidak memperbanyak
+instalasi yang mempunyai bug, identitas hardcode, atau schema berbeda.
