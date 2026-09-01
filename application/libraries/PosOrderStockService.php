@@ -799,7 +799,9 @@ class PosOrderStockService
         $line = $scope['line'];
         $divisionId = $scope['division_id'];
         $destinationType = $scope['destination_type'];
-        $movementDate = $this->resolve_commit_movement_date($header);
+        // Keep void/refund in the period in which the reversal actually
+        // happens; the original commit remains untouched in its own period.
+        $movementDate = $this->resolve_reversal_movement_date($meta);
         $movementRefType = $this->resolve_material_movement_ref_type($header, $line);
 
         if (file_exists(APPPATH . 'libraries/InventoryPeriodGuard.php')) {
@@ -1171,7 +1173,9 @@ class PosOrderStockService
         $locationType = $this->resolve_component_location_type($line, (string)($header['order_scope'] ?? 'REGULAR'));
         $divisionId = $scope['division_id'];
         $movementRefType = $this->resolve_component_movement_ref_type($header, $line);
-        $movementDate = $this->resolve_commit_movement_date($header);
+        // A reversal is a new stock event. Posting it on the original order
+        // date after month rollover would bypass the carried-forward opening.
+        $movementDate = $this->resolve_reversal_movement_date($meta);
 
         if (file_exists(APPPATH . 'libraries/InventoryPeriodGuard.php')) {
             $this->ci->load->library('InventoryPeriodGuard');
@@ -1969,6 +1973,22 @@ class PosOrderStockService
     {
         foreach (['committed_at', 'created_at', 'updated_at'] as $field) {
             $value = trim((string)($header[$field] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $ts = strtotime($value);
+            if ($ts !== false) {
+                return date('Y-m-d', $ts);
+            }
+        }
+
+        return date('Y-m-d');
+    }
+
+    private function resolve_reversal_movement_date(array $meta): string
+    {
+        foreach (['movement_date', 'reversal_date', 'document_date'] as $field) {
+            $value = trim((string)($meta[$field] ?? ''));
             if ($value === '') {
                 continue;
             }
@@ -3490,7 +3510,7 @@ class PosOrderStockService
         $line = $scope['line'];
         $divisionId = $scope['division_id'];
         $destinationType = $scope['destination_type'];
-        $movementDate = $this->resolve_commit_movement_date($header);
+        $movementDate = $this->resolve_reversal_movement_date($meta);
         $identity = $this->infer_material_identity($line, $divisionId, $destinationType);
         $qtyBuyAbs = $this->resolve_buy_qty_from_profile($reverseQty, (float)($identity['profile_content_per_buy'] ?? 0));
 
@@ -3634,7 +3654,7 @@ class PosOrderStockService
     private function post_component_rollback_fallback(array $header, array $line, float $reverseQty, array $meta, ?string $locationType, ?int $divisionId, string $reason): array
     {
         return $this->post_component_aggregate_movement([
-            'movement_date' => $this->resolve_commit_movement_date($header),
+            'movement_date' => $this->resolve_reversal_movement_date($meta),
             'location_type' => $locationType,
             'division_id' => $divisionId,
             'component_id' => (int)($line['component_id'] ?? 0),

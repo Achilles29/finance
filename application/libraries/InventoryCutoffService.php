@@ -193,7 +193,13 @@ class InventoryCutoffService
 
         $run = $this->createRun($periodId, $preflight, $actorUserId, $notes);
         if (empty($run['ok'])) {
-            $this->ci->inventoryperiodguard->reopenPeriod($domain, $month, $actorUserId > 0 ? $actorUserId : null, 'Cut-off dibatalkan karena audit run tidak dapat dibuat.');
+            $this->ci->inventoryperiodguard->reopenPeriod(
+                $domain,
+                $month,
+                $actorUserId > 0 ? $actorUserId : null,
+                'Cut-off dibatalkan karena audit run tidak dapat dibuat.',
+                true
+            );
             return [
                 'ok' => false,
                 'message' => (string)($run['message'] ?? 'Gagal membuat audit posting cut-off.'),
@@ -293,7 +299,8 @@ class InventoryCutoffService
                 $domain,
                 $month,
                 $actorUserId > 0 ? $actorUserId : null,
-                'Cut-off ' . $runNo . ' gagal/partial. Periksa audit run sebelum mencoba ulang.'
+                'Cut-off ' . $runNo . ' gagal/partial. Periksa audit run sebelum mencoba ulang.',
+                true
             );
             $this->recordAudit('INVENTORY_CUTOFF_' . $status, $runId, $runNo, $actorUserId, $sourceIp, $payload, 'Cut-off stok resmi tidak selesai.');
             log_message('error', 'inventory official cutoff failed ' . $runNo . ': ' . $e->getMessage());

@@ -143,18 +143,73 @@ class InventoryPeriodGuard
 
     /**
      * Automatically creates a record only for the active calendar month.
-     * Older unregistered months stay readable/writable for backward-compatible
-     * cleanup, but an explicitly closed month is still always blocked.
+     * Once a newer period exists, ordinary writers must not backdate stock
+     * because its delta would miss the newer month's carried-forward opening.
      */
     public function ensureActiveMonthOpen(string $stockDomain, string $eventDate, ?int $actorUserId = null, string $note = ''): array
     {
         $check = $this->assertOpen($stockDomain, $eventDate, 'transaksi');
-        if (!($check['ok'] ?? false) || !$this->isReady() || !empty($check['period_id'])) {
+        if (!($check['ok'] ?? false) || !$this->isReady()) {
             return $check;
         }
 
         $activeMonth = date('Y-m-01');
-        if ((string)($check['period_month'] ?? '') !== $activeMonth) {
+        $periodMonth = (string)($check['period_month'] ?? '');
+        if ($periodMonth > $activeMonth) {
+            return [
+                'ok' => false,
+                'code' => 'INVENTORY_FUTURE_PERIOD_WRITE',
+                'message' => 'Transaksi stok bertanggal masa depan tidak dapat mengubah stok live.',
+                'period_month' => $periodMonth,
+                'active_month' => $activeMonth,
+            ];
+        }
+
+        if ($periodMonth < $activeMonth) {
+            if (!empty($check['cutoff_context'])) {
+                return $check;
+            }
+
+            $newerPeriod = $this->ci->db
+                ->select('id, period_month, status')
+                ->from('inv_stock_period')
+                ->where('stock_domain', strtoupper(trim($stockDomain)))
+                ->where('period_month >', $periodMonth)
+                ->order_by('period_month', 'ASC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if (!empty($newerPeriod)) {
+                return [
+                    'ok' => false,
+                    'code' => 'INVENTORY_BACKDATE_AFTER_ROLLOVER',
+                    'message' => 'Transaksi stok bulan ' . date('m/Y', strtotime($periodMonth))
+                        . ' ditolak karena periode ' . date('m/Y', strtotime((string)$newerPeriod['period_month']))
+                        . ' sudah dimulai. Catat koreksi pada bulan aktif agar opening, saldo, dan lot tetap satu alur.',
+                    'period_id' => (int)($check['period_id'] ?? 0),
+                    'period_month' => $periodMonth,
+                    'newer_period_id' => (int)($newerPeriod['id'] ?? 0),
+                    'newer_period_month' => (string)($newerPeriod['period_month'] ?? ''),
+                ];
+            }
+
+            $status = strtoupper(trim((string)($check['status'] ?? 'OPEN')));
+            if ($status !== 'REOPENED') {
+                return [
+                    'ok' => false,
+                    'code' => 'INVENTORY_PERIOD_REOPEN_REQUIRED',
+                    'message' => 'Periode stok ' . date('m/Y', strtotime($periodMonth))
+                        . ' bukan bulan aktif. Reopen resmi diperlukan sebelum transaksi historis dapat diproses.',
+                    'period_id' => (int)($check['period_id'] ?? 0),
+                    'period_month' => $periodMonth,
+                    'status' => $status,
+                ];
+            }
+
+            return $check;
+        }
+
+        if (!empty($check['period_id'])) {
             return $check;
         }
 
@@ -238,7 +293,13 @@ class InventoryPeriodGuard
         ];
     }
 
-    public function reopenPeriod(string $stockDomain, string $eventDate, ?int $actorUserId = null, string $note = ''): array
+    public function reopenPeriod(
+        string $stockDomain,
+        string $eventDate,
+        ?int $actorUserId = null,
+        string $note = '',
+        bool $allowCutoffRollbackAfterRollover = false
+    ): array
     {
         if (!$this->isReady()) {
             return ['ok' => false, 'message' => 'Period guard belum aktif. Jalankan migration inventory terlebih dahulu.'];
@@ -251,6 +312,30 @@ class InventoryPeriodGuard
         if (!in_array($stockDomain, ['MATERIAL', 'COMPONENT'], true)) {
             return ['ok' => false, 'message' => 'Domain stok tidak valid untuk reopen periode.'];
         }
+
+        $newerPeriod = $this->ci->db
+            ->select('id, period_month, status')
+            ->from('inv_stock_period')
+            ->where('stock_domain', $stockDomain)
+            ->where('period_month >', $periodMonth)
+            ->order_by('period_month', 'ASC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!empty($newerPeriod) && !$allowCutoffRollbackAfterRollover) {
+            return [
+                'ok' => false,
+                'code' => 'INVENTORY_REOPEN_AFTER_ROLLOVER_BLOCKED',
+                'message' => 'Periode ' . date('m/Y', strtotime($periodMonth))
+                    . ' tidak dapat dibuka kembali karena periode '
+                    . date('m/Y', strtotime((string)$newerPeriod['period_month']))
+                    . ' sudah tersedia. Gunakan koreksi bulan aktif atau proses repair terkontrol.',
+                'period_month' => $periodMonth,
+                'newer_period_id' => (int)($newerPeriod['id'] ?? 0),
+                'newer_period_month' => (string)($newerPeriod['period_month'] ?? ''),
+            ];
+        }
+
         $this->ci->db->where('stock_domain', $stockDomain)->where('period_month', $periodMonth)->update('inv_stock_period', [
             'status' => 'REOPENED',
             'reopened_by' => $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,

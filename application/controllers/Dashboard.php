@@ -2409,13 +2409,21 @@ class Dashboard extends MY_Controller
 
     private function dashboard_material_reconcile_gap(array $row): float
     {
+        $profileLotDelta = (float)($row['profile_lot_delta_content'] ?? 0);
+        foreach ((array)($row['lot_profile_breakdown'] ?? []) as $profile) {
+            $candidate = (float)($profile['delta'] ?? 0);
+            if (abs($candidate) > abs($profileLotDelta)) {
+                $profileLotDelta = $candidate;
+            }
+        }
+
         $candidates = [
             (float)($row['delta_balance_vs_movement'] ?? 0),
             (float)($row['delta_daily_vs_movement'] ?? 0),
             (float)($row['delta_matrix_vs_movement'] ?? 0),
             (float)($row['daily_log_gap_content'] ?? 0),
-            (float)($row['profile_lot_delta_content'] ?? 0),
-            (float)($row['lot_delta_content'] ?? 0),
+            $profileLotDelta,
+            (float)($row['lot_vs_balance_delta'] ?? $row['lot_delta_content'] ?? 0),
         ];
         usort($candidates, static fn($a, $b) => abs($b) <=> abs($a));
         return (float)($candidates[0] ?? 0);
