@@ -252,6 +252,28 @@ class Inventory_tools extends CI_Controller
     }
 
     /**
+     * Rebuild only the synthetic warehouse FIFO aggregate from the current
+     * monthly ledger. No movement, stock balance, or valuation is rewritten.
+     *
+     * Usage:
+     *   php index.php inventory_tools sync_warehouse_aggregate_lots month 2026-09 apply 1
+     */
+    public function sync_warehouse_aggregate_lots()
+    {
+        $cliArgs = $this->parseCliArgs();
+        $month = (string)($cliArgs['month'] ?? date('Y-m'));
+        $apply = in_array(strtolower((string)($cliArgs['apply'] ?? '0')), ['1', 'true', 'yes', 'y'], true);
+
+        $this->load->library('MaterialFifoManager');
+        $result = $this->materialfifomanager->syncWarehouseAggregateProfilesForMonth($month, !$apply);
+        $result['operation'] = 'sync_warehouse_aggregate_lots';
+        $result['apply'] = $apply;
+
+        fwrite(($result['ok'] ?? false) ? STDOUT : STDERR, json_encode($result, JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE) . PHP_EOL);
+        exit(($result['ok'] ?? false) ? 0 : 1);
+    }
+
+    /**
      * Read-only smoke check for the period cut-off preview shown to operators.
      *
      * Usage:

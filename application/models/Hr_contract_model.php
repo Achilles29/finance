@@ -3,6 +3,64 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Hr_contract_model extends CI_Model
 {
+    private function compensation_defaults(int $employeeId, string $effectiveDate): array
+    {
+        $this->load->model('Compensation_model');
+        return $this->Compensation_model->resolve_contract_default_for_draft($employeeId, $effectiveDate);
+    }
+
+    private function compensation_value(array $payload, string $field, float $fallback): float
+    {
+        if (!array_key_exists($field, $payload) || $payload[$field] === null || $payload[$field] === '') {
+            return round(max(0, $fallback), 2);
+        }
+        return round(max(0, (float)$payload[$field]), 2);
+    }
+
+    private function resolve_previous_contract_id(int $employeeId, string $startDate, int $requestedId = 0): ?int
+    {
+        if ($requestedId > 0) {
+            $requested = $this->db->select('id')
+                ->from('hr_contract')
+                ->where('id', $requestedId)
+                ->where('employee_id', $employeeId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if ($requested) {
+                return (int)$requested['id'];
+            }
+        }
+
+        $active = $this->db->select('id')
+            ->from('hr_contract')
+            ->where('employee_id', $employeeId)
+            ->where('status', 'ACTIVE')
+            ->where('start_date <=', $startDate)
+            ->where('end_date >=', $startDate)
+            ->order_by('start_date', 'DESC')
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if ($active) {
+            return (int)$active['id'];
+        }
+
+        $previous = $this->db->select('id')
+            ->from('hr_contract')
+            ->where('employee_id', $employeeId)
+            ->where('end_date <', $startDate)
+            ->where_in('status', ['ACTIVE', 'SIGNED', 'EXPIRED'])
+            ->order_by('end_date', 'DESC')
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return $previous ? (int)$previous['id'] : null;
+    }
+
     public function get_employee_options(): array
     {
         return $this->db->select("e.id AS value, CONCAT(e.employee_code, ' - ', e.employee_name) AS label", false)
@@ -19,6 +77,22 @@ class Hr_contract_model extends CI_Model
             ->where('is_active', 1)
             ->order_by('template_name', 'ASC')
             ->get()->result_array();
+    }
+
+    public function get_employee_compensation_prefills(array $employeeIds, string $effectiveDate = ''): array
+    {
+        if ($effectiveDate === '') {
+            $effectiveDate = date('Y-m-d');
+        }
+        $this->load->model('Compensation_model');
+        $result = [];
+        foreach (array_values(array_unique(array_map('intval', $employeeIds))) as $employeeId) {
+            if ($employeeId <= 0) {
+                continue;
+            }
+            $result[$employeeId] = $this->Compensation_model->resolve_contract_default_for_draft($employeeId, $effectiveDate);
+        }
+        return $result;
     }
 
     public function count_templates(array $filters): int
@@ -376,20 +450,39 @@ class Hr_contract_model extends CI_Model
         }
 
         $contractNumber = $this->generate_contract_number($contractType, $startDate);
+        $compensation = $this->compensation_defaults($employeeId, $startDate);
+        $hasCompensationInput = false;
+        foreach (['basic_salary', 'position_allowance', 'other_allowance', 'meal_rate'] as $field) {
+            if (array_key_exists($field, $payload) && $payload[$field] !== null && $payload[$field] !== '') {
+                $hasCompensationInput = true;
+                break;
+            }
+        }
+        if (!$hasCompensationInput && (string)($compensation['source'] ?? '') !== 'CONTRACT') {
+            return ['ok' => false, 'message' => 'Kontrak pertama harus dibuat melalui Generate Kontrak agar seluruh komponen gaji disepakati dan tersnapshot.'];
+        }
+        $previousContractId = $this->resolve_previous_contract_id(
+            $employeeId,
+            $startDate,
+            (int)($payload['previous_contract_id'] ?? 0)
+        );
 
         $insert = [
             'contract_number' => $contractNumber,
             'employee_id' => $employeeId,
             'template_id' => $templateId > 0 ? $templateId : null,
+            'previous_contract_id' => $previousContractId,
             'contract_type' => $contractType,
             'status' => 'DRAFT',
             'position_snapshot' => (string)($employee['position_name'] ?? ''),
             'division_snapshot' => (string)($employee['division_name'] ?? ''),
-            'basic_salary' => (float)($employee['basic_salary'] ?? 0),
-            'position_allowance' => (float)($employee['position_allowance'] ?? 0),
-            'other_allowance' => (float)($employee['objective_allowance'] ?? 0),
-            'meal_rate' => (float)($employee['meal_rate'] ?? 0),
-            'overtime_rate' => (float)($employee['overtime_rate'] ?? 0),
+            'basic_salary' => $this->compensation_value($payload, 'basic_salary', (float)($compensation['basic_salary'] ?? 0)),
+            'position_allowance' => $this->compensation_value($payload, 'position_allowance', (float)($compensation['position_allowance'] ?? 0)),
+            'other_allowance' => $this->compensation_value($payload, 'other_allowance', (float)($compensation['objective_allowance'] ?? 0)),
+            'meal_rate' => $this->compensation_value($payload, 'meal_rate', (float)($compensation['meal_rate'] ?? 0)),
+            // Legacy schema column retained only for old document records.
+            // New contracts never define a personal overtime rate.
+            'overtime_rate' => 0.0,
             'start_date' => $startDate,
             'end_date' => $endDate,
             'notes' => $notes,
@@ -454,6 +547,12 @@ class Hr_contract_model extends CI_Model
             $contractType = 'CUSTOM';
         }
 
+        $compensation = $this->compensation_defaults($employeeId, $startDate);
+        $basicSalary = $this->compensation_value($payload, 'basic_salary', (float)($compensation['basic_salary'] ?? 0));
+        $positionAllowance = $this->compensation_value($payload, 'position_allowance', (float)($compensation['position_allowance'] ?? 0));
+        $otherAllowance = $this->compensation_value($payload, 'other_allowance', (float)($compensation['objective_allowance'] ?? 0));
+        $mealRate = $this->compensation_value($payload, 'meal_rate', (float)($compensation['meal_rate'] ?? 0));
+
         $vars = $this->build_contract_render_vars([
             'contract_number' => 'DRAFT-' . date('YmdHis'),
             'contract_type' => $contractType,
@@ -464,22 +563,20 @@ class Hr_contract_model extends CI_Model
             'position_name' => (string)($payload['position_snapshot'] ?? $employee['position_name'] ?? ''),
             'start_date' => $startDate,
             'end_date' => $endDate,
-            'basic_salary' => (float)($payload['basic_salary'] ?? $employee['basic_salary'] ?? 0),
-            'position_allowance' => (float)($payload['position_allowance'] ?? $employee['position_allowance'] ?? 0),
-            'other_allowance' => (float)($payload['other_allowance'] ?? $employee['objective_allowance'] ?? 0),
-            'meal_rate' => (float)($payload['meal_rate'] ?? $employee['meal_rate'] ?? 0),
-            'overtime_rate' => (float)($payload['overtime_rate'] ?? $employee['overtime_rate'] ?? 0),
+            'basic_salary' => $basicSalary,
+            'position_allowance' => $positionAllowance,
+            'other_allowance' => $otherAllowance,
+            'meal_rate' => $mealRate,
             'document_issued_at' => date('Y-m-d H:i:s'),
             'template_duration_months' => $fallbackDurationMonths,
         ], [
             'contract_type' => $contractType,
             'start_date' => $startDate,
             'end_date' => $endDate,
-            'basic_salary' => (float)($payload['basic_salary'] ?? $employee['basic_salary'] ?? 0),
-            'position_allowance' => (float)($payload['position_allowance'] ?? $employee['position_allowance'] ?? 0),
-            'other_allowance' => (float)($payload['other_allowance'] ?? $employee['objective_allowance'] ?? 0),
-            'meal_rate' => (float)($payload['meal_rate'] ?? $employee['meal_rate'] ?? 0),
-            'overtime_rate' => (float)($payload['overtime_rate'] ?? $employee['overtime_rate'] ?? 0),
+            'basic_salary' => $basicSalary,
+            'position_allowance' => $positionAllowance,
+            'other_allowance' => $otherAllowance,
+            'meal_rate' => $mealRate,
             'division_name' => (string)($payload['division_snapshot'] ?? $employee['division_name'] ?? ''),
             'position_name' => (string)($payload['position_snapshot'] ?? $employee['position_name'] ?? ''),
             'employee_code' => (string)($employee['employee_code'] ?? ''),
@@ -495,7 +592,7 @@ class Hr_contract_model extends CI_Model
 
     public function generate_contract(int $id, int $actorId): array
     {
-        $row = $this->db->select('c.*, e.employee_code, e.employee_name, e.basic_salary AS e_basic_salary, e.position_allowance AS e_position_allowance, e.objective_allowance AS e_other_allowance, e.meal_rate AS e_meal_rate, e.overtime_rate AS e_overtime_rate, d.division_name, p.position_name, t.body_html AS template_body_html')
+        $row = $this->db->select('c.*, e.employee_code, e.employee_name, d.division_name, p.position_name, t.body_html AS template_body_html')
             ->from('hr_contract c')
             ->join('org_employee e', 'e.id = c.employee_id', 'left')
             ->join('org_division d', 'd.id = e.division_id', 'left')
@@ -518,11 +615,15 @@ class Hr_contract_model extends CI_Model
         }
 
         $contractNumber = $this->generate_contract_number($contractType, (string)$row['start_date'], $id);
-        $basic = (float)($row['e_basic_salary'] ?? 0);
-        $positionAllowance = (float)($row['e_position_allowance'] ?? 0);
-        $otherAllowance = (float)($row['e_other_allowance'] ?? 0);
-        $mealRate = (float)($row['e_meal_rate'] ?? 0);
-        $overtimeRate = (float)($row['e_overtime_rate'] ?? 0);
+        // A draft already carries the agreed figures. Do not re-read Master
+        // Pegawai here, otherwise an unrelated master edit changes a contract.
+        $basic = (float)($row['basic_salary'] ?? 0);
+        $positionAllowance = (float)($row['position_allowance'] ?? 0);
+        $otherAllowance = (float)($row['other_allowance'] ?? 0);
+        $mealRate = (float)($row['meal_rate'] ?? 0);
+        // Overtime belongs to the operational master standard, never to a
+        // contract's fixed compensation snapshot.
+        $overtimeRate = 0.0;
         $fixedTotal = $basic + $positionAllowance + $otherAllowance;
 
         $templateHtml = trim((string)($row['template_body_html'] ?? ''));
@@ -602,7 +703,6 @@ class Hr_contract_model extends CI_Model
                 ['code' => 'TUNJANGAN_JABATAN', 'name' => 'Tunjangan Jabatan', 'type' => 'EARNING', 'amount' => $positionAllowance, 'sort' => 2],
                 ['code' => 'TUNJANGAN_LAIN', 'name' => 'Tunjangan Lain', 'type' => 'EARNING', 'amount' => $otherAllowance, 'sort' => 3],
                 ['code' => 'UANG_MAKAN', 'name' => 'Uang Makan', 'type' => 'EARNING', 'amount' => $mealRate, 'sort' => 4],
-                ['code' => 'LEMBUR_PER_JAM', 'name' => 'Lembur per Jam', 'type' => 'EARNING', 'amount' => $overtimeRate, 'sort' => 5],
             ];
 
             foreach ($lines as $line) {
@@ -815,7 +915,12 @@ class Hr_contract_model extends CI_Model
             return ['ok' => false, 'message' => 'Status tujuan tidak valid.'];
         }
 
-        $row = $this->db->select('id,status')->from('hr_contract')->where('id', $id)->limit(1)->get()->row_array();
+        $row = $this->db->select('id, employee_id, previous_contract_id, status, start_date, end_date')
+            ->from('hr_contract')
+            ->where('id', $id)
+            ->limit(1)
+            ->get()
+            ->row_array();
         if (!$row) {
             return ['ok' => false, 'message' => 'Kontrak tidak ditemukan.'];
         }
@@ -839,18 +944,80 @@ class Hr_contract_model extends CI_Model
             return ['ok' => false, 'message' => 'Belum bisa SIGNED: approval dan tanda tangan EMPLOYEE + COMPANY wajib lengkap.'];
         }
 
-        if ($toStatus === 'ACTIVE' && !$this->has_complete_signoff($id)) {
-            return ['ok' => false, 'message' => 'Belum bisa ACTIVE: approval dan tanda tangan belum lengkap.'];
+        if ($toStatus === 'ACTIVE') {
+            if (!$this->has_complete_signoff($id)) {
+                return ['ok' => false, 'message' => 'Belum bisa ACTIVE: approval dan tanda tangan belum lengkap.'];
+            }
+            $startDate = (string)($row['start_date'] ?? '');
+            $endDate = (string)($row['end_date'] ?? '');
+            $today = date('Y-m-d');
+            if ($startDate === '' || $endDate === '' || $endDate < $startDate) {
+                return ['ok' => false, 'message' => 'Rentang tanggal kontrak tidak valid.'];
+            }
+            if ($startDate > $today) {
+                return ['ok' => false, 'message' => 'Kontrak baru dapat ACTIVE pada atau setelah tanggal mulai.'];
+            }
+            if ($endDate < $today) {
+                return ['ok' => false, 'message' => 'Kontrak telah melewati tanggal akhir dan tidak dapat diaktifkan.'];
+            }
         }
 
-        $this->db->where('id', $id)->update('hr_contract', [
-            'status' => $toStatus,
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
+        $this->db->trans_begin();
+        try {
+            if ($toStatus === 'ACTIVE') {
+                $this->load->model('Compensation_model');
+                // Serialize a renewal against the employee's current active contract.
+                $this->db->query(
+                    'SELECT id FROM hr_contract WHERE employee_id = ? AND status = ? FOR UPDATE',
+                    [(int)$row['employee_id'], 'ACTIVE']
+                );
+
+                $conflicts = $this->Compensation_model->find_active_overlaps(
+                    (int)$row['employee_id'],
+                    $startDate,
+                    $endDate,
+                    $id
+                );
+                $previousContractId = (int)($row['previous_contract_id'] ?? 0);
+                foreach ($conflicts as $conflict) {
+                    $conflictId = (int)($conflict['id'] ?? 0);
+                    if ($previousContractId <= 0 || $conflictId !== $previousContractId) {
+                        throw new RuntimeException('Ada kontrak ACTIVE yang bertumpang tindih: ' . (string)($conflict['contract_number'] ?? '#') . '. Hubungkan sebagai kontrak sebelumnya atau koreksi masa berlaku lebih dahulu.');
+                    }
+
+                    $previousEnd = date('Y-m-d', strtotime($startDate . ' -1 day'));
+                    if ($previousEnd < (string)($conflict['start_date'] ?? '')) {
+                        throw new RuntimeException('Kontrak sebelumnya tidak dapat ditutup karena tanggal mulai kontrak baru tidak valid.');
+                    }
+                    if (!$this->db->where('id', $conflictId)->update('hr_contract', [
+                        'end_date' => $previousEnd,
+                        'status' => $previousEnd < $today ? 'EXPIRED' : 'ACTIVE',
+                        'updated_at' => date('Y-m-d H:i:s'),
+                    ])) {
+                        throw new RuntimeException('Gagal menutup masa berlaku kontrak sebelumnya.');
+                    }
+                }
+            }
+
+            if (!$this->db->where('id', $id)->where('status', $from)->update('hr_contract', [
+                'status' => $toStatus,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]) || $this->db->affected_rows() <= 0) {
+                throw new RuntimeException('Status kontrak berubah oleh proses lain. Muat ulang halaman lalu coba kembali.');
+            }
+            if (!$this->db->trans_status()) {
+                throw new RuntimeException('Gagal menyimpan perubahan status kontrak.');
+            }
+            $this->db->trans_commit();
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
 
         $this->refresh_document_verification($id);
+        $message = 'Status kontrak berhasil diubah ke ' . $toStatus . '.';
 
-        return ['ok' => true, 'message' => 'Status kontrak berhasil diubah ke ' . $toStatus . '.'];
+        return ['ok' => true, 'message' => $message];
     }
 
     public function refresh_document_verification(int $contractId): ?array
@@ -968,7 +1135,12 @@ class Hr_contract_model extends CI_Model
 
     private function sync_signed_status(int $contractId): void
     {
-        $contract = $this->db->select('id,status')->from('hr_contract')->where('id', $contractId)->limit(1)->get()->row_array();
+        $contract = $this->db->select('id, status, start_date, end_date')
+            ->from('hr_contract')
+            ->where('id', $contractId)
+            ->limit(1)
+            ->get()
+            ->row_array();
         if (!$contract) {
             return;
         }
@@ -979,10 +1151,20 @@ class Hr_contract_model extends CI_Model
         }
 
         if ($this->has_complete_signoff($contractId)) {
-            $this->db->where('id', $contractId)->update('hr_contract', [
-                'status' => 'SIGNED',
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
+            if ($status === 'GENERATED') {
+                $this->db->where('id', $contractId)->update('hr_contract', [
+                    'status' => 'SIGNED',
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+                $status = 'SIGNED';
+            }
+
+            $today = date('Y-m-d');
+            if ($status === 'SIGNED'
+                && (string)($contract['start_date'] ?? '') <= $today
+                && (string)($contract['end_date'] ?? '') >= $today) {
+                $this->transition_status($contractId, 'ACTIVE');
+            }
         }
     }
 
@@ -1025,7 +1207,7 @@ class Hr_contract_model extends CI_Model
             '{{TUNJANGAN_JABATAN}}' => $formatMoney($vars['position_allowance'] ?? 0),
             '{{TUNJANGAN_OBJEKTIF}}' => $formatMoney($vars['other_allowance'] ?? 0),
             '{{UANG_MAKAN}}' => $formatMoney($vars['meal_rate'] ?? 0),
-            '{{TARIF_LEMBUR}}' => $formatMoney($vars['overtime_rate'] ?? 0),
+            '{{TARIF_LEMBUR}}' => (string)($vars['overtime_policy_label'] ?? 'Master Standar Lembur yang berlaku'),
             '{{TOTAL_KOMPENSASI_TETAP}}' => $formatMoney($vars['fixed_total'] ?? 0),
             '{{START_DATE}}' => (string)($vars['start_date'] ?? ''),
             '{{END_DATE}}' => (string)($vars['end_date'] ?? ''),
@@ -1033,7 +1215,7 @@ class Hr_contract_model extends CI_Model
             '{{POSITION_ALLOWANCE}}' => number_format((float)($vars['position_allowance'] ?? 0), 2, '.', ''),
             '{{OTHER_ALLOWANCE}}' => number_format((float)($vars['other_allowance'] ?? 0), 2, '.', ''),
             '{{MEAL_RATE}}' => number_format((float)($vars['meal_rate'] ?? 0), 2, '.', ''),
-            '{{OVERTIME_RATE}}' => number_format((float)($vars['overtime_rate'] ?? 0), 2, '.', ''),
+            '{{OVERTIME_RATE}}' => (string)($vars['overtime_policy_label'] ?? 'Master Standar Lembur yang berlaku'),
             '{{FIXED_TOTAL}}' => number_format((float)($vars['fixed_total'] ?? 0), 2, '.', ''),
         ];
 
@@ -1102,11 +1284,13 @@ class Hr_contract_model extends CI_Model
             $durationLabel = trim($startDate . ' s/d ' . $endDate);
         }
 
-        $basicSalary = (float)($overrides['basic_salary'] ?? $row['basic_salary'] ?? $row['e_basic_salary'] ?? 0);
-        $positionAllowance = (float)($overrides['position_allowance'] ?? $row['position_allowance'] ?? $row['e_position_allowance'] ?? 0);
-        $otherAllowance = (float)($overrides['other_allowance'] ?? $row['other_allowance'] ?? $row['e_other_allowance'] ?? 0);
-        $mealRate = (float)($overrides['meal_rate'] ?? $row['meal_rate'] ?? $row['e_meal_rate'] ?? 0);
-        $overtimeRate = (float)($overrides['overtime_rate'] ?? $row['overtime_rate'] ?? $row['e_overtime_rate'] ?? 0);
+        // Once generated, the immutable contract snapshot is the document's
+        // compensation source. Draft previews use the contract draft values.
+        $snapshot = is_array($row['snapshot'] ?? null) ? $row['snapshot'] : [];
+        $basicSalary = (float)($overrides['basic_salary'] ?? $snapshot['basic_salary_amount'] ?? $row['basic_salary'] ?? 0);
+        $positionAllowance = (float)($overrides['position_allowance'] ?? $snapshot['position_allowance_amount'] ?? $row['position_allowance'] ?? 0);
+        $otherAllowance = (float)($overrides['other_allowance'] ?? $snapshot['other_allowance_amount'] ?? $row['other_allowance'] ?? 0);
+        $mealRate = (float)($overrides['meal_rate'] ?? $snapshot['meal_rate_amount'] ?? $row['meal_rate'] ?? 0);
 
         $vars = [
             'contract_number' => (string)($overrides['contract_number'] ?? $row['contract_number'] ?? ''),
@@ -1125,7 +1309,8 @@ class Hr_contract_model extends CI_Model
             'position_allowance' => $positionAllowance,
             'other_allowance' => $otherAllowance,
             'meal_rate' => $mealRate,
-            'overtime_rate' => $overtimeRate,
+            'overtime_rate' => 0.0,
+            'overtime_policy_label' => 'Master Standar Lembur yang berlaku',
         ];
         $vars['fixed_total'] = $basicSalary + $positionAllowance + $otherAllowance;
 

@@ -162,6 +162,14 @@ foreach ($lines as $ln) {
   function fmtMoney(v){ return 'Rp ' + num(v).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2}); }
   function fmtDate(v){ return v ? esc(v) : '-'; }
   function normalizeUsagePurpose(value){ return String(value || '').toUpperCase().trim() === 'OPERASIONAL' ? 'OPERASIONAL' : 'BAHAN_BAKU'; }
+  function defaultUsagePurposeForRow(row){
+    var lineKind = String(row && row.line_kind || '').toUpperCase().trim();
+    return lineKind === 'MATERIAL' || num(row && row.material_id) > 0 ? 'BAHAN_BAKU' : 'OPERASIONAL';
+  }
+  function resolvedUsagePurposeForRow(row){
+    if (row && String(row.usage_purpose || '').trim() !== '') return normalizeUsagePurpose(row.usage_purpose);
+    return defaultUsagePurposeForRow(row);
+  }
   function renderUsagePurposeOptions(selected){
     var normalized = normalizeUsagePurpose(selected);
     var html = '';
@@ -308,8 +316,8 @@ foreach ($lines as $ln) {
       qty_content_balance: num(row.qty_content_balance),
       qty_buy_requested: 1,
       qty_content_requested: Number(cpb.toFixed(2)),
-      default_usage_purpose: normalizeUsagePurpose(row.default_usage_purpose || row.usage_purpose),
-      usage_purpose: normalizeUsagePurpose(row.usage_purpose || row.default_usage_purpose)
+      default_usage_purpose: defaultUsagePurposeForRow(row),
+      usage_purpose: resolvedUsagePurposeForRow(row)
     });
     renderCreateLines();
   }

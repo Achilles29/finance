@@ -77,7 +77,7 @@ $usagePurposeLabel = static function (string $purpose): string {
 $usagePurposeIssueLabel = static function (string $issueType): string {
     return strtoupper(trim($issueType)) === 'MATERIAL_AS_OPERATIONAL'
         ? 'Material sebagai operasional'
-        : 'Tujuan berbeda dari master';
+        : 'Tujuan berbeda dari default';
 };
 
 $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purchase.order.index']['can_edit']);
@@ -833,7 +833,7 @@ $allUnpaidCount = (int)($allAttentionUnpaidDetails['total_count'] ?? 0);
                 <div class="po-purpose-flare-meta">
                     <?php echo number_format((int)($usagePurposeAttention['total_lines'] ?? 0)); ?> line pada
                     <?php echo number_format((int)($usagePurposeAttention['document_count'] ?? 0)); ?> PO di rentang tanggal ini
-                    tidak selaras dengan default master, atau merupakan material yang ditandai operasional. Hanya PO aktif sampai tahap PAID yang dihitung; REJECTED dan VOID dikecualikan. Data tidak diubah otomatis.
+                    tidak selaras dengan default jenis belanja dan material, atau merupakan material stok yang ditandai operasional. Hanya PO aktif sampai tahap PAID yang dihitung; REJECTED dan VOID dikecualikan. Data tidak diubah otomatis.
                 </div>
             </div>
         </div>
@@ -842,7 +842,7 @@ $allUnpaidCount = (int)($allAttentionUnpaidDetails['total_count'] ?? 0);
                 <span class="po-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['material_operational_count']); ?> material operasional</span>
             <?php endif; ?>
             <?php if ((int)($usagePurposeAttention['purpose_mismatch_count'] ?? 0) > 0): ?>
-                <span class="po-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['purpose_mismatch_count']); ?> tujuan ≠ master</span>
+                <span class="po-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['purpose_mismatch_count']); ?> tujuan ≠ default</span>
             <?php endif; ?>
             <span class="po-purpose-flare-chip">Rp <?php echo number_format((float)($usagePurposeAttention['total_value'] ?? 0), 2, ',', '.'); ?></span>
         </div>
@@ -856,7 +856,7 @@ $allUnpaidCount = (int)($allAttentionUnpaidDetails['total_count'] ?? 0);
                     <span><?php echo html_escape($usagePurposeIssueLabel((string)($attentionRow['issue_type'] ?? ''))); ?></span>
                 </span>
                 <span class="po-purpose-flare-line"><?php echo html_escape((string)($attentionRow['line_name'] ?? '-')); ?></span>
-                <small>Transaksi: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['actual_usage_purpose'] ?? ''))); ?> · Master: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['default_usage_purpose'] ?? ''))); ?></small>
+                <small>Transaksi: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['actual_usage_purpose'] ?? ''))); ?> · Default: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['default_usage_purpose'] ?? ''))); ?></small>
             </a>
         <?php endforeach; ?>
     </div>

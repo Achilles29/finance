@@ -894,16 +894,29 @@ class Inventory_division extends Purchase
                     ->get('inv_division_stock_opname')
                     ->row_array();
 
-                $opnameRow = array_merge($profileValues, [
+                // inv_division_stock_opname intentionally stores a compact
+                // audit shape. Do not pass the broader adjustment profile
+                // payload here because newer profile fields are not columns
+                // on this historical audit table.
+                $opnameRow = [
                     'opname_date'          => $opnameDate,
                     'division_id'          => $divisionId,
                     'destination_type'     => $destination,
+                    'item_id'              => $profileValues['item_id'],
+                    'material_id'          => $profileValues['material_id'],
+                    'buy_uom_id'           => $profileValues['buy_uom_id'],
+                    'content_uom_id'       => $profileValues['content_uom_id'],
+                    'profile_key'          => $profileValues['profile_key'],
                     'identity_key'         => $identKey,
+                    'profile_name'         => $profileValues['profile_name'],
+                    'profile_content_per_buy' => $profileValues['profile_content_per_buy'],
+                    'profile_buy_uom_code' => $profileValues['profile_buy_uom_code'],
+                    'profile_content_uom_code' => $profileValues['profile_content_uom_code'],
                     'system_qty_content'   => $systemQty,
                     'physical_qty_content' => $physQty,
                     'notes'                => $notes !== '' ? $notes : null,
                     'adjustment_id'        => $adjId,
-                ]);
+                ];
 
                 $saved = !empty($existing['id'])
                     ? $this->db->where('id', (int)$existing['id'])->update('inv_division_stock_opname', $opnameRow)

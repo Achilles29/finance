@@ -997,6 +997,9 @@ class ComponentStockWriter
         $qtyIn = $isIn ? $qty : 0.0;
         $qtyOut = $isIn ? 0.0 : $qty;
         $unitCost = round((float)($p['unit_cost'] ?? 0), 6);
+        if ($unitCost < -0.000001) {
+            throw new RuntimeException('Biaya unit component tidak boleh negatif. Perbaiki valuasi component sebelum diposting.');
+        }
         $totalCost = round($qty * $unitCost, 2);
         $reversalOriginType = strtoupper(trim((string)($p['reversal_of_movement_type'] ?? '')));
         if ($reversalOriginType === ''

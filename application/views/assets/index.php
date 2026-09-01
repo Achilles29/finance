@@ -202,6 +202,9 @@ $fmtMoney = static function ($value): string {
             </td>
             <td class="text-end">
               <div class="d-inline-flex flex-wrap gap-1 asset-actions justify-content-end">
+                <?php if (!empty($can_edit) && (!empty($can_create) || !empty($can_delete)) && (int)($row['open_count'] ?? 0) > 0): ?>
+                  <a class="btn btn-sm btn-outline-primary" href="<?= html_escape($detailUrl . '#quantity') ?>">Atur Qty</a>
+                <?php endif; ?>
                 <a class="btn btn-sm btn-outline-secondary" href="<?= html_escape($detailUrl) ?>">Detail</a>
               </div>
             </td>

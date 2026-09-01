@@ -862,6 +862,20 @@ if (!function_exists('finance_dreq_location_label')) {
     return normalizeUsagePurpose(value) === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi';
   }
 
+  function defaultUsagePurposeForRow(row) {
+    var lineKind = String(row && row.line_kind || '').toUpperCase().trim();
+    return lineKind === 'MATERIAL' || num(row && row.material_id) > 0
+      ? 'BAHAN_BAKU'
+      : 'OPERASIONAL';
+  }
+
+  function resolvedUsagePurposeForRow(row) {
+    if (row && String(row.usage_purpose || '').trim() !== '') {
+      return normalizeUsagePurpose(row.usage_purpose);
+    }
+    return defaultUsagePurposeForRow(row);
+  }
+
   function canonicalLineKind(row) {
     if (num(row && row.item_id) > 0) {
       return 'ITEM';
@@ -1003,8 +1017,8 @@ if (!function_exists('finance_dreq_location_label')) {
       last_purchase_date: row.last_purchase_date || '',
       catalog_id: num(row.catalog_id) > 0 ? num(row.catalog_id) : null,
       estimated_unit_price: round2(num(row.estimated_unit_price || row.last_unit_price || row.standard_price || 0)),
-      default_usage_purpose: normalizeUsagePurpose(row.default_usage_purpose || row.usage_purpose),
-      usage_purpose: normalizeUsagePurpose(row.usage_purpose || row.default_usage_purpose),
+      default_usage_purpose: defaultUsagePurposeForRow(row),
+      usage_purpose: resolvedUsagePurposeForRow(row),
       catalog_suggestions: Array.isArray(row.catalog_suggestions) ? row.catalog_suggestions : [],
       suggestion_loading: !!row.suggestion_loading,
       suggestion_query: row.suggestion_query || '',
@@ -2395,8 +2409,8 @@ if (!function_exists('finance_dreq_location_label')) {
       qty_content_po_requested: round2(qtyBuy * contentPerBuy),
       qty_buy_balance: 0,
       qty_content_balance: 0,
-      default_usage_purpose: 'BAHAN_BAKU',
-      usage_purpose: 'BAHAN_BAKU',
+      default_usage_purpose: 'OPERASIONAL',
+      usage_purpose: 'OPERASIONAL',
       notes: ''
     });
   }

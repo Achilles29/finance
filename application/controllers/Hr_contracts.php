@@ -52,6 +52,26 @@ class Hr_contracts extends MY_Controller
         return site_url($path) . '?' . http_build_query($query);
     }
 
+    /**
+     * Keep older contract entry points compatible: omitted compensation fields
+     * use the effective prior contract and are never coerced to zero.
+     */
+    private function compensation_input_payload(string $method): array
+    {
+        $payload = [];
+        foreach (['basic_salary', 'position_allowance', 'other_allowance', 'meal_rate'] as $field) {
+            $value = $method === 'get'
+                ? $this->input->get($field, true)
+                : $this->input->post($field, true);
+            if ($value === null || trim((string)$value) === '') {
+                continue;
+            }
+            $payload[$field] = max(0, (float)$value);
+        }
+
+        return $payload;
+    }
+
     public function index()
     {
         $this->require_permission(self::PAGE_CONTRACT, 'view');
@@ -175,7 +195,7 @@ class Hr_contracts extends MY_Controller
                 'template_name' => '',
                 'contract_type' => 'K1',
                 'duration_months' => 3,
-                'body_html' => '<p>Isi template kontrak. Gunakan placeholder: {{NAMA_PEGAWAI}}, {{JABATAN}}, {{DIVISI}}, {{OUTLET}}, {{TANGGAL_KONTRAK}}, {{TANGGAL_MULAI}}, {{TANGGAL_AKHIR}}, {{DURASI_KONTRAK}}, {{GAJI_POKOK_DASAR}}, {{TUNJANGAN_JABATAN}}, {{TUNJANGAN_OBJEKTIF}}, {{UANG_MAKAN}}, {{TARIF_LEMBUR}}, {{TOTAL_KOMPENSASI_TETAP}}.</p>',
+                'body_html' => '<p>Isi template kontrak. Gunakan placeholder: {{NAMA_PEGAWAI}}, {{JABATAN}}, {{DIVISI}}, {{OUTLET}}, {{TANGGAL_KONTRAK}}, {{TANGGAL_MULAI}}, {{TANGGAL_AKHIR}}, {{DURASI_KONTRAK}}, {{GAJI_POKOK_DASAR}}, {{TUNJANGAN_JABATAN}}, {{TUNJANGAN_OBJEKTIF}}, {{UANG_MAKAN}}, {{TARIF_LEMBUR}} (Master Standar Lembur), {{TOTAL_KOMPENSASI_TETAP}}.</p>',
                 'is_active' => 1,
             ];
         }
@@ -220,17 +240,12 @@ class Hr_contracts extends MY_Controller
             $employeeId = (int)($this->Hr_contract_model->get_employee_options()[0]['value'] ?? 0);
         }
 
-        $payload = [
+        $payload = array_merge([
             'contract_type' => strtoupper(trim((string)$this->input->post('contract_type', true))),
             'duration_months' => (int)$this->input->post('duration_months', true),
             'start_date' => trim((string)$this->input->post('start_date', true)),
             'end_date' => trim((string)$this->input->post('end_date', true)),
-            'basic_salary' => (float)$this->input->post('basic_salary', true),
-            'position_allowance' => (float)$this->input->post('position_allowance', true),
-            'other_allowance' => (float)$this->input->post('other_allowance', true),
-            'meal_rate' => (float)$this->input->post('meal_rate', true),
-            'overtime_rate' => (float)$this->input->post('overtime_rate', true),
-        ];
+        ], $this->compensation_input_payload('post'));
 
         $html = trim((string)$this->input->post('body_html', false));
         $preview = $html !== ''
@@ -253,16 +268,11 @@ class Hr_contracts extends MY_Controller
         if ($this->input->get('preview', true) === '1') {
             $templateId = (int)$this->input->get('template_id', true);
             $employeeId = (int)$this->input->get('employee_id', true);
-            $preview = $this->Hr_contract_model->preview_contract_html($templateId, $employeeId, [
+            $preview = $this->Hr_contract_model->preview_contract_html($templateId, $employeeId, array_merge([
                 'contract_type' => '',
                 'start_date' => trim((string)$this->input->get('start_date', true)),
                 'end_date' => trim((string)$this->input->get('end_date', true)),
-                'basic_salary' => (float)$this->input->get('basic_salary', true),
-                'position_allowance' => (float)$this->input->get('position_allowance', true),
-                'other_allowance' => (float)$this->input->get('other_allowance', true),
-                'meal_rate' => (float)$this->input->get('meal_rate', true),
-                'overtime_rate' => (float)$this->input->get('overtime_rate', true),
-            ]);
+            ], $this->compensation_input_payload('get')));
 
             $this->output->set_content_type('text/html');
             if (empty($preview['ok'])) {
@@ -274,14 +284,15 @@ class Hr_contracts extends MY_Controller
         }
 
         if ($this->input->method() === 'post') {
-            $payload = [
+            $payload = array_merge([
                 'employee_id' => (int)$this->input->post('employee_id', true),
                 'template_id' => (int)$this->input->post('template_id', true),
+                'previous_contract_id' => (int)$this->input->post('previous_contract_id', true),
                 'contract_type' => '',
                 'start_date' => trim((string)$this->input->post('start_date', true)),
                 'end_date' => trim((string)$this->input->post('end_date', true)),
                 'notes' => trim((string)$this->input->post('notes', true)),
-            ];
+            ], $this->compensation_input_payload('post'));
 
             $draft = $this->Hr_contract_model->create_draft_auto($payload, (int)($this->current_user['id'] ?? 0));
             if (empty($draft['ok']) || empty($draft['id'])) {
@@ -296,11 +307,17 @@ class Hr_contracts extends MY_Controller
             return;
         }
 
+        $employeeOptions = $this->Hr_contract_model->get_employee_options();
+        $employeeIds = array_map(static function (array $row): int {
+            return (int)($row['value'] ?? 0);
+        }, $employeeOptions);
+
         $data = [
             'title' => 'Generate Kontrak Pegawai',
             'active_menu' => 'hr.contract',
             'ctx' => $this->ctx(),
-            'employee_options' => $this->Hr_contract_model->get_employee_options(),
+            'employee_options' => $employeeOptions,
+            'compensation_prefills' => $this->Hr_contract_model->get_employee_compensation_prefills($employeeIds),
             'template_options' => $this->Hr_contract_model->get_template_options(),
             'prefill' => [
                 'template_id' => (int)$this->input->get('template_id', true),
@@ -388,14 +405,15 @@ class Hr_contracts extends MY_Controller
             return;
         }
 
-        $payload = [
+        $payload = array_merge([
             'employee_id' => (int)$this->input->post('employee_id', true),
             'template_id' => (int)$this->input->post('template_id', true),
+            'previous_contract_id' => (int)$this->input->post('previous_contract_id', true),
             'contract_type' => strtoupper(trim((string)$this->input->post('contract_type', true))),
             'start_date' => trim((string)$this->input->post('start_date', true)),
             'end_date' => trim((string)$this->input->post('end_date', true)),
             'notes' => trim((string)$this->input->post('notes', true)),
-        ];
+        ], $this->compensation_input_payload('post'));
 
         $result = $this->Hr_contract_model->create_draft_auto($payload, (int)($this->current_user['id'] ?? 0));
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal membuat draft kontrak.'));

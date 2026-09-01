@@ -38,6 +38,57 @@ class My_portal_model extends CI_Model
 
         return $payload;
     }
+
+    private function policy_overtime_rate(array $policy): float
+    {
+        $this->load->model('Attendance_model');
+        return $this->Attendance_model->get_policy_overtime_rate($policy);
+    }
+
+    private function resolve_daily_compensation(int $employeeId, string $attendanceDate, array $dailyRow): array
+    {
+        $hasSnapshot = $this->att_daily_has_field('snapshot_basic_salary')
+            && array_key_exists('snapshot_basic_salary', $dailyRow)
+            && $dailyRow['snapshot_basic_salary'] !== null;
+
+        if ($hasSnapshot) {
+            return [
+                'has_snapshot' => true,
+                'resolved' => [
+                    'source' => (string)($dailyRow['compensation_source'] ?? 'LEGACY_SNAPSHOT') ?: 'LEGACY_SNAPSHOT',
+                    'contract_id' => !empty($dailyRow['compensation_contract_id']) ? (int)$dailyRow['compensation_contract_id'] : null,
+                    'snapshot_id' => !empty($dailyRow['compensation_snapshot_id']) ? (int)$dailyRow['compensation_snapshot_id'] : null,
+                    'basic_salary' => (float)($dailyRow['snapshot_basic_salary'] ?? 0),
+                    'position_allowance' => (float)($dailyRow['snapshot_position_allowance'] ?? 0),
+                    'objective_allowance' => (float)($dailyRow['snapshot_objective_allowance'] ?? 0),
+                    'meal_rate' => (float)($dailyRow['snapshot_meal_rate'] ?? 0),
+                    'overtime_rate' => (float)($dailyRow['snapshot_overtime_rate'] ?? 0),
+                ],
+            ];
+        }
+
+        $this->load->model('Compensation_model');
+        $resolved = $this->Compensation_model->resolve_for_employee($employeeId, $attendanceDate);
+        if (strtoupper((string)($resolved['source'] ?? '')) !== 'CONTRACT' && $attendanceDate < date('Y-m-d')) {
+            $resolved = $this->Compensation_model->resolve_finalized_contract_for_employee($employeeId, $attendanceDate);
+        }
+        return [
+            'has_snapshot' => false,
+            'resolved' => $resolved,
+        ];
+    }
+
+    private function daily_compensation_provenance_payload(array $dailyRow, array $context): array
+    {
+        $hasStoredSource = $this->att_daily_has_field('compensation_source')
+            && trim((string)($dailyRow['compensation_source'] ?? '')) !== '';
+        if (!empty($context['has_snapshot']) && $hasStoredSource) {
+            return [];
+        }
+
+        $this->load->model('Compensation_model');
+        return $this->Compensation_model->build_att_daily_provenance((array)($context['resolved'] ?? []));
+    }
     public function count_my_leave_requests(int $employeeId, array $filters): int
     {
         $this->build_my_leave_requests_query($employeeId, $filters, false);
@@ -723,6 +774,19 @@ class My_portal_model extends CI_Model
             return ['ok' => false, 'created' => false, 'message' => (string)($capacity['message'] ?? 'Saldo PH tidak cukup untuk shift PH ini.')];
         }
 
+        $this->load->model('Compensation_model');
+        $compensation = $this->Compensation_model->resolve_for_employee($employeeId, $date);
+        if (
+            strtoupper((string)($compensation['source'] ?? '')) !== 'CONTRACT'
+            || (int)($compensation['contract_id'] ?? 0) <= 0
+        ) {
+            return [
+                'ok' => false,
+                'created' => false,
+                'message' => 'Presensi PH ditolak: belum ada kontrak ACTIVE yang efektif pada tanggal tersebut.',
+            ];
+        }
+
         [$startTs, $endTs] = $this->shift_bounds($date, (string)$schedule['start_time'], (string)$schedule['end_time'], (int)$schedule['is_overnight']);
         $minutes = 0;
         if ($startTs > 0 && $endTs > $startTs) {
@@ -753,7 +817,7 @@ class My_portal_model extends CI_Model
             $this->db->trans_rollback();
             return ['ok' => false, 'created' => false, 'message' => 'Gagal membuat kehadiran otomatis untuk shift PH.'];
         }
-        $this->compute_and_store_ph_salary($insertedId, $employeeId, $date, $policy);
+        $this->compute_and_store_ph_salary($insertedId, $employeeId, $date, $policy, $compensation);
         $used = $CI->Attendance_model->sync_ph_use_for_employee_date($employeeId, $date, 0);
         if (empty($used['ok'])) {
             $this->db->trans_rollback();
@@ -767,22 +831,14 @@ class My_portal_model extends CI_Model
         return ['ok' => true, 'created' => true, 'message' => 'Shift PH otomatis ditandai hadir dan satu jatah PH dipakai.'];
     }
 
-    private function compute_and_store_ph_salary(int $dailyId, int $employeeId, string $date, array $policy): void
+    private function compute_and_store_ph_salary(int $dailyId, int $employeeId, string $date, array $policy, array $compensation): void
     {
-        $employee = $this->db->select('basic_salary, position_allowance, objective_allowance, meal_rate')
-            ->from('org_employee')
-            ->where('id', $employeeId)
-            ->limit(1)
-            ->get()->row_array();
-        if (!$employee) {
-            return;
-        }
-
         $workDays       = max(1, (int)($policy['default_work_days_per_month'] ?? 26));
-        $basicSalary    = (float)($employee['basic_salary']      ?? 0);
-        $posAllowance   = (float)($employee['position_allowance']  ?? 0);
-        $objAllowance   = (float)($employee['objective_allowance'] ?? 0);
-        $mealRate       = (float)($employee['meal_rate']           ?? 0);
+        $basicSalary    = (float)($compensation['basic_salary'] ?? 0);
+        $posAllowance   = (float)($compensation['position_allowance'] ?? 0);
+        $objAllowance   = (float)($compensation['objective_allowance'] ?? 0);
+        $mealRate       = (float)($compensation['meal_rate'] ?? 0);
+        $overtimeRate   = $this->policy_overtime_rate($policy);
 
         $basicDailyRate    = $basicSalary / $workDays;
         $allowanceDailyRate = ($posAllowance + $objAllowance) / $workDays;
@@ -825,7 +881,12 @@ class My_portal_model extends CI_Model
             $payload['snapshot_objective_allowance']  = round($objAllowance, 2);
             $payload['snapshot_meal_rate']            = round($mealRate, 2);
         }
+        if ($this->att_daily_has_field('snapshot_overtime_rate')) {
+            $payload['snapshot_overtime_rate'] = round($overtimeRate, 2);
+        }
         $payload += $this->build_daily_policy_lock_payload($policy);
+        $this->load->model('Compensation_model');
+        $payload += $this->Compensation_model->build_att_daily_provenance($compensation);
 
         $this->db->where('id', $dailyId)->update('att_daily', $payload);
     }
@@ -848,6 +909,17 @@ class My_portal_model extends CI_Model
         $schedule = $this->get_schedule_with_shift($employeeId, $date);
         if (!$schedule) {
             return ['ok' => 0, 'message' => 'Jadwal shift hari ini belum tersedia.'];
+        }
+
+        // Device attendance is a current operational event and must snapshot
+        // only an effective ACTIVE contract.
+        $this->load->model('Compensation_model');
+        $compensation = $this->Compensation_model->resolve_for_employee($employeeId, $date);
+        if (
+            strtoupper((string)($compensation['source'] ?? '')) !== 'CONTRACT'
+            || (int)($compensation['contract_id'] ?? 0) <= 0
+        ) {
+            return ['ok' => 0, 'message' => 'Absensi ditolak: kontrak ACTIVE beserta snapshot kompensasi belum efektif untuk hari ini.'];
         }
 
         $shiftCode = strtoupper((string)($schedule['shift_code'] ?? ''));
@@ -1090,31 +1162,13 @@ class My_portal_model extends CI_Model
             $payload['early_leave_minutes'] = max(0, (int)floor(($endTs - $effectiveCheckoutTs) / 60));
         }
 
-        $employee = $this->db->select('basic_salary, position_allowance, objective_allowance, meal_rate, overtime_rate')
-            ->from('org_employee')
-            ->where('id', $employeeId)
-            ->limit(1)
-            ->get()->row_array();
-
-        $snapshotBasicSalary = null;
-        $snapshotPositionAllowance = null;
-        $snapshotObjectiveAllowance = null;
-        $snapshotMealRate = null;
-        $snapshotOvertimeRate = null;
-
-        if ($dailyId > 0 && $this->att_daily_has_field('snapshot_basic_salary')) {
-            $snapshotBasicSalary = ($daily['snapshot_basic_salary'] ?? null);
-            $snapshotPositionAllowance = ($daily['snapshot_position_allowance'] ?? null);
-            $snapshotObjectiveAllowance = ($daily['snapshot_objective_allowance'] ?? null);
-            $snapshotMealRate = ($daily['snapshot_meal_rate'] ?? null);
-            $snapshotOvertimeRate = ($daily['snapshot_overtime_rate'] ?? null);
-        }
-
-        $basicSalary = ($snapshotBasicSalary !== null) ? (float)$snapshotBasicSalary : (float)($employee['basic_salary'] ?? 0);
-        $positionAllowance = ($snapshotPositionAllowance !== null) ? (float)$snapshotPositionAllowance : (float)($employee['position_allowance'] ?? 0);
-        $objectiveAllowance = ($snapshotObjectiveAllowance !== null) ? (float)$snapshotObjectiveAllowance : (float)($employee['objective_allowance'] ?? 0);
-        $mealRate = ($snapshotMealRate !== null) ? (float)$snapshotMealRate : (float)($employee['meal_rate'] ?? 0);
-        $overtimeRate = ($snapshotOvertimeRate !== null) ? (float)$snapshotOvertimeRate : (float)($employee['overtime_rate'] ?? 0);
+        $compensationContext = $this->resolve_daily_compensation($employeeId, $date, $daily ?: []);
+        $compensation = (array)($compensationContext['resolved'] ?? []);
+        $basicSalary = (float)($compensation['basic_salary'] ?? 0);
+        $positionAllowance = (float)($compensation['position_allowance'] ?? 0);
+        $objectiveAllowance = (float)($compensation['objective_allowance'] ?? 0);
+        $mealRate = (float)($compensation['meal_rate'] ?? 0);
+        $overtimeRate = $this->policy_overtime_rate($policy);
 
         if ($this->att_daily_has_field('snapshot_basic_salary')) {
             $payload['snapshot_basic_salary'] = round($basicSalary, 2);
@@ -1123,6 +1177,7 @@ class My_portal_model extends CI_Model
             $payload['snapshot_meal_rate'] = round($mealRate, 2);
             $payload['snapshot_overtime_rate'] = round($overtimeRate, 2);
         }
+        $payload += $this->daily_compensation_provenance_payload($daily ?: [], $compensationContext);
 
         $hasCompletedCheckout = ($effectiveCheckinTs > 0 && $effectiveCheckoutTs > 0 && $effectiveCheckoutTs > $effectiveCheckinTs);
         $workDays = max(1, (int)($policy['default_work_days_per_month'] ?? 26));

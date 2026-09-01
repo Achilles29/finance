@@ -17,6 +17,18 @@ if ($status === 'TERMINATED' || $status === 'CANCELLED') $badgeClass = 'bg-label
 
 $approvalEmployee = $approvalMap['EMPLOYEE'] ?? null;
 $approvalCompany = $approvalMap['COMPANY'] ?? null;
+$hasCompleteSignoff = !empty($approvalEmployee)
+    && !empty($approvalCompany)
+    && (($approvalEmployee['approval_status'] ?? '') === 'APPROVED')
+    && (($approvalCompany['approval_status'] ?? '') === 'APPROVED')
+    && !empty($signatureMap['EMPLOYEE']['signature_data'])
+    && !empty($signatureMap['COMPANY']['signature_data']);
+$isMigrationRecord = strpos((string)($row['contract_number'] ?? ''), 'MIG/') === 0;
+$mealMonthlyEstimate = (float)($row['meal_rate'] ?? 0) * 26;
+$snapshotLines = array_values(array_filter((array)($row['snapshot_lines'] ?? []), static function (array $line): bool {
+    return !in_array(strtoupper((string)($line['component_code_snapshot'] ?? '')), ['LEMBUR_PER_JAM', 'OVERTIME_RATE'], true);
+}));
+$hasLegacyOvertimeSnapshot = count($snapshotLines) !== count((array)($row['snapshot_lines'] ?? []));
 
 $canGenerate = $canEdit && $status === 'DRAFT';
 $canActivate = $canEdit && in_array($status, ['SIGNED', 'GENERATED'], true);
@@ -85,6 +97,16 @@ $verifyUrl = !empty($row['verification_token']) ? site_url('hr-contracts/verify/
           <span class="badge <?php echo $badgeClass; ?>"><?php echo html_escape($status); ?></span>
         </div>
 
+        <?php if ($isMigrationRecord): ?>
+          <div class="alert alert-info py-2 small mb-3">
+            <strong>Baseline migrasi operasional.</strong> Record ini dipakai agar absensi dan payroll memiliki sumber nominal aktif yang tunggal. Tidak ada TTE formal yang dibuat-buat; buat kontrak formal pada pembaruan berikutnya.
+          </div>
+        <?php elseif ($status === 'ACTIVE'): ?>
+          <div class="small mb-3 <?php echo $hasCompleteSignoff ? 'text-success' : 'text-warning'; ?>">
+            Pengesahan formal: <strong><?php echo $hasCompleteSignoff ? 'lengkap (EMPLOYEE + COMPANY)' : 'belum lengkap'; ?></strong>
+          </div>
+        <?php endif; ?>
+
         <div class="row g-2 small">
           <div class="col-md-6"><span class="text-muted">Pegawai:</span> <?php echo html_escape((string)($row['employee_name'] ?? '-')); ?> (<?php echo html_escape((string)($row['employee_code'] ?? '-')); ?>)</div>
           <div class="col-md-6"><span class="text-muted">NIP:</span> <?php echo html_escape((string)($row['employee_nip'] ?? '-')); ?></div>
@@ -108,8 +130,8 @@ $verifyUrl = !empty($row['verification_token']) ? site_url('hr-contracts/verify/
         <div class="small mb-1"><span class="text-muted">Gaji Pokok:</span> <?php echo number_format((float)($row['basic_salary'] ?? 0), 2, ',', '.'); ?></div>
         <div class="small mb-1"><span class="text-muted">Tunjangan Jabatan:</span> <?php echo number_format((float)($row['position_allowance'] ?? 0), 2, ',', '.'); ?></div>
         <div class="small mb-1"><span class="text-muted">Tunjangan Lain:</span> <?php echo number_format((float)($row['other_allowance'] ?? 0), 2, ',', '.'); ?></div>
-        <div class="small mb-1"><span class="text-muted">Uang Makan:</span> <?php echo number_format((float)($row['meal_rate'] ?? 0), 2, ',', '.'); ?></div>
-        <div class="small mb-3"><span class="text-muted">Lembur/Jam:</span> <?php echo number_format((float)($row['overtime_rate'] ?? 0), 2, ',', '.'); ?></div>
+        <div class="small mb-1"><span class="text-muted">Uang Makan:</span> <?php echo number_format((float)($row['meal_rate'] ?? 0), 2, ',', '.'); ?> / hari <span class="text-muted">(estimasi 26 hari: <?php echo number_format($mealMonthlyEstimate, 2, ',', '.'); ?>)</span></div>
+        <div class="small mb-3"><span class="text-muted">Lembur:</span> mengikuti Master Standar Lembur, di luar komponen kompensasi kontrak.</div>
 
         <?php if ($canGenerate): ?>
           <form method="post" action="<?php echo site_url('hr/contracts/' . (int)$row['id'] . '/generate?' . http_build_query(['ctx' => $ctx])); ?>" class="mb-2">
@@ -254,15 +276,18 @@ $verifyUrl = !empty($row['verification_token']) ? site_url('hr-contracts/verify/
   </div>
 </div>
 
-<?php if (!empty($row['snapshot_lines'])): ?>
+<?php if (!empty($snapshotLines)): ?>
 <div class="card mb-3">
   <div class="card-body">
     <h6 class="mb-2">Detail Snapshot Komponen</h6>
+    <?php if ($hasLegacyOvertimeSnapshot): ?>
+      <div class="small text-muted mb-2">Tarif lembur lama tidak ditampilkan karena lembur sekarang selalu mengikuti Master Standar Lembur.</div>
+    <?php endif; ?>
     <div class="table-responsive">
       <table class="table table-sm table-striped mb-0">
         <thead><tr><th>Kode</th><th>Nama</th><th>Tipe</th><th class="text-end">Amount</th></tr></thead>
         <tbody>
-        <?php foreach ((array)$row['snapshot_lines'] as $line): ?>
+        <?php foreach ($snapshotLines as $line): ?>
           <tr>
             <td><?php echo html_escape((string)$line['component_code_snapshot']); ?></td>
             <td><?php echo html_escape((string)$line['component_name_snapshot']); ?></td>

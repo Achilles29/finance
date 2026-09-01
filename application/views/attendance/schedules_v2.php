@@ -9,10 +9,26 @@ $employees = $employees ?? [];
 $scheduleMap = $schedule_map ?? [];
 $shiftCodes = $shift_codes ?? [];
 $holidayMap = array_flip($holiday_dates ?? []);
+$nationalHolidayMap = [];
+foreach (($national_holidays ?? []) as $holiday) {
+  $holidayDate = (string)($holiday['holiday_date'] ?? '');
+  if ($holidayDate !== '') {
+    $nationalHolidayMap[$holidayDate] = true;
+  }
+}
 $todayDate = date('Y-m-d');
 $daysInMonth = (int)date('t', strtotime($selectedYear . '-' . $selectedMonth . '-01'));
 $scheduleLimitDays = max(1, (int)($schedule_limit_days ?? 26));
 $canMonthlyScheduleOverride = !empty($can_monthly_schedule_override);
+$scheduleTab = $schedule_tab ?? 'grid';
+$recapRows = $recap_rows ?? [];
+$weekdayShortNames = [1 => 'Sen', 2 => 'Sel', 3 => 'Rab', 4 => 'Kam', 5 => 'Jum', 6 => 'Sab', 7 => 'Min'];
+$buildQuery = static function (array $overrides = []) use ($selectedMonth, $selectedYear) {
+  return http_build_query(array_merge([
+    'month' => $selectedMonth,
+    'year' => $selectedYear,
+  ], $overrides));
+};
 ?>
 <style>
   .schedule-v2-wrap { overflow:auto; max-height:72vh; border:1px solid #d8dee4; border-radius:10px; background:#fff; position: relative; }
@@ -31,8 +47,14 @@ $canMonthlyScheduleOverride = !empty($can_monthly_schedule_override);
   .schedule-v2-cell { min-width:58px; text-align:center; font-weight:700; background:#fbf8ea; }
   .schedule-v2-cell[contenteditable="true"] { background:#fffbe8; outline:none; }
   .schedule-v2-cell.is-error { background:#ffe8e8; color:#9f1d1d; }
-  .schedule-v2-cell.is-holiday { background:#ffe4e1; border-color:#ffb3ab !important; }
-  .schedule-v2-cell.is-holiday[contenteditable="true"] { background:#ffd7d2; }
+  .schedule-v2-cell.is-holiday { background:#f8fafc; border-color:#cbd5e1 !important; }
+  .schedule-v2-cell.is-holiday[contenteditable="true"] { background:#f1f5f9; }
+  .schedule-v2-cell.is-saturday { background:#fff1dd !important; color:#9a4e00; border-color:#f7bd6e !important; }
+  .schedule-v2-cell.is-saturday[contenteditable="true"] { background:#ffe2b8 !important; }
+  .schedule-v2-cell.is-sunday { background:#fff0f1 !important; color:#b42318; border-color:#f7b6bf !important; }
+  .schedule-v2-cell.is-sunday[contenteditable="true"] { background:#ffd9de !important; }
+  .schedule-v2-cell.is-national-holiday { background:#f5efff !important; color:#6941c6; border-color:#cdb2fa !important; }
+  .schedule-v2-cell.is-national-holiday[contenteditable="true"] { background:#e9ddff !important; }
   .schedule-v2-today-head {
     background: #ffb020 !important;
     color: #1f2937 !important;
@@ -44,17 +66,25 @@ $canMonthlyScheduleOverride = !empty($can_monthly_schedule_override);
     border-color: #f59e0b !important;
     box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.45);
   }
-  .schedule-v2-cell.is-holiday.schedule-v2-today-cell {
-    background: #ffd9c7 !important;
-    border-color: #fb923c !important;
-  }
-  .schedule-v2-cell.is-sunday { background:#fbe3e7 !important; color:#8f1728; border-color:#efb7c0 !important; }
-  .schedule-v2-cell.is-sunday[contenteditable="true"] { background:#f8d2d8 !important; }
-  .schedule-v2-cell.is-sunday.schedule-v2-today-head { background:#ffb020 !important; color:#1f2937 !important; border-color:#f08c00 !important; }
-  .schedule-v2-cell.is-sunday.schedule-v2-today-cell { background:#ffd9c7 !important; border-color:#fb923c !important; }
+  .schedule-v2-cell.is-saturday.schedule-v2-today-head,
+  .schedule-v2-cell.is-sunday.schedule-v2-today-head,
+  .schedule-v2-cell.is-national-holiday.schedule-v2-today-head { background:#ffb020 !important; color:#1f2937 !important; border-color:#f08c00 !important; }
+  .schedule-v2-cell.is-saturday.schedule-v2-today-cell { background:#ffe2b8 !important; border-color:#f7a93f !important; }
+  .schedule-v2-cell.is-sunday.schedule-v2-today-cell { background:#ffd9de !important; border-color:#f36a78 !important; }
+  .schedule-v2-cell.is-national-holiday.schedule-v2-today-cell { background:#e9ddff !important; border-color:#9f7aea !important; }
   .schedule-v2-cell.is-empty-schedule[contenteditable="true"] { background:#f1f5f9 !important; color:#64748b; font-weight:700; }
   .schedule-v2-cell.is-ph-schedule[contenteditable="true"] { background:#dbeafe !important; color:#075985; }
+  /* Calendar context stays visible even when the editable cell currently shows OFF. */
+  .schedule-v2-cell.is-saturday.is-empty-schedule[contenteditable="true"] { background:#ffe2b8 !important; color:#9a4e00; }
+  .schedule-v2-cell.is-sunday.is-empty-schedule[contenteditable="true"] { background:#ffd9de !important; color:#b42318; }
+  .schedule-v2-cell.is-national-holiday.is-empty-schedule[contenteditable="true"] { background:#e9ddff !important; color:#6941c6; }
   .schedule-v2-legend code { padding:.15rem .35rem; background:#f1f5f9; border-radius:6px; }
+  .schedule-v2-day-name { display:block; font-size:.62rem; font-weight:800; letter-spacing:.02em; line-height:1.05; }
+  .schedule-v2-day-number { display:block; margin-top:.13rem; font-size:.92rem; line-height:1; }
+  .schedule-v2-tabs { display:flex; gap:.45rem; border-bottom:1px solid #e4e7ec; padding:0 .3rem; }
+  .schedule-v2-tab { display:inline-flex; align-items:center; gap:.35rem; padding:.75rem .9rem; color:#667085; font-weight:700; text-decoration:none; border-bottom:3px solid transparent; }
+  .schedule-v2-tab:hover { color:#ad0d23; }
+  .schedule-v2-tab.active { color:#ad0d23; border-bottom-color:#ad0d23; }
 </style>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
@@ -64,9 +94,11 @@ $canMonthlyScheduleOverride = !empty($can_monthly_schedule_override);
 
 <div class="card border-0 shadow-sm mb-3"><div class="card-body">
   <form method="get" action="<?php echo site_url('attendance/schedules-v2'); ?>" class="row g-2 align-items-end">
+    <input type="hidden" name="tab" value="<?php echo html_escape((string)$scheduleTab); ?>">
     <div class="col-6 col-md-2"><label class="form-label">Bulan</label><select name="month" class="form-select"><?php foreach($months as $k=>$v): ?><option value="<?php echo $k; ?>" <?php echo $selectedMonth===$k?'selected':''; ?>><?php echo html_escape($v); ?></option><?php endforeach; ?></select></div>
     <div class="col-6 col-md-2"><label class="form-label">Tahun</label><input type="number" name="year" min="2000" max="2100" class="form-control" value="<?php echo html_escape($selectedYear); ?>"></div>
     <div class="col-12 col-md-2"><button type="submit" class="btn btn-primary w-100">Tampilkan</button></div>
+    <?php if ($scheduleTab === 'grid'): ?>
     <div class="col-12 col-md-6 text-md-end schedule-v2-legend">
       <small class="text-muted">Isi sel dengan kode shift. Kosongkan sel untuk hapus jadwal. Maksimum normal <strong><?php echo $scheduleLimitDays; ?> hari/bulan</strong> termasuk PH; Security dikecualikan. Kode aktif:
         <?php foreach($shiftCodes as $s): ?>
@@ -74,9 +106,20 @@ $canMonthlyScheduleOverride = !empty($can_monthly_schedule_override);
         <?php endforeach; ?>
       </small>
     </div>
+    <?php endif; ?>
   </form>
 </div></div>
 
+<div class="card border-0 shadow-sm mb-3"><div class="card-body p-0">
+  <div class="schedule-v2-tabs">
+    <a class="schedule-v2-tab <?php echo $scheduleTab === 'grid' ? 'active' : ''; ?>" href="<?php echo site_url('attendance/schedules-v2?' . $buildQuery(['tab' => 'grid'])); ?>"><i class="ri-table-line"></i>Jadwal Spreadsheet</a>
+    <a class="schedule-v2-tab <?php echo $scheduleTab === 'recap' ? 'active' : ''; ?>" href="<?php echo site_url('attendance/schedules-v2?' . $buildQuery(['tab' => 'recap'])); ?>"><i class="ri-bar-chart-grouped-line"></i>Rekap Shift</a>
+  </div>
+</div></div>
+
+<?php if ($scheduleTab === 'recap'): ?>
+  <?php $this->load->view('attendance/_schedule_recap', ['recap_rows' => $recapRows, 'national_holidays' => ($national_holidays ?? [])]); ?>
+<?php else: ?>
 <div id="scheduleWarn" class="alert alert-danger d-none"></div>
 
 <div class="schedule-v2-wrap">
@@ -84,8 +127,8 @@ $canMonthlyScheduleOverride = !empty($can_monthly_schedule_override);
     <thead>
       <tr>
         <th class="schedule-v2-fixed">Pegawai</th>
-        <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $isHoliday = isset($holidayMap[$date]); $isSunday = ((int)date('N', strtotime($date)) === 7); $isToday = ($date === $todayDate); ?>
-          <th class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isSunday ? ' is-sunday' : ''; ?><?php echo $isToday ? ' schedule-v2-today-head' : ''; ?>"><?php echo str_pad((string)$d,2,'0',STR_PAD_LEFT); ?></th>
+        <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $weekdayNumber = (int)date('N', strtotime($date)); $isHoliday = isset($holidayMap[$date]); $isNationalHoliday = isset($nationalHolidayMap[$date]); $isSaturday = $weekdayNumber === 6; $isSunday = $weekdayNumber === 7; $isToday = ($date === $todayDate); ?>
+          <th class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isSaturday ? ' is-saturday' : ''; ?><?php echo $isSunday ? ' is-sunday' : ''; ?><?php echo $isNationalHoliday ? ' is-national-holiday' : ''; ?><?php echo $isToday ? ' schedule-v2-today-head' : ''; ?>"><span class="schedule-v2-day-name"><?php echo html_escape((string)($weekdayShortNames[$weekdayNumber] ?? '')); ?></span><span class="schedule-v2-day-number"><?php echo str_pad((string)$d,2,'0',STR_PAD_LEFT); ?></span></th>
         <?php endfor; ?>
         <th class="schedule-v2-total">Total Hadir</th>
       </tr>
@@ -95,8 +138,8 @@ $canMonthlyScheduleOverride = !empty($can_monthly_schedule_override);
         <tr>
           <td class="schedule-v2-fixed"><?php echo html_escape(((string)($emp->employee_code ?? '-')) . ' - ' . ((string)($emp->employee_name ?? '-'))); ?></td>
           <?php $attendanceScheduleCount = 0; ?>
-          <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $val = $scheduleMap[(int)$emp->id][$date] ?? ''; $shiftCode = strtoupper(trim((string)$val)); $isHoliday = isset($holidayMap[$date]); $isSunday = ((int)date('N', strtotime($date)) === 7); $isToday = ($date === $todayDate); $isEmptySchedule = ($shiftCode === ''); $isPhSchedule = in_array($shiftCode, ['PH', 'PHB'], true); if (!$isEmptySchedule) { $attendanceScheduleCount++; } ?>
-            <td class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isSunday ? ' is-sunday' : ''; ?><?php echo $isEmptySchedule ? ' is-empty-schedule' : ''; ?><?php echo $isPhSchedule ? ' is-ph-schedule' : ''; ?><?php echo $isToday ? ' schedule-v2-today-cell' : ''; ?>" contenteditable="true" data-employee-id="<?php echo (int)$emp->id; ?>" data-date="<?php echo html_escape($date); ?>" data-original="<?php echo html_escape((string)$val); ?>" data-empty-schedule="<?php echo $isEmptySchedule ? '1' : '0'; ?>"><?php echo html_escape($isEmptySchedule ? 'OFF' : $shiftCode); ?></td>
+          <?php for($d=1;$d<=$daysInMonth;$d++): $date = $selectedYear . '-' . $selectedMonth . '-' . str_pad((string)$d,2,'0',STR_PAD_LEFT); $val = $scheduleMap[(int)$emp->id][$date] ?? ''; $shiftCode = strtoupper(trim((string)$val)); $isHoliday = isset($holidayMap[$date]); $isNationalHoliday = isset($nationalHolidayMap[$date]); $weekdayNumber = (int)date('N', strtotime($date)); $isSaturday = $weekdayNumber === 6; $isSunday = $weekdayNumber === 7; $isToday = ($date === $todayDate); $isEmptySchedule = ($shiftCode === ''); $isPhSchedule = in_array($shiftCode, ['PH', 'PHB'], true); if (!$isEmptySchedule) { $attendanceScheduleCount++; } ?>
+            <td class="schedule-v2-cell<?php echo $isHoliday ? ' is-holiday' : ''; ?><?php echo $isSaturday ? ' is-saturday' : ''; ?><?php echo $isSunday ? ' is-sunday' : ''; ?><?php echo $isNationalHoliday ? ' is-national-holiday' : ''; ?><?php echo $isEmptySchedule ? ' is-empty-schedule' : ''; ?><?php echo $isPhSchedule ? ' is-ph-schedule' : ''; ?><?php echo $isToday ? ' schedule-v2-today-cell' : ''; ?>" contenteditable="true" data-employee-id="<?php echo (int)$emp->id; ?>" data-date="<?php echo html_escape($date); ?>" data-original="<?php echo html_escape((string)$val); ?>" data-empty-schedule="<?php echo $isEmptySchedule ? '1' : '0'; ?>"><?php echo html_escape($isEmptySchedule ? 'OFF' : $shiftCode); ?></td>
           <?php endfor; ?>
           <td class="schedule-v2-total"><span class="schedule-v2-total-count" data-schedule-attendance-total><?php echo (int)$attendanceScheduleCount; ?></span><span class="schedule-v2-total-label">termasuk PH</span></td>
         </tr>
@@ -219,3 +262,4 @@ $canMonthlyScheduleOverride = !empty($can_monthly_schedule_override);
   });
 })();
 </script>
+<?php endif; ?>

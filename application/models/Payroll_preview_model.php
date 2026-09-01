@@ -3,6 +3,12 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Payroll_preview_model extends CI_Model
 {
+    private function policy_overtime_rate(array $policy): float
+    {
+        $this->load->model('Attendance_model');
+        return $this->Attendance_model->get_policy_overtime_rate($policy);
+    }
+
     public function count_monthly_recap(array $filters): int
     {
         $employeeFilters = [
@@ -124,6 +130,7 @@ class Payroll_preview_model extends CI_Model
         if (!$policy) {
             $policy = [];
         }
+        $policyOvertimeRate = $this->policy_overtime_rate($policy);
 
         $rows = $this->db->select('ad.*, s.shift_code, s.shift_name, s.start_time, s.end_time, COALESCE(s.is_overnight, 0) AS is_overnight', false)
             ->from('att_daily ad')
@@ -140,11 +147,23 @@ class Payroll_preview_model extends CI_Model
         ], 1, 0);
         $base = $baseRow[0] ?? null;
 
-        $basicSalary = (float)($base['basic_salary'] ?? $employee['basic_salary'] ?? 0);
-        $positionAllowance = (float)($base['position_allowance'] ?? $employee['position_allowance'] ?? 0);
-        $objectiveAllowance = (float)($base['objective_allowance'] ?? $employee['objective_allowance'] ?? 0);
-        $mealRate = (float)($base['meal_rate'] ?? $employee['meal_rate'] ?? 0);
-        $overtimeRateUsed = (float)($base['overtime_rate'] ?? $employee['overtime_rate'] ?? 0);
+        $basicSalary = (float)($base['basic_salary'] ?? 0);
+        $positionAllowance = (float)($base['position_allowance'] ?? 0);
+        $objectiveAllowance = (float)($base['objective_allowance'] ?? 0);
+        $mealRate = (float)($base['meal_rate'] ?? 0);
+        $overtimeRateUsed = $policyOvertimeRate;
+        if (($base['source_type'] ?? '') === 'MISSING_CONTRACT') {
+            foreach (array_reverse($rows) as $snapshotRow) {
+                if (($snapshotRow['snapshot_basic_salary'] ?? null) === null) {
+                    continue;
+                }
+                $basicSalary = (float)($snapshotRow['snapshot_basic_salary'] ?? 0);
+                $positionAllowance = (float)($snapshotRow['snapshot_position_allowance'] ?? 0);
+                $objectiveAllowance = (float)($snapshotRow['snapshot_objective_allowance'] ?? 0);
+                $mealRate = (float)($snapshotRow['snapshot_meal_rate'] ?? 0);
+                break;
+            }
+        }
         $attendanceMode = strtoupper((string)($policy['attendance_calc_mode'] ?? 'DAILY'));
         $mealMode = strtoupper((string)($policy['meal_calc_mode'] ?? 'MONTHLY'));
         $workDays = max(1, (int)($policy['default_work_days_per_month'] ?? 26));
@@ -189,7 +208,7 @@ class Payroll_preview_model extends CI_Model
         foreach ($rows as $row) {
             $status = strtoupper((string)($row['attendance_status'] ?? 'OFF'));
             $lateMinutes = (int)($row['late_minutes'] ?? 0);
-            $normalizedDay = $this->normalize_daily_row_for_estimate($row, $policy, $employee);
+            $normalizedDay = $this->normalize_daily_row_for_estimate($row, $policy, $base ?: []);
             $workMinutes = (int)($normalizedDay['work_minutes'] ?? 0);
             $isPayrollPaidDay = !empty($normalizedDay['is_payroll_paid_day']);
             $overtimePay = (float)($normalizedDay['overtime_pay'] ?? 0);
@@ -369,7 +388,7 @@ class Payroll_preview_model extends CI_Model
         return [$summary, $dailyRows];
     }
 
-    private function normalize_daily_row_for_estimate(array $row, array $policy, array $employee): array
+    private function normalize_daily_row_for_estimate(array $row, array $policy, array $compensation): array
     {
         $status = strtoupper((string)($row['attendance_status'] ?? 'OFF'));
         $checkinTs = !empty($row['checkin_at']) ? strtotime((string)$row['checkin_at']) : 0;
@@ -398,19 +417,19 @@ class Payroll_preview_model extends CI_Model
 
         $basicSalary = isset($row['snapshot_basic_salary']) && $row['snapshot_basic_salary'] !== null
             ? (float)$row['snapshot_basic_salary']
-            : (float)($employee['basic_salary'] ?? 0);
+            : (float)($compensation['basic_salary'] ?? 0);
         $positionAllowance = isset($row['snapshot_position_allowance']) && $row['snapshot_position_allowance'] !== null
             ? (float)$row['snapshot_position_allowance']
-            : (float)($employee['position_allowance'] ?? 0);
+            : (float)($compensation['position_allowance'] ?? 0);
         $objectiveAllowance = isset($row['snapshot_objective_allowance']) && $row['snapshot_objective_allowance'] !== null
             ? (float)$row['snapshot_objective_allowance']
-            : (float)($employee['objective_allowance'] ?? 0);
+            : (float)($compensation['objective_allowance'] ?? 0);
         $mealRate = isset($row['snapshot_meal_rate']) && $row['snapshot_meal_rate'] !== null
             ? (float)$row['snapshot_meal_rate']
-            : (float)($employee['meal_rate'] ?? 0);
+            : (float)($compensation['meal_rate'] ?? 0);
         $overtimeRate = isset($row['snapshot_overtime_rate']) && $row['snapshot_overtime_rate'] !== null
             ? (float)$row['snapshot_overtime_rate']
-            : (float)($employee['overtime_rate'] ?? 0);
+            : $this->policy_overtime_rate($policy);
 
         $workDays = max(1, (int)($policy['default_work_days_per_month'] ?? 26));
         $basicDailyRate = $basicSalary / $workDays;
@@ -591,7 +610,7 @@ class Payroll_preview_model extends CI_Model
     {
         $asOf = $this->normalize_as_of($filters['as_of'] ?? null);
 
-        $employeeRows = $this->db->select('e.id, e.employee_code, e.employee_name, e.join_date, e.employment_status, e.basic_salary, e.position_allowance, e.objective_allowance, e.meal_rate, e.overtime_rate, d.division_name, p.position_name, e.division_id, e.position_id')
+        $employeeRows = $this->db->select('e.id, e.employee_code, e.employee_name, e.join_date, e.employment_status, d.division_name, p.position_name, e.division_id, e.position_id')
             ->from('org_employee e')
             ->join('org_division d', 'd.id = e.division_id', 'left')
             ->join('org_position p', 'p.id = e.position_id', 'left')
@@ -631,12 +650,18 @@ class Payroll_preview_model extends CI_Model
         }, $employees);
 
         $assignmentMap = $this->get_active_assignment_map($employeeIds, $asOf);
-        $profileComponentMap = $this->get_profile_component_map(array_values(array_unique(array_filter(array_map(static function (array $r): int {
-            return (int)($r['profile_id'] ?? 0);
-        }, $assignmentMap)))));
         $contractMap = $this->get_active_contract_map($employeeIds, $asOf);
         $objectiveOverrideMap = $this->get_active_objective_override_map($employeeIds, $asOf);
         $basicStandards = $this->get_active_basic_standards($asOf);
+        $policy = $this->db->from('att_attendance_policy')
+            ->where('is_active', 1)
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get()->row_array() ?: [];
+        $overtimeMode = strtoupper((string)($policy['overtime_calc_mode'] ?? 'AUTO'));
+        $defaultOvertimeRate = $overtimeMode === 'AUTO'
+            ? $this->policy_overtime_rate($policy)
+            : 0.0;
 
         $result = [];
         foreach ($employees as $employee) {
@@ -646,25 +671,15 @@ class Payroll_preview_model extends CI_Model
             $objectiveOverride = $objectiveOverrideMap[$employeeId] ?? null;
             $standard = $this->resolve_basic_standard_for_employee($employee, $basicStandards, $asOf);
             $yearsOfService = $this->years_of_service((string)($employee['join_date'] ?? ''), $asOf);
-            $profileComponent = [];
-            if (!empty($assignment['profile_id'])) {
-                $profileComponent = $profileComponentMap[(int)$assignment['profile_id']] ?? [];
-            }
-
-            $employeeBasic = (float)($employee['basic_salary'] ?? 0);
-            $employeePosition = (float)($employee['position_allowance'] ?? 0);
-            $employeeObjective = (float)($employee['objective_allowance'] ?? 0);
-            $employeeMeal = (float)($employee['meal_rate'] ?? 0);
-            $employeeOvertime = (float)($employee['overtime_rate'] ?? 0);
-            $employeeFixed = round($employeeBasic + $employeePosition + $employeeObjective, 2);
-
-            $source = 'EMPLOYEE';
-            $sourceRef = '-';
-            $basic = $employeeBasic;
-            $position = $employeePosition;
-            $objective = $employeeObjective;
-            $meal = $employeeMeal;
-            $overtime = $employeeOvertime;
+            $source = 'MISSING_CONTRACT';
+            $sourceRef = 'Belum ada kontrak ACTIVE beserta snapshot kompensasi pada tanggal ini';
+            $basic = 0.0;
+            $position = 0.0;
+            $objective = 0.0;
+            $meal = 0.0;
+            // In MANUAL mode each entry selects its own master standard. AUTO
+            // mode exposes only the policy's default master standard.
+            $overtime = $defaultOvertimeRate;
 
             if ($contract) {
                 $source = 'CONTRACT';
@@ -673,37 +688,19 @@ class Payroll_preview_model extends CI_Model
                 $position = (float)($contract['effective_position_allowance'] ?? $position);
                 $objective = (float)($contract['effective_other_allowance'] ?? $objective);
                 $meal = (float)($contract['effective_meal_rate'] ?? $meal);
-                $overtime = (float)($contract['effective_overtime_rate'] ?? $overtime);
-            } elseif ($assignment) {
-                $source = 'ASSIGNMENT';
-                $sourceRef = trim((string)($assignment['profile_code'] ?? '') . ' - ' . (string)($assignment['profile_name'] ?? ''));
-                if ($sourceRef === '-' || $sourceRef === '') {
-                    $sourceRef = (string)($assignment['profile_name'] ?? '-');
-                }
-
-                if ($standard) {
-                    $basic = (float)($standard['resolved_amount'] ?? $basic);
-                }
-                if (isset($profileComponent['POSITION_ALLOWANCE'])) {
-                    $position = (float)$profileComponent['POSITION_ALLOWANCE'];
-                }
-                if (isset($profileComponent['OBJECTIVE_ALLOWANCE'])) {
-                    $objective = (float)$profileComponent['OBJECTIVE_ALLOWANCE'];
-                }
-                if (isset($profileComponent['MEAL_ALLOWANCE'])) {
-                    $meal = (float)$profileComponent['MEAL_ALLOWANCE'];
-                }
-            } elseif ($standard) {
-                $source = 'STANDARD';
-                $sourceRef = (string)($standard['standard_code'] ?? '-');
-                $basic = (float)($standard['resolved_amount'] ?? $basic);
             }
 
+            // Profiles, standards, and objectives are reference material for
+            // negotiations. They must never overwrite an agreed contract.
+            $references = [];
+            if ($assignment) {
+                $references[] = 'Profil: ' . trim((string)($assignment['profile_code'] ?? '') . ' ' . (string)($assignment['profile_name'] ?? ''));
+            }
+            if ($standard) {
+                $references[] = 'Standar gaji: ' . (string)($standard['standard_code'] ?? '-');
+            }
             if ($objectiveOverride !== null) {
-                $objective = (float)$objectiveOverride;
-                if ($source === 'ASSIGNMENT' || $source === 'STANDARD' || $source === 'EMPLOYEE') {
-                    $sourceRef = trim($sourceRef . ' + OBJ_OVERRIDE');
-                }
+                $references[] = 'Acuan objektif: Rp ' . number_format((float)$objectiveOverride, 2, ',', '.');
             }
 
             $previewFixed = round($basic + $position + $objective, 2);
@@ -718,14 +715,13 @@ class Payroll_preview_model extends CI_Model
                 'years_of_service' => $yearsOfService,
                 'source_type' => $source,
                 'source_ref' => $sourceRef,
+                'reference_info' => implode(' | ', array_filter($references)),
                 'basic_salary' => round($basic, 2),
                 'position_allowance' => round($position, 2),
                 'objective_allowance' => round($objective, 2),
                 'meal_rate' => round($meal, 2),
                 'overtime_rate' => round($overtime, 2),
                 'fixed_total' => $previewFixed,
-                'employee_fixed_total' => $employeeFixed,
-                'delta_fixed_total' => round($previewFixed - $employeeFixed, 2),
             ];
         }
 
@@ -840,16 +836,15 @@ class Payroll_preview_model extends CI_Model
             return [];
         }
 
-        $rows = $this->db->select('c.id, c.employee_id, c.contract_number, c.status, c.start_date, c.end_date, c.basic_salary, c.position_allowance, c.other_allowance, c.meal_rate, c.overtime_rate,
-                s.basic_salary_amount, s.position_allowance_amount, s.other_allowance_amount, s.meal_rate_amount, s.overtime_rate_amount')
+        $rows = $this->db->select('c.id, c.employee_id, c.contract_number, c.status, c.start_date, c.end_date, c.basic_salary, c.position_allowance, c.other_allowance, c.meal_rate,
+                s.basic_salary_amount, s.position_allowance_amount, s.other_allowance_amount, s.meal_rate_amount')
             ->from('hr_contract c')
-            ->join('hr_contract_comp_snapshot s', 's.contract_id = c.id', 'left')
+            ->join('hr_contract_comp_snapshot s', 's.contract_id = c.id', 'inner')
             ->where_in('c.employee_id', $employeeIds)
-            ->where_in('c.status', ['ACTIVE', 'SIGNED'])
+            ->where('c.status', 'ACTIVE')
             ->where('c.start_date <=', $asOf)
             ->where('c.end_date >=', $asOf)
             ->order_by('c.employee_id', 'ASC')
-            ->order_by("FIELD(c.status,'ACTIVE','SIGNED')", '', false)
             ->order_by('c.start_date', 'DESC')
             ->order_by('c.id', 'DESC')
             ->get()->result_array();
@@ -861,11 +856,10 @@ class Payroll_preview_model extends CI_Model
                 continue;
             }
 
-            $row['effective_basic_salary'] = $row['basic_salary_amount'] !== null ? (float)$row['basic_salary_amount'] : (float)$row['basic_salary'];
-            $row['effective_position_allowance'] = $row['position_allowance_amount'] !== null ? (float)$row['position_allowance_amount'] : (float)$row['position_allowance'];
-            $row['effective_other_allowance'] = $row['other_allowance_amount'] !== null ? (float)$row['other_allowance_amount'] : (float)$row['other_allowance'];
-            $row['effective_meal_rate'] = $row['meal_rate_amount'] !== null ? (float)$row['meal_rate_amount'] : (float)$row['meal_rate'];
-            $row['effective_overtime_rate'] = $row['overtime_rate_amount'] !== null ? (float)$row['overtime_rate_amount'] : (float)$row['overtime_rate'];
+            $row['effective_basic_salary'] = (float)$row['basic_salary_amount'];
+            $row['effective_position_allowance'] = (float)$row['position_allowance_amount'];
+            $row['effective_other_allowance'] = (float)$row['other_allowance_amount'];
+            $row['effective_meal_rate'] = (float)$row['meal_rate_amount'];
             $map[$empId] = $row;
         }
 

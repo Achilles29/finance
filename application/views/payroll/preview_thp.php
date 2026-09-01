@@ -106,21 +106,15 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <th class="text-end">Gaji Pokok</th>
           <th class="text-end">Tunj. Jabatan</th>
           <th class="text-end">Tunj. Objektif</th>
-          <th class="text-end">Fixed THP</th>
-          <th class="text-end">Fixed Existing</th>
-          <th class="text-end">Delta</th>
+          <th class="text-end">THP Kontrak</th>
         </tr>
       </thead>
       <tbody>
       <?php if (empty($rows)): ?>
-        <tr><td colspan="11" class="text-center text-muted py-4">Tidak ada data.</td></tr>
+        <tr><td colspan="9" class="text-center text-muted py-4">Tidak ada data.</td></tr>
       <?php else: ?>
         <?php $no = (($pg['page'] ?? 1) - 1) * ($pg['per_page'] ?? 25) + 1; ?>
         <?php foreach ($rows as $r): ?>
-          <?php
-            $delta = (float)($r['delta_fixed_total'] ?? 0);
-            $deltaClass = $delta > 0 ? 'text-success' : ($delta < 0 ? 'text-danger' : 'text-muted');
-          ?>
           <tr>
             <td><?php echo (int)$no++; ?></td>
             <td>
@@ -138,13 +132,14 @@ $buildPageItems = static function (int $page, int $totalPages): array {
             <td>
               <span class="badge bg-label-primary"><?php echo html_escape((string)($r['source_type'] ?? '-')); ?></span><br>
               <small class="text-muted"><?php echo html_escape((string)($r['source_ref'] ?? '-')); ?></small>
+              <?php if (trim((string)($r['reference_info'] ?? '')) !== ''): ?>
+                <div class="small text-muted mt-1">Acuan: <?php echo html_escape((string)$r['reference_info']); ?></div>
+              <?php endif; ?>
             </td>
             <td class="text-end"><?php echo number_format((float)($r['basic_salary'] ?? 0), 2, ',', '.'); ?></td>
             <td class="text-end"><?php echo number_format((float)($r['position_allowance'] ?? 0), 2, ',', '.'); ?></td>
             <td class="text-end"><?php echo number_format((float)($r['objective_allowance'] ?? 0), 2, ',', '.'); ?></td>
             <td class="text-end fw-semibold"><?php echo number_format((float)($r['fixed_total'] ?? 0), 2, ',', '.'); ?></td>
-            <td class="text-end"><?php echo number_format((float)($r['employee_fixed_total'] ?? 0), 2, ',', '.'); ?></td>
-            <td class="text-end <?php echo $deltaClass; ?>"><?php echo number_format($delta, 2, ',', '.'); ?></td>
           </tr>
         <?php endforeach; ?>
       <?php endif; ?>

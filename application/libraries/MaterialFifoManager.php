@@ -2982,6 +2982,102 @@ class MaterialFifoManager
         );
     }
 
+    /**
+     * Bring the synthetic warehouse FIFO representation back to the active
+     * monthly balance. This never changes the monthly stock ledger itself.
+     */
+    public function syncWarehouseAggregateProfilesForMonth(string $month, bool $dryRun = true): array
+    {
+        if (!preg_match('/^\d{4}-\d{2}(?:-\d{2})?$/', trim($month))) {
+            return ['ok' => false, 'message' => 'Bulan sinkron lot gudang tidak valid.'];
+        }
+
+        $monthKey = date('Y-m-01', strtotime($month));
+        if (!$this->ci->db->table_exists('inv_warehouse_monthly_stock')) {
+            return ['ok' => false, 'message' => 'Tabel saldo bulanan gudang tidak tersedia.'];
+        }
+
+        $ensure = $this->ensureSchema();
+        if (!($ensure['ok'] ?? false)) {
+            return $ensure;
+        }
+
+        $rows = $this->ci->db
+            ->select('item_id, material_id, buy_uom_id, content_uom_id, profile_key')
+            ->from('inv_warehouse_monthly_stock')
+            ->where('month_key', $monthKey)
+            ->order_by('item_id', 'ASC')
+            ->order_by('material_id', 'ASC')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+
+        $targets = [];
+        foreach ($rows as $row) {
+            $identity = $this->normalizeLotIdentity([
+                'location_scope' => 'WAREHOUSE',
+                'division_id' => null,
+                'destination_type' => 'GUDANG',
+                'item_id' => $this->nullableInt($row['item_id'] ?? null),
+                'material_id' => $this->nullableInt($row['material_id'] ?? null),
+                'buy_uom_id' => $this->nullableInt($row['buy_uom_id'] ?? null),
+                'content_uom_id' => $this->nullableInt($row['content_uom_id'] ?? null),
+                'profile_key' => $this->nullableString($row['profile_key'] ?? null),
+            ], false);
+            if (!($identity['ok'] ?? false)) {
+                return [
+                    'ok' => false,
+                    'message' => 'Ada profil saldo gudang yang tidak valid untuk disinkronkan: ' . (string)($identity['message'] ?? 'unknown error'),
+                ];
+            }
+            $targets[] = $identity;
+        }
+
+        if ($dryRun) {
+            return [
+                'ok' => true,
+                'data' => [
+                    'month_key' => $monthKey,
+                    'dry_run' => true,
+                    'target_count' => count($targets),
+                ],
+            ];
+        }
+
+        $this->ci->db->trans_begin();
+        $synced = 0;
+        $duplicateLotCount = 0;
+        foreach ($targets as $identity) {
+            $sync = $this->syncWarehouseAggregateLotToMonthly($identity, $monthKey);
+            if (!($sync['ok'] ?? false)) {
+                $this->ci->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'message' => 'Gagal sinkron lot agregat gudang: ' . (string)($sync['message'] ?? 'unknown error'),
+                ];
+            }
+            $synced++;
+            $duplicateLotCount += (int)($sync['data']['duplicate_lot_count'] ?? 0);
+        }
+
+        if ($this->ci->db->trans_status() === false) {
+            $this->ci->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Transaksi sinkron lot agregat gudang gagal.'];
+        }
+
+        $this->ci->db->trans_commit();
+        return [
+            'ok' => true,
+            'data' => [
+                'month_key' => $monthKey,
+                'dry_run' => false,
+                'target_count' => count($targets),
+                'synced_count' => $synced,
+                'closed_duplicate_lot_count' => $duplicateLotCount,
+            ],
+        ];
+    }
+
     private function fetchWarehouseAggregateMonthlyStock(array $identity, ?string $cutoffDate = null): ?array
     {
         $sql = 'SELECT id, month_key, profile_content_per_buy, closing_qty_content, avg_cost_per_content
@@ -3048,6 +3144,15 @@ class MaterialFifoManager
         }
 
         $monthlyStock = $this->fetchWarehouseAggregateMonthlyStock($identity, $referenceDate);
+        if (!$monthlyStock) {
+            return [
+                'ok' => true,
+                'data' => [
+                    'skipped' => true,
+                    'reason' => 'monthly_stock_not_found',
+                ],
+            ];
+        }
         $desiredQty = round((float)($monthlyStock['closing_qty_content'] ?? 0), 4);
         $unitCost = max(0, round((float)($monthlyStock['avg_cost_per_content'] ?? 0), 6));
         $aggregateLot = $this->findWarehouseAggregateLot($identity, true);
@@ -3094,6 +3199,7 @@ class MaterialFifoManager
             $aggregateLot = $this->findWarehouseAggregateLot($identity, true);
         }
 
+        $duplicateLotCount = 0;
         if ($aggregateLot) {
             $qtyOut = round((float)($aggregateLot['qty_out'] ?? 0), 4);
             $qtyIn = $desiredQty > 0 ? round($qtyOut + $desiredQty, 4) : $qtyOut;
@@ -3105,6 +3211,11 @@ class MaterialFifoManager
             ]);
             if ($this->ci->db->trans_status() === false) {
                 return ['ok' => false, 'message' => 'Gagal sinkron saldo profil gudang.'];
+            }
+
+            $duplicateLotCount = $this->closeWarehouseAggregateLotDuplicates($identity, (int)$aggregateLot['id']);
+            if ($this->ci->db->trans_status() === false) {
+                return ['ok' => false, 'message' => 'Gagal menutup lot agregat gudang duplikat.'];
             }
         }
 
@@ -3122,6 +3233,7 @@ class MaterialFifoManager
                 'total_value' => round($desiredQty * $unitCost, 2),
                 'month_key' => $monthlyStock['month_key'] ?? date('Y-m-01', strtotime($referenceDate)),
                 'identity_key' => $this->buildMonthlyIdentityKeyFromLotIdentity($identity),
+                'duplicate_lot_count' => $duplicateLotCount,
             ],
         ];
     }
@@ -3144,6 +3256,18 @@ class MaterialFifoManager
 
     private function findWarehouseAggregateLot(array $identity, bool $forUpdate = false): ?array
     {
+        $rows = $this->findWarehouseAggregateLots($identity, $forUpdate);
+        return $rows[0] ?? null;
+    }
+
+    /**
+     * Older installations used more than one aggregate lot-number formula.
+     * Prefer the current formula but reuse a legacy row rather than creating a
+     * second aggregate representation for the same monthly profile.
+     */
+    private function findWarehouseAggregateLots(array $identity, bool $forUpdate = false): array
+    {
+        $canonicalLotNo = $this->buildWarehouseAggregateLotNo($identity);
         $sql = 'SELECT * FROM inv_material_fifo_lot
             WHERE location_scope = ?
               AND division_id IS NULL
@@ -3153,10 +3277,12 @@ class MaterialFifoManager
               AND buy_uom_id <=> ?
               AND content_uom_id = ?
               AND profile_key <=> ?
-              AND lot_no = ?
-            LIMIT 1' . ($forUpdate ? ' FOR UPDATE' : '');
+              AND source_table = ?
+            ORDER BY CASE WHEN lot_no = ? THEN 0 ELSE 1 END,
+                     CASE WHEN UPPER(COALESCE(status, "OPEN")) = "OPEN" AND ABS(COALESCE(qty_balance, 0)) > 0.0001 THEN 0 ELSE 1 END,
+                     id DESC' . ($forUpdate ? ' FOR UPDATE' : '');
 
-        $row = $this->ci->db->query($sql, [
+        return $this->ci->db->query($sql, [
             'WAREHOUSE',
             'GUDANG',
             $this->nullableInt($identity['item_id'] ?? null),
@@ -3164,10 +3290,40 @@ class MaterialFifoManager
             $this->nullableInt($identity['buy_uom_id'] ?? null),
             (int)$identity['content_uom_id'],
             $this->nullableString($identity['profile_key'] ?? null),
-            $this->buildWarehouseAggregateLotNo($identity),
-        ])->row_array();
+            'WAREHOUSE_PROFILE',
+            $canonicalLotNo,
+        ])->result_array();
+    }
 
-        return $row ?: null;
+    private function closeWarehouseAggregateLotDuplicates(array $identity, int $canonicalLotId): int
+    {
+        if ($canonicalLotId <= 0) {
+            return 0;
+        }
+
+        $closedCount = 0;
+        foreach ($this->findWarehouseAggregateLots($identity, true) as $lot) {
+            $lotId = (int)($lot['id'] ?? 0);
+            if ($lotId <= 0 || $lotId === $canonicalLotId) {
+                continue;
+            }
+
+            $qtyIn = round((float)($lot['qty_in'] ?? 0), 4);
+            $qtyOut = round((float)($lot['qty_out'] ?? 0), 4);
+            $qtyBalance = round((float)($lot['qty_balance'] ?? 0), 4);
+            if (abs($qtyBalance) <= 0.0001 && strtoupper((string)($lot['status'] ?? 'OPEN')) === 'CLOSED') {
+                continue;
+            }
+
+            $this->ci->db->where('id', $lotId)->update('inv_material_fifo_lot', [
+                'qty_out' => max($qtyIn, round($qtyOut + $qtyBalance, 4)),
+                'qty_balance' => 0.0,
+                'status' => 'CLOSED',
+            ]);
+            $closedCount++;
+        }
+
+        return $closedCount;
     }
 
     private function generateDivisionTransferLotNo(string $issueDate, string $issueNo, int $divisionId, string $destinationType, array $identity): string

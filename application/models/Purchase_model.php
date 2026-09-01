@@ -3839,6 +3839,120 @@ class Purchase_model extends CI_Model
         return $metaMap;
     }
 
+    /**
+     * A monthly carry-forward replaces the prior month's open lots with new
+     * opening lots. For a historical month-end audit, live lot balances can no
+     * longer represent the date being inspected. Use the next month's opening
+     * lot source instead; qty_in is immutable even after the opening lot is
+     * consumed in the following month.
+     */
+    private function buildDivisionReconcileCarryForwardLotSnapshot(string $asOfDate, array $divisionIds): ?array
+    {
+        $asOfDate = $this->normalizeDate($asOfDate) ?? '';
+        if ($asOfDate === '' || empty($divisionIds)
+            || !$this->db->table_exists('inv_division_stock_opening_snapshot')
+            || !$this->db->table_exists('inv_material_fifo_lot')) {
+            return null;
+        }
+
+        $monthStart = date('Y-m-01', strtotime($asOfDate));
+        if ($asOfDate !== date('Y-m-t', strtotime($monthStart))) {
+            return null;
+        }
+
+        $nextMonth = date('Y-m-01', strtotime($monthStart . ' +1 month'));
+        $divisionIds = array_values(array_unique(array_filter(array_map('intval', $divisionIds))));
+        if (empty($divisionIds)) {
+            return null;
+        }
+
+        $divisionSql = implode(',', $divisionIds);
+        $rows = $this->db->query(
+            "SELECT
+                s.division_id,
+                CASE WHEN s.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
+                COALESCE(s.material_id, 0) AS material_id,
+                COALESCE(s.profile_key, '') AS profile_key,
+                SUM(s.opening_qty_content) AS snapshot_qty,
+                SUM(s.opening_total_value) AS snapshot_value,
+                SUM(COALESCE(l.lot_count, 0)) AS lot_count,
+                SUM(COALESCE(l.lot_qty, 0)) AS lot_qty,
+                SUM(COALESCE(l.lot_value, 0)) AS lot_value
+             FROM inv_division_stock_opening_snapshot s
+             LEFT JOIN (
+                SELECT
+                    source_id,
+                    COUNT(*) AS lot_count,
+                    SUM(qty_in) AS lot_qty,
+                    SUM(qty_in * COALESCE(unit_cost, 0)) AS lot_value
+                FROM inv_material_fifo_lot
+                WHERE location_scope = 'DIVISION'
+                  AND source_table = 'inv_division_stock_opening_snapshot'
+                GROUP BY source_id
+             ) l ON l.source_id = s.id
+             WHERE s.snapshot_month = ?
+               AND s.division_id IN ({$divisionSql})
+               AND s.source_type IN ('AUTO_REBUILD', 'OPNAME')
+             GROUP BY s.division_id, destination_group, s.material_id, s.profile_key",
+            [$nextMonth]
+        )->result_array();
+
+        if (empty($rows)) {
+            return null;
+        }
+
+        $materialMap = [];
+        $profileMap = [];
+        foreach ($rows as $row) {
+            $divisionId = (int)($row['division_id'] ?? 0);
+            $materialId = (int)($row['material_id'] ?? 0);
+            if ($divisionId <= 0 || $materialId <= 0) {
+                continue;
+            }
+
+            $destinationGroup = strtoupper((string)($row['destination_group'] ?? 'REGULER'));
+            $materialKey = $divisionId . '|' . $destinationGroup . '|M-' . $materialId;
+            $profileKey = (string)($row['profile_key'] ?? '');
+            $snapshotQty = round((float)($row['snapshot_qty'] ?? 0), 4);
+            $snapshotValue = round((float)($row['snapshot_value'] ?? 0), 2);
+            $lotQty = round((float)($row['lot_qty'] ?? 0), 4);
+            $lotValue = round((float)($row['lot_value'] ?? 0), 2);
+            $lotCount = (int)($row['lot_count'] ?? 0);
+
+            $profileMap[$materialKey][$profileKey] = [
+                'lot_count' => $lotCount,
+                'lot_qty' => $lotQty,
+                'lot_value' => $lotValue,
+                'snapshot_qty' => $snapshotQty,
+                'snapshot_value' => $snapshotValue,
+            ];
+            if (!isset($materialMap[$materialKey])) {
+                $materialMap[$materialKey] = [
+                    'lot_count' => 0,
+                    'lot_qty' => 0.0,
+                    'lot_value' => 0.0,
+                    'snapshot_qty' => 0.0,
+                    'snapshot_value' => 0.0,
+                ];
+            }
+            $materialMap[$materialKey]['lot_count'] += $lotCount;
+            $materialMap[$materialKey]['lot_qty'] = round($materialMap[$materialKey]['lot_qty'] + $lotQty, 4);
+            $materialMap[$materialKey]['lot_value'] = round($materialMap[$materialKey]['lot_value'] + $lotValue, 2);
+            $materialMap[$materialKey]['snapshot_qty'] = round($materialMap[$materialKey]['snapshot_qty'] + $snapshotQty, 4);
+            $materialMap[$materialKey]['snapshot_value'] = round($materialMap[$materialKey]['snapshot_value'] + $snapshotValue, 2);
+        }
+
+        if (empty($materialMap)) {
+            return null;
+        }
+
+        return [
+            'next_month' => $nextMonth,
+            'material_map' => $materialMap,
+            'profile_map' => $profileMap,
+        ];
+    }
+
     private function attach_material_lot_totals(array &$rows, string $asOfDate = ''): void
     {
         $valueTolerance = 1.0; // Rupiah-level rounding noise should not create reconcile mismatch.
@@ -3849,6 +3963,7 @@ class Purchase_model extends CI_Model
             $row['lot_vs_balance_value_delta'] = 0.0;
             $row['has_lot_value_mismatch'] = 0;
             $row['has_profile_lot_value_mismatch'] = 0;
+            $row['lot_source_mode'] = 'LIVE_FIFO';
         }
         unset($row);
 
@@ -3864,35 +3979,71 @@ class Purchase_model extends CI_Model
             return;
         }
         $cutoff = $this->buildDivisionReconcileLotCutoffContext($asOfDate);
-
-        // Group lots by (division_id, destination_group, material_id) only — not item_id/profile_key —
-        // because the same material can arrive from different purchase batches with different item_ids.
-        // Using item_id in the key would cause cross-batch lots to be missed.
-        $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
-        $this->db
-            ->select("l.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total, SUM(l.qty_balance * COALESCE(l.unit_cost, 0)) AS lot_total_value", false)
-            ->from('inv_material_fifo_lot l')
-            ->where('l.location_scope', 'DIVISION')
-            ->where('l.status', 'OPEN')
-            ->where('l.qty_balance >', 0.0001)
-            ->where_in('l.division_id', $divisionIds);
-        if ($cutoff['material_opening_subquery'] !== '') {
-            $this->db
-                ->join($cutoff['material_opening_subquery'], "lot_open_month.division_id = l.division_id AND lot_open_month.destination_type = COALESCE(l.destination_type, 'OTHER') AND lot_open_month.material_id = COALESCE(l.material_id, 0)", 'left', false)
-                ->where('l.receipt_date <=', $cutoff['as_of_date'])
-                ->where('(lot_open_month.division_id IS NULL OR l.receipt_date >= ' . $this->db->escape($cutoff['month_start']) . ')', null, false);
-        }
-        $results = $this->db
-            ->group_by(['l.division_id', 'destination_group', 'l.material_id'])
-            ->get()->result_array();
-
+        $carryForwardSnapshot = $this->buildDivisionReconcileCarryForwardLotSnapshot($asOfDate, $divisionIds);
+        $usingCarryForwardSnapshot = $carryForwardSnapshot !== null;
         $lotMap = [];
         $lotValueMap = [];
-        foreach ($results as $r) {
-            $k = (int)$r['division_id'] . '|' . strtoupper((string)($r['destination_group'] ?? 'REGULER'))
-               . '|M-' . (int)$r['material_id'];
-            $lotMap[$k] = round((float)($r['lot_total'] ?? 0), 4);
-            $lotValueMap[$k] = round((float)($r['lot_total_value'] ?? 0), 2);
+        $profileLotResults = [];
+
+        if ($usingCarryForwardSnapshot) {
+            // The new opening lot is the immutable evidence for the prior
+            // month-end; its live balance may already have changed, so use
+            // qty_in rather than qty_balance.
+            foreach ((array)($carryForwardSnapshot['material_map'] ?? []) as $key => $lot) {
+                if ((int)($lot['lot_count'] ?? 0) <= 0) {
+                    continue;
+                }
+                $lotMap[$key] = round((float)($lot['lot_qty'] ?? 0), 4);
+                $lotValueMap[$key] = round((float)($lot['lot_value'] ?? 0), 2);
+            }
+            foreach ((array)($carryForwardSnapshot['profile_map'] ?? []) as $materialKey => $profiles) {
+                foreach ((array)$profiles as $profileKey => $lot) {
+                    if ((int)($lot['lot_count'] ?? 0) <= 0) {
+                        continue;
+                    }
+                    $parts = explode('|', (string)$materialKey);
+                    $profileLotResults[] = [
+                        'division_id' => (int)($parts[0] ?? 0),
+                        'destination_group' => strtoupper((string)($parts[1] ?? 'REGULER')),
+                        'material_id' => (int)str_replace('M-', '', (string)($parts[2] ?? '0')),
+                        'profile_key' => (string)$profileKey,
+                        'lot_total' => round((float)($lot['lot_qty'] ?? 0), 4),
+                        'lot_value' => round((float)($lot['lot_value'] ?? 0), 2),
+                    ];
+                }
+            }
+            foreach ($rows as &$row) {
+                $row['lot_source_mode'] = 'CARRY_FORWARD_OPENING';
+            }
+            unset($row);
+        } else {
+            // Group lots by (division_id, destination_group, material_id) only — not item_id/profile_key —
+            // because the same material can arrive from different purchase batches with different item_ids.
+            // Using item_id in the key would cause cross-batch lots to be missed.
+            $destGroupExpr = "CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END";
+            $this->db
+                ->select("l.division_id, ({$destGroupExpr}) AS destination_group, COALESCE(l.material_id,0) AS material_id, SUM(l.qty_balance) AS lot_total, SUM(l.qty_balance * COALESCE(l.unit_cost, 0)) AS lot_total_value", false)
+                ->from('inv_material_fifo_lot l')
+                ->where('l.location_scope', 'DIVISION')
+                ->where('l.status', 'OPEN')
+                ->where('l.qty_balance >', 0.0001)
+                ->where_in('l.division_id', $divisionIds);
+            if ($cutoff['material_opening_subquery'] !== '') {
+                $this->db
+                    ->join($cutoff['material_opening_subquery'], "lot_open_month.division_id = l.division_id AND lot_open_month.destination_type = COALESCE(l.destination_type, 'OTHER') AND lot_open_month.material_id = COALESCE(l.material_id, 0)", 'left', false)
+                    ->where('l.receipt_date <=', $cutoff['as_of_date'])
+                    ->where('(lot_open_month.division_id IS NULL OR l.receipt_date >= ' . $this->db->escape($cutoff['month_start']) . ')', null, false);
+            }
+            $results = $this->db
+                ->group_by(['l.division_id', 'destination_group', 'l.material_id'])
+                ->get()->result_array();
+
+            foreach ($results as $r) {
+                $k = (int)$r['division_id'] . '|' . strtoupper((string)($r['destination_group'] ?? 'REGULER'))
+                   . '|M-' . (int)$r['material_id'];
+                $lotMap[$k] = round((float)($r['lot_total'] ?? 0), 4);
+                $lotValueMap[$k] = round((float)($r['lot_total_value'] ?? 0), 2);
+            }
         }
 
         // Per-profile breakdown: compare monthly stock vs FIFO lots at profile_key level.
@@ -3903,36 +4054,38 @@ class Purchase_model extends CI_Model
         if ($this->db->table_exists('inv_division_monthly_stock')) {
             $divIdsStr = implode(',', $divisionIds);
 
-            $profileLotCutoffJoin = '';
-            $profileLotCutoffWhere = '';
-            if ($cutoff['profile_opening_subquery'] !== '') {
-                $profileLotCutoffJoin = "
-                    LEFT JOIN {$cutoff['profile_opening_subquery']}
-                        ON lot_open_profile_month.division_id = l.division_id
-                       AND lot_open_profile_month.destination_type = COALESCE(l.destination_type, 'OTHER')
-                       AND lot_open_profile_month.material_id = COALESCE(l.material_id, 0)
-                       AND lot_open_profile_month.profile_key = COALESCE(l.profile_key, '')
-                ";
-                $profileLotCutoffWhere = "
-                  AND l.receipt_date <= " . $this->db->escape($cutoff['as_of_date']) . "
-                  AND (lot_open_profile_month.division_id IS NULL OR l.receipt_date >= " . $this->db->escape($cutoff['month_start']) . ")
-                ";
-            }
+            if (!$usingCarryForwardSnapshot) {
+                $profileLotCutoffJoin = '';
+                $profileLotCutoffWhere = '';
+                if ($cutoff['profile_opening_subquery'] !== '') {
+                    $profileLotCutoffJoin = "
+                        LEFT JOIN {$cutoff['profile_opening_subquery']}
+                            ON lot_open_profile_month.division_id = l.division_id
+                           AND lot_open_profile_month.destination_type = COALESCE(l.destination_type, 'OTHER')
+                           AND lot_open_profile_month.material_id = COALESCE(l.material_id, 0)
+                           AND lot_open_profile_month.profile_key = COALESCE(l.profile_key, '')
+                    ";
+                    $profileLotCutoffWhere = "
+                      AND l.receipt_date <= " . $this->db->escape($cutoff['as_of_date']) . "
+                      AND (lot_open_profile_month.division_id IS NULL OR l.receipt_date >= " . $this->db->escape($cutoff['month_start']) . ")
+                    ";
+                }
 
-            $profileLotResults = $this->db->query("
-                SELECT l.division_id,
-                       CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
-                       COALESCE(l.material_id, 0) AS material_id,
-                       COALESCE(l.profile_key, '') AS profile_key,
-                       SUM(l.qty_balance) AS lot_total,
-                       SUM(l.qty_balance * COALESCE(l.unit_cost, 0)) AS lot_value
-                FROM inv_material_fifo_lot l
-                {$profileLotCutoffJoin}
-                WHERE l.location_scope = 'DIVISION' AND l.status = 'OPEN' AND l.qty_balance > 0.0001
-                  AND l.division_id IN ({$divIdsStr})
-                  {$profileLotCutoffWhere}
-                GROUP BY l.division_id, destination_group, l.material_id, l.profile_key
-            ")->result_array();
+                $profileLotResults = $this->db->query("
+                    SELECT l.division_id,
+                           CASE WHEN l.destination_type IN ('BAR_EVENT','KITCHEN_EVENT','ROASTERY_EVENT') THEN 'EVENT' ELSE 'REGULER' END AS destination_group,
+                           COALESCE(l.material_id, 0) AS material_id,
+                           COALESCE(l.profile_key, '') AS profile_key,
+                           SUM(l.qty_balance) AS lot_total,
+                           SUM(l.qty_balance * COALESCE(l.unit_cost, 0)) AS lot_value
+                    FROM inv_material_fifo_lot l
+                    {$profileLotCutoffJoin}
+                    WHERE l.location_scope = 'DIVISION' AND l.status = 'OPEN' AND l.qty_balance > 0.0001
+                      AND l.division_id IN ({$divIdsStr})
+                      {$profileLotCutoffWhere}
+                    GROUP BY l.division_id, destination_group, l.material_id, l.profile_key
+                ")->result_array();
+            }
 
             foreach ($profileLotResults as $lr) {
                 $matK = (int)$lr['division_id'] . '|' . strtoupper((string)($lr['destination_group'] ?? 'REGULER')) . '|M-' . (int)$lr['material_id'];
@@ -13064,6 +13217,11 @@ class Purchase_model extends CI_Model
             ];
         }
 
+        // Opening snapshots are monthly. Replaying only from a document day
+        // would drop the month's opening and prior movements, producing a
+        // false negative closing when a later document is voided.
+        $startDate = date('Y-m-01', strtotime($startDate));
+
         $openingTable = $this->openingSnapshotTableForScope($stockScope);
         $monthlyTable = $stockScope === 'DIVISION' ? 'inv_division_monthly_stock' : 'inv_warehouse_monthly_stock';
         if (!$this->db->table_exists($openingTable) || !$this->db->table_exists($monthlyTable)) {
@@ -14171,6 +14329,250 @@ class Purchase_model extends CI_Model
         );
     }
 
+    /**
+     * A monthly opening is derived from ledger stock. Without this guard, an
+     * unresolved live FIFO discrepancy can be silently replaced by a fresh
+     * opening lot and become harder to investigate in the next month.
+     */
+    private function divisionMaterialLotIntegritySummary(string $asOfDate, ?int $divisionId, ?string $destinationFilter): array
+    {
+        if (!$this->db->table_exists('inv_material_fifo_lot')) {
+            return ['ok' => true, 'mismatch_count' => 0, 'samples' => []];
+        }
+
+        $compare = $this->list_division_material_stock_compare(
+            $asOfDate,
+            '',
+            $divisionId !== null && $divisionId > 0 ? $divisionId : null,
+            5000,
+            $destinationFilter
+        );
+        $mismatches = [];
+        foreach ((array)($compare['rows'] ?? []) as $row) {
+            if (!empty($row['is_match'])) {
+                continue;
+            }
+            $mismatches[] = $row;
+        }
+
+        $samples = [];
+        foreach (array_slice($mismatches, 0, 5) as $row) {
+            $label = trim((string)($row['material_name'] ?? $row['item_name'] ?? 'profil stok'));
+            $divisionLabel = trim((string)($row['division_name'] ?? ''));
+            $destinationLabel = trim((string)($row['destination_name'] ?? $row['destination_type'] ?? ''));
+            $context = trim($divisionLabel . ($destinationLabel !== '' ? ' / ' . $destinationLabel : ''));
+            $reason = trim((string)($row['suspect_reason'] ?? ''));
+            $samples[] = $label . ($context !== '' ? ' (' . $context . ')' : '')
+                . ($reason !== '' ? ': ' . $reason : '');
+        }
+
+        return [
+            'ok' => empty($mismatches),
+            'mismatch_count' => count($mismatches),
+            'summary' => (array)($compare['summary'] ?? []),
+            'samples' => $samples,
+        ];
+    }
+
+    /**
+     * The monthly row is the live balance and qty_content_after is the
+     * movement trail's running balance. Both must agree at a month cut-off.
+     * This catches concurrent writers that previously read the same balance
+     * before either had updated it.
+     */
+    private function divisionMaterialMovementIntegritySummary(string $asOfDate, ?int $divisionId, ?string $destinationFilter): array
+    {
+        if (!$this->db->table_exists('inv_division_monthly_stock')
+            || !$this->db->table_exists('inv_stock_movement_log')) {
+            return ['ok' => true, 'mismatch_count' => 0, 'samples' => []];
+        }
+
+        $asOfDate = $this->normalizeDate($asOfDate) ?? '';
+        if ($asOfDate === '') {
+            return ['ok' => false, 'mismatch_count' => 1, 'samples' => ['Tanggal cut-off movement tidak valid.']];
+        }
+
+        $monthKey = date('Y-m-01', strtotime($asOfDate));
+        $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
+        $this->db
+            ->select('s.division_id, s.destination_type, s.item_id, s.material_id, s.buy_uom_id, s.content_uom_id')
+            ->select('COALESCE(s.profile_key, \'\') AS profile_key, s.profile_name, s.closing_qty_buy, s.closing_qty_content', false)
+            ->from('inv_division_monthly_stock s')
+            ->where('s.month_key', $monthKey)
+            ->where('s.material_id IS NOT NULL', null, false)
+            ->where('(s.profile_key IS NULL OR s.identity_key = s.profile_key)', null, false);
+        if ($divisionId !== null && $divisionId > 0) {
+            $this->db->where('s.division_id', $divisionId);
+        }
+        $this->applyDivisionDestinationFilterToQuery('s.destination_type', $destinationFilter);
+        $monthlyRows = $this->db->get()->result_array();
+        if (empty($monthlyRows)) {
+            return [
+                'ok' => true,
+                'mismatch_count' => 0,
+                'summary' => ['total_rows' => 0, 'match_rows' => 0, 'mismatch_rows' => 0],
+                'samples' => [],
+            ];
+        }
+
+        $profileKeys = [];
+        $profileLookup = [];
+        $entityLookup = [];
+        foreach ($monthlyRows as $row) {
+            $division = (int)($row['division_id'] ?? 0);
+            $destination = strtoupper((string)($row['destination_type'] ?? 'OTHER'));
+            $contentUom = (int)($row['content_uom_id'] ?? 0);
+            $profileKey = trim((string)($row['profile_key'] ?? ''));
+            if ($profileKey !== '') {
+                $profileKeys[$profileKey] = true;
+                $profileLookup[$division . '|' . $destination . '|' . $contentUom . '|' . $profileKey] = true;
+                continue;
+            }
+
+            $entityLookup[implode('|', [
+                $division,
+                $destination,
+                (int)($row['item_id'] ?? 0),
+                (int)($row['material_id'] ?? 0),
+                (int)($row['buy_uom_id'] ?? 0),
+                $contentUom,
+            ])] = true;
+        }
+
+        $this->db
+            ->select('m.id, m.division_id, m.destination_type, m.item_id, m.material_id, m.buy_uom_id, m.content_uom_id')
+            ->select('COALESCE(m.profile_key, \'\') AS profile_key, m.qty_buy_after, m.qty_content_after, m.movement_type, m.ref_table, m.ref_id', false)
+            ->from('inv_stock_movement_log m')
+            ->where('m.movement_scope', 'DIVISION')
+            ->where('m.movement_date <=', $asOfDate);
+        if ($divisionId !== null && $divisionId > 0) {
+            $this->db->where('m.division_id', $divisionId);
+        }
+        $this->applyDivisionDestinationFilterToQuery('m.destination_type', $destinationFilter);
+        if (!empty($profileKeys) && !empty($entityLookup)) {
+            $this->db
+                ->group_start()
+                    ->where_in('m.profile_key', array_keys($profileKeys))
+                    ->or_where('m.profile_key IS NULL', null, false)
+                    ->or_where('m.profile_key', '')
+                ->group_end();
+        } elseif (!empty($profileKeys)) {
+            $this->db->where_in('m.profile_key', array_keys($profileKeys));
+        } else {
+            $this->db
+                ->group_start()
+                    ->where('m.profile_key IS NULL', null, false)
+                    ->or_where('m.profile_key', '')
+                ->group_end();
+        }
+        $movementRows = $this->db->order_by('m.id', 'ASC')->get()->result_array();
+
+        $latestProfileMovement = [];
+        $latestEntityMovement = [];
+        foreach ($movementRows as $movement) {
+            $division = (int)($movement['division_id'] ?? 0);
+            $destination = strtoupper((string)($movement['destination_type'] ?? 'OTHER'));
+            $contentUom = (int)($movement['content_uom_id'] ?? 0);
+            $profileKey = trim((string)($movement['profile_key'] ?? ''));
+            if ($profileKey !== '') {
+                $key = $division . '|' . $destination . '|' . $contentUom . '|' . $profileKey;
+                if (isset($profileLookup[$key])) {
+                    $latestProfileMovement[$key] = $movement;
+                }
+                continue;
+            }
+
+            $entityKey = implode('|', [
+                $division,
+                $destination,
+                (int)($movement['item_id'] ?? 0),
+                (int)($movement['material_id'] ?? 0),
+                (int)($movement['buy_uom_id'] ?? 0),
+                $contentUom,
+            ]);
+            if (isset($entityLookup[$entityKey])) {
+                $latestEntityMovement[$entityKey] = $movement;
+            }
+        }
+
+        $mismatches = [];
+        $matchCount = 0;
+        foreach ($monthlyRows as $row) {
+            $division = (int)($row['division_id'] ?? 0);
+            $destination = strtoupper((string)($row['destination_type'] ?? 'OTHER'));
+            $contentUom = (int)($row['content_uom_id'] ?? 0);
+            $profileKey = trim((string)($row['profile_key'] ?? ''));
+            if ($profileKey !== '') {
+                $movement = $latestProfileMovement[$division . '|' . $destination . '|' . $contentUom . '|' . $profileKey] ?? null;
+            } else {
+                $entityKey = implode('|', [
+                    $division,
+                    $destination,
+                    (int)($row['item_id'] ?? 0),
+                    (int)($row['material_id'] ?? 0),
+                    (int)($row['buy_uom_id'] ?? 0),
+                    $contentUom,
+                ]);
+                $movement = $latestEntityMovement[$entityKey] ?? null;
+            }
+
+            $closingContent = round((float)($row['closing_qty_content'] ?? 0), 4);
+            if ($movement === null) {
+                if (abs($closingContent) <= 0.0001) {
+                    $matchCount++;
+                    continue;
+                }
+                $mismatches[] = [
+                    'profile_name' => (string)($row['profile_name'] ?? 'profil stok'),
+                    'division_id' => $division,
+                    'destination_type' => $destination,
+                    'reason' => 'Saldo monthly memiliki nilai tanpa movement anchor.',
+                ];
+                continue;
+            }
+
+            $contentDelta = round($closingContent - (float)($movement['qty_content_after'] ?? 0), 4);
+            if (abs($contentDelta) <= 0.0001) {
+                $matchCount++;
+                continue;
+            }
+
+            $mismatches[] = [
+                'profile_name' => (string)($row['profile_name'] ?? 'profil stok'),
+                'division_id' => $division,
+                'destination_type' => $destination,
+                'monthly_qty_content' => $closingContent,
+                'movement_qty_content_after' => round((float)($movement['qty_content_after'] ?? 0), 4),
+                'content_delta' => $contentDelta,
+                'movement_type' => (string)($movement['movement_type'] ?? ''),
+                'ref_table' => (string)($movement['ref_table'] ?? ''),
+                'ref_id' => (int)($movement['ref_id'] ?? 0),
+                'reason' => 'Saldo monthly dan saldo akhir movement berbeda.',
+            ];
+        }
+
+        $samples = [];
+        foreach (array_slice($mismatches, 0, 5) as $row) {
+            $label = trim((string)($row['profile_name'] ?? 'profil stok'));
+            $context = trim((string)($row['destination_type'] ?? '') . ' #' . (int)($row['division_id'] ?? 0));
+            $detail = trim((string)($row['reason'] ?? ''));
+            $samples[] = $label . ($context !== '' ? ' (' . $context . ')' : '')
+                . ($detail !== '' ? ': ' . $detail : '');
+        }
+
+        return [
+            'ok' => empty($mismatches),
+            'mismatch_count' => count($mismatches),
+            'summary' => [
+                'total_rows' => count($monthlyRows),
+                'match_rows' => $matchCount,
+                'mismatch_rows' => count($mismatches),
+            ],
+            'samples' => $samples,
+            'rows' => $mismatches,
+        ];
+    }
+
     public function generate_monthly_opname_and_opening(array $payload, int $userId, string $sourceIp = ''): array
     {
         $stockScope = strtoupper(trim((string)($payload['stock_scope'] ?? 'WAREHOUSE')));
@@ -14497,6 +14899,33 @@ class Purchase_model extends CI_Model
                     'negative_samples' => $negativeSamples,
                 ],
             ];
+        }
+
+        if ($stockScope === 'DIVISION') {
+            $lotIntegrity = $this->divisionMaterialLotIntegritySummary($dateTo, $divisionId, $destinationFilter);
+            $movementIntegrity = $this->divisionMaterialMovementIntegritySummary($dateTo, $divisionId, $destinationFilter);
+            if (empty($lotIntegrity['ok']) || empty($movementIntegrity['ok'])) {
+                $issueParts = [];
+                $samples = [];
+                if (empty($lotIntegrity['ok'])) {
+                    $issueParts[] = (int)($lotIntegrity['mismatch_count'] ?? 0) . ' profil lot FIFO';
+                    $samples = array_merge($samples, (array)($lotIntegrity['samples'] ?? []));
+                }
+                if (empty($movementIntegrity['ok'])) {
+                    $issueParts[] = (int)($movementIntegrity['mismatch_count'] ?? 0) . ' profil movement ledger';
+                    $samples = array_merge($samples, (array)($movementIntegrity['samples'] ?? []));
+                }
+                return [
+                    'ok' => false,
+                    'message' => 'Generate ditolak - saldo divisi belum sinkron: ' . implode('; ', $issueParts) . '. '
+                        . 'Selesaikan Daily Recon atau repair ter-audit sebelum membuat opening bulan baru.'
+                        . (!empty($samples) ? ' Contoh: ' . implode('; ', array_slice($samples, 0, 3)) : ''),
+                    'data' => [
+                        'lot_integrity' => $lotIntegrity,
+                        'movement_integrity' => $movementIntegrity,
+                    ],
+                ];
+            }
         }
 
         $upsertRow = function (string $table, array $rowData, array $uniqueColumns): void {
@@ -15419,9 +15848,9 @@ class Purchase_model extends CI_Model
 
     /**
      * Returns read-only attention data for active PO lines whose saved purpose
-     * no longer matches the item master, or raw materials marked operational.
-     * Rejected and voided documents are excluded; the control only follows the
-     * financial lifecycle through PAID.
+     * differs from the purchase-context default. A stock purchase of a
+     * material defaults to production; every other purchase defaults to
+     * operational. Rejected and voided documents are excluded.
      */
     public function get_purchase_order_usage_purpose_attention(string $status, string $dateStart, string $dateEnd, int $limit = 8): array
     {
@@ -15447,21 +15876,28 @@ class Purchase_model extends CI_Model
         $hasItem = $this->db->table_exists('mst_item');
         $hasMaterial = $this->db->table_exists('mst_material');
         $hasItemMaterial = $hasItem && $this->db->field_exists('material_id', 'mst_item');
-        $hasItemDefaultPurpose = $hasItem && $this->db->field_exists('default_usage_purpose', 'mst_item');
         $hasLinePurpose = $this->hasPurchaseOrderUsagePurposeColumn();
+        $hasLineKind = $this->db->field_exists('line_kind', 'pur_purchase_order_line');
+        $hasPurchaseType = $this->db->table_exists('mst_purchase_type');
+        $hasPostingType = $this->db->table_exists('mst_posting_type');
 
         $productionPurpose = self::USAGE_PURPOSE_PRODUCTION;
         $operationalPurpose = self::USAGE_PURPOSE_OPERATIONAL;
-        $actualUsageExpr = $hasLinePurpose
-            ? "CASE WHEN UPPER(TRIM(COALESCE(NULLIF(pol.usage_purpose, ''), '{$productionPurpose}'))) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
-            : "'{$productionPurpose}'";
-        $defaultUsageExpr = $hasItemDefaultPurpose
-            ? "CASE WHEN UPPER(TRIM(COALESCE(NULLIF(i.default_usage_purpose, ''), '{$productionPurpose}'))) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
-            : "'{$productionPurpose}'";
         $effectiveMaterialExpr = $hasItemMaterial
             ? 'COALESCE(NULLIF(pol.material_id, 0), NULLIF(i.material_id, 0), 0)'
             : 'COALESCE(NULLIF(pol.material_id, 0), 0)';
-        $materialOperationalCondition = "({$effectiveMaterialExpr} > 0 AND {$actualUsageExpr} = '{$operationalPurpose}')";
+        $materialContextCondition = '(' . $effectiveMaterialExpr . ' > 0'
+            . ($hasLineKind ? " OR UPPER(COALESCE(pol.line_kind, 'ITEM')) = 'MATERIAL'" : '')
+            . ')';
+        $stockPurchaseCondition = ($hasPurchaseType && $hasPostingType)
+            ? "(COALESCE(ppt.affects_inventory, 0) = 1 AND UPPER(COALESCE(pt.destination_behavior, 'REQUIRED')) <> 'NONE')"
+            : '0 = 1';
+        $productionDefaultCondition = "({$stockPurchaseCondition} AND {$materialContextCondition})";
+        $defaultUsageExpr = "CASE WHEN {$productionDefaultCondition} THEN '{$productionPurpose}' ELSE '{$operationalPurpose}' END";
+        $actualUsageExpr = $hasLinePurpose
+            ? "CASE WHEN NULLIF(TRIM(COALESCE(pol.usage_purpose, '')), '') IS NULL THEN {$defaultUsageExpr} WHEN UPPER(TRIM(pol.usage_purpose)) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
+            : $defaultUsageExpr;
+        $materialOperationalCondition = "({$productionDefaultCondition} AND {$actualUsageExpr} = '{$operationalPurpose}')";
         $purposeMismatchCondition = "({$actualUsageExpr} <> {$defaultUsageExpr})";
         $issueCondition = "({$materialOperationalCondition} OR {$purposeMismatchCondition})";
 
@@ -15479,7 +15915,7 @@ class Purchase_model extends CI_Model
         $lineNameParts[] = "'-'";
         $lineNameExpr = 'COALESCE(' . implode(', ', $lineNameParts) . ')';
 
-        $applyMasterJoins = function () use ($hasItem, $hasMaterial, $hasItemMaterial): void {
+        $applyMasterJoins = function () use ($hasItem, $hasMaterial, $hasItemMaterial, $hasPurchaseType, $hasPostingType): void {
             if ($hasItem) {
                 $this->db->join('mst_item i', 'i.id = pol.item_id', 'left');
             }
@@ -15488,6 +15924,12 @@ class Purchase_model extends CI_Model
                     ? 'm.id = COALESCE(NULLIF(pol.material_id, 0), NULLIF(i.material_id, 0))'
                     : 'm.id = pol.material_id';
                 $this->db->join('mst_material m', $materialJoin, 'left', false);
+            }
+            if ($hasPurchaseType) {
+                $this->db->join('mst_purchase_type pt', 'pt.id = po.purchase_type_id', 'left');
+            }
+            if ($hasPurchaseType && $hasPostingType) {
+                $this->db->join('mst_posting_type ppt', 'ppt.id = pt.posting_type_id', 'left');
             }
         };
         $applyFilters = function () use ($from, $to, $status, $attentionStatuses): void {
@@ -21960,11 +22402,11 @@ class Purchase_model extends CI_Model
 
         $destinationType = null;
         $destinationDivisionId = null;
-        $isInventory = (int)($typeRule['affects_inventory'] ?? 0) === 1;
         $destinationBehavior = strtoupper(trim((string)($typeRule['destination_behavior'] ?? 'REQUIRED')));
+        $isStockPurchase = (int)($typeRule['affects_inventory'] ?? 0) === 1 && $destinationBehavior !== 'NONE';
         $defaultDestination = strtoupper(trim((string)($typeRule['default_destination'] ?? '')));
 
-        if ($isInventory) {
+        if ($isStockPurchase) {
             $headerDestinationType = strtoupper(trim((string)($header['destination_type'] ?? '')));
             $destinationCandidate = $headerDestinationType !== ''
                 ? $headerDestinationType
@@ -22058,7 +22500,7 @@ class Purchase_model extends CI_Model
             $lineResult = $this->buildLinePayload(
                 (array)$row,
                 $vendorId !== null ? $vendorId : 0,
-                $isInventory && $destinationBehavior !== 'NONE'
+                $isStockPurchase
             );
             if (!($lineResult['ok'] ?? false)) {
                 $this->db->trans_rollback();
@@ -22380,11 +22822,11 @@ class Purchase_model extends CI_Model
 
         $destinationType = null;
         $destinationDivisionId = null;
-        $isInventory = (int)($typeRule['affects_inventory'] ?? 0) === 1;
         $destinationBehavior = strtoupper(trim((string)($typeRule['destination_behavior'] ?? 'REQUIRED')));
+        $isStockPurchase = (int)($typeRule['affects_inventory'] ?? 0) === 1 && $destinationBehavior !== 'NONE';
         $defaultDestination = strtoupper(trim((string)($typeRule['default_destination'] ?? '')));
 
-        if ($isInventory) {
+        if ($isStockPurchase) {
             $headerDestinationType = strtoupper(trim((string)($header['destination_type'] ?? '')));
             $destinationCandidate = $headerDestinationType !== ''
                 ? $headerDestinationType
@@ -22521,7 +22963,7 @@ class Purchase_model extends CI_Model
             $lineResult = $this->buildLinePayload(
                 (array)$row,
                 $vendorId !== null ? $vendorId : 0,
-                $isInventory && $destinationBehavior !== 'NONE'
+                $isStockPurchase
             );
             if (!($lineResult['ok'] ?? false)) {
                 $this->db->trans_rollback();
@@ -22848,7 +23290,7 @@ class Purchase_model extends CI_Model
 
         $this->db
             ->select("'CATALOG' AS source_type", false)
-            ->select('c.id AS catalog_id, c.profile_key, c.line_kind, c.item_id, c.material_id, ' . $vendorSelectExpr . ' AS vendor_id', false)
+            ->select('c.id AS catalog_id, c.profile_key, c.line_kind, c.item_id, COALESCE(NULLIF(c.material_id, 0), NULLIF(i.material_id, 0)) AS material_id, ' . $vendorSelectExpr . ' AS vendor_id', false)
             ->select('c.catalog_name, c.brand_name, c.line_description, c.notes')
             ->select('c.buy_uom_id, bu.code AS buy_uom_code, bu.name AS buy_uom_name')
             ->select('c.content_uom_id, cu.code AS content_uom_code, cu.name AS content_uom_name')
@@ -22857,7 +23299,7 @@ class Purchase_model extends CI_Model
             ->select($standardPriceExpr . ' AS standard_price', false)
             ->select($lastUnitPriceExpr . ' AS last_unit_price', false)
             ->select($lastPurchaseDateExpr . ' AS last_purchase_date', false)
-            ->select('i.item_code, i.item_name, m.material_code, m.material_name')
+            ->select('i.item_code, i.item_name, COALESCE(m.material_code, im.material_code) AS material_code, COALESCE(m.material_name, im.material_name) AS material_name', false)
             ->select($rankExpr . ' AS rank_score', false)
             ->from('mst_purchase_catalog c')
             ->join('mst_uom bu', 'bu.id = c.buy_uom_id', 'left')
@@ -22907,9 +23349,9 @@ class Purchase_model extends CI_Model
         if ($vendorId > 0 && !$useVendorLinkTable && $catalogHasVendorId) {
             $this->db->where('c.vendor_id', $vendorId);
         }
+        $effectiveMaterialIdExpr = 'COALESCE(NULLIF(c.material_id, 0), NULLIF(i.material_id, 0), 0)';
         if ($lineKind === 'MATERIAL') {
-            $this->db->where('c.material_id IS NOT NULL', null, false);
-            $this->db->where('c.material_id >', 0);
+            $this->db->where($effectiveMaterialIdExpr . ' > 0', null, false);
         } elseif ($lineKind !== '') {
             $this->db->where('c.line_kind', $lineKind);
         }
@@ -22917,7 +23359,7 @@ class Purchase_model extends CI_Model
             $this->db->where('c.item_id', $itemId);
         }
         if ($materialId > 0) {
-            $this->db->where('c.material_id', $materialId);
+            $this->db->where($effectiveMaterialIdExpr, $materialId, false);
         }
 
         if ($q !== '') {
@@ -23129,7 +23571,7 @@ class Purchase_model extends CI_Model
         return '(' . implode(' + ', $parts) . ')';
     }
 
-    private function buildLinePayload(array $line, int $vendorId, bool $requireEntityLink = false): array
+    private function buildLinePayload(array $line, int $vendorId, bool $isStockPurchase = false): array
     {
         $lineKind = strtoupper(trim((string)($line['line_kind'] ?? 'ITEM')));
         if (!in_array($lineKind, ['ITEM', 'MATERIAL', 'SERVICE', 'ASSET'], true)) {
@@ -23138,7 +23580,7 @@ class Purchase_model extends CI_Model
 
         $itemId = $this->nullableInt($line['item_id'] ?? null);
         $materialId = $this->nullableInt($line['material_id'] ?? null);
-        $usagePurpose = $this->resolveLineUsagePurpose($line);
+        $usagePurpose = $this->resolvePurchaseLineUsagePurpose($line, $isStockPurchase);
         $buyUomId = (int)($line['buy_uom_id'] ?? 0);
         $contentUomId = $this->nullableInt($line['content_uom_id'] ?? null);
         $lineName = $this->nullableString($line['catalog_name'] ?? ($line['item_name'] ?? null));
@@ -23169,7 +23611,7 @@ class Purchase_model extends CI_Model
             && $itemId === null
             && $materialId === null
             && $lineName !== null
-            && ($lineKind === 'ITEM' || $requireEntityLink)
+            && ($lineKind === 'ITEM' || $isStockPurchase)
         ) {
             $autoItemId = $this->ensureItemFromPurchaseLine($lineName, $buyUomId, $contentUomId, (float)($line['content_per_buy'] ?? 1), (float)($line['unit_price'] ?? 0));
             if ($autoItemId !== null) {
@@ -23193,14 +23635,14 @@ class Purchase_model extends CI_Model
             $materialId = $this->nullableInt($canonicalIdentity['material_id'] ?? $materialId);
         }
 
-        if ($requireEntityLink && $itemId === null && $materialId === null) {
+        if ($isStockPurchase && $itemId === null && $materialId === null) {
             return [
                 'ok' => false,
                 'message' => 'Line inventory wajib memiliki item/material. Isi nama barang + UOM beli agar sistem auto-create item, atau pilih ulang dari katalog yang sudah terhubung.',
             ];
         }
 
-        if ($requireEntityLink && $lineKind === 'ITEM' && $usagePurpose === self::USAGE_PURPOSE_PRODUCTION && $materialId === null) {
+        if ($isStockPurchase && $lineKind === 'ITEM' && $usagePurpose === self::USAGE_PURPOSE_PRODUCTION && $materialId === null) {
             $displayName = $lineName ?: ('item #' . (int)($itemId ?? 0));
             return [
                 'ok' => false,
@@ -24924,6 +25366,25 @@ class Purchase_model extends CI_Model
             return $this->normalizeUsagePurpose($line['default_usage_purpose']);
         }
         return $this->parseUsagePurposeFromNotes((string)($line['notes'] ?? ''));
+    }
+
+    private function resolvePurchaseLineUsagePurpose(array $line, bool $isStockPurchase): string
+    {
+        // A submitted choice is an override; contextual defaults only fill an omitted value.
+        if (array_key_exists('usage_purpose', $line) && trim((string)$line['usage_purpose']) !== '') {
+            return $this->normalizeUsagePurpose($line['usage_purpose']);
+        }
+
+        if (!$isStockPurchase) {
+            return self::USAGE_PURPOSE_OPERATIONAL;
+        }
+
+        $lineKind = strtoupper(trim((string)($line['line_kind'] ?? 'ITEM')));
+        if ($lineKind === 'MATERIAL' || $this->resolveProductionMaterialIdFromLine($line) !== null) {
+            return self::USAGE_PURPOSE_PRODUCTION;
+        }
+
+        return self::USAGE_PURPOSE_OPERATIONAL;
     }
 
     private function itemIdentityResolver(): ItemIdentityResolver

@@ -8,6 +8,17 @@ $statusLabels = $status_labels ?? [];
 $masterLockReady = !empty($master_lock_ready);
 $canLock = !empty($can_lock) && $masterLockReady;
 $canChangeCreate = !empty($can_change_create);
+$canCreate = !empty($can_create);
+$canEdit = !empty($can_edit);
+$canDelete = !empty($can_delete);
+$currentQuantity = (int)($group['unit_count'] ?? 0);
+$lockedQuantity = (int)($group['locked_count'] ?? 0);
+$openQuantity = (int)($group['open_count'] ?? max(0, $currentQuantity - $lockedQuantity));
+$requiresDivisionFilter = (int)($group['division_count'] ?? 0) > 1 && (int)($filters['division_id'] ?? 0) <= 0;
+$canAdjustQuantity = $canEdit && $openQuantity > 0 && ($canCreate || $canDelete);
+$quantityMin = $canDelete ? $lockedQuantity : $currentQuantity;
+$quantityMax = $canCreate ? 10000 : $currentQuantity;
+$groupPath = 'asset-management/group/' . rawurlencode((string)($group['group_key'] ?? ''));
 $fmtMoney = static function ($value): string {
   return 'Rp ' . number_format((float)$value, 0, ',', '.');
 };
@@ -71,6 +82,13 @@ $photo = trim((string)($group['photo_path'] ?? ''));
       <div class="h4 mb-0"><?= number_format((int)($group['unit_count'] ?? 0), 0, ',', '.') ?></div>
       <div class="text-muted small">total unit</div>
       <?php if ($masterLockReady): ?><div class="small mt-1"><span class="badge bg-success">Terkunci <?= (int)($group['locked_count'] ?? 0) ?></span> <span class="badge bg-secondary">Pendataan <?= (int)($group['open_count'] ?? 0) ?></span></div><?php endif; ?>
+      <?php if ($canAdjustQuantity): ?>
+        <?php if ($requiresDivisionFilter): ?>
+          <div class="small text-warning mt-2">Pilih satu divisi untuk mengatur jumlah.</div>
+        <?php else: ?>
+          <button type="button" class="btn btn-sm btn-outline-primary mt-2" data-bs-toggle="modal" data-bs-target="#assetQuantityModal"><i class="ri ri-stack-line me-1"></i>Atur Jumlah</button>
+        <?php endif; ?>
+      <?php endif; ?>
     </div>
   </div>
 </div>
@@ -81,6 +99,39 @@ $photo = trim((string)($group['photo_path'] ?? ''));
   <div class="col-6 col-lg-3"><div class="asset-stat p-3"><div class="label">Nilai buku</div><div class="value"><?= $fmtMoney($group['book_value'] ?? 0) ?></div><div class="small text-muted">Semua unit grup</div></div></div>
   <div class="col-6 col-lg-3"><div class="asset-stat p-3"><div class="label">Kondisi rata-rata</div><div class="value"><?= number_format((float)($group['avg_condition'] ?? 0), 1, ',', '.') ?>%</div><div class="small text-muted">Skor fisik unit</div></div></div>
 </div>
+
+<?php if ($canAdjustQuantity && !$requiresDivisionFilter): ?>
+  <div class="modal fade" id="assetQuantityModal" tabindex="-1" aria-labelledby="assetQuantityModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form method="post" action="<?= site_url($groupPath . '/quantity') ?>" class="modal-content">
+        <input type="hidden" name="division_id" value="<?= (int)($filters['division_id'] ?? 0) ?>">
+        <div class="modal-header">
+          <h5 class="modal-title" id="assetQuantityModalLabel">Atur Jumlah Unit Pendataan</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-3">Setiap unit adalah satu aset fisik. Penambahan menyalin data awal dari satu unit yang masih pendataan; pengurangan hanya menghapus unit OPEN yang belum memiliki jejak operasional.</p>
+          <div class="mb-3">
+            <label class="form-label" for="target_quantity">Jumlah unit yang diinginkan</label>
+            <input id="target_quantity" class="form-control" type="number" name="target_quantity" min="<?= $quantityMin ?>" max="<?= $quantityMax ?>" step="1" value="<?= $currentQuantity ?>" required data-asset-quantity-target>
+            <div class="form-text">Sekarang <?= $currentQuantity ?> unit. <?= $lockedQuantity > 0 ? 'Minimum ' . $lockedQuantity . ' karena sudah terkunci.' : 'Belum ada unit yang dikunci.' ?></div>
+          </div>
+          <div class="mb-0" data-asset-quantity-serial-wrap>
+            <label class="form-label" for="quantity_serial_numbers">Nomor serial unit tambahan <span class="text-muted">(opsional)</span></label>
+            <textarea id="quantity_serial_numbers" class="form-control" name="serial_numbers" rows="3" placeholder="Satu serial per baris" data-asset-quantity-serials></textarea>
+            <div class="form-text">Isi hanya bila jumlah dinaikkan. Serial tidak pernah disalin dari unit contoh.</div>
+          </div>
+          <?php if (!$canCreate): ?><div class="alert alert-light border small mt-3 mb-0">Hak akses Anda tidak mencakup penambahan unit.</div><?php endif; ?>
+          <?php if (!$canDelete): ?><div class="alert alert-light border small mt-3 mb-0">Hak akses Anda tidak mencakup pengurangan unit.</div><?php endif; ?>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+          <button type="submit" class="btn btn-primary"><i class="ri ri-save-line me-1"></i>Simpan Jumlah</button>
+        </div>
+      </form>
+    </div>
+  </div>
+<?php endif; ?>
 
 <div class="card mb-3">
   <div class="card-body">
@@ -122,8 +173,11 @@ $photo = trim((string)($group['photo_path'] ?? ''));
   </div>
 </div>
 
-<form method="post" action="<?= site_url('asset-management/lock-bulk') ?>" onsubmit="return confirm('Kunci unit aset terpilih? Setelah terkunci, perubahan data awal harus melalui pengajuan perubahan data aset.');">
-  <input type="hidden" name="back_url" value="<?= html_escape('asset-management/group/' . rawurlencode((string)($group['group_key'] ?? '')) . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : '')) ?>">
+<?php if ($canLock): ?>
+  <form id="assetLockForm" method="post" action="<?= site_url('asset-management/lock-bulk') ?>" onsubmit="return confirm('Kunci unit aset terpilih? Setelah terkunci, perubahan data awal harus melalui pengajuan perubahan data aset.');">
+    <input type="hidden" name="back_url" value="<?= html_escape($groupPath . (!empty($_SERVER['QUERY_STRING']) ? '?' . $_SERVER['QUERY_STRING'] : '')) ?>">
+  </form>
+<?php endif; ?>
 <div class="card">
   <div class="table-responsive">
     <table class="table table-hover asset-table mb-0">
@@ -156,7 +210,7 @@ $photo = trim((string)($group['photo_path'] ?? ''));
           <tr>
             <?php if ($canLock): ?>
               <td class="text-center">
-                <?php if (empty($row['is_master_locked'])): ?><input class="form-check-input" type="checkbox" name="asset_ids[]" value="<?= (int)$row['id'] ?>" data-asset-lock-item><?php else: ?><i class="ri ri-lock-line text-success" title="Data awal terkunci"></i><?php endif; ?>
+                <?php if (empty($row['is_master_locked'])): ?><input class="form-check-input" type="checkbox" name="asset_ids[]" value="<?= (int)$row['id'] ?>" form="assetLockForm" data-asset-lock-item><?php else: ?><i class="ri ri-lock-line text-success" title="Data awal terkunci"></i><?php endif; ?>
               </td>
             <?php endif; ?>
             <td style="min-width:280px">
@@ -197,6 +251,10 @@ $photo = trim((string)($group['photo_path'] ?? ''));
                   <?php if (!empty($can_edit) && empty($row['is_master_locked'])): ?><li><a class="dropdown-item" href="<?= site_url('asset-management/edit/' . (int)$row['id']) ?>"><i class="ri ri-edit-line me-1"></i>Edit data awal</a></li><?php endif; ?>
                   <?php if (!empty($row['is_master_locked']) && $canChangeCreate): ?><li><a class="dropdown-item" href="<?= site_url('asset-management/changes/create/' . (int)$row['id']) ?>"><i class="ri ri-file-edit-line me-1"></i>Ajukan perubahan data</a></li><?php endif; ?>
                   <?php if (!empty($can_damage)): ?><li><a class="dropdown-item text-danger" href="<?= site_url('asset-management/damage/' . (int)$row['id']) ?>"><i class="ri ri-alert-line me-1"></i>Lapor Rusak</a></li><?php endif; ?>
+                  <?php if ($canDelete && empty($row['is_master_locked'])): ?>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><form method="post" action="<?= site_url('asset-management/delete/' . (int)$row['id']) ?>" onsubmit="return confirm('Hapus unit ini? Sistem akan menolak bila unit sudah memiliki jejak operasional.');"><button type="submit" class="dropdown-item text-danger"><i class="ri ri-delete-bin-line me-1"></i>Hapus unit</button></form></li>
+                  <?php endif; ?>
                 </ul>
               </div>
             </td>
@@ -206,7 +264,7 @@ $photo = trim((string)($group['photo_path'] ?? ''));
     </table>
   </div>
   <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div class="d-flex align-items-center gap-2"><span class="text-muted small">Total <?= number_format((int)($pg['total'] ?? 0), 0, ',', '.') ?> unit</span><?php if ($canLock): ?><button type="submit" class="btn btn-sm btn-outline-success"><i class="ri ri-lock-line me-1"></i>Kunci Unit Terpilih</button><?php endif; ?></div>
+    <div class="d-flex align-items-center gap-2"><span class="text-muted small">Total <?= number_format((int)($pg['total'] ?? 0), 0, ',', '.') ?> unit</span><?php if ($canLock): ?><button type="submit" form="assetLockForm" class="btn btn-sm btn-outline-success"><i class="ri ri-lock-line me-1"></i>Kunci Unit Terpilih</button><?php endif; ?></div>
     <div class="btn-group">
       <?php
         $query = $_GET;
@@ -221,7 +279,6 @@ $photo = trim((string)($group['photo_path'] ?? ''));
     </div>
   </div>
 </div>
-</form>
 
 <?php if ($canLock): ?>
 <script>
@@ -229,6 +286,28 @@ $photo = trim((string)($group['photo_path'] ?? ''));
   var all = document.querySelector('[data-asset-lock-select-all]');
   if (!all) return;
   all.addEventListener('change', function(){ document.querySelectorAll('[data-asset-lock-item]').forEach(function(item){ item.checked = all.checked; }); });
+})();
+</script>
+<?php endif; ?>
+
+<?php if ($canAdjustQuantity && !$requiresDivisionFilter): ?>
+<script>
+(function(){
+  var modal = document.getElementById('assetQuantityModal');
+  var target = document.querySelector('[data-asset-quantity-target]');
+  var serials = document.querySelector('[data-asset-quantity-serials]');
+  if (!modal || !target || !serials) return;
+  var current = <?= $currentQuantity ?>;
+  var syncSerials = function(){
+    var isAdding = Number(target.value || 0) > current;
+    serials.disabled = !isAdding;
+    if (!isAdding) serials.value = '';
+  };
+  target.addEventListener('input', syncSerials);
+  syncSerials();
+  if (window.location.hash === '#quantity' && window.bootstrap && window.bootstrap.Modal) {
+    window.bootstrap.Modal.getOrCreateInstance(modal).show();
+  }
 })();
 </script>
 <?php endif; ?>

@@ -263,6 +263,18 @@ $renderReadonlyValue = static function ($value, string $type): string {
 
 <div class="card master-form-card">
   <div class="card-body">
+    <?php if ($entity === 'org-employee'): ?>
+      <div class="alert alert-info d-flex align-items-start gap-2 mb-3">
+        <i class="ri ri-file-text-line mt-1"></i>
+        <div>
+          <strong>Nominal gaji diatur melalui Kontrak Pegawai.</strong>
+          Gaji pokok, tunjangan, dan uang makan harian tidak lagi diinput di Master Pegawai agar absensi serta payroll membaca satu sumber yang sama. Tarif lembur diatur terpisah melalui Master Standar Lembur.
+          <?php if (!empty($row['id'])): ?>
+            <a class="alert-link" href="<?php echo site_url('hr-contracts/generate?employee_id=' . (int)$row['id']); ?>">Buat perubahan kontrak</a>.
+          <?php endif; ?>
+        </div>
+      </div>
+    <?php endif; ?>
     <form method="post" action="<?php echo site_url($form_action); ?>" <?php echo $hasFileField ? 'enctype="multipart/form-data"' : ''; ?>>
       <div class="row">
         <?php foreach ($cfg['fields'] as $f): ?>

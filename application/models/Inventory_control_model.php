@@ -884,8 +884,9 @@ class Inventory_control_model extends CI_Model
     /**
      * A full outer join implemented with UNION ALL. MySQL/MariaDB do not have
      * FULL OUTER JOIN, while an active lot that has no monthly row is just as
-     * relevant as a monthly row that lost its active lot. Closed lots remain
-     * historical evidence and must not be counted as current stock.
+     * relevant as a monthly row that lost its active lot. For a closed month,
+     * the next month's opening snapshot is the immutable lot evidence because
+     * the old FIFO lots have already been closed by the carry-forward process.
      */
     private function inventory_health_union_sql(string $month): string
     {
@@ -985,7 +986,85 @@ class Inventory_control_model extends CI_Model
                 WHERE s.month_key = " . $monthSql;
     }
 
+    /**
+     * Live FIFO balance is only valid for the current period. After a period
+     * is carried forward, historical lots are deliberately closed and replaced
+     * by the next month's opening. Select that immutable opening source when
+     * available, while retaining a live-FIFO fallback for installations that
+     * have not generated an opening snapshot yet.
+     */
     private function inventory_health_lot_rows_sql(string $asOfDate): string
+    {
+        $history = $this->inventory_health_historical_opening_context($asOfDate);
+        $parts = [
+            !empty($history['division_material'])
+                ? $this->inventory_health_historical_division_material_lot_rows_sql((string)$history['next_month'])
+                : $this->inventory_health_live_division_material_lot_rows_sql($asOfDate),
+            !empty($history['warehouse_material'])
+                ? $this->inventory_health_historical_warehouse_material_lot_rows_sql((string)$history['next_month'])
+                : $this->inventory_health_live_warehouse_material_lot_rows_sql($asOfDate),
+            !empty($history['component'])
+                ? $this->inventory_health_historical_component_lot_rows_sql((string)$history['next_month'])
+                : $this->inventory_health_live_component_lot_rows_sql($asOfDate),
+        ];
+
+        return implode("\nUNION ALL\n", $parts);
+    }
+
+    private function inventory_health_historical_opening_context(string $asOfDate): array
+    {
+        $monthStart = date('Y-m-01', strtotime($asOfDate));
+        $monthEnd = date('Y-m-t', strtotime($monthStart));
+        $empty = [
+            'next_month' => '',
+            'division_material' => false,
+            'warehouse_material' => false,
+            'component' => false,
+        ];
+
+        // A partial current month must continue to read live FIFO balances.
+        if ($asOfDate !== $monthEnd || $monthEnd >= date('Y-m-d')) {
+            return $empty;
+        }
+
+        $nextMonth = date('Y-m-01', strtotime($monthStart . ' +1 month'));
+        $hasOpeningRows = function (string $table, string $monthColumn, array $sourceTypes) use ($nextMonth): bool {
+            if (!$this->db->table_exists($table)) {
+                return false;
+            }
+
+            $row = $this->db
+                ->select('id')
+                ->from($table)
+                ->where($monthColumn, $nextMonth)
+                ->where_in('source_type', $sourceTypes)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            return !empty($row);
+        };
+
+        return [
+            'next_month' => $nextMonth,
+            'division_material' => $hasOpeningRows(
+                'inv_division_stock_opening_snapshot',
+                'snapshot_month',
+                ['AUTO_REBUILD', 'OPNAME']
+            ),
+            'warehouse_material' => $hasOpeningRows(
+                'inv_warehouse_stock_opening_snapshot',
+                'snapshot_month',
+                ['AUTO_REBUILD', 'OPNAME']
+            ),
+            'component' => $hasOpeningRows(
+                'inv_component_monthly_opening',
+                'month_key',
+                ['AUTO_CARRY_FORWARD', 'AUTO_REBUILD', 'OPNAME']
+            ),
+        ];
+    }
+
+    private function inventory_health_live_division_material_lot_rows_sql(string $asOfDate): string
     {
         $asOfSql = $this->db->escape($asOfDate);
         return "SELECT
@@ -1009,9 +1088,16 @@ class Inventory_control_model extends CI_Model
                 WHERE l.location_scope = 'DIVISION'
                   AND UPPER(COALESCE(l.status, 'OPEN')) = 'OPEN'
                   AND l.receipt_date <= " . $asOfSql . "
-                GROUP BY l.division_id, l.destination_type, l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id, l.profile_key
-                UNION ALL
-                SELECT
+                GROUP BY l.division_id, l.destination_type, l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id, l.profile_key";
+    }
+
+    private function inventory_health_live_warehouse_material_lot_rows_sql(string $asOfDate): string
+    {
+        $asOfSql = $this->db->escape($asOfDate);
+        // Warehouse operates in aggregate-profile mode. Older receipt lots are
+        // retained as provenance, but once a WAREHOUSE_PROFILE lot exists it is
+        // the sole FIFO representation of the live monthly balance.
+        return "SELECT
                     SHA2(CONCAT_WS('|', 'MATERIAL', 'WAREHOUSE', 0, 'GUDANG', COALESCE(l.item_id, 0), COALESCE(l.material_id, 0), 0, COALESCE(l.buy_uom_id, 0), COALESCE(l.content_uom_id, 0), COALESCE(l.profile_key, '')), 256) AS identity_key,
                     'MATERIAL' AS stock_domain, 'WAREHOUSE' AS location_scope,
                     0 AS division_id, 'GUDANG' AS location_type,
@@ -1029,11 +1115,31 @@ class Inventory_control_model extends CI_Model
                 LEFT JOIN mst_material mm ON mm.id = l.material_id
                 LEFT JOIN mst_uom u ON u.id = l.content_uom_id
                 WHERE l.location_scope = 'WAREHOUSE'
-                  AND UPPER(COALESCE(l.status, 'OPEN')) = 'OPEN'
                   AND l.receipt_date <= " . $asOfSql . "
-                GROUP BY l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id, l.profile_key
-                UNION ALL
-                SELECT
+                  AND (
+                    COALESCE(l.source_table, '') = 'WAREHOUSE_PROFILE'
+                    OR (
+                        UPPER(COALESCE(l.status, 'OPEN')) = 'OPEN'
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM inv_material_fifo_lot aggregate_lot
+                            WHERE aggregate_lot.location_scope = 'WAREHOUSE'
+                              AND aggregate_lot.source_table = 'WAREHOUSE_PROFILE'
+                              AND aggregate_lot.item_id <=> l.item_id
+                              AND aggregate_lot.material_id <=> l.material_id
+                              AND aggregate_lot.buy_uom_id <=> l.buy_uom_id
+                              AND aggregate_lot.content_uom_id = l.content_uom_id
+                              AND aggregate_lot.profile_key <=> l.profile_key
+                        )
+                    )
+                  )
+                GROUP BY l.item_id, l.material_id, l.buy_uom_id, l.content_uom_id, l.profile_key";
+    }
+
+    private function inventory_health_live_component_lot_rows_sql(string $asOfDate): string
+    {
+        $asOfSql = $this->db->escape($asOfDate);
+        return "SELECT
                     SHA2(CONCAT_WS('|', 'COMPONENT', 'COMPONENT', COALESCE(l.division_id, 0), COALESCE(l.location_type, ''), 0, 0, COALESCE(l.component_id, 0), 0, COALESCE(l.uom_id, 0), ''), 256) AS identity_key,
                     'COMPONENT' AS stock_domain, 'COMPONENT' AS location_scope,
                     COALESCE(l.division_id, 0) AS division_id, COALESCE(l.location_type, '') AS location_type,
@@ -1053,6 +1159,90 @@ class Inventory_control_model extends CI_Model
                 WHERE UPPER(COALESCE(l.status, 'OPEN')) = 'OPEN'
                   AND l.receipt_date <= " . $asOfSql . "
                 GROUP BY l.location_type, l.division_id, l.component_id, l.uom_id";
+    }
+
+    private function inventory_health_historical_division_material_lot_rows_sql(string $nextMonth): string
+    {
+        $nextMonthSql = $this->db->escape($nextMonth);
+        return "SELECT
+                    SHA2(CONCAT_WS('|', 'MATERIAL', 'DIVISION', COALESCE(s.division_id, 0), COALESCE(s.destination_type, ''), COALESCE(s.item_id, 0), COALESCE(s.material_id, 0), 0, COALESCE(s.buy_uom_id, 0), COALESCE(s.content_uom_id, 0), COALESCE(s.profile_key, '')), 256) AS identity_key,
+                    'MATERIAL' AS stock_domain, 'DIVISION' AS location_scope,
+                    COALESCE(s.division_id, 0) AS division_id, COALESCE(s.destination_type, '') AS location_type,
+                    COALESCE(s.item_id, 0) AS item_id, COALESCE(s.material_id, 0) AS material_id, 0 AS component_id,
+                    COALESCE(s.buy_uom_id, 0) AS buy_uom_id, COALESCE(s.content_uom_id, 0) AS uom_id,
+                    COALESCE(s.profile_key, '') AS profile_key,
+                    COALESCE(mi.item_name, mm.material_name, s.profile_name, '-') AS inventory_name,
+                    COALESCE(od.name, CONCAT('DIV-', s.division_id)) AS division_name, COALESCE(u.code, '-') AS uom_code,
+                    COALESCE(SUM(l.qty_in), 0) AS lot_qty,
+                    COALESCE(SUM(l.qty_in * l.unit_cost), 0) AS lot_value,
+                    COALESCE(SUM(CASE WHEN l.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS lot_count,
+                    MAX(COALESCE(l.updated_at, l.created_at, s.updated_at, s.created_at)) AS last_lot_activity
+                FROM inv_division_stock_opening_snapshot s
+                LEFT JOIN inv_material_fifo_lot l
+                  ON l.location_scope = 'DIVISION'
+                 AND l.source_table = 'inv_division_stock_opening_snapshot'
+                 AND l.source_id = s.id
+                LEFT JOIN mst_operational_division od ON od.id = s.division_id
+                LEFT JOIN mst_item mi ON mi.id = s.item_id
+                LEFT JOIN mst_material mm ON mm.id = s.material_id
+                LEFT JOIN mst_uom u ON u.id = s.content_uom_id
+                WHERE s.snapshot_month = " . $nextMonthSql . "
+                  AND s.source_type IN ('AUTO_REBUILD', 'OPNAME')
+                  AND COALESCE(s.destination_type, '') <> 'OTHER'
+                GROUP BY s.division_id, s.destination_type, s.item_id, s.material_id, s.buy_uom_id, s.content_uom_id, s.profile_key";
+    }
+
+    private function inventory_health_historical_warehouse_material_lot_rows_sql(string $nextMonth): string
+    {
+        $nextMonthSql = $this->db->escape($nextMonth);
+        return "SELECT
+                    SHA2(CONCAT_WS('|', 'MATERIAL', 'WAREHOUSE', 0, 'GUDANG', COALESCE(s.item_id, 0), COALESCE(s.material_id, 0), 0, COALESCE(s.buy_uom_id, 0), COALESCE(s.content_uom_id, 0), COALESCE(s.profile_key, '')), 256) AS identity_key,
+                    'MATERIAL' AS stock_domain, 'WAREHOUSE' AS location_scope,
+                    0 AS division_id, 'GUDANG' AS location_type,
+                    COALESCE(s.item_id, 0) AS item_id, COALESCE(s.material_id, 0) AS material_id, 0 AS component_id,
+                    COALESCE(s.buy_uom_id, 0) AS buy_uom_id, COALESCE(s.content_uom_id, 0) AS uom_id,
+                    COALESCE(s.profile_key, '') AS profile_key,
+                    COALESCE(mi.item_name, mm.material_name, s.profile_name, '-') AS inventory_name,
+                    'Gudang' AS division_name, COALESCE(u.code, '-') AS uom_code,
+                    COALESCE(SUM(s.opening_qty_content), 0) AS lot_qty,
+                    COALESCE(SUM(s.opening_total_value), 0) AS lot_value,
+                    COUNT(s.id) AS lot_count,
+                    MAX(COALESCE(s.updated_at, s.created_at)) AS last_lot_activity
+                FROM inv_warehouse_stock_opening_snapshot s
+                LEFT JOIN mst_item mi ON mi.id = s.item_id
+                LEFT JOIN mst_material mm ON mm.id = s.material_id
+                LEFT JOIN mst_uom u ON u.id = s.content_uom_id
+                WHERE s.snapshot_month = " . $nextMonthSql . "
+                  AND s.source_type IN ('AUTO_REBUILD', 'OPNAME')
+                GROUP BY s.item_id, s.material_id, s.buy_uom_id, s.content_uom_id, s.profile_key";
+    }
+
+    private function inventory_health_historical_component_lot_rows_sql(string $nextMonth): string
+    {
+        $nextMonthSql = $this->db->escape($nextMonth);
+        return "SELECT
+                    SHA2(CONCAT_WS('|', 'COMPONENT', 'COMPONENT', COALESCE(o.division_id, 0), COALESCE(o.location_type, ''), 0, 0, COALESCE(o.component_id, 0), 0, COALESCE(o.uom_id, 0), ''), 256) AS identity_key,
+                    'COMPONENT' AS stock_domain, 'COMPONENT' AS location_scope,
+                    COALESCE(o.division_id, 0) AS division_id, COALESCE(o.location_type, '') AS location_type,
+                    0 AS item_id, 0 AS material_id, COALESCE(o.component_id, 0) AS component_id,
+                    0 AS buy_uom_id, COALESCE(o.uom_id, 0) AS uom_id, '' AS profile_key,
+                    COALESCE(c.component_name, '-') AS inventory_name,
+                    COALESCE(od.name, CASE WHEN o.division_id IS NULL THEN 'Lokasi pusat' ELSE CONCAT('DIV-', o.division_id) END) AS division_name,
+                    COALESCE(u.code, '-') AS uom_code,
+                    COALESCE(SUM(l.qty_in_total), 0) AS lot_qty,
+                    COALESCE(SUM(l.qty_in_total * l.unit_cost), 0) AS lot_value,
+                    COALESCE(SUM(CASE WHEN l.id IS NOT NULL THEN 1 ELSE 0 END), 0) AS lot_count,
+                    MAX(COALESCE(l.updated_at, l.created_at, o.updated_at, o.created_at)) AS last_lot_activity
+                FROM inv_component_monthly_opening o
+                LEFT JOIN inv_component_lot l
+                  ON l.source_table = 'inv_component_monthly_opening'
+                 AND l.source_id = o.id
+                LEFT JOIN mst_operational_division od ON od.id = o.division_id
+                LEFT JOIN mst_component c ON c.id = o.component_id
+                LEFT JOIN mst_uom u ON u.id = o.uom_id
+                WHERE o.month_key = " . $nextMonthSql . "
+                  AND o.source_type IN ('AUTO_CARRY_FORWARD', 'AUTO_REBUILD', 'OPNAME')
+                GROUP BY o.location_type, o.division_id, o.component_id, o.uom_id";
     }
 
     private function inventory_health_as_of_date(string $month): string

@@ -877,6 +877,9 @@ class Master extends MY_Controller
                 ->get()->result_array();
         }
 
+        $this->load->model('Compensation_model');
+        $compensation = $this->Compensation_model->resolve_for_employee($id, date('Y-m-d'));
+
         $activeMenu = (string)($cfg['active_menu'] ?? 'grp.master');
         $this->render('master/detail_org_employee', [
             'title' => 'Detail Pegawai',
@@ -884,6 +887,7 @@ class Master extends MY_Controller
             'entity' => $entity,
             'cfg' => $cfg,
             'row' => $row,
+            'compensation' => $compensation,
             'linked_users' => $linkedUsers,
             'schedules' => $schedules,
             'att_daily_rows' => $attDaily,
@@ -1165,11 +1169,6 @@ class Master extends MY_Controller
                     $this->session->set_flashdata('error', 'NIP sudah dipakai.');
                     return null;
                 }
-            }
-
-            foreach (['basic_salary', 'position_allowance', 'objective_allowance', 'meal_rate', 'overtime_rate'] as $moneyField) {
-                $value = $data[$moneyField] ?? null;
-                $data[$moneyField] = $value === null || $value === '' ? 0 : round((float)$value, 2);
             }
 
             if (array_key_exists('bank_id', $data)) {
@@ -2441,11 +2440,6 @@ class Master extends MY_Controller
                         ['value' => 'DAILY', 'label' => 'DAILY'],
                         ['value' => 'RESIGNED', 'label' => 'RESIGNED'],
                     ]],
-                    ['name' => 'basic_salary', 'label' => 'Gaji Pokok', 'type' => 'number', 'step' => '0.01'],
-                    ['name' => 'position_allowance', 'label' => 'Tunjangan Jabatan', 'type' => 'number', 'step' => '0.01'],
-                    ['name' => 'objective_allowance', 'label' => 'Tunjangan Objektif', 'type' => 'number', 'step' => '0.01'],
-                    ['name' => 'meal_rate', 'label' => 'Rate Uang Makan', 'type' => 'number', 'step' => '0.01'],
-                    ['name' => 'overtime_rate', 'label' => 'Rate Lembur/Jam', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'bank_id', 'label' => 'Bank', 'type' => 'select', 'lookup' => ['table' => 'mst_bank', 'value' => 'id', 'label' => 'bank_name']],
                     ['name' => 'bank_account_no', 'label' => 'No Rekening', 'type' => 'text'],
                     ['name' => 'bank_account_name', 'label' => 'Nama Rekening', 'type' => 'text'],
@@ -2884,7 +2878,6 @@ class Master extends MY_Controller
                     ['name' => 'position_allowance', 'label' => 'Tunjangan Jabatan', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'other_allowance', 'label' => 'Tunjangan Lain', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'meal_rate', 'label' => 'Uang Makan', 'type' => 'number', 'step' => '0.01'],
-                    ['name' => 'overtime_rate', 'label' => 'Rate Lembur/Jam', 'type' => 'number', 'step' => '0.01'],
                     ['name' => 'start_date', 'label' => 'Tanggal Mulai (YYYY-MM-DD)', 'type' => 'text'],
                     ['name' => 'end_date', 'label' => 'Tanggal Akhir (YYYY-MM-DD)', 'type' => 'text'],
                     ['name' => 'verification_token', 'label' => 'Verification Token', 'type' => 'text'],

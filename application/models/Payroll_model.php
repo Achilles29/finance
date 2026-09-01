@@ -6,6 +6,7 @@ class Payroll_model extends CI_Model
     private $attDailyFieldCache = [];
     private $tableFieldCache = [];
     private $lockedPeriodDateCache = [];
+    private $payrollContractCompensationCache = [];
 
     private function att_daily_has_field(string $field): bool
     {
@@ -1390,6 +1391,62 @@ class Payroll_model extends CI_Model
         return (int)$this->db->insert_id();
     }
 
+    /**
+     * New/current payroll must have an ACTIVE contract and immutable snapshot
+     * for every paid day. Historical rows created before contract-first are
+     * accepted only when they already carry an immutable daily snapshot.
+     */
+    private function find_payroll_contract_coverage_gaps(string $periodStart, string $periodEnd): array
+    {
+        if (
+            !$this->db->table_exists('hr_contract')
+            || !$this->db->table_exists('hr_contract_comp_snapshot')
+            || !$this->att_daily_has_field('snapshot_basic_salary')
+        ) {
+            return [[
+                'employee_id' => 0,
+                'employee_code' => '',
+                'employee_name' => '',
+                'missing_dates' => '',
+                'schema_missing' => 1,
+            ]];
+        }
+
+        return $this->db->select("\n                ad.employee_id,\n                e.employee_code,\n                e.employee_name,\n                COUNT(DISTINCT ad.attendance_date) AS missing_days,\n                GROUP_CONCAT(DISTINCT DATE_FORMAT(ad.attendance_date, '%d/%m/%Y') ORDER BY ad.attendance_date SEPARATOR ', ') AS missing_dates\n            ", false)
+            ->from('att_daily ad')
+            ->join('org_employee e', 'e.id = ad.employee_id', 'inner')
+            ->join(
+                'hr_contract c',
+                "c.employee_id = ad.employee_id\n                    AND c.status IN ('ACTIVE', 'EXPIRED', 'TERMINATED')\n                    AND c.start_date <= ad.attendance_date\n                    AND (c.end_date IS NULL OR c.end_date >= ad.attendance_date)",
+                'left',
+                false
+            )
+            ->join('hr_contract_comp_snapshot cs', 'cs.contract_id = c.id', 'left')
+            ->where('ad.attendance_date >=', $periodStart)
+            ->where('ad.attendance_date <=', $periodEnd)
+            ->group_start()
+                ->where('ad.checkout_at IS NOT NULL', null, false)
+                ->or_where('ad.attendance_status', 'HOLIDAY')
+            ->group_end()
+            ->where('e.is_active', 1)
+            ->group_start()
+                ->where('c.id IS NULL', null, false)
+                ->or_where('cs.id IS NULL', null, false)
+                ->or_group_start()
+                    ->where('ad.attendance_date >=', date('Y-m-d'))
+                    ->where('c.status !=', 'ACTIVE')
+                ->group_end()
+            ->group_end()
+            ->group_start()
+                ->where('ad.attendance_date >=', date('Y-m-d'))
+                ->or_where('ad.snapshot_basic_salary IS NULL', null, false)
+            ->group_end()
+            ->group_by(['ad.employee_id', 'e.employee_code', 'e.employee_name'])
+            ->order_by('e.employee_name', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
     public function generate_payroll_period_results(array $payload, int $actorUserId): array
     {
         $periodCode = trim((string)($payload['period_code'] ?? ''));
@@ -1409,6 +1466,28 @@ class Payroll_model extends CI_Model
         }
         if ($periodCode === '') {
             $periodCode = date('Y-m', strtotime($periodStart));
+        }
+
+        $contractGaps = $this->find_payroll_contract_coverage_gaps($periodStart, $periodEnd);
+        if (!empty($contractGaps)) {
+            if (!empty($contractGaps[0]['schema_missing'])) {
+                return ['ok' => false, 'message' => 'Payroll ditolak: tabel kontrak belum tersedia. Jalankan migration fondasi kompensasi terlebih dahulu.'];
+            }
+
+            $examples = [];
+            foreach (array_slice($contractGaps, 0, 5) as $gap) {
+                $name = trim((string)($gap['employee_name'] ?? ''));
+                $code = trim((string)($gap['employee_code'] ?? ''));
+                $label = trim($code . ($name !== '' ? ' - ' . $name : ''));
+                $dates = trim((string)($gap['missing_dates'] ?? ''));
+                $examples[] = ($label !== '' ? $label : 'Pegawai #' . (int)($gap['employee_id'] ?? 0))
+                    . ($dates !== '' ? ' (' . $dates . ')' : '');
+            }
+
+            return [
+                'ok' => false,
+                'message' => 'Payroll ditolak: terdapat absensi yang belum memiliki kontrak kompensasi final/snapshot yang valid pada tanggal kerja. Untuk tanggal hari ini dan seterusnya, wajib kontrak ACTIVE beserta snapshot. ' . implode('; ', $examples) . (count($contractGaps) > 5 ? '; dan lainnya.' : '.'),
+            ];
         }
 
         $periodId = $this->ensure_payroll_period($periodCode, $periodStart, $periodEnd);
@@ -1720,12 +1799,184 @@ class Payroll_model extends CI_Model
         return ['ok' => true, 'message' => 'Payroll period berhasil dihapus.'];
     }
 
+    private function get_payroll_contract_compensation_by_period(int $periodId): array
+    {
+        if ($periodId <= 0) {
+            return [];
+        }
+        if (array_key_exists($periodId, $this->payrollContractCompensationCache)) {
+            return $this->payrollContractCompensationCache[$periodId];
+        }
+
+        $period = $this->db->select('period_start, period_end')
+            ->from('pay_payroll_period')
+            ->where('id', $periodId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$period || !$this->db->table_exists('att_daily')) {
+            $this->payrollContractCompensationCache[$periodId] = [];
+            return [];
+        }
+
+        $resultRows = $this->db->select('employee_id')
+            ->from('pay_payroll_result')
+            ->where('payroll_period_id', $periodId)
+            ->get()
+            ->result_array();
+        $employeeIds = array_values(array_unique(array_filter(array_map(static function (array $row): int {
+            return (int)($row['employee_id'] ?? 0);
+        }, $resultRows))));
+        if (empty($employeeIds)) {
+            $this->payrollContractCompensationCache[$periodId] = [];
+            return [];
+        }
+
+        $sourceSelect = $this->att_daily_has_field('compensation_source')
+            ? 'ad.compensation_source, ad.compensation_contract_id, ad.compensation_snapshot_id'
+            : "'LEGACY_SNAPSHOT' AS compensation_source, NULL AS compensation_contract_id, NULL AS compensation_snapshot_id";
+        $dailyRows = $this->db->select('ad.employee_id, ad.attendance_date, ad.id,
+                ad.snapshot_basic_salary, ad.snapshot_position_allowance, ad.snapshot_objective_allowance,
+                ' . $sourceSelect, false)
+            ->from('att_daily ad')
+            ->where_in('ad.employee_id', $employeeIds)
+            ->where('ad.attendance_date >=', (string)$period['period_start'])
+            ->where('ad.attendance_date <=', (string)$period['period_end'])
+            ->where('ad.snapshot_basic_salary IS NOT NULL', null, false)
+            ->order_by('ad.employee_id', 'ASC')
+            ->order_by('ad.attendance_date', 'DESC')
+            ->order_by('ad.id', 'DESC')
+            ->get()
+            ->result_array();
+
+        $latestDailyMap = [];
+        $snapshotMap = [];
+        foreach ($dailyRows as $dailyRow) {
+            $employeeId = (int)($dailyRow['employee_id'] ?? 0);
+            if ($employeeId > 0 && !isset($latestDailyMap[$employeeId])) {
+                $latestDailyMap[$employeeId] = $dailyRow;
+            }
+            if ($employeeId <= 0) {
+                continue;
+            }
+            $signature = implode('|', [
+                (int)($dailyRow['compensation_contract_id'] ?? 0),
+                number_format((float)($dailyRow['snapshot_basic_salary'] ?? 0), 2, '.', ''),
+                number_format((float)($dailyRow['snapshot_position_allowance'] ?? 0), 2, '.', ''),
+                number_format((float)($dailyRow['snapshot_objective_allowance'] ?? 0), 2, '.', ''),
+            ]);
+            $snapshotMap[$employeeId][$signature] = $dailyRow;
+        }
+
+        $contractIds = array_values(array_unique(array_filter(array_map(static function (array $row): int {
+            return (int)($row['compensation_contract_id'] ?? 0);
+        }, $dailyRows))));
+        $contractNumberMap = [];
+        if (!empty($contractIds) && $this->db->table_exists('hr_contract')) {
+            $contractRows = $this->db->select('id, contract_number')
+                ->from('hr_contract')
+                ->where_in('id', $contractIds)
+                ->get()
+                ->result_array();
+            foreach ($contractRows as $contractRow) {
+                $contractNumberMap[(int)$contractRow['id']] = (string)($contractRow['contract_number'] ?? '');
+            }
+        }
+
+        $compensation = [];
+        $this->load->model('Compensation_model');
+        foreach ($employeeIds as $employeeId) {
+            $daily = $latestDailyMap[$employeeId] ?? null;
+            $snapshotCount = count($snapshotMap[$employeeId] ?? []);
+            $hasMultipleSnapshots = $snapshotCount > 1;
+            if ($daily) {
+                $basic = (float)($daily['snapshot_basic_salary'] ?? 0);
+                $position = (float)($daily['snapshot_position_allowance'] ?? 0);
+                $objective = (float)($daily['snapshot_objective_allowance'] ?? 0);
+                $contractId = (int)($daily['compensation_contract_id'] ?? 0);
+                $source = trim((string)($daily['compensation_source'] ?? '')) ?: 'LEGACY_SNAPSHOT';
+                $sourceRef = $contractId > 0
+                    ? (string)($contractNumberMap[$contractId] ?? ('Kontrak #' . $contractId))
+                    : 'Snapshot absensi ' . (string)($daily['attendance_date'] ?? '');
+            } else {
+                $resolved = $this->Compensation_model->resolve_for_employee($employeeId, (string)$period['period_end']);
+                $basic = (float)($resolved['basic_salary'] ?? 0);
+                $position = (float)($resolved['position_allowance'] ?? 0);
+                $objective = (float)($resolved['objective_allowance'] ?? 0);
+                $source = (string)($resolved['source'] ?? 'MISSING');
+                $sourceRef = (string)($resolved['contract_number'] ?? '');
+                if ($sourceRef === '') {
+                    $sourceRef = '-';
+                }
+            }
+            if ($hasMultipleSnapshots) {
+                $source = 'MULTIPLE_SNAPSHOTS';
+                $sourceRef = $snapshotCount . ' snapshot kompensasi dalam periode; nominal yang ditampilkan adalah snapshot terakhir.';
+            }
+            $compensation[$employeeId] = [
+                'contract_fixed_total' => round($basic + $position + $objective, 2),
+                'contract_compensation_status' => $source,
+                'contract_source_ref' => $sourceRef,
+                'contract_snapshot_count' => $snapshotCount,
+                'contract_basis_label' => $hasMultipleSnapshots
+                    ? 'Snapshot terakhir; perbandingan tunggal dinonaktifkan'
+                    : 'Nominal kontrak periode ini',
+            ];
+        }
+
+        $this->payrollContractCompensationCache[$periodId] = $compensation;
+        return $compensation;
+    }
+
+    private function append_contract_compensation_to_payroll_rows(array $rows, int $periodId): array
+    {
+        if (empty($rows)) {
+            return $rows;
+        }
+
+        $compensation = $this->get_payroll_contract_compensation_by_period($periodId);
+        foreach ($rows as &$row) {
+            $employeeId = (int)($row['employee_id'] ?? 0);
+            $contract = $compensation[$employeeId] ?? [
+                'contract_fixed_total' => null,
+                'contract_compensation_status' => 'MISSING',
+                'contract_source_ref' => '-',
+                'contract_snapshot_count' => 0,
+                'contract_basis_label' => 'Snapshot kontrak tidak tersedia',
+            ];
+            $row['contract_fixed_total'] = $contract['contract_fixed_total'];
+            $row['contract_compensation_status'] = (string)($contract['contract_compensation_status'] ?? 'MISSING');
+            $row['contract_source_ref'] = (string)($contract['contract_source_ref'] ?? '-');
+            $row['contract_snapshot_count'] = (int)($contract['contract_snapshot_count'] ?? 0);
+            $row['contract_basis_label'] = (string)($contract['contract_basis_label'] ?? 'Nominal kontrak periode ini');
+
+            // Compare contractual fixed pay against earnings driven by
+            // attendance. Meal, overtime, and manual adjustments stay in their
+            // own columns and do not distort this comparison.
+            $fixedActual = round(
+                (float)($row['basic_total'] ?? 0)
+                + (float)($row['allowance_total'] ?? 0)
+                - (float)($row['late_deduction_total'] ?? 0)
+                - (float)($row['alpha_deduction_total'] ?? 0),
+                2
+            );
+            $row['fixed_actual_total'] = $fixedActual;
+            $row['contract_vs_actual_diff'] = $row['contract_fixed_total'] !== null
+                && $row['contract_compensation_status'] !== 'MULTIPLE_SNAPSHOTS'
+                ? round($fixedActual - (float)$row['contract_fixed_total'], 2)
+                : null;
+        }
+        unset($row);
+
+        return $rows;
+    }
+
     public function list_payroll_results_by_period(int $periodId): array
     {
         if ($periodId <= 0) {
             return [];
         }
-        return $this->db->select("
+        $rows = $this->db->select("
                 r.*,
                 e.employee_code,
                 e.employee_name,
@@ -1749,6 +2000,7 @@ class Payroll_model extends CI_Model
             ->where('r.payroll_period_id', $periodId)
             ->order_by('e.employee_name', 'ASC')
             ->get()->result_array();
+        return $this->append_contract_compensation_to_payroll_rows($rows, $periodId);
     }
 
     public function list_payroll_result_breakdown_by_period(int $periodId): array
@@ -1757,7 +2009,7 @@ class Payroll_model extends CI_Model
             return [];
         }
         if ($this->table_has_field('pay_payroll_result', 'basic_total')) {
-            return $this->db->select('
+            $rows = $this->db->select('
                     r.id AS payroll_result_id,
                     r.employee_id,
                     r.employee_code_snapshot,
@@ -1787,6 +2039,7 @@ class Payroll_model extends CI_Model
                 ->where('r.payroll_period_id', $periodId)
                 ->order_by('r.employee_name_snapshot', 'ASC')
                 ->get()->result_array();
+            return $this->append_contract_compensation_to_payroll_rows($rows, $periodId);
         }
 
         // Fallback legacy schema: tetap bisa tampil walau masih baca att_daily.
@@ -1796,7 +2049,7 @@ class Payroll_model extends CI_Model
         }
         $periodStart = (string)($period['period_start'] ?? '');
         $periodEnd = (string)($period['period_end'] ?? '');
-        return $this->db->select('
+        $rows = $this->db->select('
                 r.id AS payroll_result_id,
                 r.employee_id,
                 r.employee_code_snapshot,
@@ -1828,6 +2081,7 @@ class Payroll_model extends CI_Model
             ->group_by('r.id')
             ->order_by('r.employee_name_snapshot', 'ASC')
             ->get()->result_array();
+        return $this->append_contract_compensation_to_payroll_rows($rows, $periodId);
     }
 
     public function get_payroll_period_options(): array
@@ -2216,10 +2470,16 @@ class Payroll_model extends CI_Model
                 'result_net_final_total' => 0.0,
                 'attendance_net_total' => 0.0,
                 'active_disbursement_transfer_total' => 0.0,
+                'active_disbursement_batch_count' => 0,
+                'transfer_audit_applicable' => 0,
+                'pending_disbursement_rows' => 0,
+                'pending_disbursement_total' => 0.0,
                 'raw_vs_attendance_diff_total' => 0.0,
                 'transfer_vs_result_final_diff_total' => 0.0,
                 'result_duplicates' => 0,
                 'active_disbursement_duplicates' => 0,
+                'attendance_mismatch_rows' => 0,
+                'transfer_mismatch_rows' => 0,
                 'mismatch_rows' => 0,
             ],
             'duplicates_result' => [],
@@ -2236,6 +2496,15 @@ class Payroll_model extends CI_Model
         }
         $empty['period'] = $period;
 
+        $activeDisbursementHeader = $this->db
+            ->select('COUNT(*) AS batch_count', false)
+            ->from('pay_salary_disbursement')
+            ->where('payroll_period_id', $periodId)
+            ->where('status <>', 'VOID')
+            ->get()->row_array() ?: [];
+        $activeDisbursementBatchCount = (int)($activeDisbursementHeader['batch_count'] ?? 0);
+        $transferAuditApplicable = $activeDisbursementBatchCount > 0;
+
         $resultRows = $this->db->select("
                 r.id AS payroll_result_id,
                 r.employee_id,
@@ -2244,7 +2513,9 @@ class Payroll_model extends CI_Model
                 COALESCE(r.net_pay_raw, r.net_pay, 0) AS result_net_raw,
                 COALESCE(r.net_pay, 0) AS result_net_final,
                 COALESCE(att.net_attendance, 0) AS attendance_net,
-                COALESCE(disb.transfer_total, 0) AS active_transfer_total
+                COALESCE(disb.transfer_total, 0) AS active_transfer_total,
+                COALESCE(disb.active_line_count, 0) AS active_disbursement_line_count,
+                COALESCE(disb.active_batch_count, 0) AS active_disbursement_batch_count
             ", false)
             ->from('pay_payroll_result r')
             ->join('
@@ -2262,11 +2533,16 @@ class Payroll_model extends CI_Model
             ', 'att.employee_id = r.employee_id', 'left', false)
             ->join('
                 (
-                    SELECT l.payroll_result_id, SUM(COALESCE(l.transfer_amount,0)) AS transfer_total
+                    SELECT
+                        l.payroll_result_id,
+                        SUM(COALESCE(l.transfer_amount,0)) AS transfer_total,
+                        COUNT(*) AS active_line_count,
+                        COUNT(DISTINCT h.id) AS active_batch_count
                     FROM pay_salary_disbursement_line l
                     INNER JOIN pay_salary_disbursement h
                         ON h.id = l.disbursement_id
                        AND h.status <> "VOID"
+                       AND h.payroll_period_id = ' . (int)$periodId . '
                     GROUP BY l.payroll_result_id
                 ) disb
             ', 'disb.payroll_result_id = r.id', 'left', false)
@@ -2292,6 +2568,8 @@ class Payroll_model extends CI_Model
 
         $summary = $empty['summary'];
         $summary['result_rows'] = count($resultRows);
+        $summary['active_disbursement_batch_count'] = $activeDisbursementBatchCount;
+        $summary['transfer_audit_applicable'] = $transferAuditApplicable ? 1 : 0;
         $mismatchRows = [];
         foreach ($resultRows as $row) {
             $resultRaw = round((float)($row['result_net_raw'] ?? 0), 2);
@@ -2306,9 +2584,26 @@ class Payroll_model extends CI_Model
             $summary['attendance_net_total'] += $attendance;
             $summary['active_disbursement_transfer_total'] += $transfer;
 
-            if (abs($diffAtt) > 0.009 || abs($diffTransferFinal) > 0.009) {
+            $attendanceMismatch = abs($diffAtt) > 0.009;
+            // A zero transfer is expected until the first salary batch exists.
+            // Once a batch is active, a missing/incorrect line is a real finding.
+            $transferMismatch = $transferAuditApplicable && abs($diffTransferFinal) > 0.009;
+            if ($attendanceMismatch) {
+                $summary['attendance_mismatch_rows']++;
+            }
+            if ($transferMismatch) {
+                $summary['transfer_mismatch_rows']++;
+            }
+            if (!$transferAuditApplicable && $resultFinal > 0.009) {
+                $summary['pending_disbursement_rows']++;
+            }
+
+            if ($attendanceMismatch || $transferMismatch) {
                 $row['diff_raw_vs_attendance'] = $diffAtt;
                 $row['diff_transfer_vs_final'] = $diffTransferFinal;
+                $row['attendance_mismatch'] = $attendanceMismatch ? 1 : 0;
+                $row['transfer_mismatch'] = $transferMismatch ? 1 : 0;
+                $row['transfer_check_required'] = $transferAuditApplicable ? 1 : 0;
                 $mismatchRows[] = $row;
             }
         }
@@ -2317,7 +2612,10 @@ class Payroll_model extends CI_Model
         $summary['attendance_net_total'] = round((float)$summary['attendance_net_total'], 2);
         $summary['active_disbursement_transfer_total'] = round((float)$summary['active_disbursement_transfer_total'], 2);
         $summary['raw_vs_attendance_diff_total'] = round($summary['result_net_raw_total'] - $summary['attendance_net_total'], 2);
-        $summary['transfer_vs_result_final_diff_total'] = round($summary['active_disbursement_transfer_total'] - $summary['result_net_final_total'], 2);
+        $summary['pending_disbursement_total'] = round(max(0, $summary['result_net_final_total'] - $summary['active_disbursement_transfer_total']), 2);
+        $summary['transfer_vs_result_final_diff_total'] = $transferAuditApplicable
+            ? round($summary['active_disbursement_transfer_total'] - $summary['result_net_final_total'], 2)
+            : 0.0;
         $summary['result_duplicates'] = count($duplicatesResult);
         $summary['active_disbursement_duplicates'] = count($duplicatesDisbursement);
         $summary['mismatch_rows'] = count($mismatchRows);

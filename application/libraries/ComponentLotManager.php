@@ -35,7 +35,11 @@ class ComponentLotManager
         $componentId = (int)($payload['component_id'] ?? 0);
         $uomId = (int)($payload['uom_id'] ?? 0);
         $qtyIn = round((float)($payload['qty_in'] ?? 0), 4);
-        $unitCost = max(0, round((float)($payload['unit_cost'] ?? 0), 6));
+        $rawUnitCost = round((float)($payload['unit_cost'] ?? 0), 6);
+        if ($rawUnitCost < -0.000001) {
+            return ['ok' => false, 'message' => 'Biaya unit lot component tidak boleh negatif. Perbaiki valuasi component terlebih dahulu.'];
+        }
+        $unitCost = max(0, $rawUnitCost);
         $receiptDate = $this->normalizeDate((string)($payload['receipt_date'] ?? ($payload['movement_date'] ?? '')));
         $lotNo = trim((string)($payload['lot_no'] ?? ''));
 

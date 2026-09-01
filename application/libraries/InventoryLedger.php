@@ -365,6 +365,10 @@ class InventoryLedger
             'profile_content_per_buy' => $profileContentPerBuy,
         ]);
 
+        // The balance read and its subsequent update must be serialized per
+        // monthly identity. Without this row lock, simultaneous POS/batch
+        // writes can both calculate from the same closing balance and leave
+        // movement.qty_*_after out of step with the monthly ledger.
         $qb = $this->ci->db->from($table)
             ->where('month_key', $monthKey)
             ->where('identity_key', $identityKey);
@@ -372,7 +376,9 @@ class InventoryLedger
             $qb->where('division_id', $divisionId)
                 ->where('destination_type', $destinationType);
         }
-        $existing = $qb->limit(1)->get()->row_array();
+        $existingSql = $qb->limit(1)->get_compiled_select();
+        $existingQuery = $this->ci->db->query($existingSql . ' FOR UPDATE');
+        $existing = $existingQuery ? ($existingQuery->row_array() ?: null) : null;
         if (!$existing) {
             $existing = $this->findLegacyMonthlyStockRow($table, $scope, [
                 'month_key' => $monthKey,
@@ -388,15 +394,27 @@ class InventoryLedger
                 'profile_description' => $profileDescription,
                 'profile_expired_date' => $profileExpiredDate,
                 'profile_content_per_buy' => $profileContentPerBuy,
-            ]);
+            ], true);
         }
 
         $oldQtyBuy = round((float)($existing['closing_qty_buy'] ?? 0), 4);
         $oldQtyContent = round((float)($existing['closing_qty_content'] ?? 0), 4);
         $oldAvg = round((float)($existing['avg_cost_per_content'] ?? 0), 6);
 
+        if (($profileContentPerBuy === null || (float)$profileContentPerBuy <= 0) && !empty($existing)) {
+            $profileContentPerBuy = $this->nullableDecimal($existing['profile_content_per_buy'] ?? null, 6);
+        }
+
         $qtyBuyAfter = round($oldQtyBuy + $qtyBuyDelta, 4);
         $qtyContentAfter = round($oldQtyContent + $qtyContentDelta, 4);
+
+        // Qty isi is the canonical stock balance. Rebuild the displayed buy-unit
+        // balance from it so partial movements cannot accumulate a 0.0001 rounding
+        // residue and falsely trip the negative-stock guard.
+        if ($qtyContentAfter >= 0 && $profileContentPerBuy !== null && (float)$profileContentPerBuy > 0) {
+            $qtyBuyAfter = round($qtyContentAfter / (float)$profileContentPerBuy, 4);
+        }
+
         $allowNegativeBalance = !empty($payload['allow_negative_balance']);
         if (!$allowNegativeBalance && ($qtyBuyAfter < 0 || $qtyContentAfter < 0)) {
             return [
@@ -634,7 +652,7 @@ class InventoryLedger
         ];
     }
 
-    private function findLegacyMonthlyStockRow(string $table, string $scope, array $identity): ?array
+    private function findLegacyMonthlyStockRow(string $table, string $scope, array $identity, bool $forUpdate = false): ?array
     {
         $monthKey = $this->normalizeDate((string)($identity['month_key'] ?? ''));
         $contentUomId = $this->nullableInt($identity['content_uom_id'] ?? null);
@@ -701,11 +719,16 @@ class InventoryLedger
             }
         }
 
-        return $qb
+        $sql = $qb
             ->order_by('id', 'DESC')
             ->limit(1)
-            ->get()
-            ->row_array() ?: null;
+            ->get_compiled_select();
+        if ($forUpdate) {
+            $sql .= ' FOR UPDATE';
+        }
+
+        $query = $this->ci->db->query($sql);
+        return $query ? ($query->row_array() ?: null) : null;
     }
 
     private function buildInventoryMonthlyIdentityKey(array $payload): string

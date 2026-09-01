@@ -194,6 +194,26 @@ class Procurement_model extends CI_Model
         return $material > 0 ? $material : null;
     }
 
+    private function default_stock_request_usage_purpose(array $line): string
+    {
+        $lineKind = strtoupper(trim((string)($line['line_kind'] ?? 'ITEM')));
+        if ($lineKind === 'MATERIAL' || $this->resolve_production_material_id($line['item_id'] ?? null, $line['material_id'] ?? null) !== null) {
+            return self::USAGE_PURPOSE_PRODUCTION;
+        }
+
+        return self::USAGE_PURPOSE_OPERATIONAL;
+    }
+
+    private function resolve_stock_request_usage_purpose(array $line): string
+    {
+        // A selected value is authoritative; the material link only supplies the initial default.
+        if (array_key_exists('usage_purpose', $line) && trim((string)$line['usage_purpose']) !== '') {
+            return $this->normalize_usage_purpose($line['usage_purpose']);
+        }
+
+        return $this->default_stock_request_usage_purpose($line);
+    }
+
     private function resolve_operational_item_id(?int $itemId, ?int $materialId, string $profileKey): ?int
     {
         if ($itemId !== null && $itemId > 0) {
@@ -591,8 +611,9 @@ class Procurement_model extends CI_Model
     }
 
     /**
-     * Read-only audit for Store Request lines whose selected purpose conflicts
-     * with the item master, including raw materials used as operational items.
+     * Read-only audit for Store Request lines whose selected purpose differs
+     * from the material-context default. Material stock defaults to
+     * production; other stock defaults to operational.
      */
     public function get_store_request_usage_purpose_attention(array $filters, int $limit = 8): array
     {
@@ -615,21 +636,22 @@ class Procurement_model extends CI_Model
         $hasItem = $this->db->table_exists('mst_item');
         $hasMaterial = $this->db->table_exists('mst_material');
         $hasItemMaterial = $hasItem && $this->db->field_exists('material_id', 'mst_item');
-        $hasItemDefaultPurpose = $hasItem && $this->db->field_exists('default_usage_purpose', 'mst_item');
         $hasLinePurpose = $this->has_store_request_usage_purpose_column();
+        $hasLineKind = $this->db->field_exists('line_kind', 'pur_store_request_line');
 
         $productionPurpose = self::USAGE_PURPOSE_PRODUCTION;
         $operationalPurpose = self::USAGE_PURPOSE_OPERATIONAL;
-        $actualUsageExpr = $hasLinePurpose
-            ? "CASE WHEN UPPER(TRIM(COALESCE(NULLIF(srl.usage_purpose, ''), '{$productionPurpose}'))) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
-            : "'{$productionPurpose}'";
-        $defaultUsageExpr = $hasItemDefaultPurpose
-            ? "CASE WHEN UPPER(TRIM(COALESCE(NULLIF(i.default_usage_purpose, ''), '{$productionPurpose}'))) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
-            : "'{$productionPurpose}'";
         $effectiveMaterialExpr = $hasItemMaterial
             ? 'COALESCE(NULLIF(srl.material_id, 0), NULLIF(i.material_id, 0), 0)'
             : 'COALESCE(NULLIF(srl.material_id, 0), 0)';
-        $materialOperationalCondition = "({$effectiveMaterialExpr} > 0 AND {$actualUsageExpr} = '{$operationalPurpose}')";
+        $materialContextCondition = '(' . $effectiveMaterialExpr . ' > 0'
+            . ($hasLineKind ? " OR UPPER(COALESCE(srl.line_kind, 'ITEM')) = 'MATERIAL'" : '')
+            . ')';
+        $defaultUsageExpr = "CASE WHEN {$materialContextCondition} THEN '{$productionPurpose}' ELSE '{$operationalPurpose}' END";
+        $actualUsageExpr = $hasLinePurpose
+            ? "CASE WHEN NULLIF(TRIM(COALESCE(srl.usage_purpose, '')), '') IS NULL THEN {$defaultUsageExpr} WHEN UPPER(TRIM(srl.usage_purpose)) = '{$operationalPurpose}' THEN '{$operationalPurpose}' ELSE '{$productionPurpose}' END"
+            : $defaultUsageExpr;
+        $materialOperationalCondition = "({$materialContextCondition} AND {$actualUsageExpr} = '{$operationalPurpose}')";
         $purposeMismatchCondition = "({$actualUsageExpr} <> {$defaultUsageExpr})";
         $issueCondition = "({$materialOperationalCondition} OR {$purposeMismatchCondition})";
 
@@ -940,8 +962,6 @@ class Procurement_model extends CI_Model
     {
         $q = trim($q);
         $limit = max(1, min(100, $limit));
-        $hasItemDefaultUsagePurpose = $this->db->table_exists('mst_item')
-            && $this->db->field_exists('default_usage_purpose', 'mst_item');
         $hasCatalog = $this->db->table_exists('mst_purchase_catalog')
             && $this->db->field_exists('profile_key', 'mst_purchase_catalog')
             && $this->db->field_exists('last_purchase_date', 'mst_purchase_catalog');
@@ -969,7 +989,6 @@ class Procurement_model extends CI_Model
                 : 'ROUND(COALESCE(s.avg_cost_per_content, 0) * COALESCE(NULLIF(s.profile_content_per_buy, 0), 1), 2) AS last_unit_price', false)
             ->select($hasCatalog ? 'COALESCE(' . ($hasCatalogVendorPrice ? 'cvp.last_purchase_date, ' : '') . 'c.last_purchase_date) AS last_purchase_date' : 'NULL AS last_purchase_date', false)
             ->select($hasCatalogLineKind ? 'c.line_kind AS catalog_line_kind' : 'NULL AS catalog_line_kind', false)
-            ->select($hasItemDefaultUsagePurpose ? 'i.default_usage_purpose AS default_usage_purpose' : "'BAHAN_BAKU' AS default_usage_purpose", false)
             ->select('i.item_code, i.item_name, m.material_code, m.material_name')
             ->from('inv_warehouse_monthly_stock s')
             ->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false)
@@ -1006,25 +1025,14 @@ class Procurement_model extends CI_Model
             ->result_array();
 
         foreach ($rows as &$row) {
-            $catalogLineKind = strtoupper(trim((string)($row['catalog_line_kind'] ?? '')));
-            $defaultUsagePurpose = $this->normalize_usage_purpose($row['default_usage_purpose'] ?? 'BAHAN_BAKU');
             $resolvedProductionMaterialId = $this->resolve_production_material_id($row['item_id'] ?? null, $row['material_id'] ?? null);
-            if ($defaultUsagePurpose === self::USAGE_PURPOSE_OPERATIONAL && (int)($row['item_id'] ?? 0) > 0) {
-                $row['line_kind'] = 'ITEM';
-            } elseif ($defaultUsagePurpose === self::USAGE_PURPOSE_PRODUCTION && $resolvedProductionMaterialId !== null && $resolvedProductionMaterialId > 0) {
-                $row['line_kind'] = 'ITEM';
+            if ($resolvedProductionMaterialId !== null && $resolvedProductionMaterialId > 0) {
                 $row['material_id'] = $resolvedProductionMaterialId;
-            } elseif ((int)($row['item_id'] ?? 0) > 0) {
-                $row['line_kind'] = 'ITEM';
-            } elseif ((int)($row['material_id'] ?? 0) > 0) {
-                $row['line_kind'] = 'ITEM';
-            } elseif (in_array($catalogLineKind, ['MATERIAL', 'ITEM'], true)) {
-                $row['line_kind'] = 'ITEM';
-            } else {
-                $row['line_kind'] = 'ITEM';
             }
+            $row['line_kind'] = 'ITEM';
+            $defaultUsagePurpose = $this->default_stock_request_usage_purpose($row);
             $row['default_usage_purpose'] = $defaultUsagePurpose;
-            $row['usage_purpose'] = $this->normalize_usage_purpose($row['usage_purpose'] ?? $row['default_usage_purpose']);
+            $row['usage_purpose'] = $defaultUsagePurpose;
         }
         unset($row);
 
@@ -1321,8 +1329,8 @@ class Procurement_model extends CI_Model
         }
 
         $usagePurposeSelect = $this->has_division_request_usage_purpose_column()
-            ? "COALESCE(l.usage_purpose, i.default_usage_purpose, 'BAHAN_BAKU') AS usage_purpose"
-            : "COALESCE(i.default_usage_purpose, 'BAHAN_BAKU') AS usage_purpose";
+            ? 'l.usage_purpose AS usage_purpose'
+            : 'NULL AS usage_purpose';
 
         $this->db
             ->from('pur_division_request_line l')
@@ -1334,8 +1342,7 @@ class Procurement_model extends CI_Model
             ->select('l.*')
             ->select('COALESCE(l.profile_buy_uom_code, bu.code) AS profile_buy_uom_code', false)
             ->select('COALESCE(l.profile_content_uom_code, cu.code) AS profile_content_uom_code', false)
-            ->select($usagePurposeSelect, false)
-            ->select("COALESCE(i.default_usage_purpose, 'BAHAN_BAKU') AS default_usage_purpose", false);
+            ->select($usagePurposeSelect, false);
         if ($this->has_division_request_vendor_column() && $this->db->table_exists('mst_vendor')) {
             $this->db
                 ->select('v.vendor_name')
@@ -1372,15 +1379,12 @@ class Procurement_model extends CI_Model
                 }
             }
 
-            $defaultUsagePurpose = $this->resolve_item_default_usage_purpose(
-                $itemId > 0 ? $itemId : null,
-                $materialId > 0 ? $materialId : null,
-                $profileKey,
-                $profileName !== '' ? $profileName : null
-            );
-            $usagePurpose = trim((string)($line['usage_purpose'] ?? '')) !== ''
-                ? $this->normalize_usage_purpose($line['usage_purpose'])
-                : $defaultUsagePurpose;
+            $defaultUsagePurpose = $this->default_stock_request_usage_purpose([
+                'line_kind' => $line['line_kind'] ?? 'ITEM',
+                'item_id' => $itemId > 0 ? $itemId : null,
+                'material_id' => $materialId > 0 ? $materialId : null,
+            ]);
+            $usagePurpose = $this->resolve_stock_request_usage_purpose($line);
 
             $canonicalIdentity = $this->resolve_canonical_transaction_identity([
                 'item_id' => $itemId > 0 ? $itemId : null,
@@ -1995,13 +1999,12 @@ class Procurement_model extends CI_Model
         }
 
         $usagePurposeSelect = $this->has_store_request_usage_purpose_column()
-            ? "COALESCE(l.usage_purpose, i.default_usage_purpose, 'BAHAN_BAKU') AS usage_purpose"
-            : "COALESCE(i.default_usage_purpose, 'BAHAN_BAKU') AS usage_purpose";
+            ? 'l.usage_purpose AS usage_purpose'
+            : 'NULL AS usage_purpose';
         $lines = $this->db
             ->select('l.*')
             ->select('bu.code AS buy_uom_code, cu.code AS content_uom_code', false)
             ->select($usagePurposeSelect, false)
-            ->select("COALESCE(i.default_usage_purpose, 'BAHAN_BAKU') AS default_usage_purpose", false)
             ->from('pur_store_request_line l')
             ->join('mst_item i', 'i.id = l.item_id', 'left')
             ->join('mst_uom bu', 'bu.id = l.buy_uom_id', 'left')
@@ -2010,6 +2013,11 @@ class Procurement_model extends CI_Model
             ->order_by('line_no', 'ASC')
             ->get()
             ->result_array();
+        foreach ($lines as &$line) {
+            $line['default_usage_purpose'] = $this->default_stock_request_usage_purpose($line);
+            $line['usage_purpose'] = $this->resolve_stock_request_usage_purpose($line);
+        }
+        unset($line);
 
         $fulfillments = [];
         $movementRows = [];
@@ -2441,7 +2449,7 @@ class Procurement_model extends CI_Model
             if ($requestRemain < 0) {
                 $requestRemain = 0;
             }
-            $usagePurpose = $this->normalize_usage_purpose($ln['usage_purpose'] ?? $ln['default_usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION);
+            $usagePurpose = $this->resolve_stock_request_usage_purpose($ln);
             $sourceCtx = $this->resolve_fulfillment_source_context($ln, $usagePurpose);
             $effectiveItemId = $sourceCtx['item_id'] ?? $this->nullable_int($ln['item_id'] ?? null);
             $effectiveMaterialId = $sourceCtx['material_id'] ?? $this->nullable_int($ln['material_id'] ?? null);
@@ -2576,7 +2584,7 @@ class Procurement_model extends CI_Model
                 continue;
             }
 
-            $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION);
+            $usagePurpose = $this->resolve_stock_request_usage_purpose($line);
             $sourceCtx = $this->resolve_fulfillment_source_context($line, $usagePurpose);
             $line['item_id'] = $sourceCtx['item_id'] ?? $this->nullable_int($line['item_id'] ?? null);
             $line['material_id'] = $sourceCtx['material_id'] ?? $this->nullable_int($line['material_id'] ?? null);
@@ -2878,7 +2886,7 @@ class Procurement_model extends CI_Model
             if ($cpb <= 0) {
                 $cpb = 1;
             }
-            $usagePurpose = $this->normalize_usage_purpose($row['usage_purpose'] ?? 'BAHAN_BAKU');
+            $usagePurpose = $this->resolve_stock_request_usage_purpose($row);
             $poNotes = ['Auto shortage dari SR ' . (string)($header['sr_no'] ?? '')];
             if ($usagePurpose === 'OPERASIONAL') {
                 $poNotes[] = 'Tujuan pemakaian: ' . $this->usage_purpose_label($usagePurpose);
@@ -3001,7 +3009,7 @@ class Procurement_model extends CI_Model
             $contentPerBuy = round((float)($line['profile_content_per_buy'] ?? 0), 6);
             $qtyBuyRequested = round((float)($line['qty_buy_requested'] ?? 0), 2);
             $qtyContentRequested = round((float)($line['qty_content_requested'] ?? 0), 2);
-            $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? ($line['default_usage_purpose'] ?? 'BAHAN_BAKU'));
+            $usagePurpose = $this->resolve_stock_request_usage_purpose($line);
 
             if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
                 $resolvedOperationalItemId = $this->resolve_operational_item_id(
@@ -3130,7 +3138,7 @@ class Procurement_model extends CI_Model
             $profileName = $this->nullable_string($line['profile_name'] ?? ($line['catalog_name'] ?? ($line['item_name'] ?? null)));
             $profileBrand = $this->nullable_string($line['profile_brand'] ?? ($line['brand_name'] ?? null));
             $profileDescription = $this->normalize_profile_description($line['profile_description'] ?? ($line['line_description'] ?? null));
-            $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? ($line['default_usage_purpose'] ?? 'BAHAN_BAKU'));
+            $usagePurpose = $this->resolve_stock_request_usage_purpose($line);
 
             if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
                 $resolvedOperationalItemId = $this->resolve_operational_item_id(
@@ -3596,7 +3604,7 @@ class Procurement_model extends CI_Model
 
         foreach ($lineRows as $line) {
             $sourceType = strtoupper(trim((string)($line['source_type'] ?? 'WAREHOUSE')));
-            $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION);
+            $usagePurpose = $this->resolve_stock_request_usage_purpose($line);
             $availableContent = $sourceType === 'WAREHOUSE'
                 ? $this->get_warehouse_available_content(
                     $this->nullable_int($line['item_id'] ?? null),
@@ -3794,6 +3802,16 @@ class Procurement_model extends CI_Model
                 $lineKind = 'ITEM';
             }
 
+            $resolvedProductionMaterialId = $this->resolve_production_material_id($itemId, $materialId);
+            if (($materialId === null || $materialId <= 0) && $resolvedProductionMaterialId !== null) {
+                $materialId = $resolvedProductionMaterialId;
+            }
+            $defaultUsagePurpose = $this->default_stock_request_usage_purpose([
+                'line_kind' => $lineKind,
+                'item_id' => $itemId,
+                'material_id' => $materialId,
+            ]);
+
             $buyUomId = (int)($row['buy_uom_id'] ?? 0);
             $contentUomId = (int)($row['content_uom_id'] ?? 0);
             if ($buyUomId <= 0 || $contentUomId <= 0) {
@@ -3823,10 +3841,15 @@ class Procurement_model extends CI_Model
                 'item_id' => $itemId > 0 ? $itemId : null,
                 'material_id' => $materialId > 0 ? $materialId : null,
                 'profile_key' => $profileKey,
-            ]);
+            ], $defaultUsagePurpose);
             $itemId = (int)($canonicalIdentity['item_id'] ?? 0);
             $materialId = (int)($canonicalIdentity['material_id'] ?? 0);
             $lineKind = $itemId > 0 ? 'ITEM' : (string)($canonicalIdentity['line_kind'] ?? $lineKind);
+            $defaultUsagePurpose = $this->default_stock_request_usage_purpose([
+                'line_kind' => $lineKind,
+                'item_id' => $itemId > 0 ? $itemId : null,
+                'material_id' => $materialId > 0 ? $materialId : null,
+            ]);
 
             $identity = $this->build_division_request_candidate_identity([
                 'line_kind' => $lineKind,
@@ -3863,8 +3886,8 @@ class Procurement_model extends CI_Model
                 'standard_price' => round((float)($row['standard_price'] ?? 0), 2),
                 'last_unit_price' => round((float)($row['last_unit_price'] ?? ($row['standard_price'] ?? 0)), 2),
                 'last_purchase_date' => $this->normalize_date((string)($row['last_purchase_date'] ?? '')),
-                'default_usage_purpose' => $this->normalize_usage_purpose($row['default_usage_purpose'] ?? 'BAHAN_BAKU'),
-                'usage_purpose' => $this->normalize_usage_purpose($row['usage_purpose'] ?? ($row['default_usage_purpose'] ?? 'BAHAN_BAKU')),
+                'default_usage_purpose' => $defaultUsagePurpose,
+                'usage_purpose' => $defaultUsagePurpose,
                 'source_type' => strtoupper(trim((string)($row['source_type'] ?? 'CATALOG'))),
                 'search_source' => 'CATALOG',
             ];
@@ -4299,8 +4322,9 @@ class Procurement_model extends CI_Model
                     $availabilityMaterialIds[$availabilityMaterialId] = $availabilityMaterialId;
                 }
 
+                $usagePurpose = $this->resolve_stock_request_usage_purpose($line);
                 $stockDomain = $this->resolve_line_stock_domain($line);
-                $stockMaterialId = $this->resolve_usage_material_id_for_stock($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION, $line);
+                $stockMaterialId = $this->resolve_usage_material_id_for_stock($usagePurpose, $line);
                 $baseIdentity = [
                     'stock_domain' => $stockDomain,
                     'item_id' => (int)($line['item_id'] ?? 0),
@@ -4410,7 +4434,7 @@ class Procurement_model extends CI_Model
 
     private function resolveAvailabilityMaterialIdFromLine(array $line): int
     {
-        $usagePurpose = $this->normalize_usage_purpose($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION);
+        $usagePurpose = $this->resolve_stock_request_usage_purpose($line);
         if ($usagePurpose === self::USAGE_PURPOSE_OPERATIONAL) {
             return 0;
         }
@@ -4520,7 +4544,7 @@ class Procurement_model extends CI_Model
 
     private function resolve_line_stock_domain(array $line): string
     {
-        return $this->resolve_usage_stock_domain($line['usage_purpose'] ?? self::USAGE_PURPOSE_PRODUCTION, $line);
+        return $this->resolve_usage_stock_domain($this->resolve_stock_request_usage_purpose($line), $line);
     }
 
     private function normalize_destination(string $destination): ?string

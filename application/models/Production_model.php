@@ -3943,6 +3943,35 @@ class Production_model extends CI_Model
             }
         }
 
+        // Carry-forward must never turn an invalid component valuation into a
+        // zero-cost opening lot. Quantity can be correct while its HPP is not.
+        $negativeValuationSamples = [];
+        foreach ($aggregated as $row) {
+            $closingQty = round((float)($row['closing_qty'] ?? 0), 4);
+            $avgCost = round((float)($row['avg_cost'] ?? 0), 6);
+            $totalValue = round((float)($row['total_value'] ?? 0), 2);
+            if ($closingQty <= 0.0001 || ($avgCost >= -0.000001 && $totalValue >= -0.01)) {
+                continue;
+            }
+
+            $negativeValuationSamples[] = [
+                'component_id' => (int)($row['component_id'] ?? 0),
+                'location_type' => (string)($row['location_type'] ?? '-'),
+                'division_id' => $row['division_id'] ?? null,
+                'closing_qty' => $closingQty,
+                'avg_cost' => $avgCost,
+                'total_value' => $totalValue,
+            ];
+        }
+        if (!empty($negativeValuationSamples)) {
+            return [
+                'ok' => false,
+                'message' => 'Generate ditolak: terdapat ' . count($negativeValuationSamples)
+                    . ' component dengan nilai/HPP negatif. Perbaiki valuasi sumber terlebih dahulu agar lot opening tidak menjadi nol.',
+                'data' => ['negative_valuation_samples' => array_slice($negativeValuationSamples, 0, 10)],
+            ];
+        }
+
         $conflictQuery = $this->db->from('inv_component_monthly_opening')
             ->where('month_key', $nextMonthStart)
             ->group_start()

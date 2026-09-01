@@ -152,6 +152,45 @@ class Assets extends MY_Controller
         redirect('asset-management/detail/' . $id);
     }
 
+    /** Hapus hanya untuk unit yang masih OPEN dan belum punya jejak operasional. */
+    public function delete($id)
+    {
+        $this->require_permission(self::PAGE_ITEM, 'delete');
+        $asset = $this->Asset_model->find_asset((int)$id);
+        if (!$asset) {
+            show_404();
+            return;
+        }
+        if (!$this->ensure_asset_in_scope($asset, 'asset-management')) {
+            return;
+        }
+
+        $result = $this->Asset_model->delete_open_asset((int)$asset['id'], $this->active_division_id());
+        if (empty($result['ok'])) {
+            $this->session->set_flashdata('error', (string)($result['message'] ?? 'Aset gagal dihapus.'));
+            redirect('asset-management/detail/' . (int)$asset['id']);
+            return;
+        }
+
+        $groupKey = strtolower(trim((string)($result['group_key'] ?? '')));
+        $redirect = 'asset-management';
+        if (preg_match('/^[a-f0-9]{40}$/', $groupKey)) {
+            $scopeId = $this->active_division_id();
+            $group = $this->Asset_model->find_asset_group($groupKey, [
+                'q' => '',
+                'status' => 'ALL',
+                'division_id' => $scopeId ?? 0,
+                'division_scope_id' => $scopeId ?? 0,
+            ]);
+            if ($group) {
+                $redirect = $this->asset_group_url($groupKey, $scopeId);
+            }
+        }
+
+        $this->session->set_flashdata('success', 'Unit aset ' . (string)($result['asset_code'] ?? '') . ' berhasil dihapus.');
+        redirect($redirect);
+    }
+
     public function detail($id)
     {
         $this->require_permission(self::PAGE_ITEM, 'view');
@@ -170,6 +209,7 @@ class Assets extends MY_Controller
             'asset' => $asset,
             'events' => $this->Asset_model->asset_events((int)$id),
             'can_edit' => $this->can(self::PAGE_ITEM, 'edit'),
+            'can_delete' => $this->can(self::PAGE_ITEM, 'delete'),
             'can_lock' => $this->can(self::PAGE_ITEM, 'edit'),
             'can_change_create' => $this->can(self::PAGE_MASTER_CHANGE, 'create'),
             'master_lock_ready' => $this->Asset_model->master_lock_ready(),
@@ -213,12 +253,90 @@ class Assets extends MY_Controller
             'rows' => $this->Asset_model->list_assets($filters, $pg['per_page'], $pg['offset']),
             'divisions' => $this->Asset_model->division_options(),
             'status_labels' => $this->Asset_model->status_labels(),
+            'can_create' => $this->can(self::PAGE_ITEM, 'create'),
             'can_edit' => $this->can(self::PAGE_ITEM, 'edit'),
+            'can_delete' => $this->can(self::PAGE_ITEM, 'delete'),
             'can_lock' => $this->can(self::PAGE_ITEM, 'edit'),
             'can_change_create' => $this->can(self::PAGE_MASTER_CHANGE, 'create'),
             'master_lock_ready' => $this->Asset_model->master_lock_ready(),
             'can_damage' => $this->can(self::PAGE_DAMAGE, 'create'),
         ]);
+    }
+
+    /** Menyesuaikan jumlah unit dalam satu grup, tanpa menyentuh unit terkunci. */
+    public function group_quantity($groupKey)
+    {
+        $this->require_permission(self::PAGE_ITEM, 'edit');
+
+        $groupKey = strtolower(trim((string)$groupKey));
+        if (!preg_match('/^[a-f0-9]{40}$/', $groupKey)) {
+            show_404();
+            return;
+        }
+
+        $scopeId = $this->active_division_id();
+        $divisionId = (int)$this->input->post('division_id', true);
+        if ($scopeId !== null) {
+            $divisionId = $scopeId;
+        }
+        $redirect = $this->asset_group_url($groupKey, $divisionId > 0 ? $divisionId : null);
+
+        $rawTarget = trim((string)$this->input->post('target_quantity', true));
+        if ($rawTarget === '' || !preg_match('/^\d+$/', $rawTarget)) {
+            $this->session->set_flashdata('error', 'Jumlah aset harus berupa bilangan bulat nol atau lebih.');
+            redirect($redirect);
+            return;
+        }
+        $targetQuantity = (int)$rawTarget;
+
+        $group = $this->Asset_model->find_asset_group($groupKey, [
+            'q' => '',
+            'status' => 'ALL',
+            'division_id' => $divisionId,
+            'division_scope_id' => $scopeId ?? 0,
+        ]);
+        if (!$group) {
+            show_404();
+            return;
+        }
+
+        $currentQuantity = (int)($group['unit_count'] ?? 0);
+        if ($targetQuantity > $currentQuantity && !$this->can(self::PAGE_ITEM, 'create')) {
+            $this->session->set_flashdata('error', 'Anda tidak memiliki hak untuk menambah unit aset.');
+            redirect($redirect);
+            return;
+        }
+        if ($targetQuantity < $currentQuantity && !$this->can(self::PAGE_ITEM, 'delete')) {
+            $this->session->set_flashdata('error', 'Anda tidak memiliki hak untuk mengurangi unit aset.');
+            redirect($redirect);
+            return;
+        }
+
+        $result = $this->Asset_model->adjust_group_quantity(
+            $groupKey,
+            $targetQuantity,
+            $this->serial_numbers_from_post(),
+            $this->actor_user_id(),
+            $divisionId > 0 ? $divisionId : null,
+            $scopeId
+        );
+        if (empty($result['ok'])) {
+            $this->session->set_flashdata('error', (string)($result['message'] ?? 'Jumlah aset gagal disesuaikan.'));
+            redirect($redirect);
+            return;
+        }
+
+        $created = (int)($result['created'] ?? 0);
+        $deleted = (int)($result['deleted'] ?? 0);
+        if ($created > 0) {
+            $message = $created . ' unit aset ditambahkan. Total sekarang ' . (int)($result['quantity'] ?? $targetQuantity) . ' unit.';
+        } elseif ($deleted > 0) {
+            $message = $deleted . ' unit pendataan dihapus. Total sekarang ' . (int)($result['quantity'] ?? $targetQuantity) . ' unit.';
+        } else {
+            $message = 'Jumlah aset sudah sesuai: ' . (int)($result['quantity'] ?? $targetQuantity) . ' unit.';
+        }
+        $this->session->set_flashdata('success', $message);
+        redirect($targetQuantity === 0 ? 'asset-management' : $redirect);
     }
 
     /** Mengunci satu atau banyak data awal aset tanpa mengubah kondisi fisiknya. */
@@ -1518,6 +1636,15 @@ class Assets extends MY_Controller
         $this->session->set_flashdata('error', 'Aset ini berada di luar scope divisi Anda.');
         redirect($fallback);
         return false;
+    }
+
+    private function asset_group_url(string $groupKey, ?int $divisionId = null): string
+    {
+        $url = 'asset-management/group/' . rawurlencode($groupKey);
+        if ($divisionId !== null && $divisionId > 0) {
+            $url .= '?division_id=' . $divisionId;
+        }
+        return $url;
     }
 
     private function render_form(?array $asset): void

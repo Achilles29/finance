@@ -397,9 +397,6 @@ foreach ($detailLines as $ln) {
   #po-line-table .line-qty,
   #po-line-table .line-content { min-width: 140px; }
   #po-line-table .line-price { min-width: 150px; }
-  #po-line-table.line-mode-noninventory .line-usage-col {
-    display: none;
-  }
 </style>
 
 <div class="card mb-3 po-header-card">
@@ -582,15 +579,19 @@ foreach ($detailLines as $ln) {
         </div>
         <div class="po-catalog-draft-fields">
           <div class="row g-3">
-            <div class="col-md-3">
+            <div class="col-md-2">
               <label class="form-label mb-1">Jenis Line</label>
               <input type="text" class="form-control" id="catalog-draft-kind" readonly>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label mb-1">Pemakaian</label>
+              <select class="form-select" id="catalog-draft-usage-purpose"></select>
             </div>
             <div class="col-md-3">
               <label class="form-label mb-1">Merk</label>
               <input type="text" class="form-control" id="catalog-draft-brand">
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
               <label class="form-label mb-1">Keterangan</label>
               <input type="text" class="form-control" id="catalog-draft-desc">
             </div>
@@ -679,6 +680,7 @@ foreach ($detailLines as $ln) {
   var catalogDraftSubtitleEl = document.getElementById('catalog-draft-subtitle');
   var catalogDraftTargetNoteEl = document.getElementById('catalog-draft-target-note');
   var catalogDraftKindEl = document.getElementById('catalog-draft-kind');
+  var catalogDraftUsagePurposeEl = document.getElementById('catalog-draft-usage-purpose');
   var catalogDraftBrandEl = document.getElementById('catalog-draft-brand');
   var catalogDraftDescEl = document.getElementById('catalog-draft-desc');
   var catalogDraftBuyUomEl = document.getElementById('catalog-draft-buy-uom');
@@ -908,7 +910,41 @@ foreach ($detailLines as $ln) {
   }
 
   function lineUsesUsagePurpose(line) {
-    return isInventoryType && lineIsInventoryTracked(line);
+    return lineIsInventoryTracked(line);
+  }
+
+  function normalizeUsagePurpose(value) {
+    return String(value || '').trim().toUpperCase() === 'OPERASIONAL'
+      ? 'OPERASIONAL'
+      : 'BAHAN_BAKU';
+  }
+
+  function lineHasProductionMaterial(line) {
+    var lineKind = String(line && line.line_kind || '').trim().toUpperCase();
+    return lineKind === 'MATERIAL' || num(line && line.material_id) > 0;
+  }
+
+  function defaultUsagePurposeForLine(line) {
+    return isInventoryType && lineHasProductionMaterial(line)
+      ? 'BAHAN_BAKU'
+      : 'OPERASIONAL';
+  }
+
+  function applyLineUsagePurposeDefault(line, preserveManualChoice) {
+    if (!line || (preserveManualChoice !== false && line.usage_purpose_is_manual)) {
+      return;
+    }
+
+    var usagePurpose = defaultUsagePurposeForLine(line);
+    line.default_usage_purpose = usagePurpose;
+    line.usage_purpose = usagePurpose;
+    line.usage_purpose_is_manual = false;
+  }
+
+  function buildUsagePurposeOptions(selectedValue) {
+    var selected = normalizeUsagePurpose(selectedValue);
+    return '<option value="BAHAN_BAKU"' + (selected === 'BAHAN_BAKU' ? ' selected' : '') + '>Persediaan Produksi</option>'
+      + '<option value="OPERASIONAL"' + (selected === 'OPERASIONAL' ? ' selected' : '') + '>Kebutuhan Operasional</option>';
   }
 
   function lineSuggestionKeyword(line) {
@@ -1067,6 +1103,9 @@ foreach ($detailLines as $ln) {
       expiry_policy: String(it.expiry_policy || current.expiry_policy || ((it.expired_date || current.expired_date) ? 'EXACT_DATE' : 'NONE')),
       required_expiry_date: dateVal(it.required_expiry_date || it.expired_date || current.required_expiry_date || current.expired_date || ''),
       min_remaining_days: num(it.min_remaining_days || current.min_remaining_days || 0) || null,
+      default_usage_purpose: normalizeUsagePurpose(current.default_usage_purpose || current.usage_purpose),
+      usage_purpose: normalizeUsagePurpose(current.usage_purpose || current.default_usage_purpose),
+      usage_purpose_is_manual: !!current.usage_purpose_is_manual,
       notes: current.notes || '',
       catalog_suggestions: [],
       suggestion_loading: false,
@@ -1080,6 +1119,7 @@ foreach ($detailLines as $ln) {
       next.conversion_factor_to_content = 1;
     }
     applyLineTypeDefaults(next);
+    applyLineUsagePurposeDefault(next);
     return next;
   }
 
@@ -1097,9 +1137,11 @@ foreach ($detailLines as $ln) {
 
     lines.forEach(function (line) {
       applyLineTypeDefaults(line);
+      applyLineUsagePurposeDefault(line);
     });
     if (catalogDraftLine) {
       applyLineTypeDefaults(catalogDraftLine);
+      applyLineUsagePurposeDefault(catalogDraftLine);
       renderCatalogDraft();
     }
     refreshLines();
@@ -1135,7 +1177,9 @@ foreach ($detailLines as $ln) {
       expiry_policy: 'NONE',
       required_expiry_date: '',
       min_remaining_days: null,
-      usage_purpose: 'BAHAN_BAKU',
+      default_usage_purpose: 'OPERASIONAL',
+      usage_purpose: 'OPERASIONAL',
+      usage_purpose_is_manual: false,
       notes: '',
       catalog_suggestions: [],
       suggestion_loading: false,
@@ -1237,6 +1281,10 @@ foreach ($detailLines as $ln) {
     if (catalogDraftKindEl) {
       catalogDraftKindEl.value = kind;
     }
+    if (catalogDraftUsagePurposeEl) {
+      catalogDraftUsagePurposeEl.innerHTML = buildUsagePurposeOptions(catalogDraftLine.usage_purpose || catalogDraftLine.default_usage_purpose);
+      catalogDraftUsagePurposeEl.disabled = lineInputsDisabled;
+    }
     if (catalogDraftBrandEl) {
       catalogDraftBrandEl.value = String(catalogDraftLine.brand_name || '');
     }
@@ -1309,6 +1357,7 @@ foreach ($detailLines as $ln) {
       var targetIdx = resolveCatalogTargetIndex();
       var nextLine = Object.assign(createEmptyLine(), catalogDraftLine);
       applyLineTypeDefaults(nextLine);
+      applyLineUsagePurposeDefault(nextLine);
       if (targetIdx >= 0) {
         lines[targetIdx] = nextLine;
       } else {
@@ -1582,7 +1631,7 @@ foreach ($detailLines as $ln) {
 
   function refreshLines() {
     if (!lines.length) {
-      lineTbody.innerHTML = '<tr><td colspan="' + (isInventoryType ? 12 : 11) + '" class="text-center text-muted py-3">Belum ada line.</td></tr>';
+      lineTbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-3">Belum ada line.</td></tr>';
       return;
     }
 
@@ -1602,7 +1651,7 @@ foreach ($detailLines as $ln) {
       var lineInputsDisabled = isPaymentOnlyEditMode;
       var expiryDisabled = !isInventoryType || isPaymentOnlyEditMode;
       var usageHtml = lineUsesUsagePurpose(l)
-        ? '<div class="form-control form-control-sm line-usage bg-light">' + esc(String(l.usage_purpose || 'BAHAN_BAKU') === 'OPERASIONAL' ? 'Kebutuhan Operasional' : 'Persediaan Produksi') + '</div>'
+        ? '<select class="form-select form-select-sm line-usage line-usage-purpose" title="Nilai awal mengikuti tipe belanja dan material katalog; tetap dapat diubah"' + (lineInputsDisabled ? ' disabled' : '') + '>' + buildUsagePurposeOptions(l.usage_purpose || l.default_usage_purpose) + '</select>'
         : '<div class="text-muted small">-</div>';
       var materialNameInput = (l.material_name || '');
       var showMaterialForm = materialLocked || (Number(l.material_id || 0) > 0);
@@ -1863,6 +1912,12 @@ foreach ($detailLines as $ln) {
         catalogDraftLine.content_uom_id = contentId > 0 ? contentId : null;
         catalogDraftLine.content_uom_code = (contentId > 0 && uomById[contentId]) ? (uomById[contentId].code || '') : '';
       }
+
+      if (e.target === catalogDraftUsagePurposeEl) {
+        catalogDraftLine.usage_purpose = normalizeUsagePurpose(e.target.value);
+        catalogDraftLine.default_usage_purpose = catalogDraftLine.usage_purpose;
+        catalogDraftLine.usage_purpose_is_manual = true;
+      }
     });
   }
 
@@ -1971,6 +2026,7 @@ foreach ($detailLines as $ln) {
         lines[idx].material_content_uom_id = null;
         lines[idx].material_content_uom_code = '';
         lines[idx].selected_display_name = '';
+        applyLineUsagePurposeDefault(lines[idx]);
 
         if (num(lines[idx].qty_buy) <= 0) {
           lines[idx].qty_buy = 1;
@@ -2044,6 +2100,11 @@ foreach ($detailLines as $ln) {
       var contentId = num(e.target.value);
       lines[idx].content_uom_id = contentId > 0 ? contentId : null;
       lines[idx].content_uom_code = (contentId > 0 && uomById[contentId]) ? (uomById[contentId].code || '') : '';
+    }
+    if (e.target.classList.contains('line-usage-purpose')) {
+      lines[idx].usage_purpose = normalizeUsagePurpose(e.target.value);
+      lines[idx].default_usage_purpose = lines[idx].usage_purpose;
+      lines[idx].usage_purpose_is_manual = true;
     }
   });
 
@@ -2227,6 +2288,9 @@ foreach ($detailLines as $ln) {
       mapped.required_expiry_date = dateVal(mapped.required_expiry_date || mapped.expired_date);
       mapped.expiry_policy = String(mapped.expiry_policy || (mapped.required_expiry_date ? 'EXACT_DATE' : 'NONE'));
       mapped.min_remaining_days = num(mapped.min_remaining_days || 0) || null;
+      mapped.default_usage_purpose = normalizeUsagePurpose(mapped.default_usage_purpose || mapped.usage_purpose);
+      mapped.usage_purpose = normalizeUsagePurpose(mapped.usage_purpose || mapped.default_usage_purpose);
+      mapped.usage_purpose_is_manual = true;
       mapped.catalog_suggestions = [];
       mapped.suggestion_loading = false;
       mapped.suggestion_query = '';

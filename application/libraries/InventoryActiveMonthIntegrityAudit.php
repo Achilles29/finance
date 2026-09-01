@@ -239,7 +239,8 @@ class InventoryActiveMonthIntegrityAudit
     private function checkPostedMaterialAdjustments(string $month, string $nextMonth, int $limit): array
     {
         $sql = "SELECT h.id, h.adjustment_no, h.adjustment_date, h.stock_scope, h.division_id, h.destination_type,
-                       l.changed_line_count, COALESCE(m.movement_count, 0) AS movement_count
+                       l.changed_line_count, COALESCE(m.movement_count, 0) AS movement_count,
+                       COALESCE(d.deficit_count, 0) AS deficit_count
                 FROM inv_stock_adjustment h
                 INNER JOIN (
                     SELECT adjustment_id,
@@ -258,18 +259,27 @@ class InventoryActiveMonthIntegrityAudit
                     WHERE ref_table = 'inv_stock_adjustment'
                     GROUP BY ref_id
                 ) m ON m.ref_id = h.id
+                LEFT JOIN (
+                    SELECT source_id, COUNT(*) AS deficit_count
+                    FROM inv_stock_deficit
+                    WHERE stock_domain = 'MATERIAL'
+                      AND source_table = 'inv_stock_adjustment'
+                      AND status <> 'VOID'
+                    GROUP BY source_id
+                ) d ON d.source_id = h.id
                 WHERE h.status = 'POSTED'
                   AND h.adjustment_date >= ? AND h.adjustment_date < ?
                   AND l.changed_line_count > 0
-                  AND COALESCE(m.movement_count, 0) = 0";
+                  AND COALESCE(m.movement_count, 0) = 0
+                  AND COALESCE(d.deficit_count, 0) = 0";
         return $this->queryCheck(
             'POSTED_MATERIAL_ADJUSTMENT_TRACE',
-            'Adjustment bahan baku posted tanpa movement',
+            'Adjustment bahan baku posted tanpa movement atau defisit',
             'ERROR',
             $sql,
             [$month, $nextMonth],
             $limit,
-            'Setiap adjustment bahan baku yang benar-benar mengubah stok harus memiliki jejak movement.'
+            'Setiap adjustment bahan baku yang benar-benar mengubah stok harus memiliki jejak movement atau defisit eksplisit.'
         );
     }
 

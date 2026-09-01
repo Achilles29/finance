@@ -8,6 +8,7 @@ $verifierL3Ids = (array)($pending_verifier_l3_position_ids ?? []);
 $scheduleOverridePositionIds = (array)($schedule_monthly_override_position_ids ?? []);
 $scheduleOverrideUserIds = (array)($schedule_monthly_override_user_ids ?? []);
 $userOptions = (array)($user_options ?? []);
+$overtimeStandardOptions = (array)($overtime_standard_options ?? []);
 
 $val = static function ($key, $default = '') use ($policy) {
     $posted = set_value($key);
@@ -179,7 +180,7 @@ if ($revisionWindowDays <= 0) {
         <div class="col-12"><hr class="my-1"></div>
         <div class="col-12"><h6 class="mb-0">C. PH & Uang Makan</h6></div>
 
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label">Mode Hitung Lembur</label>
           <select name="overtime_calc_mode" class="form-select">
             <?php foreach (['AUTO' => 'Otomatis dari Checkout', 'MANUAL' => 'Manual dari Pengajuan'] as $opt => $label): ?>
@@ -188,13 +189,26 @@ if ($revisionWindowDays <= 0) {
           </select>
           <div class="form-text">Mode MANUAL: lembur otomatis dari checkout dimatikan (overtime_minutes = 0). Nilai lembur diambil dari entri lembur manual yang approved.</div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
+          <label class="form-label">Standar Lembur Default</label>
+          <select name="default_overtime_standard_id" class="form-select">
+            <option value="">Pilih standar master</option>
+            <?php foreach ($overtimeStandardOptions as $standard): ?>
+              <?php $standardId = (int)($standard['value'] ?? 0); ?>
+              <option value="<?php echo $standardId; ?>" <?php echo ((int)$val('default_overtime_standard_id', 0) === $standardId) ? 'selected' : ''; ?>>
+                <?php echo html_escape((string)($standard['standard_code'] ?? '') . ' - ' . (string)($standard['standard_name'] ?? '') . ' (Rp ' . number_format((float)($standard['hourly_rate'] ?? 0), 2, ',', '.') . '/jam)'); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+          <div class="form-text">Dipakai hanya oleh mode AUTO. Lembur manual selalu memilih standar pada setiap entri.</div>
+        </div>
+        <div class="col-md-3">
           <label class="form-label">Kehadiran Shift PH</label>
           <div class="form-control bg-light text-wrap py-2">Otomatis hadir saat pegawai membuka halaman Absensi Saya.</div>
           <input type="hidden" name="ph_attendance_mode" value="AUTO_PRESENT">
           <div class="form-text">PH adalah hak libur berbayar; shift PH memakai satu saldo PH, bukan presensi kerja biasa.</div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label">Aturan Mendapat PH</label>
           <div class="form-control bg-light text-wrap py-2">Otomatis: pegawai eligible hadir pada hari libur nasional dengan shift kerja reguler.</div>
           <input type="hidden" name="ph_grant_mode" value="HOLIDAY_ONLY">

@@ -54,7 +54,7 @@ $usagePurposeLabel = static function (string $purpose): string {
 $usagePurposeIssueLabel = static function (string $issueType): string {
   return strtoupper(trim($issueType)) === 'MATERIAL_AS_OPERATIONAL'
     ? 'Material sebagai operasional'
-    : 'Tujuan berbeda dari master';
+    : 'Tujuan berbeda dari default';
 };
 $buildStatusTabUrl = static function (string $statusValue) use ($baseFilters, $activeTab): string {
   $filters = $baseFilters;
@@ -632,7 +632,7 @@ foreach ($lineRows as $lineRow) {
         <div class="sr-purpose-flare-meta">
           <?php echo number_format((int)($usagePurposeAttention['total_lines'] ?? 0)); ?> line pada
           <?php echo number_format((int)($usagePurposeAttention['document_count'] ?? 0)); ?> SR di rentang tanggal ini
-          tidak selaras dengan default master, atau merupakan material yang ditandai operasional. Data tidak diubah otomatis.
+          tidak selaras dengan default material, atau merupakan material yang ditandai operasional. Data tidak diubah otomatis.
         </div>
       </div>
     </div>
@@ -641,7 +641,7 @@ foreach ($lineRows as $lineRow) {
         <span class="sr-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['material_operational_count']); ?> material operasional</span>
       <?php endif; ?>
       <?php if ((int)($usagePurposeAttention['purpose_mismatch_count'] ?? 0) > 0): ?>
-        <span class="sr-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['purpose_mismatch_count']); ?> tujuan ≠ master</span>
+        <span class="sr-purpose-flare-chip"><?php echo number_format((int)$usagePurposeAttention['purpose_mismatch_count']); ?> tujuan ≠ default</span>
       <?php endif; ?>
     </div>
   </div>
@@ -654,7 +654,7 @@ foreach ($lineRows as $lineRow) {
           <span><?php echo html_escape($usagePurposeIssueLabel((string)($attentionRow['issue_type'] ?? ''))); ?></span>
         </span>
         <span class="sr-purpose-flare-line"><?php echo html_escape((string)($attentionRow['line_name'] ?? '-')); ?></span>
-        <small>Transaksi: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['actual_usage_purpose'] ?? ''))); ?> · Master: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['default_usage_purpose'] ?? ''))); ?></small>
+        <small>Transaksi: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['actual_usage_purpose'] ?? ''))); ?> · Default: <?php echo html_escape($usagePurposeLabel((string)($attentionRow['default_usage_purpose'] ?? ''))); ?></small>
       </a>
     <?php endforeach; ?>
   </div>
@@ -969,6 +969,14 @@ foreach ($lineRows as $lineRow) {
   function fmtMoney(v){ return 'Rp ' + num(v).toLocaleString('id-ID', {minimumFractionDigits:2, maximumFractionDigits:2}); }
   function fmtDate(v){ return v ? esc(v) : '-'; }
   function normalizeUsagePurpose(value){ return String(value || '').toUpperCase().trim() === 'OPERASIONAL' ? 'OPERASIONAL' : 'BAHAN_BAKU'; }
+  function defaultUsagePurposeForRow(row){
+    var lineKind = String(row && row.line_kind || '').toUpperCase().trim();
+    return lineKind === 'MATERIAL' || num(row && row.material_id) > 0 ? 'BAHAN_BAKU' : 'OPERASIONAL';
+  }
+  function resolvedUsagePurposeForRow(row){
+    if (row && String(row.usage_purpose || '').trim() !== '') return normalizeUsagePurpose(row.usage_purpose);
+    return defaultUsagePurposeForRow(row);
+  }
   function renderUsagePurposeOptions(selected){
     var normalized = normalizeUsagePurpose(selected);
     var html = '';
@@ -1159,8 +1167,8 @@ foreach ($lineRows as $lineRow) {
       qty_content_balance: num(row.qty_content_balance),
       qty_buy_requested: 1,
       qty_content_requested: Number(cpb.toFixed(2)),
-      default_usage_purpose: normalizeUsagePurpose(row.default_usage_purpose || row.usage_purpose),
-      usage_purpose: normalizeUsagePurpose(row.usage_purpose || row.default_usage_purpose)
+      default_usage_purpose: defaultUsagePurposeForRow(row),
+      usage_purpose: resolvedUsagePurposeForRow(row)
     });
     renderCreateLines();
   }

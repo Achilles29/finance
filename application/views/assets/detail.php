@@ -46,6 +46,9 @@ $statusClass = [
     <?php if (!empty($can_damage)): ?><a href="<?= site_url('asset-management/damage/' . (int)$asset['id']) ?>" class="btn btn-outline-danger"><i class="ri ri-alert-line me-1"></i>Lapor Rusak</a><?php endif; ?>
     <?php if ($isMasterLocked && !empty($can_change_create)): ?><a href="<?= site_url('asset-management/changes/create/' . (int)$asset['id']) ?>" class="btn btn-primary"><i class="ri ri-file-edit-line me-1"></i>Ajukan Perubahan</a><?php endif; ?>
     <?php if (!$isMasterLocked && !empty($can_edit)): ?><a href="<?= site_url('asset-management/edit/' . (int)$asset['id']) ?>" class="btn btn-primary"><i class="ri ri-edit-line me-1"></i>Edit Data Awal</a><?php endif; ?>
+    <?php if (!$isMasterLocked && !empty($can_delete)): ?>
+      <form method="post" action="<?= site_url('asset-management/delete/' . (int)$asset['id']) ?>" onsubmit="return confirm('Hapus unit aset ini? Aset hanya dapat dihapus bila masih pendataan dan belum memiliki jejak operasional.');"><button type="submit" class="btn btn-outline-danger"><i class="ri ri-delete-bin-line me-1"></i>Hapus Unit</button></form>
+    <?php endif; ?>
     <?php if (!$isMasterLocked && !empty($can_lock) && $masterLockReady): ?>
       <form method="post" action="<?= site_url('asset-management/lock/' . (int)$asset['id']) ?>" onsubmit="return confirm('Kunci data awal aset ini? Perubahan berikutnya wajib melalui pengajuan perubahan data aset.');"><button type="submit" class="btn btn-outline-success"><i class="ri ri-lock-line me-1"></i>Kunci Data</button></form>
     <?php endif; ?>

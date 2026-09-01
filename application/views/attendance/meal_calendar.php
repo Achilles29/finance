@@ -189,7 +189,17 @@ $renderCell = static function (array $dailyRow): array {
                 <small class="text-muted"><?php echo html_escape((string)($r['employee_code'] ?? '')); ?></small>
               </td>
               <td class="mc-sticky-2 mc-col-div"><?php echo html_escape((string)($r['division_name'] ?? '-')); ?></td>
-              <td class="mc-sticky-3 mc-col-rate"><?php echo number_format((float)($r['meal_rate'] ?? 0), 0, ',', '.'); ?></td>
+              <?php
+                $mealRateMin = (float)($r['meal_rate_min'] ?? $r['meal_rate'] ?? 0);
+                $mealRateMax = (float)($r['meal_rate'] ?? 0);
+              ?>
+              <td class="mc-sticky-3 mc-col-rate" title="Tarif uang makan per hari dari snapshot absensi pada rentang terpilih.">
+                <?php if (abs($mealRateMax - $mealRateMin) > 0.005): ?>
+                  <?php echo number_format($mealRateMin, 0, ',', '.'); ?>-<?php echo number_format($mealRateMax, 0, ',', '.'); ?>
+                <?php else: ?>
+                  <?php echo number_format($mealRateMax, 0, ',', '.'); ?>
+                <?php endif; ?>
+              </td>
               <?php foreach ($days as $d): ?>
                 <?php
                   $dateKey = (string)$d['date'];

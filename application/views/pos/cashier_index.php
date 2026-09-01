@@ -891,12 +891,32 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
     gap:.18rem;
     min-width:0;
   }
+  .cashier-recent-top,
+  .cashier-recent-bottom {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:.6rem;
+    min-width:0;
+  }
+  .cashier-recent-bottom { margin-top:.42rem; }
+  .cashier-recent-total {
+    flex:0 0 auto;
+    color:#2f2628;
+    font-size:.88rem;
+    font-weight:900;
+    line-height:1.2;
+    white-space:nowrap;
+  }
   .cashier-recent-order-no {
+    min-width:0;
     font-weight:800;
     color:#2f2628;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
+    font-size:.78rem;
+    line-height:1.22;
+    letter-spacing:-.015em;
+    overflow-wrap:anywhere;
+    word-break:break-word;
   }
   .cashier-recent-customer {
     font-size:.74rem;
@@ -908,6 +928,13 @@ $reversalReasonOptions = is_array($filterOptions['reversal_reason_options'] ?? n
     font-size:.72rem;
     color:#8a7a72;
     line-height:1.15;
+  }
+  @media (max-width:420px) {
+    .cashier-recent-item { padding:.78rem .82rem; }
+    .cashier-recent-top,
+    .cashier-recent-bottom { gap:.45rem; }
+    .cashier-recent-order-no { font-size:.74rem; }
+    .cashier-recent-total { font-size:.82rem; }
   }
   .cashier-extra-modal .form-control,
   .cashier-extra-modal .form-select {
@@ -2676,9 +2703,12 @@ document.addEventListener('DOMContentLoaded', function () {
     return `<span class="cashier-status-chip ${kind}">${escapeHtml(label)}</span>`;
   }
 
-  function stockCommitChip(status) {
+  function stockCommitChip(status, orderStatus = '') {
     const value = String(status || '').toUpperCase();
     if (!value) return '';
+    if (value === 'PENDING' && ['DRAFT', 'PENDING'].includes(String(orderStatus || '').toUpperCase())) {
+      return '';
+    }
     const entry = stockCommitStatusEntry(value);
     return `<span class="cashier-status-chip ${entry[0]}">${escapeHtml(entry[1])}</span>`;
   }
@@ -4430,6 +4460,7 @@ document.addEventListener('DOMContentLoaded', function () {
     p.set('q', recentState.q);
     p.set('status', recentState.status);
     p.set('workspace_mode', 'MIXED');
+    p.set('cashier_recent', '1');
     p.set('outlet_id', recentState.outlet_id);
     p.set('page', recentState.page);
     p.set('limit', recentState.limit);
@@ -4445,18 +4476,18 @@ document.addEventListener('DOMContentLoaded', function () {
     empty.classList.add('d-none');
     list.innerHTML = rows.map((row) => `
       <div class="cashier-recent-item${Number(row.id || 0) === Number(selectedRecentOrderId || 0) ? ' active' : ''}" data-id="${Number(row.id || 0)}">
-        <div class="d-flex justify-content-between align-items-start gap-2">
+        <div class="cashier-recent-top">
+          <div class="cashier-recent-order-no">${escapeHtml(row.order_no || '-')}</div>
+          <div class="cashier-recent-total">${money(row.grand_total || 0)}</div>
+        </div>
+        <div class="cashier-recent-bottom">
           <div class="cashier-recent-meta">
-            <div class="cashier-recent-order-no">${escapeHtml(row.order_no || '-')}</div>
             <div class="cashier-recent-customer">${escapeHtml(customerDisplayName(row))}</div>
             <div class="cashier-recent-table">Meja ${escapeHtml(row.table_no || '-')}</div>
           </div>
-          <div class="text-end">
-            <div class="fw-bold">${money(row.grand_total || 0)}</div>
-            <div class="cashier-status-badges">
-              ${orderStatusChip(row.status || '-')}
-              ${stockCommitChip(row.stock_commit_status || '')}
-            </div>
+          <div class="cashier-status-badges">
+            ${orderStatusChip(row.status || '-')}
+            ${stockCommitChip(row.stock_commit_status || '', row.status || '')}
           </div>
         </div>
       </div>

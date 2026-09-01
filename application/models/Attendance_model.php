@@ -61,6 +61,52 @@ class Attendance_model extends CI_Model
         return $filtered;
     }
 
+    private function resolve_daily_compensation(int $employeeId, string $attendanceDate, array $dailyRow): array
+    {
+        $hasSnapshot = $this->att_daily_has_field('snapshot_basic_salary')
+            && array_key_exists('snapshot_basic_salary', $dailyRow)
+            && $dailyRow['snapshot_basic_salary'] !== null;
+
+        if ($hasSnapshot) {
+            return [
+                'has_snapshot' => true,
+                'resolved' => [
+                    'source' => (string)($dailyRow['compensation_source'] ?? 'LEGACY_SNAPSHOT') ?: 'LEGACY_SNAPSHOT',
+                    'contract_id' => !empty($dailyRow['compensation_contract_id']) ? (int)$dailyRow['compensation_contract_id'] : null,
+                    'snapshot_id' => !empty($dailyRow['compensation_snapshot_id']) ? (int)$dailyRow['compensation_snapshot_id'] : null,
+                    'basic_salary' => (float)($dailyRow['snapshot_basic_salary'] ?? 0),
+                    'position_allowance' => (float)($dailyRow['snapshot_position_allowance'] ?? 0),
+                    'objective_allowance' => (float)($dailyRow['snapshot_objective_allowance'] ?? 0),
+                    'meal_rate' => (float)($dailyRow['snapshot_meal_rate'] ?? 0),
+                    'overtime_rate' => (float)($dailyRow['snapshot_overtime_rate'] ?? 0),
+                ],
+            ];
+        }
+
+        $this->load->model('Compensation_model');
+        $resolved = $this->Compensation_model->resolve_for_employee($employeeId, $attendanceDate);
+        if (strtoupper((string)($resolved['source'] ?? '')) !== 'CONTRACT' && $attendanceDate < date('Y-m-d')) {
+            $resolved = $this->Compensation_model->resolve_finalized_contract_for_employee($employeeId, $attendanceDate);
+        }
+
+        return [
+            'has_snapshot' => false,
+            'resolved' => $resolved,
+        ];
+    }
+
+    private function daily_compensation_provenance_payload(array $dailyRow, array $context): array
+    {
+        $hasStoredSource = $this->att_daily_has_field('compensation_source')
+            && trim((string)($dailyRow['compensation_source'] ?? '')) !== '';
+        if (!empty($context['has_snapshot']) && $hasStoredSource) {
+            return [];
+        }
+
+        $this->load->model('Compensation_model');
+        return $this->Compensation_model->build_att_daily_provenance((array)($context['resolved'] ?? []));
+    }
+
     private function build_daily_policy_lock_payload(array $policy): array
     {
         $payload = [];
@@ -840,6 +886,101 @@ class Attendance_model extends CI_Model
         return (int)$this->db->count_all_results();
     }
 
+    public function count_schedule_employees(array $f): int
+    {
+        $this->db->select('COUNT(DISTINCT e.id) AS cnt', false);
+        $this->build_schedules_query($f, false);
+        $row = $this->db->get()->row_array();
+        return (int)($row['cnt'] ?? 0);
+    }
+
+    /**
+     * The normal schedule screen is employee-first. Individual assignments are
+     * loaded only after an employee is opened, keeping the list readable.
+     */
+    public function list_schedule_employee_summaries(array $f, int $limit, int $offset): array
+    {
+        $this->db->select('e.id AS employee_id, e.employee_code, e.employee_name, d.division_name,
+                COUNT(DISTINCT ss.schedule_date) AS scheduled_days,
+                MIN(ss.schedule_date) AS first_schedule_date,
+                MAX(ss.schedule_date) AS last_schedule_date,
+                GROUP_CONCAT(DISTINCT s.shift_code ORDER BY s.shift_code SEPARATOR ", ") AS shift_codes', false);
+        $this->build_schedules_query($f, false);
+
+        return $this->db
+            ->group_by('e.id')
+            ->group_by('e.employee_code')
+            ->group_by('e.employee_name')
+            ->group_by('d.division_name')
+            ->order_by('e.employee_name', 'ASC')
+            ->order_by('e.employee_code', 'ASC')
+            ->limit($limit, $offset)
+            ->get()
+            ->result_array();
+    }
+
+    public function get_schedule_employee_detail(int $employeeId, array $f): ?array
+    {
+        if ($employeeId <= 0) {
+            return null;
+        }
+
+        $employeeQuery = $this->db->select('e.id AS employee_id, e.employee_code, e.employee_name, d.division_name')
+            ->from('org_employee e')
+            ->join('org_division d', 'd.id = e.division_id', 'left')
+            ->where('e.id', $employeeId);
+        if (!empty($f['division_id'])) {
+            $employeeQuery->where('e.division_id', (int)$f['division_id']);
+        }
+        $employee = $employeeQuery->limit(1)->get()->row_array();
+        if (!$employee) {
+            return null;
+        }
+
+        $this->build_schedules_query($f, true);
+        $rows = $this->db
+            ->where('e.id', $employeeId)
+            ->order_by('ss.schedule_date', 'ASC')
+            ->order_by('s.shift_code', 'ASC')
+            ->get()
+            ->result_array();
+
+        return [
+            'employee' => $employee,
+            'rows' => $rows,
+        ];
+    }
+
+    /**
+     * Workforce recap intentionally counts distinct employees per date,
+     * division, and shift so legacy duplicate schedule rows cannot inflate it.
+     */
+    public function get_schedule_recap(array $f): array
+    {
+        $this->db->select("ss.schedule_date,
+                e.division_id,
+                COALESCE(d.division_name, 'Tanpa Divisi') AS division_name,
+                s.id AS shift_id,
+                s.shift_code,
+                s.shift_name,
+                COUNT(DISTINCT ss.employee_id) AS employee_count,
+                GROUP_CONCAT(DISTINCT CONCAT(e.employee_code, ' - ', e.employee_name) ORDER BY e.employee_name SEPARATOR ' | ') AS employee_names", false);
+        $this->build_schedules_query($f, false);
+
+        return $this->db
+            ->group_by('ss.schedule_date')
+            ->group_by('e.division_id')
+            ->group_by('d.division_name')
+            ->group_by('s.id')
+            ->group_by('s.shift_code')
+            ->group_by('s.shift_name')
+            ->order_by('ss.schedule_date', 'ASC')
+            ->order_by('d.division_name', 'ASC')
+            ->order_by('s.shift_code', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
     public function list_schedules(array $f, int $limit, int $offset): array
     {
         $this->build_schedules_query($f, true);
@@ -979,7 +1120,8 @@ class Attendance_model extends CI_Model
                 e.employee_code,
                 e.employee_name,
                 d.division_name,
-                COALESCE(e.meal_rate, 0) AS meal_rate,
+                MIN(COALESCE(ad.snapshot_meal_rate, 0)) AS meal_rate_min,
+                MAX(COALESCE(ad.snapshot_meal_rate, 0)) AS meal_rate,
                 COUNT(ad.id) AS day_rows,
                 SUM(CASE WHEN COALESCE(ad.meal_amount,0) > 0 THEN 1 ELSE 0 END) AS meal_days,
                 SUM(COALESCE(ad.meal_amount,0)) AS meal_total,
@@ -2275,6 +2417,36 @@ class Attendance_model extends CI_Model
         return (int)$this->db->count_all_results();
     }
 
+    public function get_overtime_entry_summary(array $f): array
+    {
+        $this->build_overtime_query($f, false);
+        $row = $this->db
+            ->select(
+                "COUNT(oe.id) AS total_entries,
+                COALESCE(SUM(oe.overtime_hours), 0) AS total_hours,
+                COALESCE(SUM(oe.total_overtime_pay), 0) AS total_amount,
+                COALESCE(SUM(CASE WHEN oe.status = 'APPROVED' THEN 1 ELSE 0 END), 0) AS approved_entries,
+                COALESCE(SUM(CASE WHEN oe.status = 'PENDING' THEN 1 ELSE 0 END), 0) AS pending_entries,
+                COALESCE(SUM(CASE WHEN oe.status = 'REJECTED' THEN 1 ELSE 0 END), 0) AS rejected_entries,
+                COALESCE(SUM(CASE WHEN oe.status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS cancelled_entries,
+                COALESCE(SUM(CASE WHEN oe.status = 'APPROVED' THEN oe.total_overtime_pay ELSE 0 END), 0) AS approved_amount",
+                false
+            )
+            ->get()
+            ->row_array();
+
+        return [
+            'total_entries' => (int)($row['total_entries'] ?? 0),
+            'total_hours' => round((float)($row['total_hours'] ?? 0), 2),
+            'total_amount' => round((float)($row['total_amount'] ?? 0), 2),
+            'approved_entries' => (int)($row['approved_entries'] ?? 0),
+            'pending_entries' => (int)($row['pending_entries'] ?? 0),
+            'rejected_entries' => (int)($row['rejected_entries'] ?? 0),
+            'cancelled_entries' => (int)($row['cancelled_entries'] ?? 0),
+            'approved_amount' => round((float)($row['approved_amount'] ?? 0), 2),
+        ];
+    }
+
     public function list_overtime_entries(array $f, int $limit, int $offset): array
     {
         $this->build_overtime_query($f, true);
@@ -2367,6 +2539,54 @@ class Attendance_model extends CI_Model
             ->get()->result_array();
     }
 
+    /**
+     * AUTO overtime has no per-entry selector, so it must read the one
+     * standard explicitly selected in Attendance Settings. Contract rates are
+     * deliberately not a fallback here.
+     */
+    public function get_policy_overtime_standard(array $policy = []): ?array
+    {
+        if (!$this->db->table_exists('att_overtime_standard')) {
+            return null;
+        }
+        if (empty($policy)) {
+            $policy = $this->get_active_policy();
+        }
+
+        $standardId = (int)($policy['default_overtime_standard_id'] ?? 0);
+        if ($standardId <= 0) {
+            return null;
+        }
+
+        $row = $this->db->select('id, standard_code, standard_name, hourly_rate')
+            ->from('att_overtime_standard')
+            ->where('id', $standardId)
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        return $row ?: null;
+    }
+
+    public function get_policy_overtime_rate(array $policy = []): float
+    {
+        $standard = $this->get_policy_overtime_standard($policy);
+        return round((float)($standard['hourly_rate'] ?? 0), 2);
+    }
+
+    public function is_active_overtime_standard(int $standardId): bool
+    {
+        if ($standardId <= 0 || !$this->db->table_exists('att_overtime_standard')) {
+            return false;
+        }
+
+        return $this->db->from('att_overtime_standard')
+            ->where('id', $standardId)
+            ->where('is_active', 1)
+            ->count_all_results() > 0;
+    }
+
     public function save_overtime_entry(array $payload, int $actorEmployeeId = 0): array
     {
         $id = (int)($payload['id'] ?? 0);
@@ -2377,7 +2597,6 @@ class Attendance_model extends CI_Model
         $endTime = trim((string)($payload['end_time'] ?? ''));
         $status = strtoupper(trim((string)($payload['status'] ?? 'PENDING')));
         $notes = trim((string)($payload['notes'] ?? ''));
-        $inputRate = (float)($payload['overtime_rate'] ?? 0);
 
         if ($employeeId <= 0 || $overtimeDate === '' || $startTime === '' || $endTime === '') {
             return ['ok' => false, 'message' => 'Pegawai, tanggal, jam mulai, dan jam selesai wajib diisi.'];
@@ -2399,9 +2618,16 @@ class Attendance_model extends CI_Model
             return ['ok' => false, 'message' => 'Akun login belum tertaut ke data pegawai, sehingga tidak bisa menjadi approver lembur APPROVED. Hubungkan user ke pegawai atau simpan sebagai PENDING dulu.'];
         }
 
-        $employee = $this->db->select('id, overtime_rate')->from('org_employee')->where('id', $employeeId)->where('is_active', 1)->limit(1)->get()->row_array();
+        $employee = $this->db->select('id')->from('org_employee')->where('id', $employeeId)->where('is_active', 1)->limit(1)->get()->row_array();
         if (!$employee) {
             return ['ok' => false, 'message' => 'Pegawai tidak ditemukan atau nonaktif.'];
+        }
+
+        if ($status === 'APPROVED') {
+            $coverage = $this->validate_daily_compensation_contract_coverage($employeeId, $overtimeDate);
+            if (empty($coverage['ok'])) {
+                return ['ok' => false, 'message' => 'Lembur APPROVED ditolak: ' . (string)($coverage['message'] ?? 'Kontrak kompensasi tidak tersedia.')];
+            }
         }
 
         $startAt = strtotime($overtimeDate . ' ' . $startTime . ':00');
@@ -2422,25 +2648,22 @@ class Attendance_model extends CI_Model
         }
 
         $hasStandardSchema = $this->has_overtime_standard_schema();
-        $standard = null;
-        if ($hasStandardSchema && $overtimeStandardId > 0) {
-            $standard = $this->db->select('id, standard_name, hourly_rate, is_active')
-                ->from('att_overtime_standard')
-                ->where('id', $overtimeStandardId)
-                ->where('is_active', 1)
-                ->limit(1)
-                ->get()->row_array();
-            if (!$standard) {
-                return ['ok' => false, 'message' => 'Standar lembur tidak valid atau nonaktif.'];
-            }
+        if (!$hasStandardSchema || $overtimeStandardId <= 0) {
+            return ['ok' => false, 'message' => 'Pilih standar lembur aktif dari master sebelum menyimpan.'];
         }
 
-        $rate = (float)($employee['overtime_rate'] ?? 0);
-        if ($standard) {
-            $rate = (float)($standard['hourly_rate'] ?? 0);
-        } elseif ($inputRate > 0) {
-            $rate = $inputRate;
+        $standard = $this->db->select('id, standard_name, hourly_rate, is_active')
+            ->from('att_overtime_standard')
+            ->where('id', $overtimeStandardId)
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get()->row_array();
+        if (!$standard) {
+            return ['ok' => false, 'message' => 'Standar lembur tidak valid atau nonaktif.'];
         }
+
+        // The master standard is the only source of the saved rate.
+        $rate = (float)($standard['hourly_rate'] ?? 0);
         $totalPay = round($hours * $rate, 2);
 
         $dbPayload = [
@@ -2455,9 +2678,7 @@ class Attendance_model extends CI_Model
             'notes' => $notes !== '' ? $notes : null,
             'updated_at' => date('Y-m-d H:i:s'),
         ];
-        if ($hasStandardSchema) {
-            $dbPayload['overtime_standard_id'] = $standard ? (int)$standard['id'] : null;
-        }
+        $dbPayload['overtime_standard_id'] = (int)$standard['id'];
 
         if ($status === 'APPROVED') {
             $dbPayload['approved_by'] = $actorEmployeeId > 0 ? $actorEmployeeId : null;
@@ -2508,6 +2729,229 @@ class Attendance_model extends CI_Model
         $this->db->where('id', $id)->delete('att_overtime_entry');
         $this->recompute_overtime_daily_payroll((int)$exists['employee_id'], (string)$exists['overtime_date']);
         return ['ok' => true, 'message' => 'Data lembur berhasil dihapus.'];
+    }
+
+    /**
+     * Rebuild attendance salary snapshots using one explicit contract snapshot.
+     * This is intentionally contract-scoped so a late-generated contract cannot
+     * accidentally overwrite dates that belong to another compensation period.
+     */
+    public function regenerate_daily_payroll_from_contract(int $contractId, string $dateStart = '', string $dateEnd = ''): array
+    {
+        if ($contractId <= 0) {
+            return ['ok' => false, 'message' => 'Kontrak tidak valid.'];
+        }
+        if (!$this->db->table_exists('hr_contract') || !$this->db->table_exists('att_daily')) {
+            return ['ok' => false, 'message' => 'Data kontrak atau absensi harian belum tersedia.'];
+        }
+
+        $requiredSnapshotFields = [
+            'snapshot_basic_salary',
+            'snapshot_position_allowance',
+            'snapshot_objective_allowance',
+            'snapshot_meal_rate',
+            'snapshot_overtime_rate',
+        ];
+        foreach ($requiredSnapshotFields as $field) {
+            if (!$this->att_daily_has_field($field)) {
+                return ['ok' => false, 'message' => 'Kolom snapshot gaji harian belum lengkap.'];
+            }
+        }
+
+        $contract = $this->db->select('
+                c.id,
+                c.employee_id,
+                c.contract_number,
+                c.status,
+                c.start_date,
+                c.end_date,
+                s.id AS target_snapshot_id,
+                COALESCE(s.basic_salary_amount, c.basic_salary) AS target_basic_salary,
+                COALESCE(s.position_allowance_amount, c.position_allowance) AS target_position_allowance,
+                COALESCE(s.other_allowance_amount, c.other_allowance) AS target_objective_allowance,
+                COALESCE(s.meal_rate_amount, c.meal_rate) AS target_meal_rate
+            ', false)
+            ->from('hr_contract c')
+            ->join('hr_contract_comp_snapshot s', 's.contract_id = c.id', 'left')
+            ->where('c.id', $contractId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$contract) {
+            return ['ok' => false, 'message' => 'Kontrak tidak ditemukan.'];
+        }
+
+        $contractStatus = strtoupper(trim((string)($contract['status'] ?? '')));
+        if (!in_array($contractStatus, ['GENERATED', 'SIGNED', 'ACTIVE', 'EXPIRED'], true)) {
+            return ['ok' => false, 'message' => 'Status kontrak tidak dapat dipakai untuk rebuild gaji harian.'];
+        }
+
+        $contractStart = (string)($contract['start_date'] ?? '');
+        $contractEnd = (string)($contract['end_date'] ?? '');
+        $isValidDate = static function (string $date): bool {
+            return (bool)preg_match('/^\d{4}-\d{2}-\d{2}$/', $date);
+        };
+        if (!$isValidDate($contractStart) || !$isValidDate($contractEnd)) {
+            return ['ok' => false, 'message' => 'Rentang tanggal kontrak tidak valid.'];
+        }
+        if (($dateStart !== '' && !$isValidDate($dateStart)) || ($dateEnd !== '' && !$isValidDate($dateEnd))) {
+            return ['ok' => false, 'message' => 'Rentang tanggal rebuild tidak valid.'];
+        }
+
+        $effectiveStart = $dateStart !== '' && $dateStart > $contractStart ? $dateStart : $contractStart;
+        $effectiveEnd = $dateEnd !== '' && $dateEnd < $contractEnd ? $dateEnd : $contractEnd;
+        if ($effectiveEnd < $effectiveStart) {
+            return ['ok' => false, 'message' => 'Rentang rebuild berada di luar masa berlaku kontrak.'];
+        }
+
+        $dailyRows = $this->db->from('att_daily')
+            ->where('employee_id', (int)$contract['employee_id'])
+            ->where('attendance_date >=', $effectiveStart)
+            ->where('attendance_date <=', $effectiveEnd)
+            ->order_by('attendance_date', 'ASC')
+            ->get()
+            ->result_array();
+        if (empty($dailyRows)) {
+            return [
+                'ok' => true,
+                'message' => 'Tidak ada absensi harian pada rentang kontrak yang dipilih.',
+                'changed_count' => 0,
+                'rows' => [],
+            ];
+        }
+
+        $needsRebuild = [];
+        $lockedDates = [];
+        foreach ($dailyRows as $dailyRow) {
+            if (!$this->daily_compensation_snapshot_differs($dailyRow, $contract)) {
+                continue;
+            }
+
+            $attendanceDate = (string)($dailyRow['attendance_date'] ?? '');
+            $locked = $this->get_locked_period_for_date($attendanceDate);
+            if ($locked) {
+                $lockedDates[] = $attendanceDate . ' (' . (string)($locked['period_code'] ?? '#') . ')';
+                continue;
+            }
+            $needsRebuild[] = $dailyRow;
+        }
+
+        if (!empty($lockedDates)) {
+            return [
+                'ok' => false,
+                'message' => 'Rebuild dibatalkan karena sebagian tanggal sudah terkunci payroll: ' . implode(', ', $lockedDates) . '.',
+            ];
+        }
+        if (empty($needsRebuild)) {
+            return [
+                'ok' => true,
+                'message' => 'Snapshot gaji harian pada rentang kontrak sudah sesuai.',
+                'changed_count' => 0,
+                'rows' => [],
+            ];
+        }
+
+        $activePolicy = $this->get_active_policy();
+        if (empty($activePolicy)) {
+            return ['ok' => false, 'message' => 'Kebijakan absensi aktif tidak ditemukan.'];
+        }
+
+        $changedRows = [];
+        $this->db->trans_start();
+        foreach ($needsRebuild as $dailyRow) {
+            $calculationRow = $dailyRow;
+            $calculationRow['snapshot_basic_salary'] = (float)$contract['target_basic_salary'];
+            $calculationRow['snapshot_position_allowance'] = (float)$contract['target_position_allowance'];
+            $calculationRow['snapshot_objective_allowance'] = (float)$contract['target_objective_allowance'];
+            $calculationRow['snapshot_meal_rate'] = (float)$contract['target_meal_rate'];
+            $calculationRow['compensation_source'] = 'CONTRACT';
+            $calculationRow['compensation_contract_id'] = (int)$contract['id'];
+            $calculationRow['compensation_snapshot_id'] = (int)($contract['target_snapshot_id'] ?? 0) ?: null;
+
+            // Preserve the policy that was locked on the attendance date.
+            $policy = $this->daily_policy_snapshot_for_rebuild($dailyRow, $activePolicy);
+            $calculationRow['snapshot_overtime_rate'] = isset($dailyRow['snapshot_overtime_rate'])
+                && $dailyRow['snapshot_overtime_rate'] !== null
+                ? (float)$dailyRow['snapshot_overtime_rate']
+                : $this->get_policy_overtime_rate($policy);
+            $manualOvertimePay = $this->get_manual_overtime_pay(
+                (int)$contract['employee_id'],
+                (string)$dailyRow['attendance_date']
+            );
+            $payload = $this->build_daily_payroll_payload(
+                $calculationRow,
+                $policy,
+                (int)$contract['employee_id'],
+                $manualOvertimePay
+            );
+            $this->load->model('Compensation_model');
+            $payload += $this->Compensation_model->build_att_daily_provenance([
+                'source' => 'CONTRACT',
+                'contract_id' => (int)$contract['id'],
+                'snapshot_id' => (int)($contract['target_snapshot_id'] ?? 0) ?: null,
+            ]);
+
+            $this->db->where('id', (int)$dailyRow['id'])->update('att_daily', $payload);
+            $changedRows[] = [
+                'attendance_date' => (string)$dailyRow['attendance_date'],
+                'before_daily_salary_amount' => round((float)($dailyRow['daily_salary_amount'] ?? 0), 2),
+                'after_daily_salary_amount' => round((float)($payload['daily_salary_amount'] ?? 0), 2),
+            ];
+        }
+        $this->db->trans_complete();
+
+        if (!$this->db->trans_status()) {
+            return ['ok' => false, 'message' => 'Gagal rebuild snapshot dan perhitungan gaji harian.'];
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Snapshot dan perhitungan gaji harian berhasil direbuild dari kontrak ' . (string)$contract['contract_number'] . '.',
+            'changed_count' => count($changedRows),
+            'rows' => $changedRows,
+        ];
+    }
+
+    private function daily_compensation_snapshot_differs(array $dailyRow, array $contract): bool
+    {
+        $pairs = [
+            ['snapshot_basic_salary', 'target_basic_salary'],
+            ['snapshot_position_allowance', 'target_position_allowance'],
+            ['snapshot_objective_allowance', 'target_objective_allowance'],
+            ['snapshot_meal_rate', 'target_meal_rate'],
+        ];
+        foreach ($pairs as [$dailyField, $contractField]) {
+            if (abs((float)($dailyRow[$dailyField] ?? 0) - (float)($contract[$contractField] ?? 0)) > 0.005) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function daily_policy_snapshot_for_rebuild(array $dailyRow, array $fallbackPolicy): array
+    {
+        $policy = $fallbackPolicy;
+        $fieldMap = [
+            'policy_snapshot_id' => 'id',
+            'policy_snapshot_code' => 'policy_code',
+            'policy_snapshot_name' => 'policy_name',
+            'attendance_mode_snapshot' => 'attendance_calc_mode',
+            'meal_mode_snapshot' => 'meal_calc_mode',
+            'prorate_scope_snapshot' => 'prorate_deduction_scope',
+            'overtime_mode_snapshot' => 'overtime_calc_mode',
+            'allowance_late_treatment_snapshot' => 'allowance_late_treatment',
+            'enable_late_deduction_snapshot' => 'enable_late_deduction',
+            'enable_alpha_deduction_snapshot' => 'enable_alpha_deduction',
+            'late_deduction_per_minute_snapshot' => 'late_deduction_per_minute',
+            'alpha_deduction_per_day_snapshot' => 'alpha_deduction_per_day',
+            'work_days_snapshot' => 'default_work_days_per_month',
+        ];
+        foreach ($fieldMap as $dailyField => $policyField) {
+            if (array_key_exists($dailyField, $dailyRow) && $dailyRow[$dailyField] !== null && $dailyRow[$dailyField] !== '') {
+                $policy[$policyField] = $dailyRow[$dailyField];
+            }
+        }
+        return $policy;
     }
 
     private function has_overtime_standard_schema(): bool
@@ -2575,6 +3019,83 @@ class Attendance_model extends CI_Model
             ->get()
             ->row_array();
         return $row ?: null;
+    }
+
+    /**
+     * A schedule is also the entry point for paid attendance. Current and
+     * future assignments require an ACTIVE contract; past corrections may use
+     * a finalized historical contract only within its original date range.
+     */
+    private function validate_schedule_contract_coverage(int $employeeId, string $date): array
+    {
+        if (!$this->db->table_exists('hr_contract') || !$this->db->table_exists('hr_contract_comp_snapshot')) {
+            return [
+                'ok' => false,
+                'message' => 'Jadwal ditolak: fondasi kontrak kompensasi belum tersedia. Jalankan migration kontrak terlebih dahulu.',
+            ];
+        }
+
+        $this->load->model('Compensation_model');
+        $requiresActiveContract = $date >= date('Y-m-d');
+        $compensation = $requiresActiveContract
+            ? $this->Compensation_model->resolve_for_employee($employeeId, $date)
+            : $this->Compensation_model->resolve_finalized_contract_for_employee($employeeId, $date);
+        if (
+            strtoupper((string)($compensation['source'] ?? '')) !== 'CONTRACT'
+            || (int)($compensation['contract_id'] ?? 0) <= 0
+        ) {
+            return [
+                'ok' => false,
+                'message' => $requiresActiveContract
+                    ? 'Jadwal ditolak: pegawai belum memiliki kontrak ACTIVE beserta snapshot kompensasi yang efektif pada ' . date('d/m/Y', strtotime($date)) . '. Generate, tanda tangani, lalu aktifkan kontrak terlebih dahulu.'
+                    : 'Jadwal ditolak: tidak ada kontrak final beserta snapshot kompensasi yang mencakup tanggal ' . date('d/m/Y', strtotime($date)) . '.',
+            ];
+        }
+
+        return ['ok' => true, 'compensation' => $compensation];
+    }
+
+    /**
+     * Pending approval may repair an old row that already has its immutable
+     * salary snapshot. New/current paid attendance must always resolve from
+     * an ACTIVE contract, never from the legacy employee cache.
+     */
+    private function validate_daily_compensation_contract_coverage(int $employeeId, string $date, ?array $dailyRow = null): array
+    {
+        if (!$this->db->table_exists('hr_contract') || !$this->db->table_exists('hr_contract_comp_snapshot')) {
+            return [
+                'ok' => false,
+                'message' => 'Absensi ditolak: fondasi kontrak kompensasi belum tersedia. Jalankan migration kontrak terlebih dahulu.',
+            ];
+        }
+
+        $isHistorical = $date < date('Y-m-d');
+        $hasHistoricalSnapshot = $isHistorical
+            && $this->att_daily_has_field('snapshot_basic_salary')
+            && is_array($dailyRow)
+            && array_key_exists('snapshot_basic_salary', $dailyRow)
+            && $dailyRow['snapshot_basic_salary'] !== null;
+        if ($hasHistoricalSnapshot) {
+            return ['ok' => true, 'historical_snapshot' => true];
+        }
+
+        $this->load->model('Compensation_model');
+        $compensation = $isHistorical
+            ? $this->Compensation_model->resolve_finalized_contract_for_employee($employeeId, $date)
+            : $this->Compensation_model->resolve_for_employee($employeeId, $date);
+        if (
+            strtoupper((string)($compensation['source'] ?? '')) !== 'CONTRACT'
+            || (int)($compensation['contract_id'] ?? 0) <= 0
+        ) {
+            return [
+                'ok' => false,
+                'message' => $isHistorical
+                    ? 'Absensi ditolak: tanggal ini belum memiliki snapshot gaji harian maupun kontrak final yang mencakup tanggal kerja.'
+                    : 'Absensi ditolak: pegawai belum memiliki kontrak ACTIVE beserta snapshot kompensasi pada tanggal kerja.',
+            ];
+        }
+
+        return ['ok' => true, 'compensation' => $compensation];
     }
 
     /**
@@ -2854,6 +3375,10 @@ class Attendance_model extends CI_Model
         $employee = $this->get_schedule_employee_profile($employeeId);
         if (!$employee) {
             return ['ok' => false, 'message' => 'Pegawai tidak valid atau nonaktif.'];
+        }
+        $contractCoverage = $this->validate_schedule_contract_coverage($employeeId, $date);
+        if (empty($contractCoverage['ok'])) {
+            return $contractCoverage;
         }
         $shift = $this->get_schedule_shift($shiftId);
         if (!$shift) {
@@ -3207,6 +3732,29 @@ class Attendance_model extends CI_Model
         return array_values(array_filter(array_map(static function ($r) {
             return (string)($r['holiday_date'] ?? '');
         }, $rows)));
+    }
+
+    /**
+     * Keep national holidays distinct from company or special days because
+     * schedule planning and PH use the national calendar as the formal marker.
+     */
+    public function get_national_holidays_between(string $startDate, string $endDate): array
+    {
+        if ($startDate === '' || $endDate === '' || !$this->db->table_exists('att_holiday_calendar')) {
+            return [];
+        }
+
+        return $this->db
+            ->select('holiday_date, holiday_name')
+            ->from('att_holiday_calendar')
+            ->where('holiday_date >=', $startDate)
+            ->where('holiday_date <=', $endDate)
+            ->where('holiday_type', 'NATIONAL')
+            ->where('is_active', 1)
+            ->order_by('holiday_date', 'ASC')
+            ->order_by('holiday_name', 'ASC')
+            ->get()
+            ->result_array();
     }
 
     public function upsert_schedule_by_shift_code(int $employeeId, string $date, string $shiftCode, int $actorEmployeeId = 0, array $guardOptions = []): array
@@ -3913,6 +4461,11 @@ class Attendance_model extends CI_Model
             ->limit(1)
             ->get()->row_array();
 
+        $coverage = $this->validate_daily_compensation_contract_coverage($employeeId, $date, $daily ?: null);
+        if (empty($coverage['ok'])) {
+            return $coverage;
+        }
+
         $schedule = $this->db->select('ss.shift_id, s.start_time, s.end_time, s.is_overnight, s.grace_late_minute')
             ->from('att_shift_schedule ss')
             ->join('att_shift s', 's.id = ss.shift_id', 'left')
@@ -4186,27 +4739,12 @@ class Attendance_model extends CI_Model
         $hasCompletedCheckout = ($checkinTs > 0 && $checkoutTs > $checkinTs);
         $attendanceDate = (string)($dailyRow['attendance_date'] ?? '');
 
-        $employee = $this->db->select('basic_salary, position_allowance, objective_allowance, meal_rate, overtime_rate')
-            ->from('org_employee')
-            ->where('id', $employeeId)
-            ->limit(1)
-            ->get()->row_array();
-
-        $basicSalary = isset($dailyRow['snapshot_basic_salary']) && $dailyRow['snapshot_basic_salary'] !== null
-            ? (float)$dailyRow['snapshot_basic_salary']
-            : (float)($employee['basic_salary'] ?? 0);
-        $positionAllowance = isset($dailyRow['snapshot_position_allowance']) && $dailyRow['snapshot_position_allowance'] !== null
-            ? (float)$dailyRow['snapshot_position_allowance']
-            : (float)($employee['position_allowance'] ?? 0);
-        $objectiveAllowance = isset($dailyRow['snapshot_objective_allowance']) && $dailyRow['snapshot_objective_allowance'] !== null
-            ? (float)$dailyRow['snapshot_objective_allowance']
-            : (float)($employee['objective_allowance'] ?? 0);
-        $mealRate = isset($dailyRow['snapshot_meal_rate']) && $dailyRow['snapshot_meal_rate'] !== null
-            ? (float)$dailyRow['snapshot_meal_rate']
-            : (float)($employee['meal_rate'] ?? 0);
-        $overtimeRate = isset($dailyRow['snapshot_overtime_rate']) && $dailyRow['snapshot_overtime_rate'] !== null
-            ? (float)$dailyRow['snapshot_overtime_rate']
-            : (float)($employee['overtime_rate'] ?? 0);
+        $compensationContext = $this->resolve_daily_compensation($employeeId, $attendanceDate, $dailyRow);
+        $compensation = (array)($compensationContext['resolved'] ?? []);
+        $basicSalary = (float)($compensation['basic_salary'] ?? 0);
+        $positionAllowance = (float)($compensation['position_allowance'] ?? 0);
+        $objectiveAllowance = (float)($compensation['objective_allowance'] ?? 0);
+        $mealRate = (float)($compensation['meal_rate'] ?? 0);
 
         $workDays = max(1, (int)($policy['default_work_days_per_month'] ?? 26));
         $basicDailyRate = $basicSalary / $workDays;
@@ -4228,6 +4766,9 @@ class Attendance_model extends CI_Model
         if (!in_array($overtimeMode, ['AUTO', 'MANUAL'], true)) {
             $overtimeMode = 'AUTO';
         }
+        // Automatic overtime is governed by the configured master standard,
+        // never by a salary-derived rate in an employee contract.
+        $overtimeRate = $this->get_policy_overtime_rate($policy);
 
         $status = strtoupper((string)($dailyRow['attendance_status'] ?? 'OFF'));
         $lateMinutes = (int)($dailyRow['late_minutes'] ?? 0);
@@ -4322,6 +4863,7 @@ class Attendance_model extends CI_Model
             $payload['snapshot_meal_rate'] = round($mealRate, 2);
             $payload['snapshot_overtime_rate'] = round($overtimeRate, 2);
         }
+        $payload += $this->daily_compensation_provenance_payload($dailyRow, $compensationContext);
         if ($this->att_daily_has_field('basic_amount')) {
             $payload['basic_amount'] = round($basicAmount, 2);
             $payload['allowance_amount'] = round($allowanceAmount, 2);

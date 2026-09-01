@@ -360,3 +360,50 @@ atau mungkin perlu kita buat aplikasi khusus termasuk dashboard monitoring tadi,
 cek ulang, update roadmap / audit nya, dan lakukan push termasuk _NOTE.md ini, kecuali database.php
 
 setelah push sukses, sleep laptop
+
+
+masih ada ketidak sinkronan antar modul stok defisit dengan daily recon sehingga banyak missmatch
+
+
+modifikasi /attendance/schedules harusnya menampilkan per daftar nama, lalu bisa dilihat detailnya per pegawai
+
+lalu berikan tab rekap di halaman schedules dan schedules-v2 agar kelihatan per tanggal  shift berapa orang per divisinya
+
+
+
+
+lakukan edit kontrak rama
+
+sinkronkan kontrak dan master pegawai
+
+sekarang masih ada dualisme antara kontrak, master pegawai, yang dua duanya mengandung nilai THP masing masing pegawai. nah saya ingin mensinkronkan keduanya agar cukup 1 kali input besaran THP entah itu di kontrak ataupun di master pegawai pilih salah 1, dan polanya dipatenkan apakah input master dulu baru ditarik ke kontrak atau sebaliknya. lalu di patenkan juga sebagai dasar perhitungan gaji absensi harian pakai yang mana.
+
+coba kamu anlisa lalu temukan polanya, lalu arah perbaikannya
+
+cek kontrak aktif yang belum signed, langsung jadikan signed semua. dan buat aktif semua. saya juga masih belum jelas urutannya bagaimana
+
+- Carolus , eko dan fairuz yang benar adalah master pegawai, ikuti master pegawai
+- zela memang ada update kontrak kemarin, yang existing sekarang tunjangan jabatan harusnya 300.saya cek sudah sesuai.
+- di master pegawai tampilan uang makan hanya dihitun sehari, nilai uang makan itu adalah harian jadi harusnya dihitung 26 hari
+
+setelah itu lakukan sesuai langkahmu. dan pastikan tidak ada bug dalam perhitungan gaji dan absensi
+
+salary profile, standar gaji, dan objective hanya sebagai acuan tidak untuk diikuti penuh karena pasti ada negosiasi
+
+tambahkan notif pesan
+
+
+kembali ke modul pegawai tadi, di org_employee kanada kolom gaji dan lainnya, apakah itu masih digunakan? ketika CRUD pegawai sekarang sudah tidak mengisi gaji, apakah sudah dipastikan tidak error?
+lalu data gaji /master/org-employee/detail/ diambil dari org_employee atau dari kontrak?
+
+
+asset-management data aset yang belum dikunci harusnya bisa di hapus /diedit kuantitasnya
+
+
+beri warna beda antara sabtu dan minggu dan libur nasional, misal orange dan merah. warna nya 1 baris bukan hanya kolom tanggal. lalu baris tanggal yang sama bisa di merger antar divisi agar tidak boros space
+
+berarti sesuaikan semua yang masih bergantuk pada gaji di master pegawai, sudah dipindahkan ke kontrak? seperti uang makan dan lainnya. atau kamu masih perlu pengecekan ulang?
+
+
+buatkan card halaman berdasarkan divisi dan kategori
+

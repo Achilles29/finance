@@ -6412,6 +6412,7 @@ class Pos_model extends CI_Model
         $q = trim((string)($filters['q'] ?? ''));
         $status = strtoupper(trim((string)($filters['status'] ?? 'ALL')));
         $workspaceMode = strtoupper(trim((string)($filters['workspace_mode'] ?? 'MIXED')));
+        $cashierRecent = !empty($filters['cashier_recent']);
         $outletId = (int)($filters['outlet_id'] ?? 0);
         $dateFrom = trim((string)($filters['date_from'] ?? ''));
         $dateTo   = trim((string)($filters['date_to'] ?? ''));
@@ -6454,6 +6455,12 @@ class Pos_model extends CI_Model
             } else {
                 $db->where_in('o.status', ['DRAFT', 'PENDING', 'CONFIRMED', 'PAID_PARTIAL', 'IN_KITCHEN', 'READY', 'SERVED']);
             }
+        }
+        if ($cashierRecent) {
+            // A self order only becomes a cashier order after it has been
+            // verified/confirmed. Pending QRIS or abandoned self orders are
+            // handled in the Self Order queue, not in the cashier workspace.
+            $db->where("(UPPER(COALESCE(o.order_channel, '')) <> 'SELF_ORDER' OR UPPER(COALESCE(o.status, '')) NOT IN ('DRAFT', 'PENDING'))", null, false);
         }
         if ($outletId > 0) {
             $db->where('o.outlet_id', $outletId);

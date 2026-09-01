@@ -689,6 +689,222 @@ class Asset_model extends CI_Model
     }
 
     /**
+     * Menghapus unit yang masih tahap pendataan. Unit dengan jejak operasional
+     * sengaja tidak dapat dihapus agar histori aset tidak ikut hilang.
+     */
+    public function delete_open_asset(int $id, ?int $divisionScopeId = null): array
+    {
+        if ($id <= 0 || !$this->table_ready()) {
+            return ['ok' => false, 'message' => 'Aset tidak ditemukan atau tabel aset belum siap.'];
+        }
+
+        $this->db->trans_begin();
+        $asset = $this->asset_for_update($id, $divisionScopeId);
+        if (!$asset) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Aset tidak ditemukan atau berada di luar scope divisi Anda.'];
+        }
+        if ($this->asset_master_is_locked($asset)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Data awal aset sudah dikunci dan tidak dapat dihapus.'];
+        }
+
+        $blockReason = $this->asset_delete_block_reason((int)$asset['id']);
+        if ($blockReason !== null) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Aset tidak dapat dihapus karena ' . $blockReason . '.'];
+        }
+
+        $this->db->where('id', (int)$asset['id']);
+        if ($divisionScopeId !== null && $divisionScopeId > 0) {
+            $this->db->where('division_id', $divisionScopeId);
+        }
+        if ($this->master_lock_ready()) {
+            $this->db
+                ->group_start()
+                    ->where('master_lock_status', 'OPEN')
+                    ->or_where('master_lock_status IS NULL', null, false)
+                ->group_end();
+        }
+        $this->db->delete(self::TABLE_ASSET);
+        if ($this->db->affected_rows() <= 0 || !$this->db->trans_status()) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Aset tidak dapat dihapus. Muat ulang halaman lalu coba lagi.'];
+        }
+
+        $this->db->trans_commit();
+        return [
+            'ok' => true,
+            'group_key' => (string)($asset['group_key'] ?? ''),
+            'asset_code' => (string)($asset['asset_code'] ?? ''),
+        ];
+    }
+
+    /**
+     * Satu baris merepresentasikan satu unit fisik. Karena itu perubahan qty
+     * dilakukan dengan menambah atau menghapus unit OPEN, bukan mengubah angka
+     * qty pada satu record. Semua unit yang memiliki jejak operasional aman.
+     */
+    public function adjust_group_quantity(
+        string $groupKey,
+        int $targetQuantity,
+        array $serialNumbers,
+        int $userId,
+        ?int $divisionId = null,
+        ?int $divisionScopeId = null
+    ): array {
+        $groupKey = strtolower(trim($groupKey));
+        if (!$this->table_ready() || !preg_match('/^[a-f0-9]{40}$/', $groupKey)) {
+            return ['ok' => false, 'message' => 'Grup aset tidak valid.'];
+        }
+        if ($targetQuantity < 0 || $targetQuantity > 10000) {
+            return ['ok' => false, 'message' => 'Jumlah aset harus antara 0 sampai 10.000 unit.'];
+        }
+        if ($divisionScopeId !== null && $divisionScopeId > 0) {
+            if ($divisionId !== null && $divisionId > 0 && $divisionId !== $divisionScopeId) {
+                return ['ok' => false, 'message' => 'Divisi yang dipilih berada di luar scope Anda.'];
+            }
+            $divisionId = $divisionScopeId;
+        }
+        $divisionId = $divisionId !== null && $divisionId > 0 ? $divisionId : null;
+
+        $serialNumbers = array_values(array_filter(array_map(static function ($value): string {
+            return trim((string)$value);
+        }, $serialNumbers), static function (string $value): bool {
+            return $value !== '';
+        }));
+        $normalisedSerials = array_map(static function (string $value): string {
+            return strtolower($value);
+        }, $serialNumbers);
+        if (count($normalisedSerials) !== count(array_unique($normalisedSerials))) {
+            return ['ok' => false, 'message' => 'Nomor serial tambahan tidak boleh duplikat.'];
+        }
+
+        $this->db->trans_begin();
+        $rows = $this->group_assets_for_update($groupKey, $divisionId);
+        if (empty($rows)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Tidak ada unit aset pada grup atau divisi tersebut.'];
+        }
+
+        $divisionKeys = array_values(array_unique(array_map(static function (array $row): string {
+            return empty($row['division_id']) ? 'UNASSIGNED' : 'DIVISION-' . (int)$row['division_id'];
+        }, $rows)));
+        if ($divisionId === null && count($divisionKeys) > 1) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Pilih satu divisi terlebih dahulu. Grup ini memiliki unit pada beberapa divisi.'];
+        }
+
+        $currentQuantity = count($rows);
+        $lockedCount = 0;
+        foreach ($rows as $row) {
+            if ($this->asset_master_is_locked($row)) {
+                $lockedCount++;
+            }
+        }
+        if ($targetQuantity < $lockedCount) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Jumlah tidak boleh lebih kecil dari ' . $lockedCount . ' unit yang sudah dikunci.'];
+        }
+
+        $change = $targetQuantity - $currentQuantity;
+        if ($change === 0) {
+            $this->db->trans_commit();
+            return ['ok' => true, 'created' => 0, 'deleted' => 0, 'quantity' => $currentQuantity];
+        }
+        if (abs($change) > 500) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Satu penyesuaian maksimal 500 unit.'];
+        }
+
+        if ($change > 0) {
+            if (count($serialNumbers) > $change) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Nomor serial tambahan melebihi jumlah unit yang akan ditambahkan.'];
+            }
+
+            $template = $this->open_asset_template($rows);
+            if (!$template) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'message' => 'Tidak ada unit pendataan yang dapat dijadikan dasar penambahan. Tambahkan unit baru melalui form aset.'];
+            }
+
+            for ($i = 0; $i < $change; $i++) {
+                $row = $this->quantity_clone_data($template, $serialNumbers[$i] ?? null, $userId);
+                $this->db->insert(self::TABLE_ASSET, $row);
+                $assetId = (int)$this->db->insert_id();
+                if ($assetId <= 0) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => 'Gagal menambahkan unit aset.'];
+                }
+                $this->insert_event([
+                    'asset_id' => $assetId,
+                    'event_type' => 'ACQUIRE',
+                    'event_date' => date('Y-m-d'),
+                    'to_status' => (string)($row['status'] ?? 'ACTIVE'),
+                    'to_division_id' => $row['division_id'] ?? null,
+                    'condition_score_after' => (int)($row['condition_score'] ?? 100),
+                    'amount' => (float)($row['acquisition_cost'] ?? 0),
+                    'reason' => 'Penyesuaian jumlah unit dari ' . $currentQuantity . ' menjadi ' . $targetQuantity . ' unit.',
+                    'created_by' => $userId > 0 ? $userId : null,
+                ]);
+            }
+        } else {
+            $required = abs($change);
+            $deletable = [];
+            $blocked = [];
+            foreach ($rows as $row) {
+                if ($this->asset_master_is_locked($row)) {
+                    continue;
+                }
+                $reason = $this->asset_delete_block_reason((int)$row['id']);
+                if ($reason === null) {
+                    $deletable[] = $row;
+                    if (count($deletable) >= $required) {
+                        break;
+                    }
+                } elseif (count($blocked) < 2) {
+                    $blocked[] = (string)($row['asset_code'] ?? ('#' . (int)$row['id'])) . ': ' . $reason;
+                }
+            }
+            if (count($deletable) < $required) {
+                $this->db->trans_rollback();
+                $detail = !empty($blocked) ? ' Contoh penghalang: ' . implode('; ', $blocked) . '.' : '';
+                return ['ok' => false, 'message' => 'Hanya ' . count($deletable) . ' unit OPEN yang aman dihapus, sedangkan ' . $required . ' unit perlu dikurangi.' . $detail];
+            }
+
+            foreach (array_slice($deletable, 0, $required) as $row) {
+                $this->db->where('id', (int)$row['id']);
+                if ($this->master_lock_ready()) {
+                    $this->db
+                        ->group_start()
+                            ->where('master_lock_status', 'OPEN')
+                            ->or_where('master_lock_status IS NULL', null, false)
+                        ->group_end();
+                }
+                $this->db->delete(self::TABLE_ASSET);
+                if ($this->db->affected_rows() <= 0) {
+                    $this->db->trans_rollback();
+                    return ['ok' => false, 'message' => 'Salah satu unit berubah status saat penyesuaian. Muat ulang halaman lalu coba lagi.'];
+                }
+            }
+        }
+
+        if (!$this->db->trans_status()) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Penyesuaian jumlah aset gagal disimpan.'];
+        }
+
+        $this->db->trans_commit();
+        return [
+            'ok' => true,
+            'created' => $change > 0 ? $change : 0,
+            'deleted' => $change < 0 ? abs($change) : 0,
+            'quantity' => $targetQuantity,
+        ];
+    }
+
+    /**
      * Mengunci data awal unit aset yang sudah selesai didata. Kunci ini tidak
      * mengubah kondisi fisik ataupun nilai aset; hanya mengubah jalur edit.
      */
@@ -2068,6 +2284,129 @@ class Asset_model extends CI_Model
         return is_array($decoded) ? $this->master_change_requested_snapshot([], $decoded) : [];
     }
 
+    private function asset_for_update(int $assetId, ?int $divisionScopeId = null): ?array
+    {
+        $sql = 'SELECT a.*, ' . $this->asset_group_key_expr() . ' AS group_key'
+            . ' FROM ' . self::TABLE_ASSET . ' a WHERE a.id = ?';
+        $binds = [$assetId];
+        if ($divisionScopeId !== null && $divisionScopeId > 0) {
+            $sql .= ' AND a.division_id = ?';
+            $binds[] = $divisionScopeId;
+        }
+        $sql .= ' FOR UPDATE';
+
+        $row = $this->db->query($sql, $binds)->row_array();
+        return $row ?: null;
+    }
+
+    private function group_assets_for_update(string $groupKey, ?int $divisionId): array
+    {
+        $sql = 'SELECT a.* FROM ' . self::TABLE_ASSET . ' a'
+            . ' WHERE ' . $this->asset_group_key_expr() . ' = ?';
+        $binds = [$groupKey];
+        if ($divisionId !== null && $divisionId > 0) {
+            $sql .= ' AND a.division_id = ?';
+            $binds[] = $divisionId;
+        }
+        $sql .= ' ORDER BY a.id DESC FOR UPDATE';
+
+        return $this->db->query($sql, $binds)->result_array();
+    }
+
+    /** Return a reason only when deleting would remove an operational history. */
+    private function asset_delete_block_reason(int $assetId): ?string
+    {
+        if ($this->db->table_exists(self::TABLE_EVENT)) {
+            $event = $this->db
+                ->select('event_type')
+                ->from(self::TABLE_EVENT)
+                ->where('asset_id', $assetId)
+                ->where_not_in('event_type', ['ACQUIRE', 'UPDATE'])
+                ->order_by('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->row_array();
+            if ($event) {
+                return 'sudah memiliki event operasional ' . strtoupper((string)$event['event_type']);
+            }
+        }
+
+        if ($this->db->table_exists(self::TABLE_RECON_LINE)
+            && $this->db->where('asset_id', $assetId)->count_all_results(self::TABLE_RECON_LINE) > 0) {
+            return 'sudah masuk dokumen rekonsiliasi aset';
+        }
+        if ($this->db->table_exists(self::TABLE_WORKFLOW)
+            && $this->db->where('asset_id', $assetId)->count_all_results(self::TABLE_WORKFLOW) > 0) {
+            return 'sudah memiliki dokumen workflow aset';
+        }
+        if ($this->db->table_exists(self::TABLE_DEP_LINE)
+            && $this->db->where('asset_id', $assetId)->count_all_results(self::TABLE_DEP_LINE) > 0) {
+            return 'sudah masuk perhitungan penyusutan';
+        }
+        if ($this->db->table_exists(self::TABLE_MASTER_CHANGE)
+            && $this->db->where('asset_id', $assetId)->count_all_results(self::TABLE_MASTER_CHANGE) > 0) {
+            return 'sudah memiliki pengajuan perubahan data';
+        }
+
+        return null;
+    }
+
+    private function open_asset_template(array $rows): ?array
+    {
+        foreach ($rows as $row) {
+            if (!$this->asset_master_is_locked($row) && strtoupper((string)($row['status'] ?? '')) === 'ACTIVE') {
+                return $row;
+            }
+        }
+        foreach ($rows as $row) {
+            if (!$this->asset_master_is_locked($row)) {
+                return $row;
+            }
+        }
+        return null;
+    }
+
+    private function quantity_clone_data(array $template, ?string $serialNo, int $userId): array
+    {
+        $now = date('Y-m-d H:i:s');
+        $row = [
+            'asset_code' => $this->next_asset_code((string)($template['acquisition_date'] ?? '')),
+            'asset_name' => (string)($template['asset_name'] ?? ''),
+            'category_id' => !empty($template['category_id']) ? (int)$template['category_id'] : null,
+            'brand' => $this->null_if_blank((string)($template['brand'] ?? '')),
+            'model_name' => $this->null_if_blank((string)($template['model_name'] ?? '')),
+            // Serial tidak pernah diwariskan ke unit baru.
+            'serial_no' => $this->null_if_blank((string)$serialNo),
+            'batch_no' => $this->null_if_blank((string)($template['batch_no'] ?? '')),
+            'purchase_date' => $this->valid_date_value((string)($template['purchase_date'] ?? '')),
+            'acquisition_date' => $this->valid_date_value((string)($template['acquisition_date'] ?? '')) ?: date('Y-m-d'),
+            'acquisition_cost' => max(0, (float)($template['acquisition_cost'] ?? 0)),
+            'residual_value' => max(0, (float)($template['residual_value'] ?? 0)),
+            'useful_life_months' => max(0, (int)($template['useful_life_months'] ?? 0)),
+            'depreciation_method' => strtoupper((string)($template['depreciation_method'] ?? 'STRAIGHT_LINE')) === 'NONE' ? 'NONE' : 'STRAIGHT_LINE',
+            'depreciation_start_month' => preg_match('/^\d{4}-\d{2}$/', (string)($template['depreciation_start_month'] ?? '')) ? (string)$template['depreciation_start_month'] : null,
+            'division_id' => !empty($template['division_id']) ? (int)$template['division_id'] : null,
+            'outlet_id' => !empty($template['outlet_id']) ? (int)$template['outlet_id'] : null,
+            'current_location' => $this->null_if_blank((string)($template['current_location'] ?? '')),
+            'custodian_employee_id' => !empty($template['custodian_employee_id']) ? (int)$template['custodian_employee_id'] : null,
+            'status' => isset($this->status_labels()[strtoupper((string)($template['status'] ?? ''))]) ? strtoupper((string)$template['status']) : 'ACTIVE',
+            'condition_score' => max(0, min(100, (int)($template['condition_score'] ?? 100))),
+            'photo_path' => $this->null_if_blank((string)($template['photo_path'] ?? '')),
+            'photo_mime' => $this->null_if_blank((string)($template['photo_mime'] ?? '')),
+            'notes' => $this->null_if_blank((string)($template['notes'] ?? '')),
+            'created_by' => $userId > 0 ? $userId : null,
+            'updated_by' => $userId > 0 ? $userId : null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+        if ($this->master_lock_ready()) {
+            $row['master_lock_status'] = 'OPEN';
+            $row['master_locked_by'] = null;
+            $row['master_locked_at'] = null;
+        }
+        return $row;
+    }
+
     private function asset_master_is_locked(array $asset): bool
     {
         return $this->master_lock_ready()
@@ -2294,7 +2633,7 @@ class Asset_model extends CI_Model
             AVG(a.condition_score) AS avg_condition,
             MIN(a.acquisition_date) AS first_acquisition_date,
             MAX(COALESCE(a.updated_at, a.created_at)) AS last_activity_at,
-            COUNT(DISTINCT a.division_id) AS division_count,
+            COUNT(DISTINCT COALESCE(a.division_id, 0)) AS division_count,
             GROUP_CONCAT(DISTINCT d.name ORDER BY d.name SEPARATOR ', ') AS division_names,
             GROUP_CONCAT(DISTINCT NULLIF(a.current_location, '') ORDER BY a.current_location SEPARATOR ', ') AS locations
         ";

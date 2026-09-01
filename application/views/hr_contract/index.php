@@ -149,6 +149,10 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   </div>
 </div>
 
+<div class="alert alert-light border mb-3 py-2 small">
+  <strong>Satu sumber nominal:</strong> 1) sepakati komponen di <em>Generate Kontrak</em>, 2) generate dokumen lalu approval dan TTE kedua pihak, 3) kontrak masuk <em>ACTIVE</em> pada tanggal berlaku, 4) Master Pegawai hanya tersinkron sebagai cache, dan 5) absensi membekukan snapshot per hari untuk payroll. Salary profile, standar gaji, dan objective tetap hanya pembanding negosiasi.
+</div>
+
 <?php if ($canCreate): ?>
 <div class="card mb-3">
   <div class="card-body">

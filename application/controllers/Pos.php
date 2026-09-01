@@ -6027,6 +6027,9 @@ public function self_order_tables_print()
             'q'              => trim((string)$this->input->get('q', true)),
             'status'         => $status,
             'workspace_mode' => $workspaceMode,
+            // The cashier's active-order panel must not surface unverified
+            // self orders. Those remain actionable in the Self Order queue.
+            'cashier_recent' => (string)$this->input->get('cashier_recent', true) === '1',
             'outlet_id'      => max(0, (int)$this->input->get('outlet_id', true)),
             'date_from'      => $dateFrom,
             'date_to'        => $dateTo,

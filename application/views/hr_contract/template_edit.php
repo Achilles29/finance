@@ -61,7 +61,7 @@ $employeeOptions = $employee_options ?? [];
           <div class="col-12">
             <label class="form-label">Body HTML Template</label>
             <textarea class="form-control font-monospace" name="body_html" id="fieldBodyHtml" rows="18" required><?php echo html_escape((string)($row['body_html'] ?? '')); ?></textarea>
-            <small class="text-muted">Placeholder: <code>{{NAMA_PEGAWAI}}</code>, <code>{{JABATAN}}</code>, <code>{{DIVISI}}</code>, <code>{{OUTLET}}</code>, <code>{{TANGGAL_KONTRAK}}</code>, <code>{{TANGGAL_MULAI}}</code>, <code>{{TANGGAL_AKHIR}}</code>, <code>{{DURASI_KONTRAK}}</code>, <code>{{KONTRAK_SEBELUMNYA}}</code>, <code>{{GAJI_POKOK_DASAR}}</code>, <code>{{TUNJANGAN_JABATAN}}</code>, <code>{{TUNJANGAN_OBJEKTIF}}</code>, <code>{{UANG_MAKAN}}</code>, <code>{{TARIF_LEMBUR}}</code>, <code>{{TOTAL_KOMPENSASI_TETAP}}</code>.</small>
+            <small class="text-muted">Placeholder: <code>{{NAMA_PEGAWAI}}</code>, <code>{{JABATAN}}</code>, <code>{{DIVISI}}</code>, <code>{{OUTLET}}</code>, <code>{{TANGGAL_KONTRAK}}</code>, <code>{{TANGGAL_MULAI}}</code>, <code>{{TANGGAL_AKHIR}}</code>, <code>{{DURASI_KONTRAK}}</code>, <code>{{KONTRAK_SEBELUMNYA}}</code>, <code>{{GAJI_POKOK_DASAR}}</code>, <code>{{TUNJANGAN_JABATAN}}</code>, <code>{{TUNJANGAN_OBJEKTIF}}</code>, <code>{{UANG_MAKAN}}</code>, <code>{{TARIF_LEMBUR}}</code>, <code>{{TOTAL_KOMPENSASI_TETAP}}</code>. <code>{{TARIF_LEMBUR}}</code> selalu merujuk ke Master Standar Lembur, bukan nominal pegawai.</small>
           </div>
 
           <div class="col-12 d-flex gap-2 mt-2">

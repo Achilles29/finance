@@ -4,13 +4,16 @@ $linkedUsers = $linked_users ?? [];
 $schedules = $schedules ?? [];
 $attDailyRows = $att_daily_rows ?? [];
 $entity = $entity ?? 'org-employee';
-$basicSalary = (float)($row['basic_salary'] ?? 0);
-$positionAllowance = (float)($row['position_allowance'] ?? 0);
-$objectiveAllowance = (float)($row['objective_allowance'] ?? 0);
-$mealRate = (float)($row['meal_rate'] ?? 0);
-$overtimeRate = (float)($row['overtime_rate'] ?? 0);
+$compensation = $compensation ?? [];
+$basicSalary = (float)($compensation['basic_salary'] ?? 0);
+$positionAllowance = (float)($compensation['position_allowance'] ?? 0);
+$objectiveAllowance = (float)($compensation['objective_allowance'] ?? 0);
+$mealRate = (float)($compensation['meal_rate'] ?? 0);
+$compensationSource = (string)($compensation['source'] ?? 'MISSING');
+$contractNumber = (string)($compensation['contract_number'] ?? '');
 $takeHomeWithoutMeal = $basicSalary + $positionAllowance + $objectiveAllowance;
-$takeHomeWithMeal = $takeHomeWithoutMeal + $mealRate;
+$mealMonthlyEstimate = $mealRate * 26;
+$takeHomeWithMeal = $takeHomeWithoutMeal + $mealMonthlyEstimate;
 ?>
 
 <style>
@@ -86,7 +89,17 @@ $takeHomeWithMeal = $takeHomeWithoutMeal + $mealRate;
   <div class="col-lg-5">
     <div class="card h-100">
       <div class="card-body">
-        <h6 class="mb-3">Komponen Kompensasi</h6>
+        <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+          <h6 class="mb-0">Komponen Kompensasi</h6>
+          <span class="badge <?php echo $compensationSource === 'CONTRACT' ? 'text-bg-success' : 'text-bg-warning'; ?>">
+            <?php echo $compensationSource === 'CONTRACT' ? 'Kontrak aktif' : 'Belum ada kontrak'; ?>
+          </span>
+        </div>
+        <?php if ($contractNumber !== ''): ?>
+          <div class="small text-muted mb-3">Sumber nominal: <?php echo html_escape($contractNumber); ?>. Master Pegawai hanya menyimpan cache sinkron.</div>
+        <?php else: ?>
+          <div class="small text-warning mb-3">Belum ada kontrak aktif beserta snapshot kompensasi. Nominal master tidak dipakai sebagai sumber perhitungan.</div>
+        <?php endif; ?>
         <div class="employee-comp-summary">
           <div class="employee-comp-summary-card">
             <div class="employee-comp-summary-label">Take Home Pay Tanpa Uang Makan</div>
@@ -94,17 +107,17 @@ $takeHomeWithMeal = $takeHomeWithoutMeal + $mealRate;
             <div class="employee-comp-summary-note">Gaji pokok + tunjangan jabatan + tunjangan objektif.</div>
           </div>
           <div class="employee-comp-summary-card">
-            <div class="employee-comp-summary-label">Take Home Pay Dengan Uang Makan</div>
+            <div class="employee-comp-summary-label">Estimasi THP Dengan Uang Makan</div>
             <div class="employee-comp-summary-value">Rp <?php echo number_format($takeHomeWithMeal, 2, ',', '.'); ?></div>
-            <div class="employee-comp-summary-note">Total di atas ditambah komponen uang makan.</div>
+            <div class="employee-comp-summary-note">THP tetap + uang makan harian x 26 hari.</div>
           </div>
         </div>
         <div class="small mb-2"><span class="text-muted">Gaji Pokok:</span> <strong><?php echo number_format($basicSalary, 2, ',', '.'); ?></strong></div>
         <div class="small mb-2"><span class="text-muted">Tunjangan Jabatan:</span> <strong><?php echo number_format($positionAllowance, 2, ',', '.'); ?></strong></div>
         <div class="small mb-2"><span class="text-muted">Tunjangan Objektif/Lain:</span> <strong><?php echo number_format($objectiveAllowance, 2, ',', '.'); ?></strong></div>
-        <div class="small mb-2"><span class="text-muted">Uang Makan:</span> <strong><?php echo number_format($mealRate, 2, ',', '.'); ?></strong></div>
-        <div class="small mb-2"><span class="text-muted">Rate Lembur/Jam:</span> <strong><?php echo number_format($overtimeRate, 2, ',', '.'); ?></strong></div>
-        <div class="small text-muted">Ringkasan take home pay ini belum memasukkan lembur, potongan, bonus, atau komponen payroll periodik lainnya.</div>
+        <div class="small mb-2"><span class="text-muted">Uang Makan:</span> <strong><?php echo number_format($mealRate, 2, ',', '.'); ?> / hari</strong> <span class="text-muted">| Estimasi 26 hari: <?php echo number_format($mealMonthlyEstimate, 2, ',', '.'); ?></span></div>
+        <div class="small mb-2"><span class="text-muted">Tarif Lembur:</span> <strong>Mengikuti Master Standar Lembur</strong></div>
+        <div class="small text-muted">Ringkasan take home pay ini belum memasukkan lembur, potongan, bonus, atau komponen payroll periodik lainnya. Tarif lembur dipilih per entri atau dari standar default policy untuk mode otomatis.</div>
         <hr>
         <div class="small mb-2"><span class="text-muted">Bank:</span> <?php echo html_escape((string)($row['bank_display_name'] ?? $row['bank_name'] ?? '-')); ?></div>
         <div class="small mb-2"><span class="text-muted">No Rekening:</span> <?php echo html_escape((string)($row['bank_account_no'] ?? '-')); ?></div>

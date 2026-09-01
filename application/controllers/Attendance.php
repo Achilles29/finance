@@ -96,6 +96,21 @@ class Attendance extends MY_Controller
         ];
     }
 
+    private function schedule_index_query(): array
+    {
+        return [
+            'q' => trim((string)$this->input->get('q', true)),
+            'division_id' => (int)$this->input->get('division_id', true),
+            'shift_code' => strtoupper(trim((string)$this->input->get('shift_code', true))),
+            'date_start' => trim((string)$this->input->get('date_start', true)),
+            'date_end' => trim((string)$this->input->get('date_end', true)),
+            'per_page' => $this->per_page(),
+            'page' => $this->page(),
+            'tab' => strtolower(trim((string)$this->input->get('tab', true))),
+            'detail_employee_id' => (int)$this->input->get('detail_employee_id', true),
+        ];
+    }
+
     public function settings()
     {
         $this->require_permission('attendance.settings.index', 'view');
@@ -150,6 +165,14 @@ class Attendance extends MY_Controller
             if (!in_array($overtimeMode, ['AUTO', 'MANUAL'], true)) {
                 $overtimeMode = strtoupper((string)($currentPolicy['overtime_calc_mode'] ?? 'AUTO'));
             }
+            $defaultOvertimeStandardId = (int)$this->input->post('default_overtime_standard_id', true);
+            if ($defaultOvertimeStandardId <= 0) {
+                $defaultOvertimeStandardId = (int)($currentPolicy['default_overtime_standard_id'] ?? 0);
+            }
+            if ($overtimeMode === 'AUTO' && !$this->Attendance_model->is_active_overtime_standard($defaultOvertimeStandardId)) {
+                $this->session->set_flashdata('error', 'Mode lembur otomatis memerlukan satu Standar Lembur Default yang aktif di master.');
+                redirect('attendance/settings');
+            }
 
             $prorateScope = strtoupper(trim((string)$this->input->post('prorate_deduction_scope', true)));
             if (!in_array($prorateScope, ['BASIC_ONLY', 'THP_TOTAL'], true)) {
@@ -173,6 +196,7 @@ class Attendance extends MY_Controller
                 'allowance_late_treatment' => $allowanceLate,
                 'meal_calc_mode' => $mealMode,
                 'overtime_calc_mode' => $overtimeMode,
+                'default_overtime_standard_id' => $defaultOvertimeStandardId > 0 ? $defaultOvertimeStandardId : null,
                 'operation_start_time' => trim((string)$this->input->post('operation_start_time', true)),
                 'operation_end_time' => trim((string)$this->input->post('operation_end_time', true)),
                 'night_shift_checkout_credit_after' => trim((string)$this->input->post('night_shift_checkout_credit_after', true)),
@@ -236,6 +260,7 @@ class Attendance extends MY_Controller
             'schedule_monthly_override_position_ids' => $this->Attendance_model->get_schedule_monthly_override_position_ids($policyId),
             'schedule_monthly_override_user_ids' => $this->Attendance_model->get_schedule_monthly_override_user_ids($policyId),
             'user_options' => $this->Attendance_model->get_active_user_options(),
+            'overtime_standard_options' => $this->Attendance_model->get_overtime_standard_options(),
         ];
         $this->render('attendance/settings', $data);
     }
@@ -348,17 +373,38 @@ class Attendance extends MY_Controller
             $filters['date_end'] = date('Y-m-t');
         }
 
+        $scheduleTab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($scheduleTab, ['people', 'recap'], true)) {
+            $scheduleTab = 'people';
+        }
+
         $perPage = $this->per_page();
         $page = $this->page();
-        $total = $this->Attendance_model->count_schedules($filters);
+        $total = $this->Attendance_model->count_schedule_employees($filters);
         $pg = $this->build_pagination($total, $perPage, $page);
-        $rows = $this->Attendance_model->list_schedules($filters, $pg['per_page'], $pg['offset']);
+        $employeeRows = $scheduleTab === 'people'
+            ? $this->Attendance_model->list_schedule_employee_summaries($filters, $pg['per_page'], $pg['offset'])
+            : [];
+        $detailEmployeeId = (int)$this->input->get('detail_employee_id', true);
+        $scheduleDetail = $scheduleTab === 'people' && $detailEmployeeId > 0
+            ? $this->Attendance_model->get_schedule_employee_detail($detailEmployeeId, $filters)
+            : null;
+        $recapRows = $scheduleTab === 'recap'
+            ? $this->Attendance_model->get_schedule_recap($filters)
+            : [];
+        $nationalHolidays = $scheduleTab === 'recap'
+            ? $this->Attendance_model->get_national_holidays_between($filters['date_start'], $filters['date_end'])
+            : [];
 
         $data = [
             'title' => 'Jadwal Shift Pegawai',
             'active_menu' => 'grp.hr',
             'filters' => $filters,
-            'rows' => $rows,
+            'schedule_tab' => $scheduleTab,
+            'employee_rows' => $employeeRows,
+            'schedule_detail' => $scheduleDetail,
+            'recap_rows' => $recapRows,
+            'national_holidays' => $nationalHolidays,
             'pg' => $pg,
             'division_options' => $this->Attendance_model->get_division_options(),
             'shift_options' => $this->Attendance_model->get_shift_options(),
@@ -387,17 +433,33 @@ class Attendance extends MY_Controller
             $year = (int)date('Y');
         }
 
-        $matrix = $this->Attendance_model->schedule_matrix($year, $month);
         $start = sprintf('%04d-%02d-01', $year, $month);
         $end = date('Y-m-t', strtotime($start));
+        $scheduleTab = strtolower(trim((string)$this->input->get('tab', true)));
+        if (!in_array($scheduleTab, ['grid', 'recap'], true)) {
+            $scheduleTab = 'grid';
+        }
+        $matrix = $scheduleTab === 'grid'
+            ? $this->Attendance_model->schedule_matrix($year, $month)
+            : ['employees' => [], 'schedule_map' => []];
+        $recapRows = $scheduleTab === 'recap'
+            ? $this->Attendance_model->get_schedule_recap([
+                'date_start' => $start,
+                'date_end' => $end,
+            ])
+            : [];
+        $nationalHolidays = $this->Attendance_model->get_national_holidays_between($start, $end);
 
         $data = [
             'title' => 'Jadwal Shift (Spreadsheet)',
             'active_menu' => 'grp.hr',
             'selected_month' => sprintf('%02d', $month),
             'selected_year' => (string)$year,
+            'schedule_tab' => $scheduleTab,
             'employees' => $matrix['employees'],
             'schedule_map' => $matrix['schedule_map'],
+            'recap_rows' => $recapRows,
+            'national_holidays' => $nationalHolidays,
             'shift_codes' => array_values($this->Attendance_model->get_shift_code_map()),
             'holiday_dates' => $this->Attendance_model->get_holiday_dates_between($start, $end),
             'schedule_limit_days' => max(1, (int)($this->Attendance_model->get_active_policy()['default_work_days_per_month'] ?? 26)),
@@ -466,7 +528,7 @@ class Attendance extends MY_Controller
             )
         );
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan jadwal.'));
-        redirect('attendance/schedules');
+        redirect('attendance/schedules?' . http_build_query($this->schedule_index_query()));
     }
 
     public function schedule_update(int $id)
@@ -486,15 +548,7 @@ class Attendance extends MY_Controller
             )
         );
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal memperbarui jadwal.'));
-        redirect('attendance/schedules?' . http_build_query([
-            'q' => $this->input->get('q', true),
-            'division_id' => $this->input->get('division_id', true),
-            'shift_code' => $this->input->get('shift_code', true),
-            'date_start' => $this->input->get('date_start', true),
-            'date_end' => $this->input->get('date_end', true),
-            'per_page' => $this->input->get('per_page', true),
-            'page' => $this->input->get('page', true),
-        ]));
+        redirect('attendance/schedules?' . http_build_query($this->schedule_index_query()));
     }
 
     public function schedule_delete(int $id)
@@ -505,15 +559,7 @@ class Attendance extends MY_Controller
         $this->require_permission('attendance.schedules.index', 'edit');
         $result = $this->Attendance_model->delete_schedule($id);
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menghapus jadwal.'));
-        redirect('attendance/schedules?' . http_build_query([
-            'q' => $this->input->get('q', true),
-            'division_id' => $this->input->get('division_id', true),
-            'shift_code' => $this->input->get('shift_code', true),
-            'date_start' => $this->input->get('date_start', true),
-            'date_end' => $this->input->get('date_end', true),
-            'per_page' => $this->input->get('per_page', true),
-            'page' => $this->input->get('page', true),
-        ]));
+        redirect('attendance/schedules?' . http_build_query($this->schedule_index_query()));
     }
 
     public function schedule_bulk_store()
@@ -535,7 +581,7 @@ class Attendance extends MY_Controller
             )
         );
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal memproses bulk jadwal.'));
-        redirect('attendance/schedules');
+        redirect('attendance/schedules?' . http_build_query($this->schedule_index_query()));
     }
 
     public function pending_requests()
@@ -612,6 +658,7 @@ class Attendance extends MY_Controller
         $total = $this->Attendance_model->count_overtime_entries($filters);
         $pg = $this->build_pagination($total, $perPage, $page);
         $rows = $this->Attendance_model->list_overtime_entries($filters, $pg['per_page'], $pg['offset']);
+        $summary = $this->Attendance_model->get_overtime_entry_summary($filters);
 
         $editId = (int)$this->input->get('edit_id', true);
         $editRow = $editId > 0 ? $this->Attendance_model->get_overtime_entry_by_id($editId) : null;
@@ -622,6 +669,7 @@ class Attendance extends MY_Controller
             'filters' => $filters,
             'pg' => $pg,
             'rows' => $rows,
+            'summary' => $summary,
             'edit_row' => $editRow,
             'division_options' => $this->Attendance_model->get_division_options(),
             'employee_options' => $this->Attendance_model->get_employee_options($filters['division_id'] > 0 ? (int)$filters['division_id'] : null),
@@ -643,7 +691,6 @@ class Attendance extends MY_Controller
             'overtime_date' => trim((string)$this->input->post('overtime_date', true)),
             'start_time' => trim((string)$this->input->post('start_time', true)),
             'end_time' => trim((string)$this->input->post('end_time', true)),
-            'overtime_rate' => (float)$this->input->post('overtime_rate', true),
             'status' => strtoupper(trim((string)$this->input->post('status', true))),
             'notes' => trim((string)$this->input->post('notes', true)),
         ], $this->actor_employee_id());
@@ -666,7 +713,6 @@ class Attendance extends MY_Controller
             'overtime_date' => trim((string)$this->input->post('overtime_date', true)),
             'start_time' => trim((string)$this->input->post('start_time', true)),
             'end_time' => trim((string)$this->input->post('end_time', true)),
-            'overtime_rate' => (float)$this->input->post('overtime_rate', true),
             'status' => strtoupper(trim((string)$this->input->post('status', true))),
             'notes' => trim((string)$this->input->post('notes', true)),
         ], $this->actor_employee_id());
