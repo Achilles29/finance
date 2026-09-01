@@ -998,7 +998,7 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
               <?php endif; ?>
               <div class="col-md-6">
                 <label class="form-label">Tanggal Adjustment</label>
-                <input type="date" class="form-control" id="adjustment_date" value="<?php echo date('Y-m-d'); ?>" required>
+                <input type="date" class="form-control" id="adjustment_date" value="<?php echo date('Y-m-d'); ?>" max="<?php echo date('Y-m-d'); ?>" required>
               </div>
               <div class="col-md-<?php echo $isDivisionScope ? '12' : '6'; ?>">
                 <label class="form-label">Catatan Header</label>
@@ -1764,6 +1764,10 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
       notes: String(document.getElementById('header_notes')?.value||'').trim(),
       lines
     };
+    if (payload.adjustment_date > '<?php echo date('Y-m-d'); ?>') {
+      showFormAlert('warning','Tanggal adjustment tidak boleh melewati hari ini karena stok live langsung berubah saat diposting.');
+      return;
+    }
     if (isDivisionScope) {
       payload.division_id    = Number(document.getElementById('division_id')?.value||0)||null;
       payload.destination_type = String(document.getElementById('destination_type')?.value||'').trim();

@@ -853,6 +853,11 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     border-color: #cfa692;
     color: #5f2432;
   }
+  .pmd-cell-adjust-trigger.is-disabled {
+    opacity: 0.34;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
   .pmd-cell-adjust-trigger .ri {
     font-size: 0.95rem;
     line-height: 1;
@@ -1347,6 +1352,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     groups: [],
     expanded: {}
   };
+  var serverToday = <?php echo json_encode(date('Y-m-d')); ?>;
+  function isFutureDate(dateText) {
+    return String(dateText || '') > serverToday;
+  }
 
   var freezeHead = document.getElementById('pmdFreezeHead');
   var freezeBody = document.getElementById('pmdFreezeBody');
@@ -1723,6 +1732,10 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
 
   function openAdjust(groupIndex, profileIndex, dateText){
+    if (isFutureDate(dateText)) {
+      showMessage(false, 'Tanggal masa depan hanya ditampilkan sebagai kolom kalender dan belum boleh menerima adjustment stok.');
+      return;
+    }
     var group = state.groups[groupIndex];
     var row = group && group.children ? group.children[profileIndex] : null;
     if (!group || !row || !dateText) {
@@ -2443,7 +2456,9 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
             : '<span class="pmd-cell-btn is-static ' + item.cls + '">' + valueText + '</span>';
           contentHtml = '<div class="pmd-cell-action-wrap">'
             + detailHtml
-            + '<button type="button" class="pmd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><i class="ri ri-edit-line" aria-hidden="true"></i></button>'
+            + (isFutureDate(dateText)
+              ? '<span class="pmd-cell-adjust-trigger is-disabled" title="Tanggal masa depan belum dapat disesuaikan" aria-label="Tanggal masa depan belum dapat disesuaikan"><i class="ri ri-lock-line" aria-hidden="true"></i></span>'
+              : '<button type="button" class="pmd-cell-adjust-trigger" data-action="adjust" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '" title="Adjustment langsung" aria-label="Adjustment langsung"><i class="ri ri-edit-line" aria-hidden="true"></i></button>')
             + '</div>';
         } else if (Math.abs(valueContent) > 0.000001) {
           contentHtml = '<button type="button" class="pmd-cell-btn ' + item.cls + '" data-action="detail" data-group-index="' + groupIndex + '" data-profile-index="' + profileIndex + '" data-date="' + esc(dateText) + '">' + valueText + '</button>';

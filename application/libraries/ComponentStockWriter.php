@@ -175,6 +175,12 @@ class ComponentStockWriter
         if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $movementDate)) {
             return ['ok' => false, 'message' => 'Tanggal adjustment tidak valid.'];
         }
+        if ($movementDate > date('Y-m-d')) {
+            return [
+                'ok' => false,
+                'message' => 'Adjustment component bertanggal masa depan tidak dapat diposting karena akan langsung mengubah stok live.',
+            ];
+        }
         if (empty($lines)) {
             return ['ok' => false, 'message' => 'Tidak ada baris adjustment untuk diposting.'];
         }
@@ -249,70 +255,51 @@ class ComponentStockWriter
                         $movementDate
                     )['qty_on_hand'] ?? 0), 4));
                     if (!$isPhysicalCount) {
-                        // A delta may never consume more than the authoritative
-                        // monthly balance. The remainder becomes an explicit deficit.
-                        $qtyToAllocate = round(min($qty, $availableStockQty), 4);
-                        if ($qtyToAllocate > 0.0001) {
-                            $lotIssue = $this->ci->componentlotmanager->consumeUsage([
-                                'issue_date' => $movementDate,
-                                'location_type' => $locationType,
-                                'division_id' => $divisionId,
-                                'component_id' => $componentId,
-                                'uom_id' => $uomId,
-                                'lot_id' => !empty($line['selected_lot_id']) ? (int)$line['selected_lot_id'] : null,
-                                'qty_out' => $qtyToAllocate,
-                                'source_module' => 'PRODUCTION_ADJUSTMENT',
-                                'source_table' => 'inv_component_adjustment',
-                                'source_id' => $sourceId > 0 ? $sourceId : null,
-                                'source_line_id' => $sourceLineId,
-                                'notes' => $note !== '' ? $note : ('Adjustment ' . $movementType),
-                                'allow_partial_issue' => true,
-                            ]);
-                            if ($lotIssue['ok'] ?? false) {
-                                $issuedQty = round((float)($lotIssue['data']['issued_qty'] ?? $qtyToAllocate), 4);
-                                $avgUnitCost = round((float)($lotIssue['data']['avg_unit_cost'] ?? $avgUnitCost), 6);
-                                $allocations = (array)($lotIssue['data']['allocations'] ?? []);
-                            } else {
-                                $lotMessage = (string)($lotIssue['message'] ?? 'Posting issue lot adjustment gagal.');
-                                $isShortage = stripos($lotMessage, 'tidak cukup') !== false
-                                    || stripos($lotMessage, 'tidak ada saldo') !== false
-                                    || stripos($lotMessage, 'tidak lengkap') !== false;
-                                if (!$isShortage) {
-                                    throw new RuntimeException($this->format_component_adjustment_error($componentId, $uomId, $lotMessage));
-                                }
-                            }
+                        if ($qty > $availableStockQty + 0.0001) {
+                            throw new RuntimeException($this->format_component_adjustment_error(
+                                $componentId,
+                                $uomId,
+                                'Qty minus ' . number_format($qty, 4, ',', '.')
+                                    . ' melebihi stok aktif ' . number_format($availableStockQty, 4, ',', '.')
+                                    . '. Gunakan Daily Recon bila angka tersebut adalah hasil hitung fisik.'
+                            ));
                         }
 
-                        $deficitQty = round(max(0, $qty - $issuedQty), 4);
-                        if ($deficitQty > 0.0001) {
-                            if (!file_exists(APPPATH . 'libraries/InventoryDeficitService.php')) {
-                                throw new RuntimeException('Defisit lot component tidak dapat dicatat karena service inventory belum tersedia.');
-                            }
-                            $this->ci->load->library('InventoryDeficitService');
-                            if (!$this->ci->inventorydeficitservice->isReady()) {
-                                throw new RuntimeException('Defisit lot component tidak dapat dicatat. Jalankan SQL inventory foundation terlebih dahulu.');
-                            }
-                            $deficit = $this->ci->inventorydeficitservice->record([
-                                'stock_domain' => 'COMPONENT',
-                                'deficit_date' => $movementDate,
-                                'location_scope' => $locationType,
-                                'division_id' => $divisionId,
-                                'component_id' => $componentId,
-                                'content_uom_id' => $uomId,
-                                'requested_qty' => $qty,
-                                'issued_qty' => $issuedQty,
-                                'estimated_unit_cost' => $avgUnitCost,
-                                'source_module' => 'PRODUCTION_ADJUSTMENT',
-                                'source_table' => 'inv_component_adjustment',
-                                'source_id' => $sourceId > 0 ? $sourceId : null,
-                                'source_line_id' => $sourceLineId,
-                                'notes' => 'Adjustment component negatif melebihi lot FIFO tersedia.',
-                                'created_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
-                            ]);
-                            if (!($deficit['ok'] ?? false)) {
-                                throw new RuntimeException((string)($deficit['message'] ?? 'Gagal mencatat defisit component.'));
-                            }
+                        $lotIssue = $this->ci->componentlotmanager->consumeUsage([
+                            'issue_date' => $movementDate,
+                            'location_type' => $locationType,
+                            'division_id' => $divisionId,
+                            'component_id' => $componentId,
+                            'uom_id' => $uomId,
+                            'lot_id' => !empty($line['selected_lot_id']) ? (int)$line['selected_lot_id'] : null,
+                            'qty_out' => $qty,
+                            'source_module' => 'PRODUCTION_ADJUSTMENT',
+                            'source_table' => 'inv_component_adjustment',
+                            'source_id' => $sourceId > 0 ? $sourceId : null,
+                            'source_line_id' => $sourceLineId,
+                            'notes' => $note !== '' ? $note : ('Adjustment ' . $movementType),
+                            'allow_partial_issue' => false,
+                        ]);
+                        if (!($lotIssue['ok'] ?? false)) {
+                            $lotMessage = (string)($lotIssue['message'] ?? 'Posting issue lot adjustment gagal.');
+                            throw new RuntimeException($this->format_component_adjustment_error(
+                                $componentId,
+                                $uomId,
+                                'Saldo component dan lot FIFO tidak dapat dikurangi penuh. Periksa Kesehatan Stok atau lakukan Daily Recon. Detail: ' . $lotMessage
+                            ));
                         }
+
+                        $issuedQty = round((float)($lotIssue['data']['issued_qty'] ?? $qty), 4);
+                        if (abs($issuedQty - $qty) > 0.0001) {
+                            throw new RuntimeException($this->format_component_adjustment_error(
+                                $componentId,
+                                $uomId,
+                                'Alokasi lot hanya ' . number_format($issuedQty, 4, ',', '.')
+                                    . ' dari ' . number_format($qty, 4, ',', '.') . '. Tidak ada defisit yang dibuat.'
+                            ));
+                        }
+                        $avgUnitCost = round((float)($lotIssue['data']['avg_unit_cost'] ?? $avgUnitCost), 6);
+                        $allocations = (array)($lotIssue['data']['allocations'] ?? []);
                     }
 
                     if ($avgUnitCost <= 0) {
@@ -322,10 +309,6 @@ class ComponentStockWriter
                     if ($qtyForStock > 0.0001) {
                         $lotSnapshot = !empty($allocations[0]['lot_no']) ? (string)$allocations[0]['lot_no'] : null;
                         $movementNote = $note;
-                        if (!$isPhysicalCount && $qtyForStock + 0.0001 < $qty) {
-                            $movementNote = trim($note . ($note !== '' ? ' | ' : '')
-                                . 'Adjustment diposting sebagian; sisa dicatat sebagai defisit stok.');
-                        }
                         $this->post_single_movement([
                             'movement_date' => $movementDate,
                             'location_type' => $locationType,

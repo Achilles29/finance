@@ -72,3 +72,6 @@ mempengaruhi mutasi rekening dan reversal stok.
 Gunakan `sql/2026-08-21d_audit_pos_refund_overpayment.sql` untuk melihat daftar
 terbarunya. Setelah itu buat reversal/void refund yang terkontrol dari modul
 POS; jangan menghapus `pos_refund` langsung dari database.
+# Addendum 1 September 2026
+
+Audit lanjutan atas kasus TAHU PONG menegaskan bahwa defisit tidak boleh dipakai sebagai fallback adjustment operator. Kontrak global Daily Recon, Daily Matrix, monthly stock, FIFO lot, dan defisit beserta repair terukur didokumentasikan di `docs/2026-09-01_audit_tahu_pong_daily_recon_matrix_dan_defisit.md`.

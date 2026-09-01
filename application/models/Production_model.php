@@ -4493,7 +4493,8 @@ class Production_model extends CI_Model
 
         $period = $this->assert_component_period_open(
             (string)($header['adjustment_date'] ?? ''),
-            'menyimpan adjustment component'
+            'menyimpan adjustment component',
+            true
         );
         if (!($period['ok'] ?? false)) {
             return $period;
@@ -4529,7 +4530,8 @@ class Production_model extends CI_Model
             }
             $existingPeriod = $this->assert_component_period_open(
                 (string)($row['adjustment_date'] ?? ''),
-                'mengubah adjustment component'
+                'mengubah adjustment component',
+                true
             );
             if (!($existingPeriod['ok'] ?? false)) {
                 $this->db->trans_complete();
@@ -4625,12 +4627,18 @@ class Production_model extends CI_Model
      * Keep component drafts, posting, and VOID on the same active-month rule.
      * A closed month must not receive a late draft that can later be posted.
      */
-    private function assert_component_period_open(string $eventDate, string $operation): array
+    private function assert_component_period_open(string $eventDate, string $operation, bool $rejectFuture = false): array
     {
         $eventDate = trim($eventDate);
         $parsed = DateTime::createFromFormat('Y-m-d', $eventDate);
         if (!$parsed || $parsed->format('Y-m-d') !== $eventDate) {
             return ['ok' => false, 'message' => 'Tanggal ' . $operation . ' tidak valid.'];
+        }
+        if ($rejectFuture && $eventDate > date('Y-m-d')) {
+            return [
+                'ok' => false,
+                'message' => 'Tanggal ' . $operation . ' tidak boleh melewati hari ini karena posting akan langsung mengubah stok component live.',
+            ];
         }
 
         if (file_exists(APPPATH . 'libraries/InventoryPeriodGuard.php')) {

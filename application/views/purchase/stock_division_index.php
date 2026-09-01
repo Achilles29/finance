@@ -8,6 +8,7 @@ if ($destinationValue === '') {
   $destinationValue = 'ALL';
 }
 $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_guard_map : [];
+$includeZeroValue = !empty($include_zero);
 $formatDivisionLabel = static function (string $code, string $name, $fallbackId = '-'): string {
   $code = trim($code);
   $name = trim($name);
@@ -208,6 +209,7 @@ if ((int)($division_id ?? 0) > 0) $pParams['division_id'] = (int)$division_id;
 if ($destinationValue !== 'ALL') $pParams['destination'] = $destinationValue;
 if (!empty($date_from)) $pParams['date_from'] = $date_from;
 if (!empty($date_to)) $pParams['date_to'] = $date_to;
+if ($includeZeroValue) $pParams['include_zero'] = 1;
 $paginationQs = http_build_query($pParams);
 ?>
 
@@ -215,13 +217,13 @@ $paginationQs = http_build_query($pParams);
 /* ── Filter form ── */
 .dv-filter-grid {
   display: grid;
-  grid-template-columns: minmax(140px,1.2fr) 100px minmax(160px,2fr) 118px 118px 68px auto auto;
+  grid-template-columns: minmax(140px,1.2fr) 100px minmax(160px,2fr) 104px 118px 118px 68px auto;
   gap: 0.5rem;
   align-items: end;
 }
 @media (max-width: 1199px) {
   .dv-filter-grid {
-    grid-template-columns: minmax(130px,1fr) 95px minmax(140px,2fr) 110px 110px 64px auto auto;
+    grid-template-columns: minmax(130px,1fr) 95px minmax(140px,2fr) 100px 110px 110px 64px auto;
   }
 }
 @media (max-width: 991px) {
@@ -428,6 +430,13 @@ $paginationQs = http_build_query($pParams);
         <div>
           <label class="form-label mb-1">Cari Stok Divisi</label>
           <input type="text" class="form-control form-control-sm" name="q" value="<?php echo html_escape((string)$q); ?>" placeholder="Divisi / Item / Material / Profile / Merk">
+        </div>
+        <div>
+          <label class="form-label mb-1">Saldo</label>
+          <select class="form-select form-select-sm" name="include_zero">
+            <option value="0" <?php echo !$includeZeroValue ? 'selected' : ''; ?>>Aktif saja</option>
+            <option value="1" <?php echo $includeZeroValue ? 'selected' : ''; ?>>Termasuk nol</option>
+          </select>
         </div>
         <div>
           <label class="form-label mb-1">Dari</label>

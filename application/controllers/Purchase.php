@@ -2297,6 +2297,21 @@ class Purchase extends MY_Controller
             $limit = 100;
         }
         $page = max(1, (int)$this->input->get('page', true));
+        $includeZero = (int)$this->input->get('include_zero', true) === 1;
+        $rows = $this->Purchase_model->list_division_stock(
+            $q,
+            2000,
+            $destinationFilter,
+            $dateFrom,
+            $dateTo,
+            $divisionId > 0 ? $divisionId : null
+        );
+        if (!$includeZero) {
+            $rows = array_values(array_filter($rows, static function (array $row): bool {
+                return abs((float)($row['qty_content_balance'] ?? 0)) > 0.0001
+                    || abs((float)($row['qty_buy_balance'] ?? 0)) > 0.0001;
+            }));
+        }
 
         $data = [
             'title' => 'Stok Bahan Baku Live',
@@ -2308,9 +2323,10 @@ class Purchase extends MY_Controller
             'date_to' => $dateTo,
             'limit' => $limit,
             'page' => $page,
+            'include_zero' => $includeZero,
             'divisions' => $divisions,
             'destination_guard_map' => $destinationGuardMap,
-            'rows' => $this->Purchase_model->list_division_stock($q, 2000, $destinationFilter, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null),
+            'rows' => $rows,
         ];
 
         $this->render('purchase/stock_division_index', $data);

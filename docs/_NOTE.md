@@ -407,3 +407,26 @@ berarti sesuaikan semua yang masih bergantuk pada gaji di master pegawai, sudah 
 
 buatkan card halaman berdasarkan divisi dan kategori
 
+
+
+
+buka lagi ingatan 2026-08-21_audit_anomali_penjualan_dan_hpp_pos dan kaitannya dengan model stock defisit.
+tadi kitchen melakukan daily recon mengurangi TAHU PONG dari 13 jadi 0.
+
+sekarang:
+- di /inventory/stock/division stok nya 0
+- di /inventory-material-daily masih ada 13 tanpa muncul adjustment
+- di dashboard muncul defisit stok TAHU pong
+
+aku ingin kamu buka konsep globalnya antara stok bahan baku / component, pola adjustmen baik di halaman adjustmen, daily recon, daily matrix, dan kaitannya dengan konsep stok defisit yang sudah kita buat.
+lalu luruskan logika yang benar bagaimana. seharusnya bagaimana.
+ini baru tanggal 1 saya lihat sudah kocar kacir datanya.
+di kitchen juga ada TAHU event yang seharusnya tidak ada
+
+sekarang aku ingin kamu scan ulang total aplikasi ini dan bandingkan dengan yang sudah kita catat di 2026-08-30_audit_total_aplikasi_finance_dan_roadmap_pengembangan, temukan bug yang masih terlewat, saran perbaikan yang masih bisa ditambahkan. lalu lakukan update dokumen audit sebagai pegangan. hapus yang sudah tidak relevan.
+tambahan dari saya mungkin perlu kamu cek juga:
+- penataan sidebar yang tidak relevan, tidak serumpun, dan urutannya dirasa kurang pas, dan yang masih dobel atau tumpang tindih
+- hak akses dan sidebar yang belum masuk ke database
+- menu menu atau halaman yang mestinya bisa diringkas atau digabungkan agar lebih simpel dan tidak terlalu membingungkan
+- bug bug tampilan yang masih ada
+- tampilan UI yang masih banyak yang tidak konsisten antara 1 halaman dan halaman lain, baik 1 rumpun maupun beda rumpun, dimana mestinya akan lebih baik lagi jika bisa konsisten, seragam, senada. seperti contoh pemilihan icon, pemilihan tabulasi, pemilihan warna button, paginasi, filtrasi, card card ringkasan, modal CRUD, tabeling, dan lain sebagainya

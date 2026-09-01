@@ -11123,6 +11123,12 @@ class Purchase_model extends CI_Model
         if ($adjustmentDate === null) {
             return ['ok' => false, 'message' => 'Tanggal adjustment tidak valid.'];
         }
+        if ($adjustmentDate > date('Y-m-d')) {
+            return [
+                'ok' => false,
+                'message' => 'Tanggal adjustment tidak boleh melewati hari ini. Daily Matrix masa depan hanya untuk proyeksi, bukan untuk posting stok live.',
+            ];
+        }
         if (file_exists(APPPATH . 'libraries/InventoryPeriodGuard.php')) {
             $this->load->library('InventoryPeriodGuard');
             $period = $this->inventoryperiodguard->ensureActiveMonthOpen(
@@ -11222,6 +11228,17 @@ class Purchase_model extends CI_Model
         }
         if (strtoupper((string)($header['status'] ?? '')) !== 'DRAFT') {
             return ['ok' => false, 'message' => 'Hanya draft adjustment yang bisa diposting.'];
+        }
+
+        $adjustmentDate = $this->normalizeDate((string)($header['adjustment_date'] ?? ''));
+        if ($adjustmentDate === null) {
+            return ['ok' => false, 'message' => 'Tanggal adjustment tidak valid.'];
+        }
+        if ($adjustmentDate > date('Y-m-d')) {
+            return [
+                'ok' => false,
+                'message' => 'Adjustment bertanggal masa depan tidak dapat diposting karena akan langsung mengubah stok live.',
+            ];
         }
 
         $lines = $this->get_stock_adjustment_lines($id);
@@ -11829,80 +11846,55 @@ class Purchase_model extends CI_Model
             $issuedQty = 0.0;
 
             if (!$isPhysicalCount) {
-                // A delta cannot issue more than the active monthly balance.
-                // Any unfulfilled remainder is retained as a visible deficit.
-                $qtyToAllocate = round(min($qtyContent, $remainingSystemQty), 4);
-                if ($qtyToAllocate > 0.0001) {
-                    $fifoPayload = [
-                        'division_id' => $scope === 'DIVISION' ? $divisionId : null,
-                        'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
-                        'issue_date' => $movementDate,
-                        'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
-                        'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
-                        'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
-                        'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
-                        'profile_key' => $this->nullableString($line['profile_key'] ?? null),
-                        'qty_content_out' => $qtyToAllocate,
-                        'source_module' => 'INVENTORY_ADJUSTMENT',
-                        'source_table' => 'inv_stock_adjustment',
-                        'source_id' => (int)($header['id'] ?? 0),
-                        'source_line_id' => (int)($line['id'] ?? 0),
-                        'notes' => $notes,
-                        'allow_partial_issue' => true,
+                if ($qtyContent > $remainingSystemQty + 0.0001) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Adjustment minus ditolak: qty ' . number_format($qtyContent, 4, ',', '.')
+                            . ' melebihi stok aktif ' . number_format($remainingSystemQty, 4, ',', '.')
+                            . '. Gunakan Daily Recon bila angka yang dimasukkan adalah hasil hitung fisik.',
                     ];
-                    $fifo = $scope === 'DIVISION'
-                        ? $this->materialfifomanager->consumeDivisionUsage($fifoPayload)
-                        : $this->materialfifomanager->consumeWarehouseUsage($fifoPayload);
-
-                    if ($fifo['ok'] ?? false) {
-                        $issuedQty = round((float)($fifo['data']['issued_qty'] ?? $qtyToAllocate), 4);
-                        $fifoIssueId = (int)($fifo['data']['issue_id'] ?? 0) ?: null;
-                        $fifoUnitCost = round((float)($fifo['data']['avg_unit_cost'] ?? $fifoUnitCost), 6);
-                    } else {
-                        $fifoMessage = (string)($fifo['message'] ?? 'Gagal alokasi FIFO adjustment.');
-                        $isShortage = stripos($fifoMessage, 'tidak cukup') !== false
-                            || stripos($fifoMessage, 'tidak ada saldo') !== false
-                            || stripos($fifoMessage, 'tidak lengkap') !== false;
-                        if (!$isShortage) {
-                            return ['ok' => false, 'message' => $fifoMessage];
-                        }
-                    }
                 }
 
-                $deficitQty = round(max(0, $qtyContent - $issuedQty), 4);
-                if ($deficitQty > 0.0001) {
-                    if (!file_exists(APPPATH . 'libraries/InventoryDeficitService.php')) {
-                        return ['ok' => false, 'message' => 'Defisit lot adjustment tidak dapat dicatat karena service inventory belum tersedia.'];
-                    }
-                    $this->load->library('InventoryDeficitService');
-                    if (!$this->inventorydeficitservice->isReady()) {
-                        return ['ok' => false, 'message' => 'Defisit lot adjustment tidak dapat dicatat. Jalankan SQL inventory foundation terlebih dahulu.'];
-                    }
-                    $deficit = $this->inventorydeficitservice->record([
-                        'stock_domain' => 'MATERIAL',
-                        'deficit_date' => $movementDate,
-                        'location_scope' => $scope,
-                        'division_id' => $scope === 'DIVISION' ? $divisionId : null,
-                        'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
-                        'item_id' => $basePayload['item_id'],
-                        'material_id' => $basePayload['material_id'],
-                        'buy_uom_id' => $basePayload['buy_uom_id'],
-                        'content_uom_id' => $basePayload['content_uom_id'],
-                        'profile_key' => $basePayload['profile_key'],
-                        'requested_qty' => $qtyContent,
-                        'issued_qty' => $issuedQty,
-                        'estimated_unit_cost' => $fifoUnitCost,
-                        'source_module' => 'INVENTORY_ADJUSTMENT',
-                        'source_table' => 'inv_stock_adjustment',
-                        'source_id' => (int)($header['id'] ?? 0),
-                        'source_line_id' => (int)($line['id'] ?? 0),
-                        'notes' => 'Adjustment negatif melebihi lot FIFO tersedia.',
-                        'created_by' => $userId > 0 ? $userId : null,
-                    ]);
-                    if (!($deficit['ok'] ?? false)) {
-                        return $deficit;
-                    }
+                $fifoPayload = [
+                    'division_id' => $scope === 'DIVISION' ? $divisionId : null,
+                    'destination_type' => $scope === 'DIVISION' ? $destinationType : 'GUDANG',
+                    'issue_date' => $movementDate,
+                    'item_id' => !empty($line['item_id']) ? (int)$line['item_id'] : null,
+                    'material_id' => !empty($line['material_id']) ? (int)$line['material_id'] : null,
+                    'buy_uom_id' => !empty($line['buy_uom_id']) ? (int)$line['buy_uom_id'] : null,
+                    'content_uom_id' => !empty($line['content_uom_id']) ? (int)$line['content_uom_id'] : null,
+                    'profile_key' => $this->nullableString($line['profile_key'] ?? null),
+                    'qty_content_out' => $qtyContent,
+                    'source_module' => 'INVENTORY_ADJUSTMENT',
+                    'source_table' => 'inv_stock_adjustment',
+                    'source_id' => (int)($header['id'] ?? 0),
+                    'source_line_id' => (int)($line['id'] ?? 0),
+                    'notes' => $notes,
+                    'allow_partial_issue' => false,
+                ];
+                $fifo = $scope === 'DIVISION'
+                    ? $this->materialfifomanager->consumeDivisionUsage($fifoPayload)
+                    : $this->materialfifomanager->consumeWarehouseUsage($fifoPayload);
+
+                if (!($fifo['ok'] ?? false)) {
+                    $fifoMessage = (string)($fifo['message'] ?? 'Gagal alokasi FIFO adjustment.');
+                    return [
+                        'ok' => false,
+                        'message' => 'Adjustment dibatalkan karena saldo stok dan lot FIFO tidak dapat dikurangi penuh. '
+                            . 'Periksa Kesehatan Stok atau lakukan Daily Recon. Detail: ' . $fifoMessage,
+                    ];
                 }
+
+                $issuedQty = round((float)($fifo['data']['issued_qty'] ?? $qtyContent), 4);
+                if (abs($issuedQty - $qtyContent) > 0.0001) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Adjustment dibatalkan karena alokasi lot FIFO hanya ' . number_format($issuedQty, 4, ',', '.')
+                            . ' dari ' . number_format($qtyContent, 4, ',', '.') . '. Tidak ada defisit yang dibuat.',
+                    ];
+                }
+                $fifoIssueId = (int)($fifo['data']['issue_id'] ?? 0) ?: null;
+                $fifoUnitCost = round((float)($fifo['data']['avg_unit_cost'] ?? $fifoUnitCost), 6);
             }
 
             if ($fifoUnitCost > 0 && round((float)($line['unit_cost'] ?? 0), 6) <= 0) {
@@ -11913,10 +11905,6 @@ class Purchase_model extends CI_Model
             if ($qtyForLedger > 0.0001) {
                 $qtyBuyForLedger = $this->convertStockAdjustmentQtyBuy($qtyForLedger, $contentPerBuy, !empty($line['buy_uom_id']));
                 $ledgerNotes = $notes;
-                if (!$isPhysicalCount && $qtyForLedger + 0.0001 < $qtyContent) {
-                    $ledgerNotes = trim($notes . ($notes !== '' ? ' | ' : '')
-                        . 'Adjustment diposting sebagian; sisa dicatat sebagai defisit stok.');
-                }
                 $ledger = $this->postInventoryLedgerEntry($basePayload + [
                     'movement_type' => $meta['movement_type'],
                     'qty_buy_delta' => $qtyBuyForLedger * -1,
@@ -12348,6 +12336,18 @@ class Purchase_model extends CI_Model
             'content_uom_id' => $contentUomId,
             'profile_key' => $profileKey,
         ]);
+        $inputMode = strtoupper(trim((string)($line['input_mode'] ?? 'DELTA'))) === 'PHYSICAL_COUNT'
+            ? 'PHYSICAL_COUNT'
+            : 'DELTA';
+        $negativeQty = round($qtyWaste + $qtySpoil + $qtyProcessLoss + $qtyVariance, 4);
+        $availableQty = round(max(0, (float)($balance['qty_content_balance'] ?? 0)), 4);
+        if ($inputMode === 'DELTA' && $negativeQty > $availableQty + 0.0001) {
+            return [
+                '_validation_error' => 'Adjustment minus ' . number_format($negativeQty, 4, ',', '.')
+                    . ' melebihi stok aktif ' . number_format($availableQty, 4, ',', '.')
+                    . '. Jika ini hasil hitung fisik akhir, gunakan Daily Recon.',
+            ];
+        }
         $unitCost = round((float)($line['unit_cost'] ?? ($balance['avg_cost_per_content'] ?? 0)), 6);
         $unitCostValidation = $this->validateDivisionStockAdjustmentPlusUnitCost([
             'stock_scope' => $scope,
@@ -12416,7 +12416,7 @@ class Purchase_model extends CI_Model
             'profile_content_uom_code' => $profileContentUomCode,
             'available_qty_buy' => round((float)($balance['qty_buy_balance'] ?? 0), 4),
             'available_qty_content' => round((float)($balance['qty_content_balance'] ?? 0), 4),
-            'input_mode' => strtoupper(trim((string)($line['input_mode'] ?? 'DELTA'))) === 'PHYSICAL_COUNT' ? 'PHYSICAL_COUNT' : 'DELTA',
+            'input_mode' => $inputMode,
             'system_qty_snapshot_content' => isset($line['system_qty_snapshot_content'])
                 ? round((float)$line['system_qty_snapshot_content'], 4)
                 : round((float)($balance['qty_content_balance'] ?? 0), 4),

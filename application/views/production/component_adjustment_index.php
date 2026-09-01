@@ -772,7 +772,7 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
         <div class="row g-3">
           <div class="col-md-6">
             <label class="form-label">Tanggal Adjustment</label>
-            <input type="date" class="form-control" id="modal-adjustment-date" value="<?php echo html_escape($prefillDate); ?>">
+            <input type="date" class="form-control" id="modal-adjustment-date" value="<?php echo html_escape($prefillDate); ?>" max="<?php echo date('Y-m-d'); ?>">
           </div>
           <div class="col-md-6">
             <label class="form-label">Divisi</label>
@@ -1901,6 +1901,10 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
       renderAlert('warning', 'Tanggal, divisi, dan lokasi adjustment wajib diisi di header.');
       return;
     }
+    if (adjustmentDate > '<?php echo date('Y-m-d'); ?>') {
+      renderAlert('warning', 'Tanggal adjustment component tidak boleh melewati hari ini.');
+      return;
+    }
     applyHeaderValues({
       adjustment_date: adjustmentDate,
       location_type: locationType,
@@ -2030,6 +2034,11 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
     };
     if (payload.adjustment_date === '' || payload.division_id === '' || payload.location_type === '') {
       renderAlert('warning', 'Lengkapi header adjustment terlebih dahulu lewat modal Header Adjustment.');
+      openHeaderModal();
+      return;
+    }
+    if (payload.adjustment_date > '<?php echo date('Y-m-d'); ?>') {
+      renderAlert('warning', 'Tanggal adjustment component tidak boleh melewati hari ini karena posting langsung mengubah stok live.');
       openHeaderModal();
       return;
     }
