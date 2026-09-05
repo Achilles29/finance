@@ -901,6 +901,29 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
   </div>
 </div>
 
+<div class="modal fade component-adjustment-modal" id="componentAdjustmentStepUpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Verifikasi Posting Adjustment</h5>
+          <div class="small text-muted">Masukkan password akun Anda untuk melanjutkan posting ke stok dan ledger component.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="component_adjustment_step_up_password" class="form-label">Password akun Anda</label>
+        <input type="password" class="form-control" id="component_adjustment_step_up_password" autocomplete="current-password" maxlength="72">
+        <div class="form-text">Password hanya dipakai untuk verifikasi ini dan tidak disimpan pada dokumen adjustment.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="btn-component-adjustment-step-up-post">Verifikasi &amp; Post</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <?php $this->load->view('production/_ajax_picker_helper'); ?>
 
 <script>
@@ -920,7 +943,9 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
     }, $divisions)), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const adjustmentReasonOptions = <?php echo json_encode($adjustmentReasonOptions, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const saveUrl = '<?php echo site_url('production/component-adjustments/save'); ?>';
+  const componentAdjustmentStepUpUrl = '<?php echo site_url('production/component-adjustments/step-up/verify'); ?>';
   const postBaseUrl = '<?php echo site_url('production/component-adjustments/post'); ?>';
+  const componentAdjustmentCsrfToken = <?php echo json_encode((string)($component_adjustment_csrf_token ?? ''), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const voidBaseUrl = '<?php echo site_url('production/component-adjustments/void'); ?>';
   const deleteBaseUrl = '<?php echo site_url('production/component-adjustments/delete'); ?>';
   const stockSnapshotUrl = '<?php echo site_url('production/component-stock-snapshot'); ?>';
@@ -967,13 +992,20 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
   const lineEstimatedMeta = document.getElementById('modal-line-estimated-meta');
   const lineNoteInput = document.getElementById('modal-line-note');
   const btnSaveLine = document.getElementById('btn-save-adjustment-line');
+  const adjustmentStepUpModalEl = document.getElementById('componentAdjustmentStepUpModal');
+  const adjustmentStepUpPassword = document.getElementById('component_adjustment_step_up_password');
+  const btnAdjustmentStepUpPost = document.getElementById('btn-component-adjustment-step-up-post');
   const lotPickerModalEl = document.getElementById('componentLotPickerModal');
   const lotPickerBody = document.getElementById('component-lot-picker-body');
   const lotPickerMeta = document.getElementById('component-lot-picker-meta');
   let headerModal = null;
   let lineModal = null;
   let lotPickerModal = null;
+  let adjustmentStepUpModal = null;
   let lotPickerTarget = null;
+  let pendingAdjustmentPostId = 0;
+  let pendingAdjustmentPostButton = null;
+  let adjustmentStepUpSubmitting = false;
   let lines = [];
   let lineDraft = null;
   let editingLineIndex = -1;
@@ -1083,6 +1115,29 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
       headers: {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify(payload)
+    });
+    const text = await response.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (error) {
+      throw new Error('Respons server bukan JSON valid.');
+    }
+    if (!response.ok || !json.ok) {
+      throw new Error(json.message || 'Permintaan gagal diproses.');
+    }
+    return json;
+  }
+
+  async function postComponentAdjustmentJson(url, payload) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Production-Component-Adjustment-Csrf': componentAdjustmentCsrfToken
       },
       body: JSON.stringify(payload)
     });
@@ -1349,6 +1404,16 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
       lotPickerModal = window.bootstrap.Modal.getOrCreateInstance(lotPickerModalEl);
     }
     return lotPickerModal;
+  }
+
+  function ensureAdjustmentStepUpModal() {
+    if (!adjustmentStepUpModalEl || !window.bootstrap || !window.bootstrap.Modal) {
+      return null;
+    }
+    if (!adjustmentStepUpModal) {
+      adjustmentStepUpModal = window.bootstrap.Modal.getOrCreateInstance(adjustmentStepUpModalEl);
+    }
+    return adjustmentStepUpModal;
   }
 
   function fillHeaderModal() {
@@ -2099,15 +2164,70 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
       }))) {
         return;
       }
-      setButtonBusy(button, 'Posting...');
-      try {
-        await postJson(postBaseUrl + '/' + button.dataset.id, {});
-        window.location.reload();
-      } catch (error) {
-        renderAlert('danger', error.message || 'Gagal post adjustment.');
-        clearButtonBusy(button);
+      const adjustmentId = Number(button.dataset.id || 0);
+      const modal = ensureAdjustmentStepUpModal();
+      if (!(adjustmentId > 0) || !modal) {
+        renderAlert('danger', 'Verifikasi posting belum siap. Muat ulang halaman lalu coba kembali.');
+        return;
       }
+      pendingAdjustmentPostId = adjustmentId;
+      pendingAdjustmentPostButton = button;
+      if (adjustmentStepUpPassword) adjustmentStepUpPassword.value = '';
+      modal.show();
+      window.setTimeout(() => adjustmentStepUpPassword?.focus(), 150);
     });
+  });
+
+  btnAdjustmentStepUpPost?.addEventListener('click', async () => {
+    if (adjustmentStepUpSubmitting) {
+      return;
+    }
+    const adjustmentId = pendingAdjustmentPostId;
+    const button = pendingAdjustmentPostButton;
+    try {
+      if (!(adjustmentId > 0) || !button) throw new Error('Dokumen adjustment tidak valid. Tutup modal lalu coba lagi.');
+      const password = String(adjustmentStepUpPassword?.value || '');
+      if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi posting adjustment.');
+      if (adjustmentStepUpPassword) adjustmentStepUpPassword.value = '';
+      adjustmentStepUpSubmitting = true;
+      adjustmentStepUpModalEl?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((dismissButton) => {
+        dismissButton.disabled = true;
+      });
+      setButtonBusy(btnAdjustmentStepUpPost, 'Memverifikasi...');
+      const stepUp = await postComponentAdjustmentJson(componentAdjustmentStepUpUrl, {
+        adjustment_id: adjustmentId,
+        password
+      });
+      if (!/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) {
+        throw new Error('Bukti verifikasi ulang tidak valid. Coba lagi.');
+      }
+      setButtonBusy(button, 'Posting...');
+      await postComponentAdjustmentJson(postBaseUrl + '/' + adjustmentId, {
+        step_up_proof: String(stepUp.step_up_proof)
+      });
+      window.location.reload();
+    } catch (error) {
+      renderAlert('danger', error.message || 'Gagal post adjustment.');
+      adjustmentStepUpSubmitting = false;
+      adjustmentStepUpModalEl?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((dismissButton) => {
+        dismissButton.disabled = false;
+      });
+      clearButtonBusy(button);
+      clearButtonBusy(btnAdjustmentStepUpPost);
+    }
+  });
+
+  adjustmentStepUpModalEl?.addEventListener('hidden.bs.modal', () => {
+    if (adjustmentStepUpSubmitting) {
+      return;
+    }
+    if (adjustmentStepUpPassword) adjustmentStepUpPassword.value = '';
+    clearButtonBusy(btnAdjustmentStepUpPost);
+    if (pendingAdjustmentPostButton) {
+      clearButtonBusy(pendingAdjustmentPostButton);
+    }
+    pendingAdjustmentPostId = 0;
+    pendingAdjustmentPostButton = null;
   });
 
   document.querySelectorAll('.btn-del').forEach((button) => {

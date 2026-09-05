@@ -5373,3 +5373,55 @@
   lalu tambah reauth secara sempit tanpa menyentuh repair mismatch historis.
 - Penyerahan: commit lokal sesudah `cdd5270`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 159 — Reauth Posting Adjustment Base/Prepare web
+
+- Waktu/tanggal: 2026-09-05, validasi akhir 22:12 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01`. Posting draft Adjustment Base/Prepare
+  menulis mutasi spoil, waste, plus, minus, stok, lot, dan nilai ke ledger
+  component. Entry web ini sebelumnya hanya memakai izin `edit` tanpa CSRF
+  endpoint maupun verifikasi ulang operator.
+- Diskusi/arah: fixer tunggal. Scope dibatasi pada **posting** dokumen draft
+  reguler agar data mismatch historis tidak berubah. Simpan draft, Void
+  adjustment, Daily Recon, adjustment gudang/divisi, API, dan APK tidak
+  disentuh diam-diam.
+- File berubah:
+  - `application/libraries/SensitiveActionStepUp.php`.
+  - `application/config/routes.php`, `application/controllers/Production.php`.
+  - `application/views/production/component_adjustment_index.php`.
+  - `tools/tests/pos_reversal_step_up_smoke.php`, test baru
+    `tools/tests/component_adjustment_step_up_smoke.php`, dan manifest/kontrak
+    quality gate.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Route web baru `production/component-adjustments/step-up/verify` memeriksa
+    izin `edit`, POST, CSRF header scoped, dan password user aktif; ia memberi
+    proof hash satu-kali 180 detik dengan action
+    `COMPONENT_ADJUSTMENT_POST` yang terikat ke dokumen adjustment.
+  - Writer `component_adjustment_post` wajib mengonsumsi proof setelah RBAC dan
+    CSRF, sebelum memanggil jalur `ComponentStockWriter`. Proof dibuang dari
+    payload; password tidak pernah mencapai model atau writer.
+  - Modal Post Adjustment web meminta password masked, mengosongkan field
+    sebelum proof diminta, dan mencegah pembatalan/klik ganda ketika request
+    verifikasi masih berjalan.
+- SQL/runtime: **tidak ada SQL baru**, migration, schema/data, query tulis
+  staging, credential, permission/sidebar, atau kontrak POS Mobile/APK yang
+  berubah. Composer tidak berubah sehingga `composer validate` tidak relevan.
+- Validasi:
+  - `php -l` seluruh file PHP berubah lulus dan `git diff --check` lulus.
+  - `component_adjustment_step_up_smoke.php` lulus 12 kontrak endpoint,
+    CSRF, proof, writer, dan UI. `pos_reversal_step_up_smoke.php` lulus 51
+    pemeriksaan termasuk action baru pada service nyata.
+  - Quality gate `parallel` lulus: required 58/58, development 4/4, release
+    1/1, preflight 1/1. Runtime/security/static/staging dan UAT browser nyata
+    tidak diklaim oleh profil ini.
+- Review akhir fixer tunggal: layak untuk scope Posting Adjustment Base/Prepare
+  web. Perubahan fail-closed untuk script web lama tanpa header/proof, dan tidak
+  mengubah role matrix atau memperbaiki data mismatch secara otomatis.
+- Risiko sisa: Void adjustment dan action mutasi inventory lain, API/APK, MFA,
+  serta UAT akun produksi/role nyata masih terbuka. Limiter reauth per sesi
+  bukan pengganti throttling login.
+- Batch berikutnya: pilih satu writer mutasi adjustment berikutnya berdasarkan
+  dampak bisnis dan entry resmi, dengan scope sempit serta tanpa repair data.
+- Penyerahan: commit lokal sesudah `cc421af`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

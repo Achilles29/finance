@@ -400,6 +400,7 @@ $route['production/component-opening-monthly']           = 'production/component
 $route['production/component-opname']                    = 'production/component_opname';
 $route['production/component-adjustments'] = 'production/component_adjustments';
 $route['production/component-adjustments/save'] = 'production/component_adjustment_save';
+$route['production/component-adjustments/step-up/verify'] = 'production/component_adjustment_step_up_verify';
 $route['production/component-adjustments/post/(:num)'] = 'production/component_adjustment_post/$1';
 $route['production/component-adjustments/void/(:num)'] = 'production/component_adjustment_void/$1';
 $route['production/component-adjustments/delete/(:num)'] = 'production/component_adjustment_delete/$1';

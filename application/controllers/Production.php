@@ -5,6 +5,8 @@ class Production extends MY_Controller
 {
     private const COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY = 'production_component_formula_mutation_csrf';
     private const COMPONENT_FORMULA_MUTATION_CSRF_CI_HEADER = 'X-Production-Component-Formula-Csrf';
+    private const COMPONENT_ADJUSTMENT_CSRF_SESSION_KEY = 'production_component_adjustment_csrf';
+    private const COMPONENT_ADJUSTMENT_CSRF_CI_HEADER = 'X-Production-Component-Adjustment-Csrf';
 
     public function __construct()
     {
@@ -882,6 +884,7 @@ class Production extends MY_Controller
             'components'       => $this->active_components(),
             'uoms'             => $this->active_uoms(),
             'divisions'        => $this->active_divisions(),
+            'component_adjustment_csrf_token' => $this->component_adjustment_csrf(),
         ]);
     }
 
@@ -948,6 +951,14 @@ class Production extends MY_Controller
     public function component_adjustment_post($id)
     {
         $this->require_permission('production.component.adjustment.index', 'edit');
+        if (!$this->require_component_adjustment_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        if (!$this->consume_component_adjustment_step_up((int)$id, $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
         try {
@@ -967,6 +978,31 @@ class Production extends MY_Controller
         } finally {
             $this->db->db_debug = $dbDebugBefore;
         }
+    }
+
+    /** Issues a short-lived proof; the password never reaches the stock writer. */
+    public function component_adjustment_step_up_verify()
+    {
+        $this->require_permission('production.component.adjustment.index', 'edit');
+        if (!$this->require_component_adjustment_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_ADJUSTMENT_POST',
+            $payload['adjustment_id'] ?? null,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
     }
 
     /** One posting path for the regular adjustment page and Daily Recon. */
@@ -3276,6 +3312,69 @@ class Production extends MY_Controller
         }
 
         return $token;
+    }
+
+    private function component_adjustment_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::COMPONENT_ADJUSTMENT_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::COMPONENT_ADJUSTMENT_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_component_adjustment_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_component_adjustment_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = (string)$this->input->get_request_header(
+            self::COMPONENT_ADJUSTMENT_CSRF_CI_HEADER,
+            true
+        );
+        $sessionToken = (string)$this->session->userdata(self::COMPONENT_ADJUSTMENT_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_component_adjustment_csrf(403, 'Permintaan posting adjustment component tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_component_adjustment_csrf(int $statusCode, string $message): void
+    {
+        $this->clear_output_buffers();
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function consume_component_adjustment_step_up(int $adjustmentId, array $payload): bool
+    {
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_ADJUSTMENT_POST',
+            $adjustmentId,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428), ['step_up_required' => true]);
+            return false;
+        }
+        return true;
     }
 
     private function require_component_formula_mutation_csrf(): bool

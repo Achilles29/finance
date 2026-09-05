@@ -8,7 +8,7 @@ class SensitiveActionStepUp
     private const TTL_SECONDS = 180;
     private const FAILURE_WINDOW_SECONDS = 600;
     private const FAILURE_LIMIT = 5;
-    private const ACTIONS = ['VOID', 'REFUND', 'PERIOD_REOPEN', 'ORDER_REPRINT'];
+    private const ACTIONS = ['VOID', 'REFUND', 'PERIOD_REOPEN', 'ORDER_REPRINT', 'COMPONENT_ADJUSTMENT_POST'];
 
     /** @var CI_Controller */
     private $ci;
