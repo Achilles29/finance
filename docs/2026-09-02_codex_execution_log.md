@@ -5149,3 +5149,53 @@
   baseline izin maupun data historis.
 - Penyerahan: commit lokal sesudah `56f1072`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 155 — Reopen periode keuangan atomik
+
+- Waktu/tanggal: 2026-09-05, validasi akhir 21:35 WIB.
+- Prioritas: P0 / AUD-A1-FIN-01. Menyelesaikan risiko model yang ditemukan dan
+  dicatat pada Batch 154: reopen dapat membaca lalu menulis tanpa row lock atau
+  transaksi, dan kegagalan write dapat terbaca sukses.
+- Diskusi/arah: fixer tunggal. Scope dibatasi satu method
+  `Finance_report_model::reopen_period()`, kontrak Finance, dan smoke model.
+  Tidak mengubah aturan siapa yang boleh reopen, data period lama, atau desain
+  step-up void/refund/reopen yang memerlukan batch tersendiri.
+- File berubah:
+  - `application/models/Finance_report_model.php`.
+  - `tools/tests/finance_period_close_reopen_atomic_smoke.php` (baru),
+    `a4_finance_contract_smoke.php`, `finance_quality_gate.php`, dan
+    `finance_quality_gate_contract_smoke.php`.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Reopen sekarang memulai transaksi, mengunci row periode melalui
+    `SELECT ... FOR UPDATE`, dan hanya menerima status `CLOSED` setelah lock.
+  - Update mengulang precondition `id` dan `status=CLOSED`, wajib tepat satu
+    row berubah dan transaksi sehat. Gagal lock, row hilang/status berubah,
+    writer, atau commit selalu rollback dan mengembalikan error.
+  - Request kedua yang menunggu lock akan melihat status `REOPENED` setelah
+    request pertama commit, lalu ditolak tanpa mengganti pelaku/waktu reopen.
+    `updated_at` kini konsisten dengan `reopened_at`.
+- SQL/runtime: **tidak ada SQL baru**, perubahan schema/data, query tulis
+  staging, credential, permission/sidebar, atau POS Mobile. Schema kanonis
+  sudah InnoDB sehingga mendukung row lock; tidak ada migration yang diperlukan.
+- Validasi:
+  - `php -l` lima file PHP berubah/baru dan `git diff --check` lulus.
+  - Smoke model 55 pemeriksaan lulus: input/foundation/begin invalid, lock gagal,
+    row/status invalid, writer/affected-row/transaksi/commit gagal, jalur sukses,
+    pelestarian audit actor pertama, dan actor kosong.
+  - Smoke CSRF periode 685 dan kontrak Finance 21 lulus.
+  - Quality gate `parallel`: required 56/56, development 4/4, release 1/1,
+    preflight 1/1 lulus. Runtime/security/static/staging dan UAT browser nyata
+    tetap di luar klaim profil ini.
+  - Tidak ada endpoint terautentikasi maupun mutasi periode staging dijalankan.
+    Test model memakai transaction double; row lock nyata perlu tetap dibuktikan
+    lewat UAT finance pada kandidat release.
+- Review akhir fixer tunggal: layak. Status controller/form Batch 154 tidak
+  berubah; Batch 155 hanya menyelesaikan integritas writer reopen. AUD-A1-FIN-01
+  tetap CODE_PASS/AUTO_PASS dan release tetap BLOCKED oleh UAT/step-up A1.
+- Risiko sisa: izin baseline owner, UAT finance role nyata, serta reauth/approval
+  tindakan sensitif void, refund, reopen, adjustment, dan reprint belum ada.
+- Batch berikutnya: telaah titik entry web/APK untuk void/refund/reopen dan
+  desain step-up minimal yang konsisten tanpa mengubah matrix izin existing.
+- Penyerahan: commit lokal sesudah `f4456f7`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

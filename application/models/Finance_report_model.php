@@ -2702,27 +2702,57 @@ class Finance_report_model extends CI_Model
 
     public function reopen_period(int $periodCloseId, int $actorUserId = 0): array
     {
-        $row = $this->get_period_close_by_id($periodCloseId);
-        if (!$row) {
+        if ($periodCloseId <= 0 || !$this->db->table_exists('fin_period_close')) {
             return ['ok' => false, 'message' => 'Draft period close tidak ditemukan.'];
         }
+        if ($this->db->trans_begin() === false) {
+            return ['ok' => false, 'message' => 'Gagal memulai transaksi buka ulang periode.'];
+        }
+        $rollback = function (string $message): array {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $message];
+        };
 
-        if (strtoupper((string)($row['status'] ?? 'OPEN')) !== 'CLOSED') {
-            return ['ok' => false, 'message' => 'Hanya period yang sudah CLOSED yang bisa dibuka ulang.'];
+        // The same row lock is used by close_period(). A concurrent second
+        // reopen waits here, then sees REOPENED and cannot overwrite audit data.
+        $query = $this->db->query(
+            'SELECT * FROM fin_period_close WHERE id = ? LIMIT 1 FOR UPDATE',
+            [$periodCloseId]
+        );
+        if ($query === false) {
+            return $rollback('Gagal mengunci period close yang akan dibuka ulang.');
+        }
+        $row = $query->row_array();
+        if (!$row) {
+            return $rollback('Draft period close tidak ditemukan.');
+        }
+        if (strtoupper(trim((string)($row['status'] ?? 'OPEN'))) !== 'CLOSED') {
+            return $rollback('Hanya period yang sudah CLOSED yang bisa dibuka ulang.');
         }
 
+        $now = date('Y-m-d H:i:s');
         $notes = trim((string)($row['notes'] ?? ''));
         $notes = trim($notes . ($notes !== '' ? ' | ' : '') . 'Reopened ' . date('Y-m-d H:i'));
-
-        $this->db->where('id', $periodCloseId)->update('fin_period_close', [
-            'status' => 'REOPENED',
-            'reopened_by' => $actorUserId > 0 ? $actorUserId : null,
-            'reopened_at' => date('Y-m-d H:i:s'),
-            'notes' => $notes !== '' ? substr($notes, 0, 255) : null,
-        ]);
+        $updated = $this->db
+            ->where('id', $periodCloseId)
+            ->where('status', 'CLOSED')
+            ->update('fin_period_close', [
+                'status' => 'REOPENED',
+                'reopened_by' => $actorUserId > 0 ? $actorUserId : null,
+                'reopened_at' => $now,
+                'updated_at' => $now,
+                'notes' => $notes !== '' ? substr($notes, 0, 255) : null,
+            ]);
+        if ($updated === false || $this->db->affected_rows() !== 1 || $this->db->trans_status() === false) {
+            return $rollback('Gagal memperbarui status buka ulang periode.');
+        }
+        if ($this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Gagal menyimpan buka ulang periode.'];
+        }
 
         return [
-            'ok' => (bool)$this->db->affected_rows() >= 0,
+            'ok' => true,
             'message' => 'Period berhasil dibuka ulang. Anda bisa koreksi data lalu proses close lagi.',
         ];
     }

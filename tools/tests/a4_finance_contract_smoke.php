@@ -82,6 +82,7 @@ $contracts = [
     ['cash reconciliation atomic audit', 'application/models/Finance_cash_reconciliation_model.php', 'post_line', ['trans_begin(', 'get_line_for_post(', "'CASH_RECON_POST'", 'trans_rollback(', 'trans_commit(']],
     ['period close RBAC', 'application/controllers/Finance_reports.php', 'period_close_process', ["require_permission('finance.period_close.index', 'edit')", 'close_period(']],
     ['period snapshot transaction/lock', 'application/models/Finance_report_model.php', 'close_period', ['trans_begin(', 'SELECT * FROM fin_period_close WHERE id = ? LIMIT 1 FOR UPDATE', 'fin_account_period_snapshot', 'fin_management_period_metric', "'status' => 'CLOSED'", 'trans_rollback(', 'trans_commit() === false']],
+    ['period reopen transaction/lock', 'application/models/Finance_report_model.php', 'reopen_period', ['trans_begin(', 'SELECT * FROM fin_period_close WHERE id = ? LIMIT 1 FOR UPDATE', "->where('status', 'CLOSED')", "'status' => 'REOPENED'", 'affected_rows() !== 1', 'trans_rollback(', 'trans_commit() === false']],
 ];
 foreach ($contracts as [$label, $file, $method, $needles]) {
     $checks++;
