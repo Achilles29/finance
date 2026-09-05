@@ -4,9 +4,13 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 164 menambahkan
-CSRF scoped serta reauth password dengan proof satu-kali pada Save Draft,
-Delete Draft, Post, dan VOID Transfer Stok Divisi web. Transfer tidak lagi
+**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 165 menambahkan
+CSRF scoped pada input manual, VOID, serta import Excel Stock Opening
+Gudang/Divisi. Batch ini menutup request lintas situs dan caller lama tanpa
+token, tetapi reauth password untuk writer opening tetap pekerjaan A1
+berikutnya. Batch 164 menambahkan CSRF scoped serta reauth password dengan
+proof satu-kali pada Save Draft, Delete Draft, Post, dan VOID Transfer Stok
+Divisi web. Transfer tidak lagi
 dapat langsung diposting melalui auto_post; alur resminya adalah simpan
 draft lalu verifikasi password untuk Post/VOID. Batch 163 menambahkan CSRF
 scoped pada simpan hitungan fisik/konfirmasi serta reauth password untuk

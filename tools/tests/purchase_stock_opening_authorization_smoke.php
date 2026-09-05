@@ -89,6 +89,18 @@ final class PurchaseOpeningSmokeDb
 final class PurchaseOpeningSmokeSession
 {
     public array $calls = [];
+    private array $data = [];
+
+    public function userdata(string $key)
+    {
+        return $this->data[$key] ?? null;
+    }
+
+    public function set_userdata(string $key, $value): void
+    {
+        $this->data[$key] = $value;
+        $this->calls[] = ['set_userdata', $key];
+    }
 
     public function set_flashdata(string $key, $value): void
     {

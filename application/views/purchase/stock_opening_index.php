@@ -6,6 +6,7 @@ $itemSearchUrl = site_url('inventory/stock/opening/item-search');
 $stockOpeningExportUrl = (string)($stock_opening_export_url ?? site_url('inventory/stock/opening/division/export-template'));
 $stockOpeningExportExistingUrl = (string)($stock_opening_export_existing_url ?? site_url('inventory/stock/opening/division/export-existing'));
 $stockOpeningImportUrl = (string)($stock_opening_import_url ?? site_url('inventory/stock/opening/division/import'));
+$stockOpeningCsrfToken = (string)($stock_opening_csrf_token ?? '');
 $stockScope = strtoupper(trim((string)($stock_scope ?? 'WAREHOUSE')));
 if (!in_array($stockScope, ['WAREHOUSE', 'DIVISION'], true)) {
   $stockScope = 'WAREHOUSE';
@@ -134,6 +135,7 @@ foreach ($rowsData as $row) {
     </div>
     <div class="opening-bulk-upload">
       <form method="post" action="<?php echo html_escape($stockOpeningImportUrl); ?>" enctype="multipart/form-data" class="row g-3 align-items-end" id="stock-opening-import-form">
+        <input type="hidden" name="stock_opening_csrf" value="<?php echo html_escape($stockOpeningCsrfToken); ?>">
         <input type="hidden" name="division_id" value="<?php echo (int)$selectedDivisionId; ?>">
         <input type="hidden" name="destination" value="<?php echo html_escape($selectedDestination); ?>">
         <input type="hidden" name="month" value="<?php echo html_escape($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
@@ -424,6 +426,7 @@ foreach ($rowsData as $row) {
   var storeUrl = <?php echo json_encode($storeUrl); ?>;
   var voidUrlBase = <?php echo json_encode($voidUrlBase); ?>;
   var itemSearchUrl = <?php echo json_encode($itemSearchUrl); ?>;
+  var stockOpeningCsrfToken = <?php echo json_encode($stockOpeningCsrfToken, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
   var alertArea = document.getElementById('alert-area');
   var stockScope = <?php echo json_encode($stockScope); ?>;
   var divisionEl = document.getElementById('division_id');
@@ -464,6 +467,14 @@ foreach ($rowsData as $row) {
     OFFICE: 'OFFICE',
     OTHER: 'OTHER'
   };
+
+  function stockOpeningMutationHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-Stock-Opening-Csrf': stockOpeningCsrfToken
+    };
+  }
 
   function sanitizeDestinationList(rawList) {
     var fallback = ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
@@ -903,7 +914,7 @@ foreach ($rowsData as $row) {
     setSavingState(true);
     fetch(storeUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: stockOpeningMutationHeaders(),
       body: JSON.stringify(payload)
     })
     .then(function (r) {
@@ -955,7 +966,7 @@ foreach ($rowsData as $row) {
 
         return fetch(voidUrlBase + '/' + encodeURIComponent(button.getAttribute('data-id') || ''), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: stockOpeningMutationHeaders(),
           body: JSON.stringify({ stock_scope: stockScope })
         });
       })

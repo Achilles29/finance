@@ -14,6 +14,8 @@ class Purchase extends MY_Controller
     private const STOCK_ADJUSTMENT_CSRF_CI_HEADER = 'X-Stock-Adjustment-Csrf';
     private const STOCK_TRANSFER_CSRF_SESSION_KEY = 'stock_transfer_mutation_csrf';
     private const STOCK_TRANSFER_CSRF_CI_HEADER = 'X-Stock-Transfer-Csrf';
+    private const STOCK_OPENING_CSRF_SESSION_KEY = 'stock_opening_mutation_csrf';
+    private const STOCK_OPENING_CSRF_CI_HEADER = 'X-Stock-Opening-Csrf';
 
     const PAGE_ORDER = 'purchase.order.index';
     const PAGE_CATALOG = 'purchase.catalog.index';
@@ -786,6 +788,7 @@ class Purchase extends MY_Controller
             'rows' => $this->Purchase_model->list_stock_opening_snapshots('WAREHOUSE', $month, $q, $limit, null, null),
             'uoms' => $this->Purchase_model->list_active_uoms(),
             'divisions' => [],
+            'stock_opening_csrf_token' => $this->stock_opening_csrf(),
         ];
 
         $this->render('purchase/stock_opening_index', $data);
@@ -863,6 +866,7 @@ class Purchase extends MY_Controller
             'rows'        => $this->Purchase_model->list_stock_opening_snapshots('DIVISION', $month, $q, 500, $divisionId > 0 ? $divisionId : null, $destination),
             'uoms'        => $this->Purchase_model->list_active_uoms(),
             'divisions'   => $this->Purchase_model->list_active_operational_divisions(),
+            'stock_opening_csrf_token' => $this->stock_opening_csrf(),
         ];
 
         $this->render('purchase/stock_opening_division_index', $data);
@@ -1029,6 +1033,9 @@ class Purchase extends MY_Controller
     public function stock_opening_division_import()
     {
         $this->require_permission(self::PAGE_STOCK_DIVISION, 'create');
+        if (!$this->require_stock_opening_csrf()) {
+            return;
+        }
 
         $defaultDivisionId = (int)$this->input->post('division_id', true);
         $defaultDestination = $this->stock_opening_import_destination((string)$this->input->post('destination', true));
@@ -1451,6 +1458,9 @@ class Purchase extends MY_Controller
         if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'create') && !$this->can(self::PAGE_STOCK_DIVISION, 'create')) {
             $this->require_permission(self::PAGE_ORDER, 'create');
         }
+        if (!$this->require_stock_opening_csrf()) {
+            return;
+        }
 
         $payload = $this->requestPayload();
         unset($payload['adjustment_category'], $payload['adjustment_reason_code']);
@@ -1478,6 +1488,9 @@ class Purchase extends MY_Controller
 
     public function stock_opening_void($id)
     {
+        if (!$this->require_stock_opening_csrf()) {
+            return;
+        }
         $payload = $this->requestPayload();
         $scope = strtoupper(trim((string)($payload['stock_scope'] ?? 'DIVISION')));
         if ($scope === 'DIVISION') {
@@ -4357,6 +4370,39 @@ class Purchase extends MY_Controller
             $this->session->set_userdata(self::STOCK_TRANSFER_CSRF_SESSION_KEY, $token);
         }
         return $token;
+    }
+
+    private function stock_opening_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::STOCK_OPENING_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::STOCK_OPENING_CSRF_SESSION_KEY, $token);
+        }
+        return $token;
+    }
+
+    private function require_stock_opening_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->jsonError('Permintaan opening stok tidak valid.', 405);
+            return false;
+        }
+        $providedToken = (string)$this->input->get_request_header(self::STOCK_OPENING_CSRF_CI_HEADER, true);
+        if ($providedToken === '') {
+            $providedToken = (string)$this->input->post('stock_opening_csrf', true);
+        }
+        $sessionToken = (string)$this->session->userdata(self::STOCK_OPENING_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->jsonError('Permintaan opening stok tidak valid.', 403);
+            return false;
+        }
+        return true;
     }
 
     private function require_stock_transfer_csrf(): bool

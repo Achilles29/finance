@@ -5687,3 +5687,47 @@
   sebagai mutasi inventory bernilai tinggi berikutnya.
 - Penyerahan: commit lokal sesudah `62ffbb4`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 165 — CSRF Stock Opening manual, VOID, dan import
+
+- Waktu/tanggal: 2026-09-06, validasi awal 06:17 WIB.
+- Prioritas: P0 / A1. Stock Opening langsung membuat atau mengganti snapshot,
+  lot awal, movement, saldo, nilai, dan histori stok. Sebelumnya input manual,
+  VOID, dan import Excel dapat dipanggil tanpa token mutasi khusus.
+- Diskusi/arah: fixer tunggal. Batch dibatasi pada request integrity untuk
+  opening Gudang/Divisi; tidak mengubah aturan opening, FIFO/model, data
+  historis, SQL/schema, role matrix, atau POS Mobile/APK.
+- File berubah:
+  - application/controllers/Purchase.php.
+  - application/views/purchase/stock_opening_index.php dan
+    application/views/purchase/stock_opening_division_index.php.
+  - tools/tests/stock_opening_csrf_smoke.php (baru), manifest, dan kontrak
+    quality gate; roadmap _30, _28, serta log ini.
+- Perubahan utama:
+  - Header X-Stock-Opening-Csrf wajib untuk input manual dan VOID JSON.
+  - Import Excel divisi memakai token tersembunyi yang dibandingkan dengan
+    token sesi sebelum field request, parsing upload, atau writer per baris.
+  - Caller lama tanpa token gagal tertutup; pencarian/read/export tetap tidak
+    diperlakukan sebagai mutasi.
+- SQL/runtime: tidak ada SQL baru, migration, query tulis staging, perubahan
+  data mismatch, credential, sidebar, atau kontrak POS Mobile/APK.
+- Validasi:
+  - php -l file PHP berubah, smoke opening baru (10 kontrak), quality-gate
+    contract (27), dan git diff --check lulus.
+  - Quality gate parallel dijalankan sebelum commit. Reauth password dan UAT
+    browser nyata belum diklaim oleh batch CSRF ini.
+  - php -l file PHP berubah, smoke opening baru (10 kontrak), regression
+    authorization Opening (66), matrix A2 (12 smoke), matrix lintas-modul
+    A4 (35), quality-gate contract (27), dan git diff --check lulus.
+  - Quality gate parallel lulus: required 63/63, development 4/4, release
+    1/1, dan preflight 1/1. Reauth password serta UAT browser nyata belum
+    diklaim oleh batch CSRF ini.
+- Review akhir fixer tunggal: boundary CSRF konsisten untuk tiga jalur writer
+  opening. Reauth untuk posting opening harus memakai target scope yang jelas
+  karena opening manual/import belum membuat dokumen draft terpisah.
+- Risiko sisa: reauth opening, mutasi inventory/produksi lain, API/APK, MFA,
+  baseline role nyata, serta UAT browser/perangkat per role.
+- Batch berikutnya: rancang proof reauth Stock Opening yang terikat scope
+  resmi, lalu lanjutkan mutasi inventory lain.
+- Penyerahan: commit lokal setelah semua gate lulus, tanpa push; ringkasan
+  dikirim ke Telegram Namua setelah commit.

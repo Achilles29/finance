@@ -6,6 +6,7 @@ $itemSearchUrl               = site_url('inventory/stock/opening/item-search');
 $stockOpeningExportUrl       = (string)($stock_opening_export_url ?? site_url('inventory/stock/opening/division/export-template'));
 $stockOpeningExportExistingUrl = (string)($stock_opening_export_existing_url ?? site_url('inventory/stock/opening/division/export-existing'));
 $stockOpeningImportUrl       = (string)($stock_opening_import_url ?? site_url('inventory/stock/opening/division/import'));
+$stockOpeningCsrfToken       = (string)($stock_opening_csrf_token ?? '');
 
 $rowsData         = is_array($rows ?? null) ? $rows : [];
 $divisions        = is_array($divisions ?? null) ? $divisions : [];
@@ -196,6 +197,7 @@ tr:hover .btn-quickfill { opacity:1; }
       </div>
     </div>
     <form method="post" action="<?php echo html_escape($stockOpeningImportUrl); ?>" enctype="multipart/form-data" id="opn-import-form" class="row g-3 align-items-end">
+      <input type="hidden" name="stock_opening_csrf" value="<?php echo html_escape($stockOpeningCsrfToken); ?>">
       <input type="hidden" name="division_id" value="<?php echo $selDivisionId; ?>">
       <input type="hidden" name="destination" value="<?php echo html_escape($selDestination); ?>">
       <input type="hidden" name="month" value="<?php echo html_escape($selMonth !== '' ? substr($selMonth,0,7) : date('Y-m')); ?>">
@@ -641,6 +643,7 @@ tr:hover .btn-quickfill { opacity:1; }
   var storeUrl       = <?php echo json_encode($storeUrl); ?>;
   var voidUrlBase    = <?php echo json_encode($voidUrlBase); ?>;
   var itemSearchUrl  = <?php echo json_encode($itemSearchUrl); ?>;
+  var stockOpeningCsrfToken = <?php echo json_encode($stockOpeningCsrfToken, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
   var stockScope     = 'DIVISION';
   var alertArea      = document.getElementById('opn-alert-area');
 
@@ -672,6 +675,14 @@ tr:hover .btn-quickfill { opacity:1; }
   var itemSearchTimer = null;
   var itemLastQ = '';
   var selectedItemMeta = null;
+
+  function stockOpeningMutationHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-Stock-Opening-Csrf': stockOpeningCsrfToken
+    };
+  }
 
   // ── Import/Export accordion ──────────────────────────────────────────────
   var ioToggle = document.getElementById('opn-io-toggle');
@@ -971,7 +982,7 @@ tr:hover .btn-quickfill { opacity:1; }
     };
 
     setSaving(true);
-    fetch(storeUrl, { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(payload) })
+    fetch(storeUrl, { method:'POST', headers:stockOpeningMutationHeaders(), body: JSON.stringify(payload) })
       .then(function (r) {
         return r.text().then(function (txt) {
           var j = null; try { j = txt ? JSON.parse(txt) : null; } catch(e) {}
@@ -1002,7 +1013,7 @@ tr:hover .btn-quickfill { opacity:1; }
           if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') window.FinanceUI.setButtonLoading(btn, 'Void...');
           else btn.disabled = true;
           return fetch(voidUrlBase + '/' + encodeURIComponent(btn.getAttribute('data-id') || ''), {
-            method: 'POST', headers: {'Content-Type':'application/json','Accept':'application/json'},
+            method: 'POST', headers: stockOpeningMutationHeaders(),
             body: JSON.stringify({ stock_scope: stockScope })
           });
         })

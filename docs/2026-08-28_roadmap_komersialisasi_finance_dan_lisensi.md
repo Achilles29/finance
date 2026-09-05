@@ -27,6 +27,11 @@ dan Transfer Stok Divisi web. Acceptance finance,
 step-up aksi lain, dan APK tetap berada di
 `_30`; status komersialisasi tidak berubah.
 
+Batch 165 menutup CSRF scoped pada input, VOID, dan import massal Stock
+Opening Gudang/Divisi. Reauth untuk writer opening belum diklaim selesai dan
+tetap berada pada backlog A1 di `_30`; tidak ada dampak pada lisensi atau
+paket komersial.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 
