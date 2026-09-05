@@ -314,6 +314,7 @@ $route['inventory/stock/opening/division/import'] = 'purchase/stock_opening_divi
 $route['inventory/stock/opening/void/(:num)'] = 'inventory/stock_opening_void/$1';
 $route['inventory/stock/adjustment/item-search'] = 'inventory/stock_adjustment_item_search';
 $route['inventory/stock/adjustment/store'] = 'inventory/stock_adjustment_store';
+$route['inventory/stock/adjustment/step-up/verify'] = 'inventory/stock_adjustment_step_up_verify';
 $route['inventory/stock/adjustment/post/(:num)'] = 'inventory/stock_adjustment_post/$1';
 $route['inventory/stock/adjustment/void/(:num)'] = 'inventory/stock_adjustment_void/$1';
 $route['inventory/stock/adjustment/delete/(:num)'] = 'inventory/stock_adjustment_delete/$1';

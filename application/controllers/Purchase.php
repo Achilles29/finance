@@ -10,6 +10,8 @@ class Purchase extends MY_Controller
     private const INVENTORY_DIVISION_RECONCILE_CSRF_SESSION_KEY = 'inventory_division_reconcile_csrf';
     private const INVENTORY_DIVISION_RECONCILE_CSRF_HEADER = 'X-Inventory-Reconcile-CSRF';
     private const INVENTORY_DIVISION_RECONCILE_CSRF_CI_HEADER = 'X-Inventory-Reconcile-Csrf';
+    private const STOCK_ADJUSTMENT_CSRF_SESSION_KEY = 'stock_adjustment_mutation_csrf';
+    private const STOCK_ADJUSTMENT_CSRF_CI_HEADER = 'X-Stock-Adjustment-Csrf';
 
     const PAGE_ORDER = 'purchase.order.index';
     const PAGE_CATALOG = 'purchase.catalog.index';
@@ -1543,6 +1545,7 @@ class Purchase extends MY_Controller
                 : [],
             'divisions' => [],
             'destination_guard_map' => [],
+            'stock_adjustment_csrf_token' => $this->stock_adjustment_csrf(),
         ]);
     }
 
@@ -1678,6 +1681,7 @@ class Purchase extends MY_Controller
             'line_rows'           => $lineRows,
             'divisions'           => $divisions,
             'destination_guard_map' => $destinationGuardMap,
+            'stock_adjustment_csrf_token' => $this->stock_adjustment_csrf(),
         ]);
     }
 
@@ -1722,6 +1726,9 @@ class Purchase extends MY_Controller
 
     public function stock_adjustment_store()
     {
+        if (!$this->require_stock_adjustment_csrf()) {
+            return;
+        }
         $payload = $this->requestPayload();
         $scope = strtoupper(trim((string)($payload['stock_scope'] ?? 'WAREHOUSE')));
         $autoPost = !empty($payload['auto_post']);
@@ -1729,6 +1736,16 @@ class Purchase extends MY_Controller
             $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'create');
         } else {
             $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'create');
+        }
+
+        // A document ID does not exist before this writer persists the draft,
+        // so it cannot receive a proof bound to the exact document. The
+        // official UI already saves first and posts through the protected
+        // endpoint below; reject the legacy shortcut rather than create an
+        // unbound reauthentication bypass.
+        if ($autoPost) {
+            $this->jsonError('Posting langsung tidak diizinkan. Simpan dokumen sebagai DRAFT, lalu gunakan tombol Post untuk verifikasi ulang.', 428);
+            return;
         }
 
         $dbDebugBefore = (bool)$this->db->db_debug;
@@ -1754,34 +1771,6 @@ class Purchase extends MY_Controller
             return;
         }
 
-        if ($autoPost) {
-            if ($scope === 'DIVISION') {
-                $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'edit');
-            } else {
-                $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'edit');
-            }
-
-            $adjustmentId = (int)($result['id'] ?? 0);
-            $posted = null;
-            $dbDebugBefore = (bool)$this->db->db_debug;
-            $this->db->db_debug = false;
-            try {
-                $posted = $this->Purchase_model->post_stock_adjustment($adjustmentId, (int)($this->current_user['id'] ?? 0), (string)$this->input->ip_address());
-                if (!($posted['ok'] ?? false) && $adjustmentId > 0) {
-                    $this->Purchase_model->delete_draft_stock_adjustment($adjustmentId);
-                }
-            } finally {
-                $this->db->db_debug = $dbDebugBefore;
-            }
-
-            if (!($posted['ok'] ?? false)) {
-                $this->jsonError((string)($posted['message'] ?? 'Gagal posting adjustment stok.'), 422);
-                return;
-            }
-
-            $result['posted'] = true;
-        }
-
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($result));
@@ -1789,17 +1778,21 @@ class Purchase extends MY_Controller
 
     public function stock_adjustment_post($id)
     {
+        if (!$this->require_stock_adjustment_csrf()) {
+            return;
+        }
+        $payload = $this->requestPayload();
         $header = $this->Purchase_model->get_stock_adjustment((int)$id);
         if (!$header) {
             $this->jsonError('Adjustment tidak ditemukan.', 404);
             return;
         }
 
-        if (strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE')) === 'DIVISION') {
-            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'edit');
-        } else {
-            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'edit');
+        $this->require_stock_adjustment_document_permission($header, 'edit');
+        if (!$this->consume_stock_adjustment_step_up('STOCK_ADJUSTMENT_POST', (int)$id, $payload)) {
+            return;
         }
+        unset($payload['step_up_proof']);
 
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
@@ -1821,17 +1814,16 @@ class Purchase extends MY_Controller
 
     public function stock_adjustment_delete($id)
     {
+        if (!$this->require_stock_adjustment_csrf()) {
+            return;
+        }
         $header = $this->Purchase_model->get_stock_adjustment((int)$id);
         if (!$header) {
             $this->jsonError('Adjustment tidak ditemukan.', 404);
             return;
         }
 
-        if (strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE')) === 'DIVISION') {
-            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'delete');
-        } else {
-            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'delete');
-        }
+        $this->require_stock_adjustment_document_permission($header, 'delete');
 
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
@@ -1853,17 +1845,21 @@ class Purchase extends MY_Controller
 
     public function stock_adjustment_void($id)
     {
+        if (!$this->require_stock_adjustment_csrf()) {
+            return;
+        }
+        $payload = $this->requestPayload();
         $header = $this->Purchase_model->get_stock_adjustment((int)$id);
         if (!$header) {
             $this->jsonError('Adjustment tidak ditemukan.', 404);
             return;
         }
 
-        if (strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE')) === 'DIVISION') {
-            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_DIVISION, 'delete');
-        } else {
-            $this->require_permission(self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE, 'delete');
+        $this->require_stock_adjustment_document_permission($header, 'delete');
+        if (!$this->consume_stock_adjustment_step_up('STOCK_ADJUSTMENT_VOID', (int)$id, $payload)) {
+            return;
         }
+        unset($payload['step_up_proof']);
 
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
@@ -1881,6 +1877,43 @@ class Purchase extends MY_Controller
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($result));
+    }
+
+    /** Issue a proof after resolving the document's authoritative scope. */
+    public function stock_adjustment_step_up_verify()
+    {
+        if (!$this->require_stock_adjustment_csrf()) {
+            return;
+        }
+        $payload = $this->requestPayload();
+        $operation = strtoupper(trim((string)($payload['operation'] ?? '')));
+        $action = $operation === 'POST' ? 'STOCK_ADJUSTMENT_POST' : ($operation === 'VOID' ? 'STOCK_ADJUSTMENT_VOID' : '');
+        if ($action === '') {
+            $this->jsonError('Aksi verifikasi ulang adjustment stok tidak valid.', 422);
+            return;
+        }
+        $adjustmentId = (int)($payload['adjustment_id'] ?? 0);
+        $header = $this->Purchase_model->get_stock_adjustment($adjustmentId);
+        if (!$header) {
+            $this->jsonError('Adjustment tidak ditemukan.', 404);
+            return;
+        }
+        $this->require_stock_adjustment_document_permission($header, $operation === 'VOID' ? 'delete' : 'edit');
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            $action,
+            $adjustmentId,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->jsonOk([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
     }
 
     public function stock_transfer_division_index()
@@ -4260,6 +4293,60 @@ class Purchase extends MY_Controller
         }
 
         return $post;
+    }
+
+    private function stock_adjustment_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::STOCK_ADJUSTMENT_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::STOCK_ADJUSTMENT_CSRF_SESSION_KEY, $token);
+        }
+        return $token;
+    }
+
+    private function require_stock_adjustment_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->jsonError('Permintaan adjustment stok tidak valid.', 405);
+            return false;
+        }
+        $providedToken = (string)$this->input->get_request_header(self::STOCK_ADJUSTMENT_CSRF_CI_HEADER, true);
+        $sessionToken = (string)$this->session->userdata(self::STOCK_ADJUSTMENT_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->jsonError('Permintaan adjustment stok tidak valid.', 403);
+            return false;
+        }
+        return true;
+    }
+
+    private function require_stock_adjustment_document_permission(array $header, string $action): void
+    {
+        $pageCode = strtoupper((string)($header['stock_scope'] ?? 'WAREHOUSE')) === 'DIVISION'
+            ? self::PAGE_STOCK_ADJUSTMENT_DIVISION
+            : self::PAGE_STOCK_ADJUSTMENT_WAREHOUSE;
+        $this->require_permission($pageCode, $action);
+    }
+
+    private function consume_stock_adjustment_step_up(string $action, int $adjustmentId, array $payload): bool
+    {
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            $action,
+            $adjustmentId,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428));
+            return false;
+        }
+        return true;
     }
 
     private function purchase_mutation_csrf(): string

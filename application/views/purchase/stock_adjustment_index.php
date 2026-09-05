@@ -5,6 +5,8 @@ $storeUrl   = site_url('inventory/stock/adjustment/store');
 $postBaseUrl   = site_url('inventory/stock/adjustment/post');
 $voidBaseUrl   = site_url('inventory/stock/adjustment/void');
 $deleteBaseUrl = site_url('inventory/stock/adjustment/delete');
+$stepUpVerifyUrl = site_url('inventory/stock/adjustment/step-up/verify');
+$stockAdjustmentCsrfToken = (string)($stock_adjustment_csrf_token ?? '');
 
 $rows       = is_array($rows ?? null) ? $rows : [];
 $lineRows   = is_array($line_rows ?? null) ? $line_rows : [];
@@ -1190,6 +1192,30 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
   </div>
 </div>
 
+<div class="modal fade" id="stockAdjustmentStepUpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <div class="small text-uppercase text-muted fw-semibold" id="stock-adjustment-step-up-kicker">Verifikasi Ulang</div>
+          <h5 class="modal-title mb-0" id="stock-adjustment-step-up-title">Verifikasi Adjustment Stok</h5>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small mb-3" id="stock-adjustment-step-up-message">Masukkan password akun Anda untuk melanjutkan.</div>
+        <label for="stock_adjustment_step_up_password" class="form-label">Password akun Anda</label>
+        <input type="password" class="form-control" id="stock_adjustment_step_up_password" autocomplete="current-password" maxlength="72">
+        <div class="form-text">Password hanya dipakai untuk verifikasi ini dan tidak disimpan pada dokumen adjustment.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-primary" id="stock-adjustment-step-up-submit">Verifikasi &amp; Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <style>
   .adjustment-metric-card { border:1px solid rgba(15,23,42,.08); border-radius:1rem; padding:.7rem .9rem; background:linear-gradient(180deg,#ffffff,#faf8f4); box-shadow:0 .5rem 1.2rem rgba(15,23,42,.05); height:100%; }
   .adjustment-metric-card .label { display:block; font-size:.7rem; color:#6b7280; text-transform:uppercase; letter-spacing:.04em; font-weight:700; margin-bottom:.2rem; }
@@ -1219,6 +1245,14 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
   const confirmMessageEl      = document.getElementById('adjustment-confirm-message');
   const confirmNoteEl         = document.getElementById('adjustment-confirm-note');
   const confirmSubmitBtn      = document.getElementById('adjustment-confirm-submit');
+  const stockAdjustmentCsrfToken = <?php echo json_encode($stockAdjustmentCsrfToken, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const stockAdjustmentStepUpUrl = '<?php echo $stepUpVerifyUrl; ?>';
+  const stockAdjustmentStepUpModalEl = document.getElementById('stockAdjustmentStepUpModal');
+  const stockAdjustmentStepUpKickerEl = document.getElementById('stock-adjustment-step-up-kicker');
+  const stockAdjustmentStepUpTitleEl = document.getElementById('stock-adjustment-step-up-title');
+  const stockAdjustmentStepUpMessageEl = document.getElementById('stock-adjustment-step-up-message');
+  const stockAdjustmentStepUpPasswordEl = document.getElementById('stock_adjustment_step_up_password');
+  const stockAdjustmentStepUpSubmitBtn = document.getElementById('stock-adjustment-step-up-submit');
   const confirmModal = (confirmModalEl && window.bootstrap?.Modal) ? new window.bootstrap.Modal(confirmModalEl) : null;
   const searchInput   = document.getElementById('item_search');
   const searchResults = document.getElementById('item_search_results');
@@ -1234,6 +1268,8 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
   let searchTimer = null;
   let confirmResolver = null;
   let confirmBackdropEl = null;
+  let pendingStockAdjustmentAction = null;
+  let stockAdjustmentStepUpSubmitting = false;
   const reasonLabelMap = <?php echo json_encode($adjustmentReasonOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
   const formDivisionEl    = document.getElementById('division_id');
   const formDestinationEl = document.getElementById('destination_type');
@@ -1655,6 +1691,46 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
     return res.json();
   };
 
+  const postStockAdjustmentJson = async (url, payload) => fetchJson(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-Stock-Adjustment-Csrf': stockAdjustmentCsrfToken
+    },
+    body: JSON.stringify(payload)
+  });
+  const stepUpModal = () => (!stockAdjustmentStepUpModalEl || !(window.bootstrap?.Modal))
+    ? null
+    : window.bootstrap.Modal.getOrCreateInstance(stockAdjustmentStepUpModalEl);
+  const clearStockAdjustmentButtonLoading = (button) => {
+    if (!button) return;
+    if (window.FinanceUI?.clearButtonLoading) { window.FinanceUI.clearButtonLoading(button); return; }
+    button.disabled = false;
+  };
+  const setStockAdjustmentButtonLoading = (button, label) => {
+    if (!button) return;
+    if (window.FinanceUI?.setButtonLoading) { window.FinanceUI.setButtonLoading(button, label); return; }
+    button.disabled = true;
+  };
+  const openStockAdjustmentStepUp = (action) => {
+    const modal = stepUpModal();
+    if (!modal || !action || !(Number(action.id) > 0)) {
+      showAlert('danger', 'Verifikasi ulang belum siap. Muat ulang halaman lalu coba kembali.');
+      return;
+    }
+    pendingStockAdjustmentAction = action;
+    if (stockAdjustmentStepUpKickerEl) stockAdjustmentStepUpKickerEl.textContent = action.operation === 'VOID' ? 'Verifikasi VOID' : 'Verifikasi Posting';
+    if (stockAdjustmentStepUpTitleEl) stockAdjustmentStepUpTitleEl.textContent = action.operation === 'VOID' ? 'Verifikasi VOID Adjustment Stok' : 'Verifikasi Post Adjustment Stok';
+    if (stockAdjustmentStepUpMessageEl) stockAdjustmentStepUpMessageEl.textContent = action.operation === 'VOID'
+      ? 'Masukkan password untuk membalik lot FIFO, stok, daily rollup, dan defisit dari dokumen ini.'
+      : 'Masukkan password untuk menulis perubahan ke stok live, daily rollup, dan lot FIFO.';
+    if (stockAdjustmentStepUpSubmitBtn) stockAdjustmentStepUpSubmitBtn.textContent = action.operation === 'VOID' ? 'Verifikasi & VOID' : 'Verifikasi & Post';
+    if (stockAdjustmentStepUpPasswordEl) stockAdjustmentStepUpPasswordEl.value = '';
+    modal.show();
+    window.setTimeout(() => stockAdjustmentStepUpPasswordEl?.focus(), 150);
+  };
+
   const performSearch = async () => {
     const q = String(searchInput?.value||'').trim();
     if (q.length < 2) { currentSearchItems=[]; if (searchResults) searchResults.innerHTML=''; return; }
@@ -1776,9 +1852,7 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
     }
     if (window.FinanceUI?.setButtonLoading) window.FinanceUI.setButtonLoading(saveDraftBtn,'Menyimpan draft...');
     try {
-      const res = await fetchJson('<?php echo $storeUrl; ?>', {
-        method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}, body:JSON.stringify(payload)
-      });
+      const res = await postStockAdjustmentJson('<?php echo $storeUrl; ?>', payload);
       if (!res.ok) { if (window.FinanceUI?.clearButtonLoading) window.FinanceUI.clearButtonLoading(saveDraftBtn); showFormAlert('danger',res.message||'Gagal menyimpan draft adjustment.'); return; }
       lines.splice(0,lines.length); renderDraftLines();
       showAlert('success','Draft berhasil disimpan. Halaman akan dimuat ulang.');
@@ -1790,12 +1864,7 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
     btn.addEventListener('click', async () => {
       const confirmed = await askConfirmation({kicker:'Post Adjustment',title:'Post dokumen ini?',message:'Stok live, stok harian, dan lot FIFO akan langsung diperbarui.',note:'Pastikan seluruh line sudah final.',confirmLabel:'Ya, post sekarang',confirmClass:'btn-success'});
       if (!confirmed) return;
-      if (window.FinanceUI?.setButtonLoading) window.FinanceUI.setButtonLoading(btn,'Posting...');
-      try {
-        const res = await fetchJson('<?php echo $postBaseUrl; ?>/'+btn.dataset.id, {method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},body:'{}'});
-        if (!res.ok) { if (window.FinanceUI?.clearButtonLoading) window.FinanceUI.clearButtonLoading(btn); showAlert('danger',res.message||'Gagal post adjustment.'); return; }
-        window.location.reload();
-      } catch (err) { if (window.FinanceUI?.clearButtonLoading) window.FinanceUI.clearButtonLoading(btn); showAlert('danger',err.message||'Gagal post adjustment.'); }
+      openStockAdjustmentStepUp({id:Number(btn.dataset.id||0), button:btn, operation:'POST', writerBaseUrl:'<?php echo $postBaseUrl; ?>'});
     });
   });
 
@@ -1805,7 +1874,7 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
       if (!confirmed) return;
       if (window.FinanceUI?.setButtonLoading) window.FinanceUI.setButtonLoading(btn,'Menghapus...');
       try {
-        const res = await fetchJson('<?php echo $deleteBaseUrl; ?>/'+btn.dataset.id, {method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},body:'{}'});
+        const res = await postStockAdjustmentJson('<?php echo $deleteBaseUrl; ?>/'+btn.dataset.id, {});
         if (!res.ok) { if (window.FinanceUI?.clearButtonLoading) window.FinanceUI.clearButtonLoading(btn); showAlert('danger',res.message||'Gagal menghapus draft.'); return; }
         window.location.reload();
       } catch (err) { if (window.FinanceUI?.clearButtonLoading) window.FinanceUI.clearButtonLoading(btn); showAlert('danger',err.message||'Gagal menghapus draft.'); }
@@ -1816,13 +1885,48 @@ $statusCountLabel = $activeTab === 'rincian' ? 'baris' : 'dokumen';
     btn.addEventListener('click', async () => {
       const confirmed = await askConfirmation({kicker:'Void Adjustment',title:'Batalkan adjustment yang sudah diposting?',message:'Posting ke stok, daily, dan lot akan dibatalkan.',note:'VOID mengembalikan histori stok seperti sebelum adjustment.',confirmLabel:'Ya, void sekarang',confirmClass:'btn-danger'});
       if (!confirmed) return;
-      if (window.FinanceUI?.setButtonLoading) window.FinanceUI.setButtonLoading(btn,'Void...');
-      try {
-        const res = await fetchJson('<?php echo $voidBaseUrl; ?>/'+btn.dataset.id, {method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},body:'{}'});
-        if (!res.ok) { if (window.FinanceUI?.clearButtonLoading) window.FinanceUI.clearButtonLoading(btn); showAlert('danger',res.message||'Gagal VOID adjustment.'); return; }
-        window.location.reload();
-      } catch (err) { if (window.FinanceUI?.clearButtonLoading) window.FinanceUI.clearButtonLoading(btn); showAlert('danger',err.message||'Gagal VOID adjustment.'); }
+      openStockAdjustmentStepUp({id:Number(btn.dataset.id||0), button:btn, operation:'VOID', writerBaseUrl:'<?php echo $voidBaseUrl; ?>'});
     });
+  });
+
+  stockAdjustmentStepUpSubmitBtn?.addEventListener('click', async () => {
+    if (stockAdjustmentStepUpSubmitting) return;
+    const action = pendingStockAdjustmentAction;
+    try {
+      if (!action || !(Number(action.id) > 0) || !action.button) throw new Error('Dokumen adjustment tidak valid. Tutup modal lalu coba lagi.');
+      const password = String(stockAdjustmentStepUpPasswordEl?.value || '');
+      if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi adjustment stok.');
+      if (stockAdjustmentStepUpPasswordEl) stockAdjustmentStepUpPasswordEl.value = '';
+      stockAdjustmentStepUpSubmitting = true;
+      stockAdjustmentStepUpModalEl?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((button) => { button.disabled = true; });
+      setStockAdjustmentButtonLoading(stockAdjustmentStepUpSubmitBtn, 'Memverifikasi...');
+      const stepUp = await postStockAdjustmentJson(stockAdjustmentStepUpUrl, {
+        adjustment_id: Number(action.id), operation: action.operation, password
+      });
+      if (!stepUp.ok || !/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) {
+        throw new Error(stepUp.message || 'Bukti verifikasi ulang tidak valid. Coba lagi.');
+      }
+      setStockAdjustmentButtonLoading(action.button, action.operation === 'VOID' ? 'VOID...' : 'Posting...');
+      const result = await postStockAdjustmentJson(action.writerBaseUrl + '/' + Number(action.id), {
+        step_up_proof: String(stepUp.step_up_proof)
+      });
+      if (!result.ok) throw new Error(result.message || 'Adjustment stok gagal diproses.');
+      window.location.reload();
+    } catch (error) {
+      showAlert('danger', error.message || 'Adjustment stok gagal diproses.');
+      stockAdjustmentStepUpSubmitting = false;
+      stockAdjustmentStepUpModalEl?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((button) => { button.disabled = false; });
+      clearStockAdjustmentButtonLoading(action?.button);
+      clearStockAdjustmentButtonLoading(stockAdjustmentStepUpSubmitBtn);
+    }
+  });
+
+  stockAdjustmentStepUpModalEl?.addEventListener('hidden.bs.modal', () => {
+    if (stockAdjustmentStepUpSubmitting) return;
+    if (stockAdjustmentStepUpPasswordEl) stockAdjustmentStepUpPasswordEl.value = '';
+    clearStockAdjustmentButtonLoading(stockAdjustmentStepUpSubmitBtn);
+    clearStockAdjustmentButtonLoading(pendingStockAdjustmentAction?.button);
+    pendingStockAdjustmentAction = null;
   });
 
   renderSelectedItem();

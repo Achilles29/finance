@@ -5473,3 +5473,56 @@
   halaman Adjustment Base/Prepare, kemudian amankan tanpa mencampur repair data.
 - Penyerahan: commit lokal sesudah `36146a9`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 161 — CSRF dan reauth Adjustment Stok Gudang/Divisi web
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 05:36 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01`. Satu controller melayani Adjustment Stok
+  Gudang dan Divisi. Posting menulis stok live, daily rollup, dan lot FIFO;
+  VOID membalik FIFO, histori stok, dan defisit. Sebelumnya writer menerima
+  POST tanpa CSRF/reauth, termasuk shortcut `auto_post` yang langsung memanggil
+  writer sesudah save draft.
+- Diskusi/arah: fixer tunggal. Kedua scope diamankan bersama karena endpoint
+  dan view adalah shared; ini mencegah Gudang tertutup tetapi Divisi atau
+  shortcut server-side tetap terbuka. Tidak mengubah saldo/data historis,
+  aturan FIFO, model, atau POS Mobile/APK.
+- File berubah:
+  - `application/libraries/SensitiveActionStepUp.php`.
+  - `application/config/routes.php`, `application/controllers/Purchase.php`.
+  - `application/views/purchase/stock_adjustment_index.php`.
+  - `tools/tests/stock_adjustment_step_up_smoke.php` (baru),
+    `tools/tests/pos_reversal_step_up_smoke.php`, dan manifest/kontrak quality
+    gate.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Semua mutasi halaman—Save Draft, Delete Draft, Post, dan VOID—wajib POST
+    dengan header CSRF scoped. Izin writer tetap ditentukan dari `stock_scope`
+    **dokumen tersimpan**, bukan scope kiriman browser.
+  - Endpoint verifikasi baru menerbitkan proof satu-kali 180 detik yang terikat
+    user/dokumen/action `STOCK_ADJUSTMENT_POST` atau
+    `STOCK_ADJUSTMENT_VOID`. Writer mengonsumsi proof sebelum model dipanggil;
+    password/proof tidak masuk ke model.
+  - UI Gudang maupun Divisi memakai modal password masked yang sama, menghapus
+    password sebelum proof diminta, dan baru meneruskan proof ke writer.
+  - `auto_post` ditolak fail-closed sebelum save draft: ID dokumen belum ada
+    untuk mengikat proof, sedangkan UI resmi selalu Save Draft lalu Post.
+- SQL/runtime: **tidak ada SQL baru**, migration, schema/data, query tulis
+  staging, credential, role/sidebar, atau kontrak POS Mobile/APK yang berubah.
+- Validasi:
+  - `php -l` controller/library/route/view/test berubah dan `git diff --check`
+    lulus.
+  - Smoke stock adjustment lulus 17 kontrak; proof service nyata lulus 54
+    pemeriksaan untuk action baru. Manifest quality gate bertambah satu gate
+    wajib dan kontraknya lulus.
+  - Quality gate `parallel` lulus: required 59/59, development 4/4, release
+    1/1, preflight 1/1. Runtime/security/static dan UAT browser nyata tetap
+    tidak diklaim oleh profil otomatis.
+- Review akhir fixer tunggal: layak untuk shared web flow. Caller lama tanpa
+  CSRF/proof, termasuk `auto_post`, ditolak; permission Gudang/Divisi existing
+  tidak digabung atau dinaikkan.
+- Risiko sisa: posting produksi/component batch, Daily Recon, stock opening,
+  transfer, API/APK, MFA, serta UAT role nyata masih terbuka.
+- Batch berikutnya: amankan posting Component Batch/produksi setelah memetakan
+  jalur writer dan dampak bahan/component secara terpisah.
+- Penyerahan: commit lokal sesudah `41ba136`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

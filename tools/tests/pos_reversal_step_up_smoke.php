@@ -85,6 +85,10 @@ $issued = $service->issue(7, 'COMPONENT_ADJUSTMENT_POST', 46, 'correct horse bat
 $check($issued['ok'] === true && $service->consume(7, 'COMPONENT_ADJUSTMENT_POST', 46, $issued['proof'])['ok'] === true, 'component adjustment post can use the same scoped one-use proof contract');
 $issued = $service->issue(7, 'COMPONENT_ADJUSTMENT_VOID', 47, 'correct horse battery staple');
 $check($issued['ok'] === true && $service->consume(7, 'COMPONENT_ADJUSTMENT_VOID', 47, $issued['proof'])['ok'] === true, 'component adjustment void can use the same scoped one-use proof contract');
+$issued = $service->issue(7, 'STOCK_ADJUSTMENT_POST', 48, 'correct horse battery staple');
+$check($issued['ok'] === true && $service->consume(7, 'STOCK_ADJUSTMENT_POST', 48, $issued['proof'])['ok'] === true, 'stock adjustment post can use the same scoped one-use proof contract');
+$issued = $service->issue(7, 'STOCK_ADJUSTMENT_VOID', 49, 'correct horse battery staple');
+$check($issued['ok'] === true && $service->consume(7, 'STOCK_ADJUSTMENT_VOID', 49, $issued['proof'])['ok'] === true, 'stock adjustment void can use the same scoped one-use proof contract');
 
 $now = 1700001000;
 [$service, $ci] = posStepUpFixture(['id' => 7, 'password_hash' => $hash], $now);
