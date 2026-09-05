@@ -1046,6 +1046,18 @@ class Purchase extends MY_Controller
             'month' => $defaultMonth,
         ]);
 
+        $divisionMap = $this->stock_opening_division_map();
+        if ($defaultDivisionId <= 0 || empty($divisionMap[$defaultDivisionId])) {
+            $this->session->set_flashdata('error', 'Pilih divisi aktif sebelum import opening. Satu file import hanya boleh untuk satu divisi.');
+            redirect($backUrl);
+            return;
+        }
+        if (!$this->consume_stock_opening_step_up('STOCK_OPENING_IMPORT', $defaultDivisionId, [
+            'step_up_proof' => $this->input->post('step_up_proof', true),
+        ])) {
+            return;
+        }
+
         $this->load->library('SimpleSpreadsheetIO');
         $parsed = $this->simplespreadsheetio->parse_uploaded_file('import_file');
         if (!($parsed['ok'] ?? false)) {
@@ -1054,7 +1066,6 @@ class Purchase extends MY_Controller
             return;
         }
 
-        $divisionMap = $this->stock_opening_division_map();
         $uomMap = $this->stock_opening_uom_map();
         $itemMaps = $this->stock_opening_item_lookup_maps();
         $successCount = 0;
@@ -1075,6 +1086,10 @@ class Purchase extends MY_Controller
                 $resolved = $this->stock_opening_import_payload_from_row($row, $defaultDivisionId, $defaultDestination, $defaultMonth, $divisionMap, $uomMap, $itemMaps);
                 if (!($resolved['ok'] ?? false)) {
                     $errors[] = 'Baris ' . $rowNumber . ': ' . (string)($resolved['message'] ?? 'Data tidak valid.');
+                    continue;
+                }
+                if ((int)($resolved['payload']['division_id'] ?? 0) !== $defaultDivisionId) {
+                    $errors[] = 'Baris ' . $rowNumber . ': divisi pada file harus sama dengan divisi import yang dipilih.';
                     continue;
                 }
 
@@ -1554,15 +1569,20 @@ class Purchase extends MY_Controller
 
         $payload = $this->requestPayload();
         $operation = strtoupper(trim((string)($payload['operation'] ?? '')));
-        $action = $operation === 'POST' ? 'STOCK_OPENING_POST' : ($operation === 'VOID' ? 'STOCK_OPENING_VOID' : '');
+        $action = $operation === 'POST'
+            ? 'STOCK_OPENING_POST'
+            : ($operation === 'VOID' ? 'STOCK_OPENING_VOID' : ($operation === 'IMPORT' ? 'STOCK_OPENING_IMPORT' : ''));
         if ($action === '') {
             $this->jsonError('Aksi verifikasi ulang opening stok tidak valid.', 422);
             return;
         }
 
-        $scope = $this->stock_opening_scope($payload, $operation === 'VOID' ? 'DIVISION' : 'WAREHOUSE');
+        $scope = $this->stock_opening_scope($payload, ($operation === 'VOID' || $operation === 'IMPORT') ? 'DIVISION' : 'WAREHOUSE');
         if ($operation === 'POST') {
             $this->require_stock_opening_manual_create_permission($scope);
+        } elseif ($operation === 'IMPORT') {
+            $scope = 'DIVISION';
+            $this->require_permission(self::PAGE_STOCK_DIVISION, 'create');
         } elseif ($scope === 'DIVISION') {
             $this->require_permission(self::PAGE_STOCK_DIVISION, 'delete');
         } elseif ($operation === 'VOID') {
@@ -1573,6 +1593,13 @@ class Purchase extends MY_Controller
             $targetId = (int)($payload['snapshot_id'] ?? 0);
             if (!$this->Purchase_model->get_stock_opening_snapshot($scope, $targetId)) {
                 $this->jsonError('Opening snapshot tidak ditemukan.', 404);
+                return;
+            }
+        } elseif ($operation === 'IMPORT') {
+            $targetId = max(0, (int)($payload['division_id'] ?? 0));
+            $divisionMap = $this->stock_opening_division_map();
+            if ($targetId <= 0 || empty($divisionMap[$targetId])) {
+                $this->jsonError('Divisi import opening tidak valid.', 422);
                 return;
             }
         } else {

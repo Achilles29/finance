@@ -5249,6 +5249,46 @@
 - Penyerahan: commit lokal setelah gate lulus, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
 
+## Batch 167 — Reauth import Excel Stock Opening satu divisi
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 06:52 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01`. Import Excel dapat memanggil writer
+  opening berulang sehingga mengubah snapshot, lot, saldo, nilai, dan histori.
+- Diskusi/arah: import UI/template adalah per divisi, tetapi parser lama masih
+  menerima kode divisi lain dari file. Batch ini menjadikan kontrak eksplisit:
+  satu file untuk satu divisi aktif yang dipilih. Tidak ada SQL/schema, repair
+  data, FIFO/model, POS Mobile/APK, atau perubahan matriks role.
+- File berubah:
+  - `application/controllers/Purchase.php` dan
+    `application/libraries/SensitiveActionStepUp.php`.
+  - Kedua view Stock Opening Gudang/Divisi.
+  - `tools/tests/stock_opening_import_step_up_smoke.php` (baru), manifest,
+    kontrak quality gate, roadmap `_30`, `_28`, serta log ini.
+- Perubahan utama:
+  - `STOCK_OPENING_IMPORT` menerbitkan proof one-use 180 detik setelah password
+    dan izin create Divisi diperiksa; target wajib divisi aktif yang dipilih.
+  - Endpoint multipart mengonsumsi proof sebelum parsing upload atau memanggil
+    writer. Password hanya menuju verifier, bukan writer/model.
+  - Baris Excel yang mengarah ke divisi berbeda dicatat sebagai gagal dan tidak
+    diposting. UI menjelaskan batas satu file satu divisi serta meminta password
+    sebelum form multipart dikirim.
+- SQL/runtime: **tidak ada SQL baru**, migration, query tulis staging,
+  perubahan data mismatch, credential, sidebar, atau kontrak POS Mobile/APK.
+- Validasi:
+  - Lint PHP, parse JavaScript browser, smoke CSRF/manual/VOID/import opening,
+    quality-gate contract, dan `git diff --check` lulus sebelum full gate.
+  - Quality gate `parallel` wajib lulus setelah manifest bertambah. UAT browser
+    nyata tetap belum dijalankan pada batch ini.
+- Review akhir fixer tunggal: layak; satu proof tidak dapat dipakai ulang atau
+  untuk divisi selain target. Perubahan perilaku sengaja terbatas pada penolakan
+  baris lintas divisi yang tidak sesuai halaman/template import Divisi.
+- Risiko sisa: mutasi inventory/produksi lain, API/APK, MFA, baseline role
+  nyata, serta UAT browser/perangkat per role.
+- Batch berikutnya: petakan mutasi inventory bernilai tinggi berikutnya;
+  pertahankan batch kecil dan target proof yang otoritatif.
+- Penyerahan: commit lokal setelah gate lulus, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.
+
 ## Batch 155 — Reopen periode keuangan atomik
 
 - Waktu/tanggal: 2026-09-05, validasi akhir 21:35 WIB.

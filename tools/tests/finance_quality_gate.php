@@ -33,6 +33,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'a1-stock-transfer-step-up', 'file' => 'stock_transfer_step_up_smoke.php'],
             ['id' => 'a1-stock-opening-csrf', 'file' => 'stock_opening_csrf_smoke.php'],
             ['id' => 'a1-stock-opening-step-up', 'file' => 'stock_opening_step_up_smoke.php'],
+            ['id' => 'a1-stock-opening-import-step-up', 'file' => 'stock_opening_import_step_up_smoke.php'],
             ['id' => 'a2-matrix', 'file' => 'a2_inventory_transaction_matrix_smoke.php'],
             ['id' => 'a3-finance-ui-shell', 'file' => 'a3_finance_ui_shell_smoke.php'],
             ['id' => 'a3-navigation-registry', 'file' => 'a3_navigation_registry_smoke.php'],

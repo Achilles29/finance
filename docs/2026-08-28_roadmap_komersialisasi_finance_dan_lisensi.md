@@ -37,6 +37,11 @@ VOID snapshot. Import Excel massal sengaja tetap hanya memakai CSRF sampai
 desain verifikasi batch lintas divisi tersedia. Ini memperkuat fondasi audit,
 tanpa mengubah paket, lisensi, atau status komersialisasi.
 
+Batch 167 menyelesaikan batas import tersebut: import opening memerlukan
+reauth one-use yang terikat satu divisi aktif, dan file tidak lagi dapat
+menulis baris divisi lain. Ini fondasi audit, bukan perubahan paket, lisensi,
+atau status komersialisasi.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 

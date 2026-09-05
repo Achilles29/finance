@@ -143,7 +143,7 @@ foreach ($rowsData as $row) {
         <div class="col-lg-9">
           <label class="form-label mb-1">File Import Excel</label>
           <input type="file" name="import_file" class="form-control" accept=".xlsx" required>
-          <small class="text-muted">Kolom utama template: item_code atau material_code, buy_uom_code, content_uom_code, opening_qty_buy, opening_avg_cost_per_content.</small>
+          <small class="text-muted">Satu file hanya untuk divisi yang dipilih. Kolom utama template: item_code atau material_code, buy_uom_code, content_uom_code, opening_qty_buy, opening_avg_cost_per_content.</small>
         </div>
         <div class="col-lg-3 d-grid">
           <button type="submit" class="btn btn-primary">Import Opening Excel</button>
@@ -503,11 +503,14 @@ foreach ($rowsData as $row) {
       return Promise.reject(new Error('Dialog verifikasi ulang belum tersedia. Muat ulang halaman lalu coba kembali.'));
     }
     var isVoid = operation === 'VOID';
+    var isImport = operation === 'IMPORT';
     return window.Swal.fire({
-      title: isVoid ? 'Verifikasi VOID Opening' : 'Verifikasi Simpan Opening',
+      title: isVoid ? 'Verifikasi VOID Opening' : (isImport ? 'Verifikasi Import Opening' : 'Verifikasi Simpan Opening'),
       text: isVoid
         ? 'Masukkan password akun untuk membatalkan opening dan menjalankan rollback stok.'
-        : 'Masukkan password akun untuk menyimpan dan memposting opening stok.',
+        : (isImport
+          ? 'Masukkan password akun untuk mengimpor opening pada satu divisi yang dipilih.'
+          : 'Masukkan password akun untuk menyimpan dan memposting opening stok.'),
       input: 'password',
       inputAttributes: { autocomplete: 'current-password', autocapitalize: 'off' },
       inputPlaceholder: 'Password akun Anda',
@@ -535,6 +538,42 @@ foreach ($rowsData as $row) {
       });
     });
   }
+
+  function bindOpeningImportStepUp(form) {
+    if (!form) return;
+    form.addEventListener('submit', function (event) {
+      if (form.dataset.stepUpReady === '1') {
+        form.dataset.stepUpReady = '';
+        return;
+      }
+      event.preventDefault();
+      var divisionField = form.querySelector('[name="division_id"]');
+      var divisionId = Number(divisionField ? divisionField.value : 0);
+      if (!divisionId) {
+        showAlert('warning', 'Pilih satu divisi aktif sebelum import opening.');
+        return;
+      }
+      requestOpeningStepUp('IMPORT', { division_id: divisionId })
+        .then(function (proof) {
+          if (!proof) return;
+          var proofField = form.querySelector('[name="step_up_proof"]');
+          if (!proofField) {
+            proofField = document.createElement('input');
+            proofField.type = 'hidden';
+            proofField.name = 'step_up_proof';
+            form.appendChild(proofField);
+          }
+          proofField.value = proof;
+          form.dataset.stepUpReady = '1';
+          form.submit();
+        })
+        .catch(function (error) {
+          showAlert('danger', error.message || 'Verifikasi import opening gagal.');
+        });
+    });
+  }
+
+  bindOpeningImportStepUp(openingImportForm);
 
   function sanitizeDestinationList(rawList) {
     var fallback = ['BAR', 'KITCHEN', 'ROASTERY', 'BAR_EVENT', 'KITCHEN_EVENT', 'ROASTERY_EVENT', 'OFFICE', 'OTHER'];
