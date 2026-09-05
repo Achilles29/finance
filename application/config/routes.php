@@ -308,6 +308,7 @@ $route['inventory/stock/warehouse/lot'] = 'inventory_warehouse/lot';
 $route['inventory/stock/division/lot'] = 'inventory_division/lot';
 $route['inventory/stock/opening/item-search'] = 'inventory/stock_opening_item_search';
 $route['inventory/stock/opening/store'] = 'inventory/stock_opening_store';
+$route['inventory/stock/opening/step-up/verify'] = 'inventory/stock_opening_step_up_verify';
 $route['inventory/stock/opening/division/export-template'] = 'purchase/stock_opening_division_export_template';
 $route['inventory/stock/opening/division/export-existing'] = 'purchase/stock_opening_division_export_existing';
 $route['inventory/stock/opening/division/import'] = 'purchase/stock_opening_division_import';

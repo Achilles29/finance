@@ -1,6 +1,7 @@
 <?php
 $baseUrl                     = site_url('inventory/stock/opening/division');
 $storeUrl                    = site_url('inventory/stock/opening/store');
+$stepUpUrl                   = site_url('inventory/stock/opening/step-up/verify');
 $voidUrlBase                 = site_url('inventory/stock/opening/void');
 $itemSearchUrl               = site_url('inventory/stock/opening/item-search');
 $stockOpeningExportUrl       = (string)($stock_opening_export_url ?? site_url('inventory/stock/opening/division/export-template'));
@@ -641,6 +642,7 @@ tr:hover .btn-quickfill { opacity:1; }
 <script>
 (function () {
   var storeUrl       = <?php echo json_encode($storeUrl); ?>;
+  var stockOpeningStepUpUrl = <?php echo json_encode($stepUpUrl); ?>;
   var voidUrlBase    = <?php echo json_encode($voidUrlBase); ?>;
   var itemSearchUrl  = <?php echo json_encode($itemSearchUrl); ?>;
   var stockOpeningCsrfToken = <?php echo json_encode($stockOpeningCsrfToken, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
@@ -682,6 +684,63 @@ tr:hover .btn-quickfill { opacity:1; }
       'Accept': 'application/json',
       'X-Stock-Opening-Csrf': stockOpeningCsrfToken
     };
+  }
+
+  function postStockOpeningJson(url, payload) {
+    return fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: stockOpeningMutationHeaders(),
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      return r.text().then(function (text) {
+        var parsed = null;
+        try { parsed = text ? JSON.parse(text) : null; } catch (e) { parsed = null; }
+        if (r.status >= 400 || !parsed || !parsed.ok) {
+          var fallbackMessage = (text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          throw new Error((parsed && parsed.message) ? parsed.message : (fallbackMessage || 'Permintaan opening gagal.'));
+        }
+        return parsed;
+      });
+    });
+  }
+
+  function requestOpeningStepUp(operation, payload) {
+    if (!window.Swal) {
+      return Promise.reject(new Error('Dialog verifikasi ulang belum tersedia. Muat ulang halaman lalu coba kembali.'));
+    }
+    var isVoid = operation === 'VOID';
+    return window.Swal.fire({
+      title: isVoid ? 'Verifikasi VOID Opening' : 'Verifikasi Simpan Opening',
+      text: isVoid
+        ? 'Masukkan password akun untuk membatalkan opening dan menjalankan rollback stok.'
+        : 'Masukkan password akun untuk menyimpan dan memposting opening stok.',
+      input: 'password',
+      inputAttributes: { autocomplete: 'current-password', autocapitalize: 'off' },
+      inputPlaceholder: 'Password akun Anda',
+      showCancelButton: true,
+      confirmButtonText: 'Verifikasi & Lanjutkan',
+      cancelButtonText: 'Batal',
+      focusConfirm: false,
+      preConfirm: function (password) {
+        if (!String(password || '').trim()) {
+          window.Swal.showValidationMessage('Password akun wajib diisi.');
+          return false;
+        }
+        return String(password);
+      }
+    }).then(function (dialog) {
+      if (!dialog.isConfirmed) return null;
+      return postStockOpeningJson(stockOpeningStepUpUrl, {
+        operation: operation,
+        stock_scope: stockScope,
+        division_id: Number(payload.division_id || 0),
+        snapshot_id: Number(payload.snapshot_id || 0),
+        password: String(dialog.value || '')
+      }).then(function (result) {
+        return result.step_up_proof || null;
+      });
+    });
   }
 
   // ── Import/Export accordion ──────────────────────────────────────────────
@@ -982,18 +1041,14 @@ tr:hover .btn-quickfill { opacity:1; }
     };
 
     setSaving(true);
-    fetch(storeUrl, { method:'POST', headers:stockOpeningMutationHeaders(), body: JSON.stringify(payload) })
-      .then(function (r) {
-        return r.text().then(function (txt) {
-          var j = null; try { j = txt ? JSON.parse(txt) : null; } catch(e) {}
-          return { status: r.status, json: j, text: txt };
-        });
+    requestOpeningStepUp('POST', payload)
+      .then(function (proof) {
+        if (!proof) return null;
+        payload.step_up_proof = proof;
+        return postStockOpeningJson(storeUrl, payload);
       })
       .then(function (res) {
-        if (res.status >= 400 || !res.json || !res.json.ok) {
-          var fb = (res.text||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
-          throw new Error((res.json && res.json.message) ? res.json.message : (fb || 'Gagal simpan opening.'));
-        }
+        if (!res) return;
         showAlert('success', 'Opening berhasil disimpan. Memuat ulang...');
         var modal = document.getElementById('openingFormModal');
         if (modal) { var bsModal = bootstrap.Modal.getInstance(modal); if (bsModal) bsModal.hide(); }
@@ -1012,24 +1067,20 @@ tr:hover .btn-quickfill { opacity:1; }
           if (!ok) return null;
           if (window.FinanceUI && typeof window.FinanceUI.setButtonLoading === 'function') window.FinanceUI.setButtonLoading(btn, 'Void...');
           else btn.disabled = true;
-          return fetch(voidUrlBase + '/' + encodeURIComponent(btn.getAttribute('data-id') || ''), {
-            method: 'POST', headers: stockOpeningMutationHeaders(),
-            body: JSON.stringify({ stock_scope: stockScope })
+          return requestOpeningStepUp('VOID', {
+            stock_scope: stockScope,
+            snapshot_id: Number(btn.getAttribute('data-id') || 0)
           });
         })
-        .then(function (r) {
-          if (!r) return null;
-          return r.text().then(function (txt) {
-            var j = null; try { j = txt ? JSON.parse(txt) : null; } catch(e) {}
-            return { status: r.status, json: j, text: txt };
+        .then(function (proof) {
+          if (!proof) return null;
+          return postStockOpeningJson(voidUrlBase + '/' + encodeURIComponent(btn.getAttribute('data-id') || ''), {
+            stock_scope: stockScope,
+            step_up_proof: proof
           });
         })
         .then(function (res) {
           if (!res) return;
-          if (res.status >= 400 || !res.json || !res.json.ok) {
-            var fb = (res.text||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
-            throw new Error((res.json && res.json.message) ? res.json.message : (fb || 'Gagal void.'));
-          }
           showAlert('success', 'Opening berhasil di-void. Memuat ulang...');
           setTimeout(function () { window.location.reload(); }, 700);
         })

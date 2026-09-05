@@ -5203,6 +5203,52 @@
 - Penyerahan: commit lokal setelah semua gate lulus, tanpa push; ringkasan
   dikirim ke Telegram Namua setelah commit.
 
+## Batch 166 — Reauth Stock Opening manual dan VOID
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 06:47 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01`. Simpan opening manual dan VOID snapshot
+  dapat mengubah saldo, lot awal, movement, nilai, serta histori stok.
+- Diskusi/arah: fixer tunggal. Batch dibatasi pada opening manual dan VOID;
+  import Excel tetap CSRF-only karena satu upload dapat memproses banyak baris
+  dan divisi. Tidak ada repair data, SQL/schema, POS Mobile/APK, atau perubahan
+  aturan FIFO/model.
+- File berubah:
+  - `application/config/routes.php`, `application/controllers/Purchase.php`,
+    dan `application/libraries/SensitiveActionStepUp.php`.
+  - `application/views/purchase/stock_opening_index.php` dan
+    `application/views/purchase/stock_opening_division_index.php`.
+  - `tools/tests/stock_opening_step_up_smoke.php` (baru), manifest, dan
+    kontrak quality gate; roadmap `_30`, `_28`, serta log ini.
+- Perubahan utama:
+  - Route verifikasi baru menerima password hanya melalui endpoint CSRF scoped,
+    menerbitkan proof acak satu-kali 180 detik, dan limiter gagal tetap milik
+    `SensitiveActionStepUp`.
+  - Simpan manual memakai `STOCK_OPENING_POST`: scope Gudang memakai target
+    stabil, sedangkan Divisi memakai ID divisi. Karena opening manual belum
+    mempunyai dokumen draft, proof tidak diklaim terikat nomor dokumen.
+  - VOID memakai `STOCK_OPENING_VOID` terikat ID snapshot yang benar; snapshot
+    dan izin scope diverifikasi sebelum proof diterbitkan atau writer rollback
+    dipanggil. Password tidak pernah diteruskan ke model/writer.
+  - UI Gudang dan Divisi menampilkan password masked setelah konfirmasi;
+    browser mengirim password hanya ke verifier, lalu mengirim proof ke writer.
+- SQL/runtime: **tidak ada SQL baru**, migration, query tulis staging,
+  perubahan data mismatch, credential, sidebar, atau kontrak POS Mobile/APK.
+- Validasi:
+  - `php -l` seluruh file PHP berubah, `git diff --check`, smoke CSRF opening,
+    smoke reauth opening baru, dan quality-gate contract dijalankan sebelum
+    full gate.
+  - Quality gate `parallel` wajib lulus setelah manifest bertambah; UAT browser
+    nyata dan import Excel massal reauth belum diklaim oleh batch ini.
+- Review akhir fixer tunggal: layak untuk scope manual/VOID; proof tidak dapat
+  dipakai ulang, berbeda user/aksi/target, atau dipakai untuk mengirim password
+  ke writer.
+- Risiko sisa: reauth import opening massal, mutasi inventory/produksi lain,
+  API/APK, MFA, baseline role nyata, serta UAT browser/perangkat per role.
+- Batch berikutnya: desain batch-verification untuk import opening atau lanjut
+  mutasi inventory bernilai tinggi setelah caller dan target otoritatif jelas.
+- Penyerahan: commit lokal setelah gate lulus, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.
+
 ## Batch 155 — Reopen periode keuangan atomik
 
 - Waktu/tanggal: 2026-09-05, validasi akhir 21:35 WIB.

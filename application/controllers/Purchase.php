@@ -1463,6 +1463,16 @@ class Purchase extends MY_Controller
         }
 
         $payload = $this->requestPayload();
+        $scope = $this->stock_opening_scope($payload, 'WAREHOUSE');
+        $this->require_stock_opening_manual_create_permission($scope);
+        if (!$this->consume_stock_opening_step_up(
+            'STOCK_OPENING_POST',
+            $this->stock_opening_step_up_target($scope, $payload),
+            $payload
+        )) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         unset($payload['adjustment_category'], $payload['adjustment_reason_code']);
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
@@ -1492,12 +1502,21 @@ class Purchase extends MY_Controller
             return;
         }
         $payload = $this->requestPayload();
-        $scope = strtoupper(trim((string)($payload['stock_scope'] ?? 'DIVISION')));
+        $scope = $this->stock_opening_scope($payload, 'DIVISION');
         if ($scope === 'DIVISION') {
             $this->require_permission(self::PAGE_STOCK_DIVISION, 'delete');
         } else {
             $this->require_permission(self::PAGE_STOCK_WAREHOUSE, 'delete');
         }
+        $snapshot = $this->Purchase_model->get_stock_opening_snapshot($scope, (int)$id);
+        if (!$snapshot) {
+            $this->jsonError('Opening snapshot tidak ditemukan.', 404);
+            return;
+        }
+        if (!$this->consume_stock_opening_step_up('STOCK_OPENING_VOID', (int)$id, $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
 
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
@@ -1520,6 +1539,65 @@ class Purchase extends MY_Controller
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($result));
+    }
+
+    /**
+     * Issue a one-use proof before direct stock-opening posting or rollback.
+     * Manual posting has no pre-existing document, so its proof is intentionally
+     * bound to a single authoritative scope target (warehouse or division).
+     */
+    public function stock_opening_step_up_verify()
+    {
+        if (!$this->require_stock_opening_csrf()) {
+            return;
+        }
+
+        $payload = $this->requestPayload();
+        $operation = strtoupper(trim((string)($payload['operation'] ?? '')));
+        $action = $operation === 'POST' ? 'STOCK_OPENING_POST' : ($operation === 'VOID' ? 'STOCK_OPENING_VOID' : '');
+        if ($action === '') {
+            $this->jsonError('Aksi verifikasi ulang opening stok tidak valid.', 422);
+            return;
+        }
+
+        $scope = $this->stock_opening_scope($payload, $operation === 'VOID' ? 'DIVISION' : 'WAREHOUSE');
+        if ($operation === 'POST') {
+            $this->require_stock_opening_manual_create_permission($scope);
+        } elseif ($scope === 'DIVISION') {
+            $this->require_permission(self::PAGE_STOCK_DIVISION, 'delete');
+        } elseif ($operation === 'VOID') {
+            $this->require_permission(self::PAGE_STOCK_WAREHOUSE, 'delete');
+        }
+
+        if ($operation === 'VOID') {
+            $targetId = (int)($payload['snapshot_id'] ?? 0);
+            if (!$this->Purchase_model->get_stock_opening_snapshot($scope, $targetId)) {
+                $this->jsonError('Opening snapshot tidak ditemukan.', 404);
+                return;
+            }
+        } else {
+            $targetId = $this->stock_opening_step_up_target($scope, $payload);
+        }
+        if ($targetId <= 0) {
+            $this->jsonError($scope === 'DIVISION' ? 'Divisi opening tidak valid.' : 'Scope opening tidak valid.', 422);
+            return;
+        }
+
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            $action,
+            $targetId,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->jsonOk([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
     }
 
     public function stock_adjustment_index()
@@ -4400,6 +4478,46 @@ class Purchase extends MY_Controller
             || !hash_equals($sessionToken, $providedToken)
         ) {
             $this->jsonError('Permintaan opening stok tidak valid.', 403);
+            return false;
+        }
+        return true;
+    }
+
+    private function stock_opening_scope(array $payload, string $defaultScope): string
+    {
+        $scope = strtoupper(trim((string)($payload['stock_scope'] ?? $defaultScope)));
+        return $scope === 'DIVISION' ? 'DIVISION' : 'WAREHOUSE';
+    }
+
+    private function stock_opening_step_up_target(string $scope, array $payload): int
+    {
+        // Direct manual posting has no document ID yet. Its one-use proof is
+        // therefore bound to a stable warehouse scope or one exact division.
+        return $scope === 'DIVISION' ? max(0, (int)($payload['division_id'] ?? 0)) : 1;
+    }
+
+    private function require_stock_opening_manual_create_permission(string $scope): void
+    {
+        if ($scope === 'DIVISION') {
+            $this->require_permission(self::PAGE_STOCK_DIVISION, 'create');
+            return;
+        }
+        if (!$this->can(self::PAGE_STOCK_WAREHOUSE, 'create')) {
+            $this->require_permission(self::PAGE_ORDER, 'create');
+        }
+    }
+
+    private function consume_stock_opening_step_up(string $action, int $targetId, array $payload): bool
+    {
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            $action,
+            $targetId,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->jsonError((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428));
             return false;
         }
         return true;

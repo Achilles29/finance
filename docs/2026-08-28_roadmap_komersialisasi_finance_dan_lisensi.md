@@ -32,6 +32,11 @@ Opening Gudang/Divisi. Reauth untuk writer opening belum diklaim selesai dan
 tetap berada pada backlog A1 di `_30`; tidak ada dampak pada lisensi atau
 paket komersial.
 
+Batch 166 menambah reauth password one-use untuk simpan opening manual dan
+VOID snapshot. Import Excel massal sengaja tetap hanya memakai CSRF sampai
+desain verifikasi batch lintas divisi tersedia. Ini memperkuat fondasi audit,
+tanpa mengubah paket, lisensi, atau status komersialisasi.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 
