@@ -5583,3 +5583,54 @@
   batch kecil berikutnya, setelah memetakan caller resmi dan writer lot/stok.
 - Penyerahan: commit lokal sesudah `e67186c`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 163 — CSRF dan reauth Daily Recon Component
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 06:00 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01`. Daily Recon menyimpan hitungan fisik dan
+  checkpoint, lalu endpoint quick-adjust dapat membuat **dan** mem-post
+  adjustment yang mengubah stok, lot, nilai, dan defisit dalam satu request.
+  Jalur ini sebelumnya melewati CSRF scoped dan reauth.
+- Diskusi/arah: fixer tunggal. Quick-adjust tidak dipecah menjadi repair data
+  atau perubahan model; proof satu-kali diikat ke identity component karena
+  dokumen adjustment baru ada setelah writer mulai berjalan. Endpoint tetap
+  memvalidasi snapshot, lokasi/divisi, period guard, lot, dan seluruh aturan
+  business existing sebelum menulis. Tidak mengubah data historis atau POS
+  Mobile/APK.
+- File berubah:
+  - `application/libraries/SensitiveActionStepUp.php`.
+  - `application/config/routes.php`, `application/controllers/Production.php`.
+  - `application/views/production/component_daily_recon_index.php`.
+  - `tools/tests/component_daily_recon_step_up_smoke.php` (baru), manifest,
+    dan kontrak quality gate.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Simpan hitungan fisik, konfirmasi checkpoint, verifikasi, dan quick-adjust
+    Daily Recon wajib POST dengan header
+    `X-Production-Component-Daily-Recon-Csrf` yang terikat sesi.
+  - Route verifikasi baru memeriksa izin Daily Recon **dan** Adjustment,
+    kemudian menerbitkan proof `COMPONENT_DAILY_RECON_POST` yang one-use,
+    180 detik, terikat user dan component. Writer mengonsumsi proof sebelum
+    membuat draft ataupun memanggil `post_component_adjustment_document`;
+    password tidak memasuki model/writer.
+  - UI meminta konfirmasi lalu password masked, menghapus password sebelum
+    request proof, dan memakai wrapper CSRF yang sama untuk seluruh mutasi.
+- SQL/runtime: **tidak ada SQL baru**, migration, schema/data, query tulis
+  staging, credential, role/sidebar, atau kontrak POS Mobile/APK yang berubah.
+- Validasi:
+  - `php -l` file PHP berubah dan `git diff --check` lulus.
+  - Smoke Daily Recon baru lulus 16 kontrak; smoke Component Batch (21) dan
+    Adjustment (19), serta quality-gate contract (27) lulus.
+  - Quality gate `parallel` dijalankan setelah penambahan manifest: required
+    61/61, development 4/4, release 1/1, dan preflight 1/1 harus lulus sebelum
+    commit. Runtime/security/static dan UAT browser nyata tetap di luar profil
+    parallel.
+- Review akhir fixer tunggal: layak untuk scope Daily Recon Component. Request
+  lama tanpa header/proof ditolak fail-closed; tidak ada saldo mismatch yang
+  direpair otomatis.
+- Risiko sisa: stock opening/transfer, mutasi produksi lain, API/APK, MFA,
+  baseline role nyata, dan UAT perangkat/role masih terbuka.
+- Batch berikutnya: petakan dan amankan transfer stok Divisi atau stock opening
+  sebagai mutasi inventory bernilai tinggi berikutnya.
+- Penyerahan: commit lokal sesudah `62ffbb4`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

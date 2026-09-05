@@ -9,6 +9,8 @@ class Production extends MY_Controller
     private const COMPONENT_ADJUSTMENT_CSRF_CI_HEADER = 'X-Production-Component-Adjustment-Csrf';
     private const COMPONENT_BATCH_CSRF_SESSION_KEY = 'production_component_batch_csrf';
     private const COMPONENT_BATCH_CSRF_CI_HEADER = 'X-Production-Component-Batch-Csrf';
+    private const COMPONENT_DAILY_RECON_CSRF_SESSION_KEY = 'production_component_daily_recon_csrf';
+    private const COMPONENT_DAILY_RECON_CSRF_CI_HEADER = 'X-Production-Component-Daily-Recon-Csrf';
 
     public function __construct()
     {
@@ -1858,6 +1860,7 @@ class Production extends MY_Controller
             'divisions'     => $this->active_divisions(),
             'can_create'    => $canCreate,
             'division_scope_id' => $scopeDivisionId,
+            'component_daily_recon_csrf_token' => $this->component_daily_recon_csrf(),
         ]);
     }
 
@@ -2170,12 +2173,52 @@ class Production extends MY_Controller
         ]);
     }
 
+    /**
+     * Issues a short-lived proof for one component identity before Daily Recon
+     * can create and post its generated adjustment in the same server action.
+     */
+    public function component_daily_recon_step_up_verify()
+    {
+        $this->require_permission(
+            $this->can(self::PAGE_COMPONENT_DAILY_RECON, 'create') ? self::PAGE_COMPONENT_DAILY_RECON : 'production.component.daily.index',
+            'create'
+        );
+        $this->require_permission('production.component.adjustment.index', 'create');
+        if (!$this->require_component_daily_recon_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $componentId = (int)($payload['component_id'] ?? 0);
+        if ($componentId <= 0) {
+            $this->json_error('component_id wajib diisi untuk verifikasi recon.', 422);
+            return;
+        }
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_DAILY_RECON_POST',
+            $componentId,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
+    }
+
     public function component_daily_recon_save()
     {
         $this->require_permission(
             $this->can(self::PAGE_COMPONENT_DAILY_RECON, 'create') ? self::PAGE_COMPONENT_DAILY_RECON : 'production.component.daily.index',
             'create'
         );
+        if (!$this->require_component_daily_recon_csrf()) {
+            return;
+        }
 
         $this->release_session_lock();
         $dbDebugBefore = (bool)$this->db->db_debug;
@@ -2302,12 +2345,24 @@ class Production extends MY_Controller
             'create'
         );
         $this->require_permission('production.component.adjustment.index', 'create');
+        if (!$this->require_component_daily_recon_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $componentIdForProof = (int)($payload['component_id'] ?? 0);
+        if ($componentIdForProof <= 0) {
+            $this->json_error('component_id wajib diisi.', 422);
+            return;
+        }
+        if (!$this->consume_component_daily_recon_step_up($componentIdForProof, $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $this->release_session_lock();
 
         $requestDbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
         try {
-        $payload      = $this->request_payload();
         $opnameDate   = trim((string)($payload['opname_date'] ?? date('Y-m-d')));
         $locationType = $this->normalize_location_filter((string)($payload['location_type'] ?? 'REGULER'));
         if ($locationType === '') {
@@ -2553,6 +2608,9 @@ class Production extends MY_Controller
             $this->can(self::PAGE_COMPONENT_DAILY_RECON, 'create') ? self::PAGE_COMPONENT_DAILY_RECON : 'production.component.daily.index',
             'create'
         );
+        if (!$this->require_component_daily_recon_csrf()) {
+            return;
+        }
 
         $payload = $this->request_payload();
         $date = trim((string)($payload['opname_date'] ?? date('Y-m-d')));
@@ -3525,6 +3583,69 @@ class Production extends MY_Controller
                 'ok' => false,
                 'message' => $message,
             ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function component_daily_recon_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::COMPONENT_DAILY_RECON_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::COMPONENT_DAILY_RECON_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_component_daily_recon_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_component_daily_recon_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = (string)$this->input->get_request_header(
+            self::COMPONENT_DAILY_RECON_CSRF_CI_HEADER,
+            true
+        );
+        $sessionToken = (string)$this->session->userdata(self::COMPONENT_DAILY_RECON_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_component_daily_recon_csrf(403, 'Permintaan Daily Recon component tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_component_daily_recon_csrf(int $statusCode, string $message): void
+    {
+        $this->clear_output_buffers();
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function consume_component_daily_recon_step_up(int $componentId, array $payload): bool
+    {
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_DAILY_RECON_POST',
+            $componentId,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428), ['step_up_required' => true]);
+            return false;
+        }
+        return true;
     }
 
     private function consume_component_batch_step_up(int $batchId, array $payload, string $action): bool

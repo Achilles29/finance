@@ -419,6 +419,7 @@ $route['production/component-batches/detail/(:num)'] = 'production/component_bat
 $route['production/component-daily-recon']               = 'production/component_daily_recon';
 $route['production/component-daily-recon/data']          = 'production/component_daily_recon_data';
 $route['production/component-daily-recon/save-physical'] = 'production/component_daily_recon_save';
+$route['production/component-daily-recon/step-up/verify'] = 'production/component_daily_recon_step_up_verify';
 $route['production/component-daily-recon/quick-adjust']  = 'production/component_daily_recon_adjust';
 $route['production/component-daily-recon/confirm']       = 'production/component_daily_recon_confirm';
 $route['production/component-batches/void/(:num)'] = 'production/component_batch_void/$1';

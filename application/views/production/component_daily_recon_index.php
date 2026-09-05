@@ -316,13 +316,38 @@ $REASONS = function_exists('component_adjustment_reason_options')
     </table>
   </div>
 
+<div class="modal fade" id="componentDailyReconStepUpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Verifikasi Posting Daily Recon</h5>
+          <div class="small text-muted">Masukkan password akun Anda sebelum hitungan fisik membuat adjustment pada stok, lot, dan nilai component.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="component_daily_recon_step_up_password" class="form-label">Password akun Anda</label>
+        <input type="password" class="form-control" id="component_daily_recon_step_up_password" autocomplete="current-password" maxlength="72">
+        <div class="form-text">Password hanya dipakai untuk verifikasi ini dan tidak disimpan pada adjustment Daily Recon.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-danger" id="btn-component-daily-recon-step-up-post">Verifikasi &amp; Post</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const DATA_URL       = '<?php echo site_url('production/component-daily-recon/data'); ?>';
 const USAGE_BASE_URL = '<?php echo site_url('production/component-masters/usage/'); ?>';
 const SAVE_URL     = '<?php echo site_url('production/component-daily-recon/save-physical'); ?>';
 const ADJ_URL      = '<?php echo site_url('production/component-daily-recon/quick-adjust'); ?>';
 const CONFIRM_RECON_URL = '<?php echo site_url('production/component-daily-recon/confirm'); ?>';
+const ADJ_STEP_UP_URL = '<?php echo site_url('production/component-daily-recon/step-up/verify'); ?>';
 const ADJ_PAGE_URL = '<?php echo site_url('production/component-adjustments'); ?>';
+const COMPONENT_DAILY_RECON_CSRF_TOKEN = <?php echo json_encode((string)($component_daily_recon_csrf_token ?? ''), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
 const CAN_CREATE   = <?php echo $canCreate ? 'true' : 'false'; ?>;
 const RECON_DATE   = '<?php echo html_escape($reconDate); ?>';
 const LOC_TYPE     = '<?php echo html_escape($selLocType); ?>';
@@ -352,6 +377,22 @@ const fmtValue = v => isNaN(parseFloat(v)) ? '-' : Number(v).toLocaleString('id-
 function cssid(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '_'); }
 function round4(v) { return Math.round((parseFloat(v) || 0) * 10000) / 10000; }
 function calcValue(qty, unitCost) { return round4(qty) * (parseFloat(unitCost) || 0); }
+function dailyReconMutationHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Production-Component-Daily-Recon-Csrf': COMPONENT_DAILY_RECON_CSRF_TOKEN
+    };
+}
+function postDailyReconJson(url, payload) {
+    return fetch(url, {
+        method: 'POST',
+        headers: dailyReconMutationHeaders(),
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
+    }).then(parseJsonResponse);
+}
 function showFlash(message, isError = false, asHtml = false) {
     const box = el('cmpFlash');
     if (!box) return;
@@ -381,7 +422,7 @@ async function confirmDailyRecon(stage) {
     try {
         const response = await fetch(CONFIRM_RECON_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            headers: dailyReconMutationHeaders(),
             credentials: 'same-origin',
             body: JSON.stringify({
                 opname_date: RECON_DATE,
@@ -450,7 +491,7 @@ window.cmpConfirmReconRow = function (iid, stage) {
     }
     fetch(CONFIRM_RECON_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        headers: dailyReconMutationHeaders(),
         credentials: 'same-origin',
         body: JSON.stringify({
             scope: 'ROW',
@@ -875,7 +916,7 @@ window.cmpSavePhys = function (iid) {
 
     fetch(SAVE_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        headers: dailyReconMutationHeaders(),
         credentials: 'same-origin',
         body: JSON.stringify({
             opname_date: RECON_DATE,
@@ -910,7 +951,24 @@ window.cmpSavePhys = function (iid) {
     });
 };
 
-// Post adjustment.
+const dailyReconStepUpModalEl = el('componentDailyReconStepUpModal');
+const dailyReconStepUpPassword = el('component_daily_recon_step_up_password');
+const btnDailyReconStepUpPost = el('btn-component-daily-recon-step-up-post');
+let pendingDailyReconAdjustment = null;
+let dailyReconStepUpSubmitting = false;
+
+function restoreDailyReconAdjustmentButton(pending) {
+    if (pending?.button) {
+        pending.button.disabled = false;
+        pending.button.innerHTML = pending.originalLabel;
+    }
+}
+
+function setDailyReconStepUpDismissDisabled(disabled) {
+    dailyReconStepUpModalEl?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((button) => { button.disabled = disabled; });
+}
+
+// Post adjustment after a one-use password proof bound to this component.
 window.cmpPostAdj = function (iid) {
     const row = profileMap[iid];
     if (!row) return;
@@ -930,17 +988,25 @@ window.cmpPostAdj = function (iid) {
         costInp?.focus();
         return;
     }
-    const avgCostToSend = isPlus ? userHpp : (parseFloat(row.avg_cost || row.balance_avg_cost || 0));
+    if (!confirm('Posting hasil Daily Recon akan mengubah stok, lot, dan nilai component. Lanjutkan ke verifikasi password?')) {
+        return;
+    }
 
+    const modal = dailyReconStepUpModalEl && window.bootstrap && window.bootstrap.Modal
+        ? window.bootstrap.Modal.getOrCreateInstance(dailyReconStepUpModalEl)
+        : null;
     const btn = el('adjbtn-' + iid);
-    const orig = btn?.innerHTML;
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+    if (!modal || !btn) {
+        showFlash('Verifikasi posting belum siap. Muat ulang halaman lalu coba kembali.', true);
+        return;
+    }
 
-    fetch(ADJ_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
+    pendingDailyReconAdjustment = {
+        iid,
+        row,
+        button: btn,
+        originalLabel: btn.innerHTML,
+        payload: {
             opname_date: RECON_DATE,
             location_type: row.location_type,
             division_id: row.division_id || null,
@@ -951,37 +1017,78 @@ window.cmpPostAdj = function (iid) {
             input_mode: 'PHYSICAL_COUNT',
             system_qty: row.system_qty,
             physical_qty: row.physical_qty,
-            // Same rule as material Daily Recon: a confirmed positive count
-            // can close only the deficit with this exact component identity.
             settle_open_deficit: Number(row.selisih || 0) > 0.0001 ? 1 : 0,
-            avg_cost: avgCostToSend,
+            avg_cost: isPlus ? userHpp : (parseFloat(row.avg_cost || row.balance_avg_cost || 0)),
             adjustment_type: typeVal,
             reason_code: el('adjreason-' + iid)?.value || 'other',
             notes: el('adjnotes-' + iid)?.value?.trim() || '',
-        }),
-    })
-    .then(parseJsonResponse)
-    .then(data => {
-        if (btn) { btn.disabled = false; btn.innerHTML = orig; }
-        if (!data.ok) {
-            showFlash(data.message || 'Adjustment gagal diposting.', true);
-            return;
         }
+    };
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    if (dailyReconStepUpPassword) dailyReconStepUpPassword.value = '';
+    modal.show();
+    window.setTimeout(() => dailyReconStepUpPassword?.focus(), 150);
+};
 
-        row.adjustment_id = data.adjustment_id;
-        const adjCell = el('adjcol-' + iid);
-        if (adjCell) adjCell.outerHTML = adjColHtml(row, iid);
-        const actCell = el('acell-' + iid);
-        if (actCell) actCell.outerHTML = actionCell(row, iid);
+btnDailyReconStepUpPost?.addEventListener('click', async () => {
+    if (dailyReconStepUpSubmitting) return;
+    const pending = pendingDailyReconAdjustment;
+    try {
+        if (!pending || !(Number(pending.payload.component_id) > 0)) throw new Error('Data Daily Recon tidak valid. Tutup modal lalu coba lagi.');
+        const password = String(dailyReconStepUpPassword?.value || '');
+        if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi posting Daily Recon.');
+        if (dailyReconStepUpPassword) dailyReconStepUpPassword.value = '';
+        dailyReconStepUpSubmitting = true;
+        setDailyReconStepUpDismissDisabled(true);
+        btnDailyReconStepUpPost.disabled = true;
+        btnDailyReconStepUpPost.textContent = 'Memverifikasi...';
+        const stepUp = await postDailyReconJson(ADJ_STEP_UP_URL, {
+            component_id: pending.payload.component_id,
+            password
+        });
+        if (!stepUp.ok || !/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) {
+            throw new Error(stepUp.message || 'Bukti verifikasi ulang tidak valid. Coba lagi.');
+        }
+        const data = await postDailyReconJson(ADJ_URL, {
+            ...pending.payload,
+            step_up_proof: String(stepUp.step_up_proof)
+        });
+        if (!data.ok) throw new Error(data.message || 'Adjustment gagal diposting.');
+
+        pending.row.adjustment_id = data.adjustment_id;
+        const adjCell = el('adjcol-' + pending.iid);
+        if (adjCell) adjCell.outerHTML = adjColHtml(pending.row, pending.iid);
+        const actCell = el('acell-' + pending.iid);
+        if (actCell) actCell.outerHTML = actionCell(pending.row, pending.iid);
         const successMessage = (data.message || 'Adjustment berhasil diposting.')
             + (data.warning ? ' ' + data.warning : '');
         showFlash(successMessage, !!data.warning);
-    })
-    .catch(err => {
-        if (btn) { btn.disabled = false; btn.innerHTML = orig; }
-        showFlash('Request gagal: ' + err.message, true);
-    });
-};
+        dailyReconStepUpSubmitting = false;
+        setDailyReconStepUpDismissDisabled(false);
+        window.bootstrap?.Modal.getInstance(dailyReconStepUpModalEl)?.hide();
+    } catch (err) {
+        dailyReconStepUpSubmitting = false;
+        setDailyReconStepUpDismissDisabled(false);
+        if (btnDailyReconStepUpPost) {
+            btnDailyReconStepUpPost.disabled = false;
+            btnDailyReconStepUpPost.textContent = 'Verifikasi & Post';
+        }
+        restoreDailyReconAdjustmentButton(pending);
+        showFlash('Request gagal: ' + (err.message || 'Verifikasi atau posting Daily Recon gagal.'), true);
+    }
+});
+
+dailyReconStepUpModalEl?.addEventListener('hidden.bs.modal', () => {
+    if (dailyReconStepUpSubmitting) return;
+    if (dailyReconStepUpPassword) dailyReconStepUpPassword.value = '';
+    restoreDailyReconAdjustmentButton(pendingDailyReconAdjustment);
+    pendingDailyReconAdjustment = null;
+    if (btnDailyReconStepUpPost) {
+        btnDailyReconStepUpPost.disabled = false;
+        btnDailyReconStepUpPost.textContent = 'Verifikasi & Post';
+    }
+});
 
 // Filter baris minus dan wajib recon.
 let showOnlyMinus = false;
@@ -1085,6 +1192,3 @@ loadData();
 </script>
 
 <?php $this->load->view('layout/footer'); ?>
-
-
-
