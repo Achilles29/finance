@@ -924,6 +924,29 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
   </div>
 </div>
 
+<div class="modal fade component-adjustment-modal" id="componentAdjustmentVoidStepUpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Verifikasi VOID Adjustment</h5>
+          <div class="small text-muted">Masukkan password akun Anda untuk membalik lot, stok, nilai, dan defisit dari dokumen ini.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="component_adjustment_void_step_up_password" class="form-label">Password akun Anda</label>
+        <input type="password" class="form-control" id="component_adjustment_void_step_up_password" autocomplete="current-password" maxlength="72">
+        <div class="form-text">Password hanya dipakai untuk verifikasi ini dan tidak disimpan pada dokumen adjustment.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-warning" id="btn-component-adjustment-void-step-up-post">Verifikasi &amp; VOID</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <?php $this->load->view('production/_ajax_picker_helper'); ?>
 
 <script>
@@ -944,6 +967,7 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
   const adjustmentReasonOptions = <?php echo json_encode($adjustmentReasonOptions, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const saveUrl = '<?php echo site_url('production/component-adjustments/save'); ?>';
   const componentAdjustmentStepUpUrl = '<?php echo site_url('production/component-adjustments/step-up/verify'); ?>';
+  const componentAdjustmentVoidStepUpUrl = '<?php echo site_url('production/component-adjustments/void-step-up/verify'); ?>';
   const postBaseUrl = '<?php echo site_url('production/component-adjustments/post'); ?>';
   const componentAdjustmentCsrfToken = <?php echo json_encode((string)($component_adjustment_csrf_token ?? ''), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const voidBaseUrl = '<?php echo site_url('production/component-adjustments/void'); ?>';
@@ -995,6 +1019,9 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
   const adjustmentStepUpModalEl = document.getElementById('componentAdjustmentStepUpModal');
   const adjustmentStepUpPassword = document.getElementById('component_adjustment_step_up_password');
   const btnAdjustmentStepUpPost = document.getElementById('btn-component-adjustment-step-up-post');
+  const adjustmentVoidStepUpModalEl = document.getElementById('componentAdjustmentVoidStepUpModal');
+  const adjustmentVoidStepUpPassword = document.getElementById('component_adjustment_void_step_up_password');
+  const btnAdjustmentVoidStepUpPost = document.getElementById('btn-component-adjustment-void-step-up-post');
   const lotPickerModalEl = document.getElementById('componentLotPickerModal');
   const lotPickerBody = document.getElementById('component-lot-picker-body');
   const lotPickerMeta = document.getElementById('component-lot-picker-meta');
@@ -1002,10 +1029,14 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
   let lineModal = null;
   let lotPickerModal = null;
   let adjustmentStepUpModal = null;
+  let adjustmentVoidStepUpModal = null;
   let lotPickerTarget = null;
   let pendingAdjustmentPostId = 0;
   let pendingAdjustmentPostButton = null;
   let adjustmentStepUpSubmitting = false;
+  let pendingAdjustmentVoidId = 0;
+  let pendingAdjustmentVoidButton = null;
+  let adjustmentVoidStepUpSubmitting = false;
   let lines = [];
   let lineDraft = null;
   let editingLineIndex = -1;
@@ -1414,6 +1445,16 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
       adjustmentStepUpModal = window.bootstrap.Modal.getOrCreateInstance(adjustmentStepUpModalEl);
     }
     return adjustmentStepUpModal;
+  }
+
+  function ensureAdjustmentVoidStepUpModal() {
+    if (!adjustmentVoidStepUpModalEl || !window.bootstrap || !window.bootstrap.Modal) {
+      return null;
+    }
+    if (!adjustmentVoidStepUpModal) {
+      adjustmentVoidStepUpModal = window.bootstrap.Modal.getOrCreateInstance(adjustmentVoidStepUpModalEl);
+    }
+    return adjustmentVoidStepUpModal;
   }
 
   function fillHeaderModal() {
@@ -2230,6 +2271,58 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
     pendingAdjustmentPostButton = null;
   });
 
+  btnAdjustmentVoidStepUpPost?.addEventListener('click', async () => {
+    if (adjustmentVoidStepUpSubmitting) {
+      return;
+    }
+    const adjustmentId = pendingAdjustmentVoidId;
+    const button = pendingAdjustmentVoidButton;
+    try {
+      if (!(adjustmentId > 0) || !button) throw new Error('Dokumen adjustment tidak valid. Tutup modal lalu coba lagi.');
+      const password = String(adjustmentVoidStepUpPassword?.value || '');
+      if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi VOID adjustment.');
+      if (adjustmentVoidStepUpPassword) adjustmentVoidStepUpPassword.value = '';
+      adjustmentVoidStepUpSubmitting = true;
+      adjustmentVoidStepUpModalEl?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((dismissButton) => {
+        dismissButton.disabled = true;
+      });
+      setButtonBusy(btnAdjustmentVoidStepUpPost, 'Memverifikasi...');
+      const stepUp = await postComponentAdjustmentJson(componentAdjustmentVoidStepUpUrl, {
+        adjustment_id: adjustmentId,
+        password
+      });
+      if (!/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) {
+        throw new Error('Bukti verifikasi ulang tidak valid. Coba lagi.');
+      }
+      setButtonBusy(button, 'VOID...');
+      await postComponentAdjustmentJson(voidBaseUrl + '/' + adjustmentId, {
+        step_up_proof: String(stepUp.step_up_proof)
+      });
+      window.location.reload();
+    } catch (error) {
+      renderAlert('danger', error.message || 'Gagal VOID adjustment.');
+      adjustmentVoidStepUpSubmitting = false;
+      adjustmentVoidStepUpModalEl?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((dismissButton) => {
+        dismissButton.disabled = false;
+      });
+      clearButtonBusy(button);
+      clearButtonBusy(btnAdjustmentVoidStepUpPost);
+    }
+  });
+
+  adjustmentVoidStepUpModalEl?.addEventListener('hidden.bs.modal', () => {
+    if (adjustmentVoidStepUpSubmitting) {
+      return;
+    }
+    if (adjustmentVoidStepUpPassword) adjustmentVoidStepUpPassword.value = '';
+    clearButtonBusy(btnAdjustmentVoidStepUpPost);
+    if (pendingAdjustmentVoidButton) {
+      clearButtonBusy(pendingAdjustmentVoidButton);
+    }
+    pendingAdjustmentVoidId = 0;
+    pendingAdjustmentVoidButton = null;
+  });
+
   document.querySelectorAll('.btn-del').forEach((button) => {
     button.addEventListener('click', async () => {
       button.blur();
@@ -2261,14 +2354,17 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
       }))) {
         return;
       }
-      setButtonBusy(button, 'VOID...');
-      try {
-        await postJson(voidBaseUrl + '/' + button.dataset.id, {});
-        window.location.reload();
-      } catch (error) {
-        renderAlert('danger', error.message || 'Gagal VOID adjustment.');
-        clearButtonBusy(button);
+      const adjustmentId = Number(button.dataset.id || 0);
+      const modal = ensureAdjustmentVoidStepUpModal();
+      if (!(adjustmentId > 0) || !modal) {
+        renderAlert('danger', 'Verifikasi VOID belum siap. Muat ulang halaman lalu coba kembali.');
+        return;
       }
+      pendingAdjustmentVoidId = adjustmentId;
+      pendingAdjustmentVoidButton = button;
+      if (adjustmentVoidStepUpPassword) adjustmentVoidStepUpPassword.value = '';
+      modal.show();
+      window.setTimeout(() => adjustmentVoidStepUpPassword?.focus(), 150);
     });
   });
 

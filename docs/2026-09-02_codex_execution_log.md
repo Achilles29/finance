@@ -5425,3 +5425,51 @@
   dampak bisnis dan entry resmi, dengan scope sempit serta tanpa repair data.
 - Penyerahan: commit lokal sesudah `cc421af`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 160 — Reauth VOID Adjustment Base/Prepare web
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 04:56 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01`. VOID Adjustment membalik issue/inbound
+  lot, movement component, histori HPP, dan defisit dalam transaksi. Endpoint
+  web sebelumnya hanya meminta izin `delete`, tanpa CSRF atau konfirmasi ulang
+  operator yang aktif pada browser.
+- Diskusi/arah: fixer tunggal. Scope hanya pembatalan dokumen **POSTED** dari
+  halaman Adjustment Base/Prepare. Validasi bisnis, transaksi reversal model,
+  Daily Recon, adjustment gudang/divisi, API, APK, dan data mismatch tidak
+  diubah.
+- File berubah:
+  - `application/libraries/SensitiveActionStepUp.php`.
+  - `application/config/routes.php`, `application/controllers/Production.php`.
+  - `application/views/production/component_adjustment_index.php`.
+  - `tools/tests/component_adjustment_step_up_smoke.php` dan
+    `tools/tests/pos_reversal_step_up_smoke.php`.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Route `production/component-adjustments/void-step-up/verify` memakai izin
+    `delete`, POST, CSRF header scoped yang sama, password user aktif, dan
+    menerbitkan proof hash satu-kali `COMPONENT_ADJUSTMENT_VOID` yang hanya
+    berlaku 180 detik untuk satu dokumen.
+  - Writer `component_adjustment_void` mengonsumsi proof sebelum model reversal
+    dipanggil. Password dan proof dibuang dari payload sehingga model tidak
+    pernah menerima credential.
+  - Modal VOID terpisah menjelaskan dampak lot/stok/nilai/defisit, memakai
+    password masked, mengosongkan password sebelum request proof, serta
+    mencegah klik/batal ketika verifikasi sedang berlangsung.
+- SQL/runtime: **tidak ada SQL baru**, migration, schema/data, query tulis
+  staging, credential, role/sidebar, atau kontrak POS Mobile/APK yang berubah.
+- Validasi:
+  - `php -l` enam file aplikasi/test berubah lulus; `git diff --check` lulus.
+  - Smoke component adjustment lulus 19 kontrak route/RBAC/CSRF/proof/writer/UI;
+    service proof nyata lulus 52 pemeriksaan termasuk action VOID baru.
+  - Quality gate `parallel` lulus: required 58/58, development 4/4, release
+    1/1, preflight 1/1. Runtime/security/static dan UAT browser nyata tetap
+    tidak diklaim oleh profil otomatis.
+- Review akhir fixer tunggal: layak untuk scope VOID Adjustment web. Caller
+  lama tanpa header/proof ditolak fail-closed; role matrix tetap sama, sementara
+  pembalikan movement aktual tetap tunduk pada guard periode/transaksi model.
+- Risiko sisa: Save/Delete draft, Daily Recon, adjustment dan mutasi inventory
+  lain, API/APK, MFA, serta UAT role nyata masih terbuka.
+- Batch berikutnya: petakan satu writer mutasi inventory bernilai besar di luar
+  halaman Adjustment Base/Prepare, kemudian amankan tanpa mencampur repair data.
+- Penyerahan: commit lokal sesudah `36146a9`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

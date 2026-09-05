@@ -1039,6 +1039,14 @@ class Production extends MY_Controller
     public function component_adjustment_void($id)
     {
         $this->require_permission('production.component.adjustment.index', 'delete');
+        if (!$this->require_component_adjustment_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        if (!$this->consume_component_adjustment_void_step_up((int)$id, $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
         try {
@@ -1051,6 +1059,31 @@ class Production extends MY_Controller
             return;
         }
         $this->json_ok(['id' => (int)$id]);
+    }
+
+    /** Issues a proof for the documented reversal path; password never reaches the model. */
+    public function component_adjustment_void_step_up_verify()
+    {
+        $this->require_permission('production.component.adjustment.index', 'delete');
+        if (!$this->require_component_adjustment_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_ADJUSTMENT_VOID',
+            $payload['adjustment_id'] ?? null,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
     }
 
     public function component_adjustment_delete($id)
@@ -3367,6 +3400,22 @@ class Production extends MY_Controller
         $result = $this->sensitiveactionstepup->consume(
             max(0, (int)($this->current_user['id'] ?? 0)),
             'COMPONENT_ADJUSTMENT_POST',
+            $adjustmentId,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428), ['step_up_required' => true]);
+            return false;
+        }
+        return true;
+    }
+
+    private function consume_component_adjustment_void_step_up(int $adjustmentId, array $payload): bool
+    {
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_ADJUSTMENT_VOID',
             $adjustmentId,
             $payload['step_up_proof'] ?? null
         );
