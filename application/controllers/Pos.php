@@ -14,6 +14,8 @@ class Pos extends MY_Controller
     private const POS_ORDER_MONITOR_CSRF_CI_HEADER = 'X-Pos-Order-Monitor-Csrf';
     private const POS_AVAILABILITY_QUEUE_CSRF_SESSION_KEY = 'pos_availability_queue_csrf';
     private const POS_AVAILABILITY_QUEUE_CSRF_FORM_FIELD = 'pos_availability_queue_csrf';
+    private const CUSTOMER_REVIEW_CSRF_SESSION_KEY = 'pos_customer_review_csrf';
+    private const CUSTOMER_REVIEW_CSRF_HEADER = 'X-Pos-Review-Csrf';
 
     public function __construct()
     {
@@ -2090,10 +2092,14 @@ public function self_order_tables_print()
     public function customer_reviews()
     {
         $this->require_permission($this->customer_review_permission_page(), 'view');
+        $csrfToken = $this->customer_review_csrf();
+        $this->output->set_header('Cache-Control: private, no-store');
         $options = $this->Pos_print_model->options();
         $this->render('pos/customer_reviews_index', [
             'page_title' => 'Ulasan Pelanggan POS',
             'active_menu' => 'pos.customer_review',
+            'customer_review_csrf_token' => $csrfToken,
+            'customer_review_csrf_header' => self::CUSTOMER_REVIEW_CSRF_HEADER,
             'can_edit' => $this->can($this->customer_review_permission_page(), 'edit'),
             'general' => $this->Pos_print_model->general_settings(),
             'stations' => $this->Pos_customer_review_model->station_rows(),
@@ -2111,6 +2117,7 @@ public function self_order_tables_print()
     public function customer_review_visibility($id)
     {
         $this->require_permission($this->customer_review_permission_page(), 'edit');
+        if (!$this->require_customer_review_csrf()) return;
         $payload = $this->request_payload();
         $result = $this->Pos_customer_review_model->set_visibility(
             (int)$id,
@@ -2128,6 +2135,7 @@ public function self_order_tables_print()
     public function customer_review_settings()
     {
         $this->require_permission($this->customer_review_permission_page(), 'edit');
+        if (!$this->require_customer_review_csrf()) return;
         $payload = $this->request_payload();
         $result = $this->Pos_print_model->save_customer_review_settings($payload);
         if (!($result['ok'] ?? false)) {
@@ -2140,6 +2148,7 @@ public function self_order_tables_print()
     public function customer_review_station_save()
     {
         $this->require_permission($this->customer_review_permission_page(), 'edit');
+        if (!$this->require_customer_review_csrf()) return;
         $result = $this->Pos_customer_review_model->save_station($this->request_payload());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'QR area belum dapat disimpan.'), 422);
@@ -2151,6 +2160,7 @@ public function self_order_tables_print()
     public function customer_review_station_toggle($id)
     {
         $this->require_permission($this->customer_review_permission_page(), 'edit');
+        if (!$this->require_customer_review_csrf()) return;
         $result = $this->Pos_customer_review_model->toggle_station((int)$id);
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Status QR area belum dapat diubah.'), 422);
@@ -5618,6 +5628,38 @@ public function self_order_tables_print()
         $hasPage = $this->db->table_exists('sys_page')
             && (int)$this->db->from('sys_page')->where('page_code', 'pos.customer_review.index')->count_all_results() > 0;
         return $hasPage ? 'pos.customer_review.index' : 'pos.printer.index';
+    }
+
+    private function customer_review_csrf(): string
+    {
+        $token = $this->session->userdata(self::CUSTOMER_REVIEW_CSRF_SESSION_KEY);
+        if (!is_string($token) || preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::CUSTOMER_REVIEW_CSRF_SESSION_KEY, $token);
+        }
+        return $token;
+    }
+
+    private function require_customer_review_csrf(): bool
+    {
+        $this->output->set_header('Cache-Control: private, no-store');
+        if ($this->input->method(true) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->json_error('Metode request tidak diizinkan.', 405);
+            return false;
+        }
+        // CI/FastCGI canonicalizes the header to X-Pos-Review-Csrf.
+        $provided = $this->input->get_request_header(self::CUSTOMER_REVIEW_CSRF_HEADER, false);
+        $expected = $this->session->userdata(self::CUSTOMER_REVIEW_CSRF_SESSION_KEY);
+        if (!is_string($provided) || !is_string($expected)
+            || preg_match('/\A[0-9a-f]{64}\z/D', $provided) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $expected) !== 1
+            || !hash_equals($expected, $provided)
+        ) {
+            $this->json_error('Sesi formulir ulasan tidak valid. Muat ulang halaman lalu coba kembali.', 403);
+            return false;
+        }
+        return true;
     }
 
     /** Keep preview QR targets valid without creating a fake receipt review. */

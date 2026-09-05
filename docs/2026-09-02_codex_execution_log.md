@@ -5020,3 +5020,69 @@
 - Penyerahan: commit lokal sesudah `b87db84`, tanpa push; ringkasan hasil dikirim
   ke Telegram Namua setelah commit. Roadmap `_30` memuat petunjuk runtime
   server utama/customer sehingga pemasangan tidak hanya bergantung pada SQL.
+
+## Batch 153 — CSRF moderasi ulasan dan pengaturan QR admin
+
+- Waktu/tanggal: 2026-09-05, validasi akhir 21:10 WIB.
+- Prioritas: P2-06/AUD-A1-REVIEW-01, menutup empat writer admin yang ditemukan
+  pada review Batch 152. Scope tetap modul Ulasan Pelanggan.
+- Diskusi/arah: fixer tunggal sesuai pola terbaru owner. Writer visibility,
+  pengaturan QR struk, simpan QR area, dan aktif/nonaktif QR sebelumnya belum
+  memeriksa token CSRF. Tambahkan guard khusus modul tanpa mengubah izin bisnis,
+  formulir publik, token transaksi POS, atau helper printer bersama.
+- File berubah:
+  - `application/controllers/Pos.php`.
+  - `application/views/pos/customer_reviews_index.php`.
+  - `tools/tests/customer_review_admin_csrf_smoke.php` (baru).
+  - `tools/tests/finance_quality_gate.php` dan
+    `tools/tests/finance_quality_gate_contract_smoke.php`.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Keempat writer mempertahankan pemeriksaan izin edit terlebih dahulu,
+    kemudian wajib POST dan token CSRF sesi/header khusus sebelum membaca
+    payload atau menjalankan model writer. Request tidak valid ditolak.
+  - Token acak diterbitkan hanya melalui halaman yang diizinkan, tetap stabil
+    dalam sesi untuk multi-tab, dan tidak menggunakan token transaksi POS.
+    Halaman serta respons guard memakai no-store.
+  - JavaScript lokal mengirim token lewat header, bukan URL; request dibatasi
+    ke origin yang sama dan tidak mengikuti redirect. Respons gagal/non-JSON
+    ditampilkan sebagai pesan, bukan dianggap berhasil.
+  - Konfirmasi sembunyikan/tampilkan ulasan diperbaiki agar sesuai tindakan.
+    Pesan schema belum tersedia mengarahkan admin memeriksa migrasi versi
+    aplikasi, bukan menyuruh menjalankan ulang SQL lama secara sembarang.
+  - Setelah update, muat ulang halaman Ulasan Pelanggan yang sudah terbuka
+    supaya menerima token. Login ulang bila sesi telah berakhir.
+- SQL/runtime: **tidak ada SQL baru**, perubahan schema/data, credential,
+  permission/sidebar, atau konfigurasi runtime. Pos_mobile, Pos_model, routes,
+  dan helper printer bersama tidak berubah.
+- Validasi:
+  - `php -l` kelima file PHP berubah/baru dan `git diff --check` lulus.
+  - Smoke admin CSRF 179 pemeriksaan lulus: controller asli dengan model/session
+    doubles menguji izin, metode, token hilang/salah/malformed, jalur valid,
+    fallback registry permission, multi-tab, serta pemisahan token POS.
+  - JavaScript hasil render view asli dijalankan di Node dengan DOM/fetch
+    doubles: hide/show, pengaturan struk, simpan/toggle QR, penolakan lintas
+    origin, respons error/non-JSON, dan mode hanya-baca lulus. Ini bukan UAT
+    browser admin login nyata dan tidak membuat data uji di database staging.
+  - Regresi CSRF transaksi POS 1691 dan ulasan publik 43 pemeriksaan lulus.
+  - Quality gate `parallel`: required 54/54, development 4/4, release 1/1,
+    preflight 1/1 lulus. Runtime/security/static/staging tier dan UAT perangkat
+    bukan bagian dari klaim lulus profil ini.
+  - HTTP staging: empat POST tanpa sesi login menghasilkan 303; Location login
+    dikonfirmasi pada endpoint settings. Tidak mengklaim ini bukti writer admin
+    berhasil dengan sesi nyata; tidak mengubah konfigurasi QR/ulasan aktual.
+  - Setelah update roadmap, consistency 22 dan dashboard 30 pemeriksaan lulus.
+  - Composer tidak berubah; composer validate tidak diperlukan.
+- Review akhir fixer tunggal: batch layak. Guard berjalan sebelum payload dan
+  writer, izin existing dipertahankan, dan token tidak tercampur dengan modul
+  lain. AUD-A1-REVIEW-01 menjadi CODE_PASS; STAGING_PASS merujuk juga bukti
+  publik Batch 152. Release tetap BLOCKED sampai acceptance/UAT terpenuhi,
+  bukan mengklaim seluruh A1 selesai.
+- Risiko sisa: UAT admin login dan QR/perangkat/proxy nyata; batas single-server
+  limiter publik tetap berlaku. Baseline izin owner serta step-up tindakan
+  sensitif masih terbuka dan tidak diputuskan otomatis pada batch ini.
+- Batch berikutnya: telaah approval void/refund/reopen yang sudah ada sebelum
+  memperkuat konfirmasi identitas tindakan sensitif secara bertahap; lanjut
+  acceptance A1 tanpa mengubah data mismatch historis.
+- Penyerahan: commit lokal sesudah `f0b3ce4`, tanpa push; ringkasan penyelesaian
+  dikirim ke Telegram Namua setelah commit.

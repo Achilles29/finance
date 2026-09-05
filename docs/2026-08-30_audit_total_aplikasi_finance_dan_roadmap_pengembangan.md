@@ -4,7 +4,8 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 152 mengamankan formulir
+**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 153 menutup CSRF empat
+aksi admin ulasan/QR dan memperbaiki konfirmasi moderasi; Batch 152 mengamankan formulir
 ulasan publik (anti-spam, privasi, dan transaksi member/ulasan); Batch 151 menambahkan simulator
 akses dan report selisih permission read-only; Batch 150 menyamakan scope
 multi-role web dan POS Mobile, Batch 149 menambahkan audit trail atomik untuk
@@ -106,7 +107,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | `AUD-A2-PH-01` | P2-03 | P2 / A2 | Jadwal PH lama mendahului eligibility. | Keputusan migrasi/arsip dan audit entitlement tertulis. | `NOT_STARTED` | `NONE` | `DEFERRED_OWNER` | Tidak mengubah data tanpa keputusan owner. |
 | `AUD-A2-PUR-01` | P2-04 | P2 / A2 | Receipt purchase historis belum lengkap. | Repair/arsip dengan preview dan rekonsiliasi stok/nilai. | `NOT_STARTED` | `NONE` | `DEFERRED_OWNER` | Data historis memerlukan persetujuan. |
 | `AUD-A2-POSDATA-01` | P2-05 | P2 / A2 | Status terminal order lama belum dinormalisasi. | Aturan normalisasi dan replay-safe audit disetujui. | `CODE_PASS` | `STAGING_PASS` | `DEFERRED_OWNER` | Sudah diaudit tanpa replay; keputusan data tetap milik owner. |
-| `AUD-A1-REVIEW-01` | P2-06 | P2 / A1 | Public review memerlukan anti-spam. | Rate limit, validation, abuse logging, dan privacy rule. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 152: limiter lintas worker, form terikat sesi, honeypot, cooldown/duplikasi, privasi respons, serta transaksi member/ulasan lulus. Sisa: CSRF moderasi/pengaturan admin dan UAT QR/perangkat/proxy nyata. |
+| `AUD-A1-REVIEW-01` | P2-06 | P2 / A1 | Public review memerlukan anti-spam. | Rate limit, validation, abuse logging, dan privacy rule. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 152: fondasi anti-spam/privasi single-server dan transaksi member/ulasan lulus. Batch 153: empat writer admin wajib edit+POST+CSRF khusus; controller dan UI otomatis lulus. Sisa acceptance: UAT admin login, QR/perangkat/proxy nyata. |
 | `AUD-A5-RET-01` | P2-07 | P2 / A5 | Availability rebuild log belum mempunyai retention. | Retention period, purge terukur, audit, backup, dan rollback. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 143: policy, read-only preflight, quarantine audit, checksum, dan restore rollback tersedia; 52.445 row sukses lama baru kandidat archive, database purge tetap OFF sampai archive/agregasi lulus. |
 | `AUD-A5-LIFE-01` | P2-08 | P2 / A5→C3 | Upload dan service pendamping belum mempunyai lifecycle produk. | Lokasi runtime, permission, backup, upgrade, uninstall, dan retention terdokumentasi. | `CODE_PASS` | `AUTO_PASS` | `BLOCKED` | Batch 143 menetapkan lokasi/preservasi/logrotate/uninstall; pemindahan runtime dan installer customer tetap C3. |
 | `AUD-A1-SYS-01` | NEW-01 | P0 / A1 | Halaman System Tools dapat mengirim path root, daftar dump, status replication/failover, dan seluruh config kepada satu izin view. | Pecah izin read-sensitive, whitelist field, redaksi path/backup metadata, dan negative test. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 136: hak Export menjadi izin baca sensitif terpisah; View-only mendapat ringkasan tanpa path/metadata; config di-whitelist tanpa password; test DB menjadi POST+CSRF; 18 negative contract dan 74 regression lulus. |
@@ -165,7 +166,7 @@ sudah berjalan. `DITUNDA` berarti keputusan penundaan memang disengaja.
 | ID | Klasifikasi | Pekerjaan yang belum tertutup | Alasan/status nyata | Rencana tindak lanjut |
 | --- | --- | --- | --- | --- |
 | `GAP-01` | `IN_PROGRESS` | Penutupan A0: credential produksi, rotasi secret, recovery Git, dan pemisahan runtime data customer. | Credential DB dan runtime index/package lulus Batch 146; cutoff commit/tag lokal dibuat Batch 147. Source masih shallow, cutoff belum dipush, secret lama belum dirotasi, dan off-site encryption belum aktif. | Verifikasi lalu push cutoff atas perintah owner, tetapkan strategi full-history, dan rotasi secret pada cutover terjadwal; jangan menghapus runtime staging. |
-| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, CSRF moderasi/pengaturan ulasan admin, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; anti-spam formulir publik lulus Batch 152. Acceptance fase belum lengkap. | Berikutnya tutup CSRF empat writer pengelolaan ulasan, lalu step-up. Owner meninjau baseline tanpa reset izin otomatis; UAT public QR/proxy dan APK tetap perlu. |
+| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; formulir publik lulus Batch 152 dan CSRF empat writer ulasan admin lulus Batch 153. Acceptance fase belum lengkap. | Berikutnya step-up aksi sensitif, dimulai dengan memeriksa alur void/refund/reopen dan approval yang sudah ada. Owner meninjau baseline tanpa reset izin otomatis; UAT admin/QR/proxy/APK tetap perlu. |
 | `GAP-03` | `TERLEWAT` | P2 bisnis A2: uang makan slip payroll dan running balance rekening backdate. | Belum mendapat batch khusus walaupun pekerjaan bergerak ke A3–A5. | Audit aturan bisnis, buat fixture, lalu minta acceptance finance sebelum implementasi. |
 | `GAP-04` | `TERLEWAT` | A3.2 rollout UI 8.3 gelombang 2 dan 4–9 serta visual UAT. | Fondasi UI dan sidebar selesai, tetapi migrasi halaman tidak pernah ditutup per wave. | Kembali ke checklist UI 8.3 gelombang 01–09 setelah fondasi A5; satu rumpun per batch, bukan rewrite besar. |
 | `GAP-05` | `TERLEWAT_OPERASIONAL` | UAT browser role, APK/device, printer fisik, dan updater customer. | Automated tooling A4 lulus tetapi tidak menggantikan perangkat nyata. | Jalankan setelah kandidat build dan APK siap; bukti UAT harus terikat ke versi artefak. |
@@ -1261,7 +1262,8 @@ Buat status normalization audit yang membedakan:
 
 ### P2-06. Public customer review memerlukan anti-spam
 
-**Status Batch 152 (2026-09-05): sebagian selesai, belum menutup A1.**
+**Status Batch 153 (2026-09-05): fondasi script single-server selesai,
+acceptance UAT belum selesai; bukan penutupan seluruh A1.**
 Sebelumnya station QR menerima kiriman berulang tanpa limiter; input array dapat
 memicu warning; respons member dapat membeberkan nama/nomor member dari input
 nomor WhatsApp yang belum diverifikasi. Pendaftaran member juga dapat tertinggal
@@ -1288,11 +1290,15 @@ jika penyimpanan ulasan berikutnya gagal.
   internal review/member saat sukses; tanpa nomor telepon, isi ulasan, token,
   session ID, atau IP mentah. Relasi member/review dan catatan sumber pendaftaran
   tetap menjadi bukti bisnis di database; diagnostik bukan audit permanen.
-- `[~]` Moderasi sembunyikan/tampilkan sudah ada melalui **Ulasan Pelanggan**
-  dengan permission edit. Review batch ini menemukan empat writer admin belum
-  memiliki guard CSRF terarah: `customer_review_visibility`,
-  `customer_review_settings`, `customer_review_station_save`, dan
-  `customer_review_station_toggle`. Ini batch berikutnya sebelum menutup item.
+- `[x]` Batch 153: moderasi sembunyikan/tampilkan, pengaturan QR struk,
+  simpan QR area, dan aktif/nonaktif QR wajib permission edit + POST + token
+  sesi khusus `pos_customer_review_csrf` melalui header `X-Pos-Review-Csrf`.
+  Permintaan tidak sah berhenti sebelum membaca payload atau memanggil writer.
+  Token dibuat setelah izin lihat dan dipertahankan untuk mendukung beberapa tab.
+- `[x]` Semua empat aksi UI mengirim token ke origin yang sama, tidak melalui
+  URL dan tidak mengikuti redirect. CSRF transaksi POS, APK, serta formulir
+  publik tidak diubah atau dipakai sebagai pengganti token admin ulasan.
+  Teks konfirmasi kini sesuai dengan aksi sembunyikan/tampilkan yang sebenarnya.
 - `[ ]` UAT QR cetak/browser/perangkat sebenarnya dan evaluasi batas pengiriman
   di Wi-Fi bersama/proxy. CAPTCHA adaptif/OTP serta limiter multi-server adalah
   tindak lanjut bila pola abuse/deployment membutuhkannya, bukan sudah tersedia.
@@ -1301,6 +1307,11 @@ jika penyimpanan ulasan berikutnya gagal.
 sering, halaman memberi waktu tunggu; formulir lama perlu dimuat ulang. Informasi
 keanggotaan diarahkan ke kasir, tidak ditampilkan dari input nomor publik.
 Jangan menganggap nomor yang diisi sebagai autentikasi member.
+
+Admin tetap memakai **Ulasan Pelanggan** untuk moderasi/pengaturan QR. Sesudah
+update Batch 153, muat ulang halaman yang sudah lama terbuka agar memperoleh
+token admin. Jika sesi kedaluwarsa, login kembali dan muat ulang halaman.
+Tidak ada perubahan sidebar, role, atau daftar izin bisnis.
 
 **Operasional/deployment:**
 
@@ -1325,6 +1336,10 @@ Jangan menganggap nomor yang diisi sebagai autentikasi member.
 - Bukti: `tools/tests/public_customer_review_smoke.php` (43 pemeriksaan),
   empat request HTTP staging negatif, jumlah ulasan/member tetap, dan quality
   gate `parallel` lulus. Tidak melakukan repair/moderasi ulasan historis.
+- Batch 153: `tools/tests/customer_review_admin_csrf_smoke.php` (179
+  pemeriksaan, termasuk eksekusi JavaScript halaman yang benar-benar dirender)
+  dan regression POS transaction CSRF 1.691 lulus. Uji HTTP admin tanpa login
+  tetap ditolak melalui redirect autentikasi; ini bukan UAT pengguna berizin.
 
 ### P2-07. Availability rebuild log memerlukan retensi
 
