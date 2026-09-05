@@ -55,6 +55,12 @@ final class PmrAuth
         $this->trace->events[] = 'permissions';
         return ['pos.cashier.index' => ['can_view' => 1]];
     }
+
+    public function resolve_division_scope(int $userId): array
+    {
+        $this->trace->events[] = 'scope';
+        return ['state' => 'GLOBAL', 'division_id' => null];
+    }
 }
 
 final class PmrInput

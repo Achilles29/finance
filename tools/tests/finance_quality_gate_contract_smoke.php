@@ -66,6 +66,7 @@ $expectedRequired = [
     'pos-mobile-order-reader-binding',
     'pos-mobile-print-document-binding',
     'pos-mobile-printer-binding',
+    'pos-mobile-role-scope-negative',
     'telegram-module',
     'codex-telegram-summary',
 ];
@@ -105,12 +106,12 @@ $check(
     'Printer Agent runtime is pinned to the A4 venv Python executable'
 );
 $check(
-    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 62,
+    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 64,
     'all automated manifest IDs are unique'
 );
 $check(
-    $stagingIds === ['a2-database-invariant-probe', 'a5-runtime-compatibility-staging'],
-    'staging adds the read-only A2 database probe and A5.14 runtime compatibility probe'
+    $stagingIds === ['a2-database-invariant-probe', 'a1-rbac-scope-staging', 'a5-runtime-compatibility-staging'],
+    'staging adds read-only A2, RBAC scope, and A5.14 runtime compatibility probes'
 );
 
 foreach (['parallel', 'release', 'staging'] as $profile) {

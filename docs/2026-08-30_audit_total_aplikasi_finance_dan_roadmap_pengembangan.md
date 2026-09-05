@@ -4,9 +4,10 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 149 menambahkan audit
-trail atomik untuk mutasi Master, Batch 148 mengunci inventaris endpoint Master
-generik, dan Batch 147 menetapkan cutoff
+**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 150 menyamakan scope
+multi-role web dan POS Mobile, Batch 149 menambahkan audit trail atomik untuk
+mutasi Master, Batch 148 mengunci inventaris endpoint Master generik, dan Batch
+147 menetapkan cutoff
 Git lokal bertag, memisahkan credential staging dan 1.367 file runtime dari
 source/index Git tanpa menghapus file fisik, serta membakukan matriks SQL
 server existing dan customer baru.
@@ -68,7 +69,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | Fase | Implementasi | Validasi tertinggi | Release/data | Status fase | Alasan/gerbang berikutnya |
 | --- | --- | --- | --- | --- | --- |
 | A0 — baseline/deployment | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `PARTIAL` | Credential DB dan runtime index/package sudah dipisahkan; cutoff lokal `finance-audit-cutoff-2026-09-05` tersedia. Full history, push remote, rotasi secret, off-site encryption, dan cutover customer belum selesai. |
-| A1 — security/RBAC/scope | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | `PARTIAL` | Endpoint sisa, baseline role/scope nyata, step-up/MFA, dan UAT role/APK belum selesai; System Tools sensitif sudah ditutup pada Batch 136. |
+| A1 — security/RBAC/scope | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `PARTIAL` | Multi-role/scope web-mobile terbukti fail-closed di staging; endpoint sisa, baseline izin per jabatan, step-up/MFA, dan UAT role/APK belum selesai. |
 | A2 — integritas bisnis/data | `CODE_PASS` | `STAGING_PASS` | `DEFERRED_OWNER` | `OPERATIONAL_PENDING` | Gate kode/query lulus; mismatch historis milik owner dan UAT browser/APK belum `UAT_PASS`. |
 | A3 — navigasi/UI | `IN_PROGRESS` | `STAGING_PASS` | `N/A` | `PARTIAL` | Registry dan fondasi UI lulus; rollout UI 8.3 serta visual UAT belum selesai. |
 | A4 — quality evidence | `CODE_PASS` | `AUTO_PASS` | `BLOCKED` | `TOOLING_PASS` | Tooling selesai, tetapi release nyata tetap diblokir A0 dan UAT fisik. |
@@ -80,8 +81,8 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `AUD-A1-SEC-01` | P0-01 | P0 / A1 | Endpoint Master belum seluruhnya deny-by-default. | Semua writer/read sensitif memakai permission aksi, scope, method, CSRF, dan negative test. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 82, 84A–C, 91–92, 148–149: 12 endpoint/36 entity terkunci; page Component kanonis dan 35 page unik aktif terbukti; enam writer memakai audit before/after atomik dan redaksi credential. Negative role UAT masih terbuka. |
 | `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 54–68; endpoint sisa dan versioning belum selesai. |
-| `AUD-A1-POS-01` | P0-03 | P0 / A1 | Surface POS Mobile/APK belum seluruhnya terikat terminal/outlet. | Semua endpoint memakai bearer context otoritatif, izin aksi, step-up, dan UAT perangkat. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 73–81, 89a–f, 93, 105–107; UAT APK dan surface tambahan terbuka. |
-| `AUD-A1-RBAC-01` | P0-04 | P0 / A1 | Multi-role dan scope operasional terlalu luas. | Baseline role, precedence multi-role, outlet/division scope, dan negative matrix nyata lulus. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Filter role nonaktif dan fail-closed dasar lulus; baseline/UAT belum. |
+| `AUD-A1-POS-01` | P0-03 | P0 / A1 | Surface POS Mobile/APK belum seluruhnya terikat terminal/outlet. | Semua endpoint memakai bearer context otoritatif, izin aksi, step-up, dan UAT perangkat. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 73–81, 89a–f, 93, 105–107, 150: token kini memvalidasi ulang role/scope serta membawa konteks division/outlet/terminal; step-up dan UAT APK masih terbuka. |
+| `AUD-A1-RBAC-01` | P0-04 | P0 / A1 | Multi-role dan scope operasional terlalu luas. | Baseline role, precedence multi-role, outlet/division scope, dan negative matrix nyata lulus. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 6/7/150: union izin dan scope fail-closed lulus; 16 user aktif/13 multi-role menghasilkan 0 NONE dan 0 AMBIGUOUS. Baseline hak per jabatan, simulator/drift, dan UAT tetap terbuka. |
 | `AUD-A1-RBAC-02` | P0-05 | P0 / A1 | Penghapusan role dahulu memakai kolom relasi salah. | Relasi benar, transaksi aman, dan regression test lulus. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 2A. |
 | `AUD-A0-SEC-01` | P0-06 | P0 / A0 | Konfigurasi keamanan belum layak produksi. | External secret contract, cookie/session final, CSRF boundary, rotasi secret, MFA/step-up, dan startup fail-closed. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 146: DB staging pindah ke file privat luar source, production tetap resolver, web/DB dan preflight 0 finding lulus; rotasi secret, cookie/session final, dan MFA tetap terbuka. |
 | `AUD-A0-REPO-01` | P0-07 | P0 / A0+A5 | Backup/repository/runtime data belum sepenuhnya terisolasi. | Recovery Git non-destruktif, storage privat, enkripsi/retention, dan restore berkala. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 146–147 melepas 1.367 payload runtime tanpa menghapus data dan menetapkan cutoff lokal bertag; clone masih shallow, push/full history, temp pack, serta off-site/enkripsi terbuka. |
@@ -162,7 +163,7 @@ sudah berjalan. `DITUNDA` berarti keputusan penundaan memang disengaja.
 | ID | Klasifikasi | Pekerjaan yang belum tertutup | Alasan/status nyata | Rencana tindak lanjut |
 | --- | --- | --- | --- | --- |
 | `GAP-01` | `IN_PROGRESS` | Penutupan A0: credential produksi, rotasi secret, recovery Git, dan pemisahan runtime data customer. | Credential DB dan runtime index/package lulus Batch 146; cutoff commit/tag lokal dibuat Batch 147. Source masih shallow, cutoff belum dipush, secret lama belum dirotasi, dan off-site encryption belum aktif. | Verifikasi lalu push cutoff atas perintah owner, tetapkan strategi full-history, dan rotasi secret pada cutover terjadwal; jangan menghapus runtime staging. |
-| `GAP-02` | `IN_PROGRESS` | Sisa A1 non-mobile: baseline role/scope nyata, public review anti-spam, step-up/MFA. | Batch 148–149 mengunci endpoint/registry dan audit trail atomik Master; writer prioritas lulus, tetapi acceptance fase belum lengkap. | Lanjutkan baseline role/scope dan negative matrix; surface mobile hanya dilanjutkan setelah build APK siap. |
+| `GAP-02` | `IN_PROGRESS` | Sisa A1: baseline izin per jabatan, simulator/drift permission, public review anti-spam, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile; acceptance fase belum lengkap. | Lanjutkan script simulator/report drift tanpa mereset izin owner, lalu anti-spam dan step-up. POS Mobile dapat disentuh kembali sejak Batch 150. |
 | `GAP-03` | `TERLEWAT` | P2 bisnis A2: uang makan slip payroll dan running balance rekening backdate. | Belum mendapat batch khusus walaupun pekerjaan bergerak ke A3–A5. | Audit aturan bisnis, buat fixture, lalu minta acceptance finance sebelum implementasi. |
 | `GAP-04` | `TERLEWAT` | A3.2 rollout UI 8.3 gelombang 2 dan 4–9 serta visual UAT. | Fondasi UI dan sidebar selesai, tetapi migrasi halaman tidak pernah ditutup per wave. | Kembali ke checklist UI 8.3 gelombang 01–09 setelah fondasi A5; satu rumpun per batch, bukan rewrite besar. |
 | `GAP-05` | `TERLEWAT_OPERASIONAL` | UAT browser role, APK/device, printer fisik, dan updater customer. | Automated tooling A4 lulus tetapi tidak menggantikan perangkat nyata. | Jalankan setelah kandidat build dan APK siap; bukti UAT harus terikat ke versi artefak. |
@@ -193,10 +194,13 @@ control board 0.2–0.6, control board yang berlaku.
   backup APK tanpa mengganti model aktif. Batch 107 menyelaraskan empat smoke
   lama dengan kontrak terminal cadangan: sesi OPEN milik pegawai dan outlet yang
   sama dapat dipakai, sedangkan spoof konteks, pegawai/outlet berbeda, dan sesi
-  tutup tetap ditolak. Surface API tambahan, step-up, dan UAT APK nyata masih
-  perlu ditutup.
-- `[~]` P0-04 — multi-role dan scope: filter role nonaktif serta fail-closed
-  scope dasar sudah diperbaiki; baseline role dan scope nyata belum.
+  tutup tetap ditolak. Batch 150 menolak login/token saat scope role `NONE` atau
+  `AMBIGUOUS`, memvalidasi ulang scope setiap request bearer, dan mengembalikan
+  konteks division/outlet/terminal ke APK. Step-up dan UAT APK nyata masih perlu
+  ditutup.
+- `[~]` P0-04 — multi-role dan scope: filter role nonaktif, union izin, serta
+  fail-closed scope web/mobile sudah lulus negative test dan probe staging.
+  Baseline izin per jabatan, simulator/drift, dan UAT role masih terbuka.
 - `[x]` P0-05 — penghapusan permission role memakai relasi yang benar dan
   sudah diuji pada Batch 2A.
 - `[~]` P0-06 — boundary secret, production preflight, session audit, login
@@ -652,17 +656,20 @@ menu atau role pemilik token.
 
 ### P0-04. Matrix role operasional terlalu luas
 
-**Status 2026-09-03: `[~]`.** Batch 6 sudah membuat scope `NONE` dan
+**Status 2026-09-05: `[~]`.** Batch 6 sudah membuat scope `NONE` dan
 `AMBIGUOUS` fail-closed; masalah `NULL` yang selalu dibaca sebagai bebas adalah
 risiko historis pada jalur lama, bukan alasan untuk menganggap patch tersebut
-belum ada. Yang masih terbuka adalah reset role baseline, uji multi-role,
-revocation, dan pembuktian scope outlet/divisi pada database nyata.
+belum ada. Batch 150 menerapkan resolver yang sama pada login, bearer token, dan
+sesi POS Mobile. Probe staging membuktikan 16 user aktif (13 multi-role), 3
+superadmin, 3 global, 10 single, serta 0 `NONE`/`AMBIGUOUS`; dua user dengan
+token mobile aktif juga mempunyai scope valid. Yang masih terbuka adalah
+baseline izin per jabatan, simulator/report drift, step-up, dan UAT.
 
 Jumlah izin saat ini:
 
 | Role | View | Create | Edit | Delete | Export |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SUPERADMIN | 195 | 184 | 185 | 181 | 194 |
+| SUPERADMIN | 200 | 188 | 189 | 185 | 198 |
 | CEO | 183 | 106 | 108 | 83 | 153 |
 | MGR | 181 | 147 | 147 | 148 | 158 |
 | ADMIN | 153 | 94 | 97 | 65 | 121 |

@@ -103,37 +103,37 @@
     },
     {
       "path": "tools/tests/pos_mobile_authorization_smoke.php",
-      "line": 931,
+      "line": 944,
       "category": "HARDCODED_DB_CREDENTIAL",
       "sha256": "1f179d7ef2cad842c2688bcb5258c6fd7a262c5c32e5494686546a09003678a4"
     },
     {
       "path": "tools/tests/pos_mobile_authorization_smoke.php",
-      "line": 985,
+      "line": 998,
       "category": "HARDCODED_DB_CREDENTIAL",
       "sha256": "64210779c46969ef161aeead7c5c2b19e8c9abfee44755230cbdf80864b1a5e6"
     },
     {
       "path": "tools/tests/pos_mobile_authorization_smoke.php",
-      "line": 1063,
+      "line": 1076,
       "category": "HARDCODED_DB_CREDENTIAL",
       "sha256": "1a96ca824845731cb54fd13e76a7b0e8ef935c14d9a9c11d723cba16e129a923"
     },
     {
       "path": "tools/tests/pos_mobile_device_binding_recovery_smoke.php",
-      "line": 241,
+      "line": 247,
       "category": "HARDCODED_DB_CREDENTIAL",
       "sha256": "125d1d4dfd3243335e987cfe322999b56830a84a5c11e44f210f148c9c9f57dd"
     },
     {
       "path": "tools/tests/pos_mobile_device_binding_recovery_smoke.php",
-      "line": 242,
+      "line": 248,
       "category": "HARDCODED_DB_CREDENTIAL",
       "sha256": "e8583a37cf665b6f53dadc2294fde0a64669b08b7839dd10eaeeec249770b4c9"
     },
     {
       "path": "tools/tests/pos_mobile_device_binding_recovery_smoke.php",
-      "line": 277,
+      "line": 283,
       "category": "HARDCODED_DB_CREDENTIAL",
       "sha256": "3fbe00dbcdc38b986a3bfde0ebe869e31c4021ba82f13825c626b50f7317c7ae"
     }

@@ -65,6 +65,11 @@ class Pos_mobile extends CI_Controller
             return;
         }
 
+        $divisionScope = $this->mobile_division_scope_context((int)$user['id'], $perms);
+        if ($divisionScope === null) {
+            return;
+        }
+
         $employeeId = max(0, (int)($user['employee_id'] ?? 0));
         if ($employeeId <= 0) {
             $this->json_error('Akun belum terhubung ke employee. Hubungkan user ke data employee dulu.', 422);
@@ -96,6 +101,12 @@ class Pos_mobile extends CI_Controller
                 'username' => (string)($user['username'] ?? ''),
                 'email' => (string)($user['email'] ?? ''),
                 'is_superadmin' => $isSuperadmin,
+            ],
+            'access_context' => [
+                'division_scope_state' => $divisionScope['state'],
+                'division_id' => $divisionScope['division_id'],
+                'outlet_id' => (int)$terminal['outlet_id'],
+                'terminal_id' => (int)$terminal['id'],
             ],
         ]);
     }
@@ -176,6 +187,7 @@ class Pos_mobile extends CI_Controller
             $this->json_ok([
                 'sync_cursor' => date('c'),
                 'server_time' => date('c'),
+                'access_context' => $this->mobile_access_context_payload(),
                 'cashier_bootstrap' => $cashierBootstrap,
                 'active_sessions' => $activeSessions,
                 'filter_options' => $filterOptions,
@@ -2461,6 +2473,54 @@ class Pos_mobile extends CI_Controller
         return (array)$this->mobilePermissions;
     }
 
+    private function mobile_division_scope_context(int $userId, ?array $permissions = null): ?array
+    {
+        if ($userId <= 0) {
+            $this->json_error('Token mobile atau sesi login tidak tersedia.', 401);
+            return null;
+        }
+
+        try {
+            $permissions = $permissions ?? $this->mobile_permissions_for_user($userId);
+            if (isset($permissions['__superadmin__'])) {
+                return ['state' => 'GLOBAL', 'division_id' => null];
+            }
+            $scope = (array)$this->Auth_model->resolve_division_scope($userId);
+        } catch (Throwable $e) {
+            log_message('error', 'POS Mobile scope resolution failed for user ' . $userId . '.');
+            $this->json_error('Konfigurasi akses POS belum dapat diverifikasi.', 503);
+            return null;
+        }
+
+        $state = strtoupper(trim((string)($scope['state'] ?? 'NONE')));
+        $divisionId = max(0, (int)($scope['division_id'] ?? 0));
+        if ($state === 'GLOBAL') {
+            return ['state' => 'GLOBAL', 'division_id' => null];
+        }
+        if ($state === 'SINGLE' && $divisionId > 0) {
+            return ['state' => 'SINGLE', 'division_id' => $divisionId];
+        }
+
+        $this->json_error('Konfigurasi scope akses akun belum lengkap. Hubungi administrator.', 403);
+        return null;
+    }
+
+    private function mobile_access_context_payload(): array
+    {
+        if (!is_array($this->mobileUser)) {
+            return [];
+        }
+
+        return [
+            'division_scope_state' => (string)($this->mobileUser['division_scope_state'] ?? ''),
+            'division_id' => !empty($this->mobileUser['division_scope_id'])
+                ? (int)$this->mobileUser['division_scope_id']
+                : null,
+            'outlet_id' => max(0, (int)($this->mobileUser['outlet_id'] ?? 0)),
+            'terminal_id' => max(0, (int)($this->mobileUser['terminal_id'] ?? 0)),
+        ];
+    }
+
     private function mobile_order_workspace_page_code(string $ability = 'view', string $preferredPageCode = ''): string
     {
         if ($preferredPageCode !== '' && $this->mobile_can($preferredPageCode, $ability)) {
@@ -2552,11 +2612,12 @@ class Pos_mobile extends CI_Controller
             }
         }
 
-        if (empty($this->session->userdata('auth_user'))) {
+        $sessionUser = $this->session->userdata('auth_user') ?: [];
+        if (empty($sessionUser)) {
             $this->json_error('Token mobile atau sesi login tidak tersedia.', 401);
             return false;
         }
-        return true;
+        return $this->mobile_division_scope_context((int)($sessionUser['id'] ?? 0)) !== null;
     }
 
     private function current_actor_employee_id(): int
@@ -2610,8 +2671,15 @@ class Pos_mobile extends CI_Controller
             return false;
         }
 
+        $divisionScope = $this->mobile_division_scope_context((int)($row['user_id'] ?? 0));
+        if ($divisionScope === null) {
+            return false;
+        }
+
         $row['terminal_id'] = (int)$terminal['id'];
         $row['outlet_id'] = (int)$terminal['outlet_id'];
+        $row['division_scope_state'] = $divisionScope['state'];
+        $row['division_scope_id'] = $divisionScope['division_id'];
         $this->mobileUser = $row;
         $this->db->where('id', (int)$row['id'])->update('pos_mobile_auth_token', [
             'last_seen_at' => date('Y-m-d H:i:s'),

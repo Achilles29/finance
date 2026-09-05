@@ -65,6 +65,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'pos-mobile-order-reader-binding', 'file' => 'pos_mobile_order_reader_binding_smoke.php'],
             ['id' => 'pos-mobile-print-document-binding', 'file' => 'pos_mobile_print_document_binding_smoke.php'],
             ['id' => 'pos-mobile-printer-binding', 'file' => 'pos_mobile_printer_binding_smoke.php'],
+            ['id' => 'pos-mobile-role-scope-negative', 'file' => 'pos_mobile_role_scope_negative_smoke.php'],
             ['id' => 'telegram-module', 'file' => 'telegram_module_smoke.php'],
             ['id' => 'codex-telegram-summary', 'file' => 'codex_telegram_notify_summary_smoke.php'],
         ],
@@ -96,6 +97,7 @@ function finance_quality_gate_manifest(): array
         ],
         'staging' => [
             ['id' => 'a2-database-invariant-probe', 'file' => 'a2_database_invariant_probe.php'],
+            ['id' => 'a1-rbac-scope-staging', 'file' => '../db/rbac_scope_staging_probe.php'],
             [
                 'id' => 'a5-runtime-compatibility-staging',
                 'file' => '../release/runtime_compatibility_check.php',

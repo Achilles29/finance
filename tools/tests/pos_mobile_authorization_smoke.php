@@ -25,9 +25,14 @@ final class PosMobileSmokeAuth
 {
     public int $loadCalls = 0;
     public int $attemptLoginCalls = 0;
+    public int $scopeCalls = 0;
     public int $lastUserId = 0;
 
-    public function __construct(private array $permissions, private ?array $loginUser = null)
+    public function __construct(
+        private array $permissions,
+        private ?array $loginUser = null,
+        private array $divisionScope = ['state' => 'GLOBAL', 'division_id' => null]
+    )
     {
     }
 
@@ -42,6 +47,13 @@ final class PosMobileSmokeAuth
     {
         $this->attemptLoginCalls++;
         return $this->loginUser;
+    }
+
+    public function resolve_division_scope(int $userId): array
+    {
+        $this->scopeCalls++;
+        $this->lastUserId = $userId;
+        return $this->divisionScope;
     }
 }
 
@@ -645,11 +657,12 @@ function pos_mobile_smoke_controller(
     array $terminalRows = [],
     ?array $loginUser = null,
     array $cashierSessionRows = [],
-    array $syncEventRows = []
+    array $syncEventRows = [],
+    array $divisionScope = ['state' => 'GLOBAL', 'division_id' => null]
 ): array
 {
     $controller = (new ReflectionClass(Pos_mobile::class))->newInstanceWithoutConstructor();
-    $auth = new PosMobileSmokeAuth($permissions, $loginUser);
+    $auth = new PosMobileSmokeAuth($permissions, $loginUser, $divisionScope);
     $output = new PosMobileSmokeOutput();
     $db = new PosMobileSmokeDb($registryPageExists, $tokenRows, $terminalRows, $cashierSessionRows, $syncEventRows);
     $model = new PosMobileSmokePosModel();

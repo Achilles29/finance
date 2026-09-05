@@ -4841,3 +4841,42 @@
 - Batch berikutnya: inventaris dan negative matrix baseline multi-role serta
   scope outlet/divisi pada database staging, tanpa mengubah definisi izin
   bisnis milik owner.
+
+## Batch 150 — GAP-02 scope multi-role web/POS Mobile dan negative matrix
+
+- Waktu: 2026-09-05 WIB.
+- Prioritas: menyamakan fail-closed scope antara web dan POS Mobile serta
+  membuktikan kondisi multi-role/outlet/terminal pada database staging.
+- Temuan: web sudah menolak scope `NONE`/`AMBIGUOUS`, tetapi login POS Mobile
+  belum memeriksa scope sebelum menerbitkan token dan request bearer belum
+  memvalidasi ulang scope setelah perubahan role.
+- Implementasi: login POS Mobile sekarang memvalidasi hasil
+  `Auth_model::resolve_division_scope()` sebelum insert token. Setiap request
+  bearer dan request mobile berbasis sesi memuat izin/scope aktif; status selain
+  `GLOBAL`, `SINGLE` valid, atau superadmin ditolak sebelum identitas request,
+  pembaruan `last_seen`, dan operasi bisnis. Respons login/bootstrap bearer
+  mengirim konteks division, outlet, dan terminal yang otoritatif ke APK.
+- Negative matrix: token tidak diterbitkan untuk `NONE`/`AMBIGUOUS`; token lama
+  langsung ditolak bila kombinasi role menjadi ambigu; `SINGLE` tetap diterima;
+  scope dan permission hanya dimuat sekali per request; session-backed endpoint
+  mengikuti kebijakan yang sama.
+- Probe staging read-only: 16 user aktif, 13 multi-role, 3 superadmin, 3 global,
+  10 single, 0 `NONE`, 0 `AMBIGUOUS`; dua user bertoken mobile aktif mempunyai
+  scope valid. Tidak ada orphan role assignment, duplicate active device key,
+  atau terminal aktif dengan outlet invalid.
+- Matrix permission: tidak diubah. Hak KASIR/BARISTA dan role lain tetap milik
+  owner serta dapat disesuaikan lewat modul role; batch ini hanya memastikan
+  script menerapkan union permission dan scope secara aman.
+- File berubah: `application/controllers/Pos_mobile.php`, harness recovery POS,
+  smoke negative scope baru, probe staging baru, quality gate/contract,
+  package preflight fixture line, roadmap `_30`, dan execution log.
+- SQL/database: tidak ada SQL baru dan seluruh query staging bersifat `SELECT`.
+- Validasi: PHP lint; seluruh 11 smoke POS Mobile/APK; negative scope 20/20;
+  auth division scope 42; inactive-role smoke; quality-gate contract; release
+  preflight; probe staging; roadmap consistency; dan quality gate `parallel`
+  lulus required 51/51, development 4/4, release 1/1, serta preflight 1/1.
+- Risiko sisa: baseline hak per jabatan belum boleh di-reset tanpa keputusan
+  bisnis owner; halaman simulator/report permission drift, step-up aksi sensitif,
+  dan UAT APK/perangkat tetap terbuka.
+- Batch berikutnya: simulator akses dan report permission drift read-only agar
+  owner dapat meninjau dampak role/user tanpa mengubah matrix izin.
