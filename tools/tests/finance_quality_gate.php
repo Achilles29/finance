@@ -28,6 +28,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'a1-pos-reversal-step-up', 'file' => 'pos_reversal_step_up_smoke.php'],
             ['id' => 'a1-component-adjustment-step-up', 'file' => 'component_adjustment_step_up_smoke.php'],
             ['id' => 'a1-stock-adjustment-step-up', 'file' => 'stock_adjustment_step_up_smoke.php'],
+            ['id' => 'a1-component-batch-step-up', 'file' => 'component_batch_step_up_smoke.php'],
             ['id' => 'a2-matrix', 'file' => 'a2_inventory_transaction_matrix_smoke.php'],
             ['id' => 'a3-finance-ui-shell', 'file' => 'a3_finance_ui_shell_smoke.php'],
             ['id' => 'a3-navigation-registry', 'file' => 'a3_navigation_registry_smoke.php'],

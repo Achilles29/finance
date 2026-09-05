@@ -1237,7 +1237,7 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
       </div>
       <div class="modal-footer component-adjust-modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
-        <button type="button" class="btn btn-primary" id="qdaSubmitBtn">Simpan & Post</button>
+        <button type="button" class="btn btn-primary" id="qdaSubmitBtn">Simpan & Verifikasi</button>
       </div>
     </div>
   </div>
@@ -1293,7 +1293,53 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Tutup</button>
-        <button type="button" class="btn btn-success" id="qdbSubmitBtn">Simpan & Post</button>
+        <button type="button" class="btn btn-success" id="qdbSubmitBtn">Simpan & Verifikasi</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="componentDailyAdjustmentStepUpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Verifikasi Posting Adjustment</h5>
+          <div class="small text-muted">Draft sudah tersimpan. Masukkan password akun Anda untuk menerapkan koreksi ke stok, lot, dan nilai component.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="component_daily_adjustment_step_up_password" class="form-label">Password akun Anda</label>
+        <input type="password" class="form-control" id="component_daily_adjustment_step_up_password" autocomplete="current-password" maxlength="72">
+        <div class="form-text">Password hanya dipakai untuk verifikasi ini dan tidak disimpan pada adjustment.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Nanti Saja</button>
+        <button type="button" class="btn btn-primary" id="btn-component-daily-adjustment-step-up-post">Verifikasi &amp; Post</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="componentDailyBatchStepUpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Verifikasi Post Batch</h5>
+          <div class="small text-muted">Draft sudah tersimpan. Masukkan password akun Anda sebelum stok bahan, component, lot, dan biaya batch diubah.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="component_daily_batch_step_up_password" class="form-label">Password akun Anda</label>
+        <input type="password" class="form-control" id="component_daily_batch_step_up_password" autocomplete="current-password" maxlength="72">
+        <div class="form-text">Password hanya dipakai untuk verifikasi ini dan tidak disimpan pada batch.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Nanti Saja</button>
+        <button type="button" class="btn btn-success" id="btn-component-daily-batch-step-up-post">Verifikasi &amp; Post</button>
       </div>
     </div>
   </div>
@@ -1416,7 +1462,14 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
 
   const reasonOptions = <?php echo json_encode($adjustmentReasonOptions, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const saveUrl = '<?php echo site_url('production/component-adjustments/save'); ?>';
+  const componentAdjustmentStepUpUrl = '<?php echo site_url('production/component-adjustments/step-up/verify'); ?>';
   const postBaseUrl = '<?php echo site_url('production/component-adjustments/post'); ?>';
+  const componentAdjustmentCsrfToken = <?php echo json_encode((string)($component_adjustment_csrf_token ?? ''), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const adjustmentStepUpModalEl = document.getElementById('componentDailyAdjustmentStepUpModal');
+  const adjustmentStepUpPassword = document.getElementById('component_daily_adjustment_step_up_password');
+  const btnAdjustmentStepUpPost = document.getElementById('btn-component-daily-adjustment-step-up-post');
+  let pendingAdjustmentPostId = 0;
+  let adjustmentStepUpSubmitting = false;
   const state = {
     componentId: 0,
     componentName: '',
@@ -1477,7 +1530,8 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Production-Component-Adjustment-Csrf': componentAdjustmentCsrfToken
       },
       credentials: 'same-origin',
       body: JSON.stringify(payload)
@@ -1629,13 +1683,64 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     renderAlert('info', 'Menyimpan adjustment...');
     try {
       const saveResult = await postJson(saveUrl, payload);
-      await postJson(postBaseUrl + '/' + encodeURIComponent(String(saveResult.id || 0)), {});
-      renderAlert('success', 'Adjustment berhasil diposting. Memuat ulang data...');
-      window.setTimeout(() => window.location.reload(), 500);
+      const adjustmentId = Number(saveResult.id || 0);
+      const modal = adjustmentStepUpModalEl && window.bootstrap && window.bootstrap.Modal
+        ? window.bootstrap.Modal.getOrCreateInstance(adjustmentStepUpModalEl)
+        : null;
+      if (!(adjustmentId > 0) || !modal) {
+        throw new Error('Draft adjustment sudah tersimpan, tetapi verifikasi posting belum siap. Muat ulang halaman lalu post draft tersebut dari menu Adjustment Base/Prepare.');
+      }
+      pendingAdjustmentPostId = adjustmentId;
+      if (adjustmentStepUpPassword) adjustmentStepUpPassword.value = '';
+      renderAlert('info', 'Draft adjustment tersimpan. Verifikasi password untuk menerapkan koreksi.');
+      modal.show();
+      window.setTimeout(() => adjustmentStepUpPassword?.focus(), 150);
     } catch (error) {
       renderAlert('danger', error.message || 'Adjustment gagal diproses.');
     } finally {
       submitBtn.disabled = false;
+    }
+  });
+
+  function setAdjustmentStepUpDismissDisabled(disabled) {
+    adjustmentStepUpModalEl?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((button) => { button.disabled = disabled; });
+  }
+
+  btnAdjustmentStepUpPost?.addEventListener('click', async () => {
+    if (adjustmentStepUpSubmitting) return;
+    const adjustmentId = pendingAdjustmentPostId;
+    try {
+      if (!(adjustmentId > 0)) throw new Error('Draft adjustment tidak valid. Tutup modal lalu coba lagi.');
+      const password = String(adjustmentStepUpPassword?.value || '');
+      if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi posting adjustment.');
+      if (adjustmentStepUpPassword) adjustmentStepUpPassword.value = '';
+      adjustmentStepUpSubmitting = true;
+      setAdjustmentStepUpDismissDisabled(true);
+      btnAdjustmentStepUpPost.disabled = true;
+      btnAdjustmentStepUpPost.textContent = 'Memverifikasi...';
+      const stepUp = await postJson(componentAdjustmentStepUpUrl, {adjustment_id: adjustmentId, password});
+      if (!/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) throw new Error('Bukti verifikasi ulang tidak valid. Coba lagi.');
+      await postJson(postBaseUrl + '/' + encodeURIComponent(String(adjustmentId)), {step_up_proof: String(stepUp.step_up_proof)});
+      renderAlert('success', 'Adjustment berhasil diposting. Memuat ulang data...');
+      window.setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      adjustmentStepUpSubmitting = false;
+      setAdjustmentStepUpDismissDisabled(false);
+      if (btnAdjustmentStepUpPost) {
+        btnAdjustmentStepUpPost.disabled = false;
+        btnAdjustmentStepUpPost.textContent = 'Verifikasi & Post';
+      }
+      renderAlert('danger', error.message || 'Gagal post adjustment. Draft tetap tersimpan.');
+    }
+  });
+
+  adjustmentStepUpModalEl?.addEventListener('hidden.bs.modal', () => {
+    if (adjustmentStepUpSubmitting) return;
+    if (adjustmentStepUpPassword) adjustmentStepUpPassword.value = '';
+    pendingAdjustmentPostId = 0;
+    if (btnAdjustmentStepUpPost) {
+      btnAdjustmentStepUpPost.disabled = false;
+      btnAdjustmentStepUpPost.textContent = 'Verifikasi & Post';
     }
   });
 })();
@@ -1656,7 +1761,14 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
 
   const previewUrl = '<?php echo site_url('production/component-batches/preview'); ?>';
   const saveUrl = '<?php echo site_url('production/component-batches/save'); ?>';
+  const componentBatchStepUpUrl = '<?php echo site_url('production/component-batches/step-up/verify'); ?>';
   const postBaseUrl = '<?php echo site_url('production/component-batches/post'); ?>';
+  const componentBatchCsrfToken = <?php echo json_encode((string)($component_batch_csrf_token ?? ''), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const batchStepUpModalEl = document.getElementById('componentDailyBatchStepUpModal');
+  const batchStepUpPassword = document.getElementById('component_daily_batch_step_up_password');
+  const btnBatchStepUpPost = document.getElementById('btn-component-daily-batch-step-up-post');
+  let pendingBatchPostId = 0;
+  let batchStepUpSubmitting = false;
   const alertHost = document.getElementById('componentDailyBatchAlert');
   const state = { componentId: 0, divisionId: 0, locationType: '', uomId: 0, uomCode: '', componentName: '' };
   let currentPreview = null;
@@ -1701,7 +1813,8 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Production-Component-Batch-Csrf': componentBatchCsrfToken
       },
       credentials: 'same-origin',
       body: JSON.stringify(payload)
@@ -1907,15 +2020,65 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     renderAlert('info', 'Menyimpan batch...');
     try {
       const saveResult = await postJson(saveUrl, payload);
-      await postJson(postBaseUrl + '/' + encodeURIComponent(String(saveResult.id || 0)), {});
-      renderAlert('success', 'Batch berhasil diposting. Memuat ulang data...');
-      window.setTimeout(() => window.location.reload(), 500);
+      const batchId = Number(saveResult.id || 0);
+      const modal = batchStepUpModalEl && window.bootstrap && window.bootstrap.Modal
+        ? window.bootstrap.Modal.getOrCreateInstance(batchStepUpModalEl)
+        : null;
+      if (!(batchId > 0) || !modal) {
+        throw new Error('Draft batch sudah tersimpan, tetapi verifikasi posting belum siap. Muat ulang halaman lalu post draft tersebut dari menu Batch Produksi Base/Prepare.');
+      }
+      pendingBatchPostId = batchId;
+      if (batchStepUpPassword) batchStepUpPassword.value = '';
+      renderAlert('info', 'Draft batch tersimpan. Verifikasi password untuk menerapkan produksi.');
+      modal.show();
+      window.setTimeout(() => batchStepUpPassword?.focus(), 150);
     } catch (error) {
       renderAlert('danger', error.message || 'Batch gagal diproses.');
     } finally {
       submitBtn.disabled = false;
     }
   });
+
+  function setBatchStepUpDismissDisabled(disabled) {
+    batchStepUpModalEl?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((button) => { button.disabled = disabled; });
+  }
+
+  btnBatchStepUpPost?.addEventListener('click', async () => {
+    if (batchStepUpSubmitting) return;
+    const batchId = pendingBatchPostId;
+    try {
+      if (!(batchId > 0)) throw new Error('Draft batch tidak valid. Tutup modal lalu coba lagi.');
+      const password = String(batchStepUpPassword?.value || '');
+      if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi posting batch.');
+      if (batchStepUpPassword) batchStepUpPassword.value = '';
+      batchStepUpSubmitting = true;
+      setBatchStepUpDismissDisabled(true);
+      btnBatchStepUpPost.disabled = true;
+      btnBatchStepUpPost.textContent = 'Memverifikasi...';
+      const stepUp = await postJson(componentBatchStepUpUrl, {batch_id: batchId, password});
+      if (!/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) throw new Error('Bukti verifikasi ulang tidak valid. Coba lagi.');
+      await postJson(postBaseUrl + '/' + encodeURIComponent(String(batchId)), {step_up_proof: String(stepUp.step_up_proof)});
+      renderAlert('success', 'Batch berhasil diposting. Memuat ulang data...');
+      window.setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      batchStepUpSubmitting = false;
+      setBatchStepUpDismissDisabled(false);
+      if (btnBatchStepUpPost) {
+        btnBatchStepUpPost.disabled = false;
+        btnBatchStepUpPost.textContent = 'Verifikasi & Post';
+      }
+      renderAlert('danger', error.message || 'Gagal post batch. Draft tetap tersimpan.');
+    }
+  });
+
+  batchStepUpModalEl?.addEventListener('hidden.bs.modal', () => {
+    if (batchStepUpSubmitting) return;
+    if (batchStepUpPassword) batchStepUpPassword.value = '';
+    pendingBatchPostId = 0;
+    if (btnBatchStepUpPost) {
+      btnBatchStepUpPost.disabled = false;
+      btnBatchStepUpPost.textContent = 'Verifikasi & Post';
+    }
+  });
 })();
 </script>
-

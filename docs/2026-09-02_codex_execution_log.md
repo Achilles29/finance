@@ -5526,3 +5526,60 @@
   jalur writer dan dampak bahan/component secara terpisah.
 - Penyerahan: commit lokal sesudah `41ba136`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 162 — CSRF dan reauth Component Batch Produksi/Daily Component
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 05:48 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01`. Posting Component Batch mengurangi bahan,
+  menambah stok component, mengubah lot/FIFO dan biaya/HPP melalui
+  `ComponentStockWriter`; VOID membalik rangkaian tersebut. Endpoint draft dan
+  writer sebelumnya tidak mempunyai boundary CSRF/reauth yang scoped.
+- Diskusi/arah: fixer tunggal. Halaman Batch Produksi dan Quick Batch pada
+  Daily Component memakai endpoint yang sama sehingga keduanya diamankan dalam
+  satu batch. Quick Adjustment Daily juga diselaraskan dengan CSRF/proof
+  Adjustment yang sudah ada agar tidak gagal setelah boundary draft ditutup.
+  Tidak mengubah resep, saldo/data historis, model writer, SQL, role matrix,
+  atau kontrak POS Mobile/APK.
+- File berubah:
+  - `application/libraries/SensitiveActionStepUp.php`.
+  - `application/config/routes.php`, `application/controllers/Production.php`.
+  - `application/views/production/component_batch_index.php`,
+    `application/views/production/component_daily_index.php`, dan
+    `application/views/production/component_adjustment_index.php`.
+  - `tools/tests/component_batch_step_up_smoke.php` (baru) serta manifest dan
+    kontrak quality gate.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Save/Delete Draft Component Batch dan Component Adjustment sekarang wajib
+    POST dengan header CSRF scoped. Caller resmi Batch, Adjustment, dan Daily
+    mengirim token endpoint masing-masing.
+  - Route verifikasi baru menerbitkan proof satu-kali 180 detik
+    `COMPONENT_BATCH_POST` atau `COMPONENT_BATCH_VOID`, terikat ke user dan
+    satu batch. `component_batch_post`/`void` mengonsumsi proof sebelum writer
+    atau model reversal dipanggil; password tidak pernah diteruskan ke model.
+  - Halaman Batch Produksi memiliki modal password masked terpisah untuk Post
+    dan VOID. Daily Component menyimpan draft dahulu lalu menampilkan modal
+    verifikasi; operator boleh memilih “Nanti Saja” dan melanjutkan posting
+    draft dari halaman Batch Produksi tanpa perubahan stok yang tersembunyi.
+- SQL/runtime: **tidak ada SQL baru**, migration, schema/data, query tulis
+  staging, credential, role/sidebar, atau kontrak POS Mobile/APK yang berubah.
+- Validasi:
+  - `php -l` seluruh controller/library/route/view/test berubah lulus dan
+    `git diff --check` lulus.
+  - `component_batch_step_up_smoke.php` lulus 21 kontrak route/RBAC/CSRF/proof/
+    writer/UI/Daily; smoke Component Adjustment (19), Adjustment Stok (17),
+    dashboard audit (30), roadmap consistency (22), dan quality-gate contract
+    (27) juga lulus.
+  - Quality gate `parallel` lulus: required 60/60, development 4/4, release
+    1/1. Runtime/security/static dan UAT browser nyata tetap tidak diklaim oleh
+    profil otomatis.
+- Review akhir fixer tunggal: layak untuk scope Component Batch web dan Daily
+  resmi. Request lama tanpa header/proof ditolak fail-closed; Daily tidak lagi
+  melakukan post tanpa reauth. Tidak ada perbaikan mismatch data otomatis.
+- Risiko sisa: Daily Recon selain quick action, stock opening, transfer, mutasi
+  produksi lain, API/APK, MFA, baseline role nyata, dan UAT perangkat/role
+  masih terbuka.
+- Batch berikutnya: amankan stock opening/transfer atau Daily Recon sebagai
+  batch kecil berikutnya, setelah memetakan caller resmi dan writer lot/stok.
+- Penyerahan: commit lokal sesudah `e67186c`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

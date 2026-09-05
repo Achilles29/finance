@@ -726,18 +726,67 @@ $cbTransactionTime = static function (array $row): string {
   </div>
 </div>
 
+<div class="modal fade" id="componentBatchStepUpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Verifikasi Post Batch</h5>
+          <div class="small text-muted">Masukkan password akun Anda sebelum stok bahan, component, lot, dan biaya batch diubah.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="component_batch_step_up_password" class="form-label">Password akun Anda</label>
+        <input type="password" class="form-control" id="component_batch_step_up_password" autocomplete="current-password" maxlength="72">
+        <div class="form-text">Password hanya dipakai untuk verifikasi ini dan tidak disimpan pada batch.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-success" id="btn-component-batch-step-up-post">Verifikasi &amp; Post</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="componentBatchVoidStepUpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Verifikasi VOID Batch</h5>
+          <div class="small text-muted">Masukkan password akun Anda sebelum lot, stok, dan biaya batch dibalik.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="component_batch_void_step_up_password" class="form-label">Password akun Anda</label>
+        <input type="password" class="form-control" id="component_batch_void_step_up_password" autocomplete="current-password" maxlength="72">
+        <div class="form-text">Password hanya dipakai untuk verifikasi ini dan tidak disimpan pada batch.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+        <button type="button" class="btn btn-warning" id="btn-component-batch-void-step-up-post">Verifikasi &amp; VOID</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <?php $this->load->view('production/_ajax_picker_helper'); ?>
 
 <script>
 (() => {
   const previewUrl = '<?php echo site_url('production/component-batches/preview'); ?>';
   const saveUrl = '<?php echo site_url('production/component-batches/save'); ?>';
+  const componentBatchStepUpUrl = '<?php echo site_url('production/component-batches/step-up/verify'); ?>';
+  const componentBatchVoidStepUpUrl = '<?php echo site_url('production/component-batches/void-step-up/verify'); ?>';
   const postBaseUrl = '<?php echo site_url('production/component-batches/post'); ?>';
   const statusBaseUrl = '<?php echo site_url('production/component-batches/status'); ?>';
   const usageBaseUrl = '<?php echo site_url('production/component-batches/usage'); ?>';
   const usageDetailBaseUrl = '<?php echo site_url('production/component-batches/detail'); ?>';
   const voidBaseUrl = '<?php echo site_url('production/component-batches/void'); ?>';
   const deleteBaseUrl = '<?php echo site_url('production/component-batches/delete'); ?>';
+  const componentBatchCsrfToken = <?php echo json_encode((string)($component_batch_csrf_token ?? ''), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
 
   const overlayEl = document.getElementById('componentBatchOverlay');
   const overlayTitleEl = document.getElementById('componentBatchOverlayTitle');
@@ -778,6 +827,12 @@ $cbTransactionTime = static function (array $row): string {
   const usageModal = usageModalEl && window.bootstrap ? new window.bootstrap.Modal(usageModalEl) : null;
   const batchFormModalEl = document.getElementById('batchFormModal');
   const batchFormModal = batchFormModalEl && window.bootstrap ? new window.bootstrap.Modal(batchFormModalEl) : null;
+  const batchStepUpModalEl = document.getElementById('componentBatchStepUpModal');
+  const batchStepUpPassword = document.getElementById('component_batch_step_up_password');
+  const btnBatchStepUpPost = document.getElementById('btn-component-batch-step-up-post');
+  const batchVoidStepUpModalEl = document.getElementById('componentBatchVoidStepUpModal');
+  const batchVoidStepUpPassword = document.getElementById('component_batch_void_step_up_password');
+  const btnBatchVoidStepUpPost = document.getElementById('btn-component-batch-void-step-up-post');
 
   let outputDivisionCode = '';
   let outputDivisionName = '';
@@ -785,6 +840,12 @@ $cbTransactionTime = static function (array $row): string {
   let previewTimer = null;
   let previewRequestController = null;
   let previewRequestToken = 0;
+  let pendingBatchPostId = 0;
+  let pendingBatchPostButton = null;
+  let batchStepUpSubmitting = false;
+  let pendingBatchVoidId = 0;
+  let pendingBatchVoidButton = null;
+  let batchVoidStepUpSubmitting = false;
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function escapeHtml(value) {
@@ -841,7 +902,12 @@ $cbTransactionTime = static function (array $row): string {
   async function postJson(url, payload) {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Production-Component-Batch-Csrf': componentBatchCsrfToken
+      },
+      credentials: 'same-origin',
       body: JSON.stringify(payload)
     });
     const text = await response.text();
@@ -1228,6 +1294,45 @@ $cbTransactionTime = static function (array $row): string {
     resetPreview('Pilih output component, lokasi, dan mode produksi untuk melihat preview produksi.');
   });
 
+  function getStepUpModal(element) {
+    return element && window.bootstrap && window.bootstrap.Modal
+      ? window.bootstrap.Modal.getOrCreateInstance(element)
+      : null;
+  }
+
+  function setStepUpDismissDisabled(element, disabled) {
+    element?.querySelectorAll('[data-bs-dismiss="modal"]').forEach((dismissButton) => {
+      dismissButton.disabled = disabled;
+    });
+  }
+
+  async function postVerifiedBatch(button, batchId, proof) {
+    window.clearTimeout(previewTimer);
+    if (previewRequestController) { previewRequestController.abort(); previewRequestController = null; }
+    setButtonBusy(button, 'Posting...');
+    showPostingOverlay('Posting batch produksi...');
+    const requestPromise = postJson(postBaseUrl + '/' + batchId, {step_up_proof: proof});
+    const postedViaPolling = await Promise.race([
+      requestPromise.then(() => false),
+      waitForBatchPosted(batchId, {startDelayMs:4000, intervalMs:2500, maxMs:60000})
+    ]);
+    let postResult = null;
+    if (postedViaPolling === true) {
+      try { postResult = await Promise.race([requestPromise, new Promise((r) => setTimeout(() => r(null), 8000))]); } catch(e) {}
+    } else {
+      postResult = await requestPromise;
+    }
+    const recoveryWarnings = (postResult && postResult.data && Array.isArray(postResult.data.recovery_warnings))
+      ? postResult.data.recovery_warnings : [];
+    try {
+      sessionStorage.setItem('batchPostNotif', JSON.stringify({
+        type: recoveryWarnings.length > 0 ? 'warning' : 'success',
+        warnings: recoveryWarnings
+      }));
+    } catch(e) {}
+    window.location.reload();
+  }
+
   // ── Post ──────────────────────────────────────────────────────────────────
   document.querySelectorAll('.btn-post').forEach((button) => {
     button.addEventListener('click', async () => {
@@ -1235,38 +1340,52 @@ $cbTransactionTime = static function (array $row): string {
       if (!(await uiConfirm('Posting batch akan mengurangi input dan menambah stok output component.', {
         title: 'Post Batch Produksi', okText: 'Post Batch', cancelText: 'Batal'
       }))) return;
-      window.clearTimeout(previewTimer);
-      if (previewRequestController) { previewRequestController.abort(); previewRequestController = null; }
-      setButtonBusy(button, 'Posting...');
-      showPostingOverlay('Posting batch produksi...');
-      try {
-        const batchId = String(button.dataset.id || '0');
-        const requestPromise = postJson(postBaseUrl + '/' + batchId, {});
-        const postedViaPolling = await Promise.race([
-          requestPromise.then(() => false),
-          waitForBatchPosted(batchId, {startDelayMs:4000, intervalMs:2500, maxMs:60000})
-        ]);
-        let postResult = null;
-        if (postedViaPolling === true) {
-          try { postResult = await Promise.race([requestPromise, new Promise((r) => setTimeout(() => r(null), 8000))]); } catch(e) {}
-        } else {
-          postResult = await requestPromise;
-        }
-        const recoveryWarnings = (postResult && postResult.data && Array.isArray(postResult.data.recovery_warnings))
-          ? postResult.data.recovery_warnings : [];
-        try {
-          sessionStorage.setItem('batchPostNotif', JSON.stringify({
-            type: recoveryWarnings.length > 0 ? 'warning' : 'success',
-            warnings: recoveryWarnings
-          }));
-        } catch(e) {}
-        window.location.reload();
-      } catch(error) {
-        hidePostingOverlay();
-        renderAlert('danger', error.message || 'Gagal post batch.');
-        clearButtonBusy(button);
+      const batchId = Number(button.dataset.id || 0);
+      const modal = getStepUpModal(batchStepUpModalEl);
+      if (!(batchId > 0) || !modal) {
+        renderAlert('danger', 'Verifikasi posting belum siap. Muat ulang halaman lalu coba kembali.');
+        return;
       }
+      pendingBatchPostId = batchId;
+      pendingBatchPostButton = button;
+      if (batchStepUpPassword) batchStepUpPassword.value = '';
+      modal.show();
+      window.setTimeout(() => batchStepUpPassword?.focus(), 150);
     });
+  });
+
+  btnBatchStepUpPost?.addEventListener('click', async () => {
+    if (batchStepUpSubmitting) return;
+    const batchId = pendingBatchPostId;
+    const button = pendingBatchPostButton;
+    try {
+      if (!(batchId > 0) || !button) throw new Error('Dokumen batch tidak valid. Tutup modal lalu coba lagi.');
+      const password = String(batchStepUpPassword?.value || '');
+      if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi posting batch.');
+      if (batchStepUpPassword) batchStepUpPassword.value = '';
+      batchStepUpSubmitting = true;
+      setStepUpDismissDisabled(batchStepUpModalEl, true);
+      setButtonBusy(btnBatchStepUpPost, 'Memverifikasi...');
+      const stepUp = await postJson(componentBatchStepUpUrl, {batch_id: batchId, password});
+      if (!/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) throw new Error('Bukti verifikasi ulang tidak valid. Coba lagi.');
+      await postVerifiedBatch(button, String(batchId), String(stepUp.step_up_proof));
+    } catch (error) {
+      hidePostingOverlay();
+      renderAlert('danger', error.message || 'Gagal post batch.');
+      batchStepUpSubmitting = false;
+      setStepUpDismissDisabled(batchStepUpModalEl, false);
+      clearButtonBusy(button);
+      clearButtonBusy(btnBatchStepUpPost);
+    }
+  });
+
+  batchStepUpModalEl?.addEventListener('hidden.bs.modal', () => {
+    if (batchStepUpSubmitting) return;
+    if (batchStepUpPassword) batchStepUpPassword.value = '';
+    clearButtonBusy(btnBatchStepUpPost);
+    if (pendingBatchPostButton) clearButtonBusy(pendingBatchPostButton);
+    pendingBatchPostId = 0;
+    pendingBatchPostButton = null;
   });
 
   // ── Delete ────────────────────────────────────────────────────────────────
@@ -1296,17 +1415,55 @@ $cbTransactionTime = static function (array $row): string {
       if (!(await uiConfirm('VOID hanya bisa dilakukan jika output batch belum dipakai. Lanjutkan?', {
         title: 'Void Batch Produksi', okText: 'Void Batch', cancelText: 'Batal'
       }))) return;
-      setButtonBusy(button, 'Void...');
-      showPostingOverlay('Melakukan void batch...');
-      try {
-        await postJson(voidBaseUrl + '/' + button.dataset.id, {});
-        window.location.reload();
-      } catch(error) {
-        hidePostingOverlay();
-        renderAlert('danger', error.message || 'Gagal void batch.');
-        clearButtonBusy(button);
+      const batchId = Number(button.dataset.id || 0);
+      const modal = getStepUpModal(batchVoidStepUpModalEl);
+      if (!(batchId > 0) || !modal) {
+        renderAlert('danger', 'Verifikasi VOID belum siap. Muat ulang halaman lalu coba kembali.');
+        return;
       }
+      pendingBatchVoidId = batchId;
+      pendingBatchVoidButton = button;
+      if (batchVoidStepUpPassword) batchVoidStepUpPassword.value = '';
+      modal.show();
+      window.setTimeout(() => batchVoidStepUpPassword?.focus(), 150);
     });
+  });
+
+  btnBatchVoidStepUpPost?.addEventListener('click', async () => {
+    if (batchVoidStepUpSubmitting) return;
+    const batchId = pendingBatchVoidId;
+    const button = pendingBatchVoidButton;
+    try {
+      if (!(batchId > 0) || !button) throw new Error('Dokumen batch tidak valid. Tutup modal lalu coba lagi.');
+      const password = String(batchVoidStepUpPassword?.value || '');
+      if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi VOID batch.');
+      if (batchVoidStepUpPassword) batchVoidStepUpPassword.value = '';
+      batchVoidStepUpSubmitting = true;
+      setStepUpDismissDisabled(batchVoidStepUpModalEl, true);
+      setButtonBusy(btnBatchVoidStepUpPost, 'Memverifikasi...');
+      const stepUp = await postJson(componentBatchVoidStepUpUrl, {batch_id: batchId, password});
+      if (!/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) throw new Error('Bukti verifikasi ulang tidak valid. Coba lagi.');
+      setButtonBusy(button, 'VOID...');
+      showPostingOverlay('Melakukan VOID batch...');
+      await postJson(voidBaseUrl + '/' + batchId, {step_up_proof: String(stepUp.step_up_proof)});
+      window.location.reload();
+    } catch(error) {
+      hidePostingOverlay();
+      renderAlert('danger', error.message || 'Gagal VOID batch.');
+      batchVoidStepUpSubmitting = false;
+      setStepUpDismissDisabled(batchVoidStepUpModalEl, false);
+      clearButtonBusy(button);
+      clearButtonBusy(btnBatchVoidStepUpPost);
+    }
+  });
+
+  batchVoidStepUpModalEl?.addEventListener('hidden.bs.modal', () => {
+    if (batchVoidStepUpSubmitting) return;
+    if (batchVoidStepUpPassword) batchVoidStepUpPassword.value = '';
+    clearButtonBusy(btnBatchVoidStepUpPost);
+    if (pendingBatchVoidButton) clearButtonBusy(pendingBatchVoidButton);
+    pendingBatchVoidId = 0;
+    pendingBatchVoidButton = null;
   });
 
   // ── Usage detail ──────────────────────────────────────────────────────────

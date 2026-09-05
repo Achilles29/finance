@@ -2173,7 +2173,7 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
     }
     setButtonBusy(submitButton, 'Menyimpan adjustment...');
     try {
-      await postJson(saveUrl, payload);
+      await postComponentAdjustmentJson(saveUrl, payload);
       window.location.reload();
     } catch (error) {
       renderAlert('danger', error.message || 'Gagal menyimpan adjustment.');
@@ -2335,7 +2335,7 @@ $moneyPostedNet = $moneyPostedSpoil + $moneyPostedWaste + $moneyPostedMinus - $m
       }
       setButtonBusy(button, 'Menghapus...');
       try {
-        await postJson(deleteBaseUrl + '/' + button.dataset.id, {});
+        await postComponentAdjustmentJson(deleteBaseUrl + '/' + button.dataset.id, {});
         window.location.reload();
       } catch (error) {
         renderAlert('danger', error.message || 'Gagal menghapus adjustment.');

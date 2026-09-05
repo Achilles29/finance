@@ -7,6 +7,8 @@ class Production extends MY_Controller
     private const COMPONENT_FORMULA_MUTATION_CSRF_CI_HEADER = 'X-Production-Component-Formula-Csrf';
     private const COMPONENT_ADJUSTMENT_CSRF_SESSION_KEY = 'production_component_adjustment_csrf';
     private const COMPONENT_ADJUSTMENT_CSRF_CI_HEADER = 'X-Production-Component-Adjustment-Csrf';
+    private const COMPONENT_BATCH_CSRF_SESSION_KEY = 'production_component_batch_csrf';
+    private const COMPONENT_BATCH_CSRF_CI_HEADER = 'X-Production-Component-Batch-Csrf';
 
     public function __construct()
     {
@@ -81,6 +83,11 @@ class Production extends MY_Controller
             'matrix' => $matrix,
             'location_options' => $this->location_options(),
             'divisions' => $this->active_divisions(),
+            // Daily Matrix uses the same draft/post endpoints as the dedicated
+            // adjustment and batch pages. Supply each endpoint-scoped token so
+            // its quick actions remain usable after their mutation boundaries.
+            'component_adjustment_csrf_token' => $this->component_adjustment_csrf(),
+            'component_batch_csrf_token' => $this->component_batch_csrf(),
         ]);
     }
 
@@ -891,6 +898,9 @@ class Production extends MY_Controller
     public function component_adjustment_save()
     {
         $this->require_permission('production.component.adjustment.index', 'create');
+        if (!$this->require_component_adjustment_csrf()) {
+            return;
+        }
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
         try {
@@ -1089,6 +1099,9 @@ class Production extends MY_Controller
     public function component_adjustment_delete($id)
     {
         $this->require_permission('production.component.adjustment.index', 'delete');
+        if (!$this->require_component_adjustment_csrf()) {
+            return;
+        }
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
         $result = $this->Production_model->delete_draft_doc('inv_component_adjustment', 'inv_component_adjustment_line', 'adjustment_id', (int)$id);
@@ -1134,12 +1147,16 @@ class Production extends MY_Controller
             'materials'        => $this->active_materials(),
             'uoms'             => $this->active_uoms(),
             'divisions'        => $this->active_divisions(),
+            'component_batch_csrf_token' => $this->component_batch_csrf(),
         ]);
     }
 
     public function component_batch_save()
     {
         $this->require_permission('production.component.batch.index', 'create');
+        if (!$this->require_component_batch_csrf()) {
+            return;
+        }
         $this->release_session_lock();
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
@@ -1217,6 +1234,14 @@ class Production extends MY_Controller
     public function component_batch_post($id)
     {
         $this->require_permission('production.component.batch.index', 'edit');
+        if (!$this->require_component_batch_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        if (!$this->consume_component_batch_step_up((int)$id, $payload, 'COMPONENT_BATCH_POST')) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $this->release_session_lock();
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
@@ -1248,6 +1273,31 @@ class Production extends MY_Controller
         }
     }
 
+    /** Issues a short-lived proof before a batch changes component stock and cost. */
+    public function component_batch_step_up_verify()
+    {
+        $this->require_permission('production.component.batch.index', 'edit');
+        if (!$this->require_component_batch_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_BATCH_POST',
+            $payload['batch_id'] ?? null,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
+    }
+
     public function component_batch_status($id)
     {
         $this->require_permission('production.component.batch.index', 'view');
@@ -1270,6 +1320,9 @@ class Production extends MY_Controller
     public function component_batch_delete($id)
     {
         $this->require_permission('production.component.batch.index', 'delete');
+        if (!$this->require_component_batch_csrf()) {
+            return;
+        }
         $result = $this->Production_model->delete_draft_doc('inv_component_batch', 'inv_component_batch_input', 'batch_id', (int)$id);
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menghapus batch.'), 422);
@@ -1281,6 +1334,14 @@ class Production extends MY_Controller
     public function component_batch_void($id)
     {
         $this->require_permission('production.component.batch.index', 'delete');
+        if (!$this->require_component_batch_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        if (!$this->consume_component_batch_step_up((int)$id, $payload, 'COMPONENT_BATCH_VOID')) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $dbDebugBefore = (bool)$this->db->db_debug;
         $this->db->db_debug = false;
         try {
@@ -1293,6 +1354,31 @@ class Production extends MY_Controller
             return;
         }
         $this->json_ok(['id' => (int)$id]);
+    }
+
+    /** Issues a separate one-use proof for reversal of a posted component batch. */
+    public function component_batch_void_step_up_verify()
+    {
+        $this->require_permission('production.component.batch.index', 'delete');
+        if (!$this->require_component_batch_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_BATCH_VOID',
+            $payload['batch_id'] ?? null,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
     }
 
     public function component_batch_usage($id)
@@ -3392,6 +3478,73 @@ class Production extends MY_Controller
                 'ok' => false,
                 'message' => $message,
             ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function component_batch_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::COMPONENT_BATCH_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::COMPONENT_BATCH_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_component_batch_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_component_batch_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = (string)$this->input->get_request_header(
+            self::COMPONENT_BATCH_CSRF_CI_HEADER,
+            true
+        );
+        $sessionToken = (string)$this->session->userdata(self::COMPONENT_BATCH_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_component_batch_csrf(403, 'Permintaan perubahan batch component tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_component_batch_csrf(int $statusCode, string $message): void
+    {
+        $this->clear_output_buffers();
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function consume_component_batch_step_up(int $batchId, array $payload, string $action): bool
+    {
+        if (!in_array($action, ['COMPONENT_BATCH_POST', 'COMPONENT_BATCH_VOID'], true)) {
+            $this->json_error('Aksi verifikasi batch tidak valid.', 422);
+            return false;
+        }
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            $action,
+            $batchId,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428), ['step_up_required' => true]);
+            return false;
+        }
+        return true;
     }
 
     private function consume_component_adjustment_step_up(int $adjustmentId, array $payload): bool
