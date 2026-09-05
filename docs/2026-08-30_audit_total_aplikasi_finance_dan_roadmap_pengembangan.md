@@ -4,7 +4,8 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 151 menambahkan simulator
+**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 152 mengamankan formulir
+ulasan publik (anti-spam, privasi, dan transaksi member/ulasan); Batch 151 menambahkan simulator
 akses dan report selisih permission read-only; Batch 150 menyamakan scope
 multi-role web dan POS Mobile, Batch 149 menambahkan audit trail atomik untuk
 mutasi Master, Batch 148 mengunci inventaris endpoint Master generik, dan Batch
@@ -105,7 +106,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | `AUD-A2-PH-01` | P2-03 | P2 / A2 | Jadwal PH lama mendahului eligibility. | Keputusan migrasi/arsip dan audit entitlement tertulis. | `NOT_STARTED` | `NONE` | `DEFERRED_OWNER` | Tidak mengubah data tanpa keputusan owner. |
 | `AUD-A2-PUR-01` | P2-04 | P2 / A2 | Receipt purchase historis belum lengkap. | Repair/arsip dengan preview dan rekonsiliasi stok/nilai. | `NOT_STARTED` | `NONE` | `DEFERRED_OWNER` | Data historis memerlukan persetujuan. |
 | `AUD-A2-POSDATA-01` | P2-05 | P2 / A2 | Status terminal order lama belum dinormalisasi. | Aturan normalisasi dan replay-safe audit disetujui. | `CODE_PASS` | `STAGING_PASS` | `DEFERRED_OWNER` | Sudah diaudit tanpa replay; keputusan data tetap milik owner. |
-| `AUD-A1-REVIEW-01` | P2-06 | P2 / A1 | Public review memerlukan anti-spam. | Rate limit, validation, abuse logging, dan privacy rule. | `NOT_STARTED` | `NONE` | `BLOCKED` | Masuk security batch terpisah. |
+| `AUD-A1-REVIEW-01` | P2-06 | P2 / A1 | Public review memerlukan anti-spam. | Rate limit, validation, abuse logging, dan privacy rule. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 152: limiter lintas worker, form terikat sesi, honeypot, cooldown/duplikasi, privasi respons, serta transaksi member/ulasan lulus. Sisa: CSRF moderasi/pengaturan admin dan UAT QR/perangkat/proxy nyata. |
 | `AUD-A5-RET-01` | P2-07 | P2 / A5 | Availability rebuild log belum mempunyai retention. | Retention period, purge terukur, audit, backup, dan rollback. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 143: policy, read-only preflight, quarantine audit, checksum, dan restore rollback tersedia; 52.445 row sukses lama baru kandidat archive, database purge tetap OFF sampai archive/agregasi lulus. |
 | `AUD-A5-LIFE-01` | P2-08 | P2 / A5→C3 | Upload dan service pendamping belum mempunyai lifecycle produk. | Lokasi runtime, permission, backup, upgrade, uninstall, dan retention terdokumentasi. | `CODE_PASS` | `AUTO_PASS` | `BLOCKED` | Batch 143 menetapkan lokasi/preservasi/logrotate/uninstall; pemindahan runtime dan installer customer tetap C3. |
 | `AUD-A1-SYS-01` | NEW-01 | P0 / A1 | Halaman System Tools dapat mengirim path root, daftar dump, status replication/failover, dan seluruh config kepada satu izin view. | Pecah izin read-sensitive, whitelist field, redaksi path/backup metadata, dan negative test. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 136: hak Export menjadi izin baca sensitif terpisah; View-only mendapat ringkasan tanpa path/metadata; config di-whitelist tanpa password; test DB menjadi POST+CSRF; 18 negative contract dan 74 regression lulus. |
@@ -164,7 +165,7 @@ sudah berjalan. `DITUNDA` berarti keputusan penundaan memang disengaja.
 | ID | Klasifikasi | Pekerjaan yang belum tertutup | Alasan/status nyata | Rencana tindak lanjut |
 | --- | --- | --- | --- | --- |
 | `GAP-01` | `IN_PROGRESS` | Penutupan A0: credential produksi, rotasi secret, recovery Git, dan pemisahan runtime data customer. | Credential DB dan runtime index/package lulus Batch 146; cutoff commit/tag lokal dibuat Batch 147. Source masih shallow, cutoff belum dipush, secret lama belum dirotasi, dan off-site encryption belum aktif. | Verifikasi lalu push cutoff atas perintah owner, tetapkan strategi full-history, dan rotasi secret pada cutover terjadwal; jangan menghapus runtime staging. |
-| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, public review anti-spam, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator/report selisih read-only lulus Batch 151; acceptance fase belum lengkap. | Berikutnya anti-spam public review, lalu step-up. Owner dapat meninjau baseline lewat simulator tanpa reset izin otomatis. POS Mobile dapat disentuh kembali sejak Batch 150. |
+| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, CSRF moderasi/pengaturan ulasan admin, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; anti-spam formulir publik lulus Batch 152. Acceptance fase belum lengkap. | Berikutnya tutup CSRF empat writer pengelolaan ulasan, lalu step-up. Owner meninjau baseline tanpa reset izin otomatis; UAT public QR/proxy dan APK tetap perlu. |
 | `GAP-03` | `TERLEWAT` | P2 bisnis A2: uang makan slip payroll dan running balance rekening backdate. | Belum mendapat batch khusus walaupun pekerjaan bergerak ke A3–A5. | Audit aturan bisnis, buat fixture, lalu minta acceptance finance sebelum implementasi. |
 | `GAP-04` | `TERLEWAT` | A3.2 rollout UI 8.3 gelombang 2 dan 4–9 serta visual UAT. | Fondasi UI dan sidebar selesai, tetapi migrasi halaman tidak pernah ditutup per wave. | Kembali ke checklist UI 8.3 gelombang 01–09 setelah fondasi A5; satu rumpun per batch, bukan rewrite besar. |
 | `GAP-05` | `TERLEWAT_OPERASIONAL` | UAT browser role, APK/device, printer fisik, dan updater customer. | Automated tooling A4 lulus tetapi tidak menggantikan perangkat nyata. | Jalankan setelah kandidat build dan APK siap; bukti UAT harus terikat ke versi artefak. |
@@ -1260,11 +1261,70 @@ Buat status normalization audit yang membedakan:
 
 ### P2-06. Public customer review memerlukan anti-spam
 
-Receipt token sekali pakai adalah fondasi baik, tetapi station QR publik dapat
-menerima input tanpa rate limit atau CAPTCHA.
+**Status Batch 152 (2026-09-05): sebagian selesai, belum menutup A1.**
+Sebelumnya station QR menerima kiriman berulang tanpa limiter; input array dapat
+memicu warning; respons member dapat membeberkan nama/nomor member dari input
+nomor WhatsApp yang belum diverifikasi. Pendaftaran member juga dapat tertinggal
+jika penyimpanan ulasan berikutnya gagal.
 
-Tambahkan rate limit IP/device, honeypot, cooldown, moderation, duplicate
-detection, dan audit member creation.
+- `[x]` Limiter bersama lintas PHP worker pada satu server: 60 percobaan per IP
+  per 10 menit dan 12 per sesi browser per 10 menit, termasuk input invalid.
+- `[x]` Formulir bertanda tangan terikat sesi dan QR tujuan; honeypot; waktu
+  minimum 2 detik dan masa berlaku 1 jam. Satu token hanya dapat dipakai sekali.
+- `[x]` Cooldown pengiriman 60 detik per sesi dan identitas kontak/nota;
+  ulasan identik pada QR dan nomor sama dibatasi 10 menit. Kegagalan penyimpanan
+  memperpendek penahanan duplikat menjadi cooldown 60 detik agar dapat dicoba lagi.
+- `[x]` Input scalar/UTF-8/batas ukuran/rating divalidasi sebelum writer.
+  Nomor telepon dinormalisasi sebelum pembatasan; persetujuan penggunaan nomor
+  wajib untuk semua pengirim station QR, bukan hanya member baru.
+- `[x]` Respons tidak menampilkan profil/nomor member atau detail error internal.
+  Nama yang dimasukkan tidak dianggap identitas terverifikasi. Pengiriman baru
+  tidak menyimpan IP mentah/hash tanpa kunci atau user-agent ke tabel ulasan.
+- `[x]` Pembuatan member dan ulasan station dibungkus transaksi yang sama.
+  Kegagalan insert ulasan membatalkan pembuatan member baru. Token nota tetap
+  memakai update bersyarat `OPEN` → `SUBMITTED`, tidak dapat ditimpa.
+- `[x]` Diagnostik abuse dibatasi 200 event, disampling, dan dipangkas setelah
+  24 jam pada akses berikutnya. Berisi alasan, IP yang diberi HMAC, serta ID
+  internal review/member saat sukses; tanpa nomor telepon, isi ulasan, token,
+  session ID, atau IP mentah. Relasi member/review dan catatan sumber pendaftaran
+  tetap menjadi bukti bisnis di database; diagnostik bukan audit permanen.
+- `[~]` Moderasi sembunyikan/tampilkan sudah ada melalui **Ulasan Pelanggan**
+  dengan permission edit. Review batch ini menemukan empat writer admin belum
+  memiliki guard CSRF terarah: `customer_review_visibility`,
+  `customer_review_settings`, `customer_review_station_save`, dan
+  `customer_review_station_toggle`. Ini batch berikutnya sebelum menutup item.
+- `[ ]` UAT QR cetak/browser/perangkat sebenarnya dan evaluasi batas pengiriman
+  di Wi-Fi bersama/proxy. CAPTCHA adaptif/OTP serta limiter multi-server adalah
+  tindak lanjut bila pola abuse/deployment membutuhkannya, bukan sudah tersedia.
+
+**Penggunaan:** pelanggan tetap memindai QR dan mengisi formulir. Jika terlalu
+sering, halaman memberi waktu tunggu; formulir lama perlu dimuat ulang. Informasi
+keanggotaan diarahkan ke kasir, tidak ditampilkan dari input nomor publik.
+Jangan menganggap nomor yang diisi sebagai autentikasi member.
+
+**Operasional/deployment:**
+
+- Tidak ada SQL baru. Runtime berada di
+  `application/cache/customer-review-guard/`, terpisah dari source/package Git.
+  Direktori harus dapat ditulis oleh user PHP-FPM. Staging memakai `www`:
+  `install -d -m 0700 -o www -g www /www/wwwroot/finance/application/cache/customer-review-guard`.
+  Pada server utama/customer, sesuaikan path aplikasi dan user PHP-FPM.
+- `state.php` mode 0600 menyimpan kunci acak lokal dan state terbatas; jangan
+  mencetak isinya, memasukkannya ke Git, atau membersihkannya sebagai cache biasa.
+  File diawali PHP `exit`; probe HTTP staging mendapat body kosong, bukan isi
+  state. Jika korup/tidak dapat ditulis/lock sibuk, pengiriman ditolak sementara
+  (503), bukan melewati limiter. Perbaiki akses direktori terlebih dahulu.
+- Kunci/state bukan credential DB dan tidak membutuhkan environment baru.
+  Kehilangan state membatalkan form lama dan mereset jendela limiter; bila perlu
+  recovery, pengelola harus mencatat alasan dan mengamankan diagnostik lebih dulu.
+- IP memakai `CI_Input::ip_address()` dan konfigurasi proxy tepercaya aplikasi,
+  bukan mempercayai header forwarding sembarang. Proxy yang belum dikonfigurasi
+  dapat membuat banyak pengunjung berbagi bucket IP. Tidak ada perubahan trust
+  proxy atau nginx pada batch ini. Untuk multi-server, gunakan backend limiter
+  bersama; direktori lokal tiap node tidak memberikan batas global.
+- Bukti: `tools/tests/public_customer_review_smoke.php` (43 pemeriksaan),
+  empat request HTTP staging negatif, jumlah ulasan/member tetap, dan quality
+  gate `parallel` lulus. Tidak melakukan repair/moderasi ulasan historis.
 
 ### P2-07. Availability rebuild log memerlukan retensi
 

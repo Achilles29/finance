@@ -225,55 +225,72 @@ class Pos_customer_review_model extends CI_Model
         if (mb_strlen($reviewText) > 1200) {
             return ['ok' => false, 'message' => 'Ulasan maksimal 1.200 karakter.'];
         }
-
-        $member = $this->find_member_by_phone($phone);
-        $memberCreated = false;
-        if (!$member) {
-            if (empty($input['join_member'])) {
-                return ['ok' => false, 'message' => 'Centang persetujuan untuk bergabung sebagai Member Namua, atau gunakan nomor member yang sudah terdaftar.'];
+        if (($input['join_member'] ?? '') !== '1') {
+            return ['ok' => false, 'message' => 'Centang persetujuan penggunaan nomor WhatsApp sebelum mengirim ulasan.'];
+        }
+        $previousDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            if ($this->db->trans_begin() === false) throw new RuntimeException('Transaksi ulasan belum tersedia.');
+            $member = $this->find_member_by_phone($phone);
+            $memberCreated = false;
+            if (!$member) {
+                $ci = &get_instance();
+                $ci->load->model('Pos_model');
+                $created = $ci->Pos_model->save_member([
+                    'member_name' => $name,
+                    'mobile_phone' => $phone,
+                    'member_status' => 'ACTIVE',
+                    'notes' => 'Daftar melalui QR ulasan pelanggan: ' . (string)($station['station_name'] ?? ''),
+                ]);
+                if (empty($created['ok'])) {
+                    // Member errors may contain another person's name/number; never expose them publicly.
+                    throw new RuntimeException('Member belum dapat diproses.');
+                }
+                $member = $ci->Pos_model->find_member((int)($created['id'] ?? 0));
+                $memberCreated = empty($created['existing']);
             }
-            $ci = &get_instance();
-            $ci->load->model('Pos_model');
-            $created = $ci->Pos_model->save_member([
+            if (!$member || empty($member['is_active']) || (string)$member['member_status'] !== 'ACTIVE') {
+                throw new RuntimeException('Member belum dapat diproses.');
+            }
+
+            $record = [
+                'review_token' => $this->new_token(0),
+                'review_source' => 'STATION',
+                'order_id' => null,
+                'outlet_id' => $this->nullable_id($station['outlet_id'] ?? 0),
+                'station_id' => (int)$station['id'],
+                'member_id' => $this->nullable_id($member['id'] ?? 0),
+                'order_no_snapshot' => null,
+                // A public phone input is contact information, not proof of identity.
+                'customer_name_snapshot' => $name,
+                'visitor_phone_snapshot' => $phone,
+                'rating' => $rating,
+                'review_text' => $reviewText !== '' ? $reviewText : null,
+                'review_status' => 'SUBMITTED',
+                'submitted_at' => date('Y-m-d H:i:s'),
+                'ip_hash' => null,
+                'user_agent' => null,
+            ];
+            $inserted = $this->db->insert('pos_customer_review', $record);
+            $reviewId = (int)$this->db->insert_id();
+            if (!$inserted || $reviewId <= 0 || $this->db->trans_status() === false) {
+                throw new RuntimeException('Ulasan belum dapat disimpan.');
+            }
+            if (!$this->db->trans_commit()) throw new RuntimeException('Ulasan belum dapat disimpan.');
+            return [
+                'ok' => true,
+                'review_id' => $reviewId,
+                'member_id' => (int)$member['id'],
+                'member_created' => $memberCreated,
                 'member_name' => $name,
-                'mobile_phone' => $phone,
-                'member_status' => 'ACTIVE',
-                'notes' => 'Daftar melalui QR ulasan pelanggan: ' . (string)($station['station_name'] ?? ''),
-            ]);
-            if (empty($created['ok'])) {
-                return ['ok' => false, 'message' => (string)($created['message'] ?? 'Member baru belum dapat dibuat.')];
-            }
-            $member = $ci->Pos_model->find_member((int)($created['id'] ?? 0));
-            $memberCreated = true;
+            ];
+        } catch (Throwable $error) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => 'Ulasan atau pendaftaran belum dapat diproses. Silakan coba kembali nanti atau hubungi tim outlet.'];
+        } finally {
+            $this->db->db_debug = $previousDebug;
         }
-
-        $record = [
-            'review_token' => $this->new_token(0),
-            'review_source' => 'STATION',
-            'order_id' => null,
-            'outlet_id' => $this->nullable_id($station['outlet_id'] ?? 0),
-            'station_id' => (int)$station['id'],
-            'member_id' => $this->nullable_id($member['id'] ?? 0),
-            'order_no_snapshot' => null,
-            'customer_name_snapshot' => trim((string)($member['member_name'] ?? $name)) ?: $name,
-            'visitor_phone_snapshot' => $phone,
-            'rating' => $rating,
-            'review_text' => $reviewText !== '' ? $reviewText : null,
-            'review_status' => 'SUBMITTED',
-            'submitted_at' => date('Y-m-d H:i:s'),
-            'ip_hash' => $ipAddress !== '' ? hash('sha256', $ipAddress) : null,
-            'user_agent' => $userAgent !== '' ? mb_substr($userAgent, 0, 255) : null,
-        ];
-        $this->db->insert('pos_customer_review', $record);
-        if ($this->db->insert_id() <= 0) {
-            return ['ok' => false, 'message' => 'Ulasan belum dapat disimpan. Silakan coba lagi.'];
-        }
-        return [
-            'ok' => true,
-            'member_created' => $memberCreated,
-            'member_name' => (string)($member['member_name'] ?? $name),
-            'member_no' => (string)($member['member_no'] ?? ''),
-        ];
     }
 
     public function find_by_token(string $token): ?array
@@ -315,13 +332,13 @@ class Pos_customer_review_model extends CI_Model
             'review_text' => $reviewText !== '' ? $reviewText : null,
             'review_status' => 'SUBMITTED',
             'submitted_at' => date('Y-m-d H:i:s'),
-            'ip_hash' => $ipAddress !== '' ? hash('sha256', $ipAddress) : null,
-            'user_agent' => $userAgent !== '' ? mb_substr($userAgent, 0, 255) : null,
+            'ip_hash' => null,
+            'user_agent' => null,
         ]);
         if ($this->db->affected_rows() <= 0) {
             return ['ok' => false, 'message' => 'Ulasan ini sudah diproses dari perangkat lain.'];
         }
-        return ['ok' => true];
+        return ['ok' => true, 'review_id' => (int)$review['id']];
     }
 
     public function rows(array $filters = []): array

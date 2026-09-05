@@ -4943,3 +4943,80 @@
   dibatasi pada script/validasi tanpa mengubah izin bisnis atau data mismatch.
 - Penyerahan: commit lokal terpisah untuk pelacakan cutoff; tidak push.
   Ringkasan penyelesaian dikirim ke Telegram Namua setelah commit.
+
+## Batch 152 — GAP-02 anti-spam formulir ulasan publik
+
+- Waktu/tanggal: 2026-09-05, validasi akhir 20:51 WIB.
+- Prioritas: P2-06/AUD-A1-REVIEW-01, tindak lanjut Batch 151. Scope terbatas
+  formulir QR nota dan QR area; tidak menyentuh APK, matrix izin, atau data lama.
+- Diskusi/arah: fixer tunggal sesuai pola terbaru owner. Temuan utama adalah
+  kiriman station tanpa limiter, input array yang memicu warning, respons/error
+  yang membeberkan profil member, dan member baru yang dapat tertinggal ketika
+  insert ulasan gagal. Solusi memakai penyimpanan runtime lokal terkunci,
+  validasi sebelum writer, minimisasi informasi publik, dan transaksi atomik.
+- File berubah:
+  - `application/controllers/Customer_reviews.php`.
+  - `application/models/Pos_customer_review_model.php`.
+  - `application/libraries/CustomerReviewGuard.php` dan `CustomerReviewInput.php`
+    (baru).
+  - `application/views/pos/customer_review_form.php` dan
+    `customer_review_station_form.php`.
+  - `tools/tests/public_customer_review_smoke.php` (baru),
+    `finance_quality_gate.php`, `finance_quality_gate_contract_smoke.php`.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Percobaan POST dibatasi 60/IP/10 menit dan 12/sesi browser/10 menit.
+    IP menggunakan resolver CI, tidak membaca header forwarding sembarang.
+  - Form bertanda tangan terikat sesi/QR, minimal 2 detik, kedaluwarsa 1 jam,
+    honeypot, serta reservasi sekali pakai yang aman lintas PHP worker.
+  - Cooldown 60 detik per sesi dan nomor/nota; deduplikasi 10 menit. Gagal simpan
+    boleh dicoba ulang setelah cooldown biasa, bukan menahan selama 10 menit.
+  - Rating, scalar input, UTF-8, nomor telepon, ukuran, serta consent diperiksa
+    sebelum pendaftaran member. Persetujuan nomor berlaku juga untuk member lama.
+  - Nama/nomor member tersimpan dan detail error tidak ditampilkan ke publik;
+    halaman sukses sama untuk member baru/lama. Informasi member diarahkan ke
+    kasir. Input telepon tetap bukan verifikasi kepemilikan nomor/OTP.
+  - Pembuatan member dan ulasan station atomik; receipt tetap sekali pakai.
+    Data IP/user-agent baru tidak ditambahkan ke tabel ulasan. Data historis
+    tidak diubah. Header no-store/no-referrer/noindex dan frame guard diterapkan.
+  - Diagnostik tersampling dibatasi 200 event/24 jam (dipangkas pada akses
+    berikutnya); menggunakan HMAC IP dan ID internal, tanpa data isi ulasan,
+    nomor telepon, session ID, token formulir, atau IP mentah.
+- SQL/runtime: **tidak ada SQL baru**, tidak ada migration atau perubahan
+  credential/database config. Direktori baru
+  `application/cache/customer-review-guard` disiapkan `www:www` mode 0700;
+  file state dibuat PHP-FPM mode 0600 dan dikecualikan Git/package. Tidak
+  mengubah permission direktori cache lain, nginx, backup, upload, atau log lama.
+- Validasi:
+  - `php -l` sembilan file PHP berubah/baru dan `git diff --check` lulus.
+  - Smoke publik 43 pemeriksaan lulus: replay, honeypot, batas IP/sesi, expiry,
+    cooldown/duplikasi, error storage, validasi, privasi, dan controller guard.
+  - Empat proses PHP paralel memakai form identik: tepat satu diterima.
+  - Model review/query builder CI asli pada SQLite disposable: receipt sekali
+    pakai lulus; member writer fixture memakai nested transaction seperti POS;
+    kegagalan insert ulasan membatalkan member baru. Tidak memakai DB staging
+    untuk membuat member/ulasan uji.
+  - HTTP staging via nginx/PHP-FPM: GET QR area 200 dengan signed form dan
+    header privasi; empat POST negatif menghasilkan 403/403/422/403 tanpa
+    warning PHP, termasuk route langsung controller. Jumlah review/member
+    sebelum/sesudah tetap. Kedua tabel staging memakai InnoDB.
+  - HTTP file state menghasilkan status 200 dengan body **0 byte** karena
+    prefix PHP exit; tidak mengklaim URL tersebut diblokir nginx.
+  - Quality gate `parallel`: required 53/53, development 4/4, release 1/1,
+    preflight 1/1 lulus. Roadmap consistency 22 lulus. Runtime/security/static
+    tier serta UAT QR fisik bukan bagian dari klaim lulus profil ini.
+  - Composer tidak berubah; composer validate tidak diperlukan.
+- Review akhir fixer tunggal: batch formulir publik layak. Review menemukan
+  empat writer admin moderasi/pengaturan QR belum memiliki CSRF terarah; tidak
+  memperluas patch ke sana pada batch ini. P2-06 tetap IN_PROGRESS/STAGING_PASS,
+  bukan mengklaim A1 selesai.
+- Risiko sisa: UAT Wi-Fi/proxy/QR/perangkat; limiter bersifat single-server dan
+  harus diganti backend bersama untuk multi-node. Nomor WhatsApp belum OTP.
+  CAPTCHA adaptif bukan fitur batch ini. Diagnostik bounded bukan audit permanen;
+  relasi member/review dan catatan pendaftaran adalah jejak bisnis yang tersimpan.
+- Batch berikutnya: guard CSRF untuk visibility, pengaturan ulasan, simpan QR
+  area, serta aktif/nonaktif QR; perbaiki juga teks konfirmasi moderasi yang
+  menyebut tindakan terbalik. Setelah itu kembali ke step-up/UAT A1.
+- Penyerahan: commit lokal sesudah `b87db84`, tanpa push; ringkasan hasil dikirim
+  ke Telegram Namua setelah commit. Roadmap `_30` memuat petunjuk runtime
+  server utama/customer sehingga pemasangan tidak hanya bergantung pada SQL.

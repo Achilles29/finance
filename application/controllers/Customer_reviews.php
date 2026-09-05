@@ -8,6 +8,12 @@ class Customer_reviews extends CI_Controller
     {
         parent::__construct();
         $this->load->model('Pos_customer_review_model');
+        $this->load->library(['CustomerReviewGuard', 'CustomerReviewInput']);
+        $this->output->set_header('Cache-Control: private, no-store');
+        $this->output->set_header('Referrer-Policy: no-referrer');
+        $this->output->set_header('X-Robots-Tag: noindex, nofollow');
+        $this->output->set_header('X-Content-Type-Options: nosniff');
+        $this->output->set_header('X-Frame-Options: DENY');
     }
 
     public function index($token = '')
@@ -21,13 +27,7 @@ class Customer_reviews extends CI_Controller
             redirect('review/' . rawurlencode((string)$token));
             return;
         }
-        $result = $this->Pos_customer_review_model->submit(
-            (string)$token,
-            (int)$this->input->post('rating', true),
-            (string)$this->input->post('review_text', false),
-            (string)$this->input->ip_address(),
-            (string)$this->input->user_agent()
-        );
+        $result = $this->guarded_submission((string)$token, false);
         $this->show_page((string)$token, $result);
     }
 
@@ -43,38 +43,75 @@ class Customer_reviews extends CI_Controller
             redirect('review/station/' . rawurlencode((string)$code));
             return;
         }
-        $result = $this->Pos_customer_review_model->submit_station_review(
-            (string)$code,
-            [
-                'customer_name' => $this->input->post('customer_name', false),
-                'mobile_phone' => $this->input->post('mobile_phone', false),
-                'rating' => $this->input->post('rating', true),
-                'review_text' => $this->input->post('review_text', false),
-                'join_member' => $this->input->post('join_member', true),
-            ],
-            (string)$this->input->ip_address(),
-            (string)$this->input->user_agent()
-        );
+        $result = $this->guarded_submission((string)$code, true);
         $this->show_station_page((string)$code, $result);
+    }
+
+    private function guarded_submission(string $target, bool $station): array
+    {
+        $ip = (string)$this->input->ip_address(); // CI honors only explicitly trusted proxies.
+        $device = session_id();
+        $attempt = $this->customerreviewguard->attempt($ip, $device);
+        if (!$attempt['ok']) return $this->rejected($attempt);
+        if ((int)$this->input->server('CONTENT_LENGTH') > 16384) {
+            return $this->rejected(['ok' => false, 'status' => 413, 'message' => 'Isian terlalu besar. Batasi ulasan sampai 1.200 karakter.']);
+        }
+        $raw = $this->input->post(null, false);
+        $checked = CustomerReviewInput::validate(is_array($raw) ? $raw : [], $station);
+        if (!$checked['ok']) return $this->rejected($checked + ['status' => 422]);
+        $input = $checked['input'];
+        $identity = $station ? 'phone:' . $input['mobile_phone'] : 'receipt:' . strtolower($target);
+        $grant = $this->customerreviewguard->authorize(
+            $this->guard_target($target, $station), $device, $ip, $input, $identity,
+            (string)json_encode([$input['rating'], mb_strtolower(preg_replace('/\s+/u', ' ', $input['review_text']))])
+        );
+        if (!$grant['ok']) return $this->rejected($grant);
+        try {
+            $result = $station
+                ? $this->Pos_customer_review_model->submit_station_review($target, $input)
+                : $this->Pos_customer_review_model->submit($target, (int)$input['rating'], $input['review_text']);
+        } catch (Throwable $error) {
+            $result = ['ok' => false, 'message' => 'Ulasan belum dapat disimpan. Silakan coba kembali nanti.'];
+        }
+        $this->customerreviewguard->outcome($ip, $grant['reservation'], $result);
+        return !empty($result['ok']) ? $result : $this->rejected($result + ['status' => 422]);
+    }
+
+    private function rejected(array $result): array
+    {
+        $this->output->set_status_header((int)($result['status'] ?? 422));
+        if (!empty($result['retry_after'])) $this->output->set_header('Retry-After: ' . max(1, (int)$result['retry_after']));
+        return $result;
+    }
+
+    private function guard_target(string $target, bool $station): string
+    {
+        return $station ? 'station:' . strtoupper(trim($target)) : 'receipt:' . strtolower($target);
     }
 
     private function show_page(string $token, ?array $result = null): void
     {
         $review = $this->Pos_customer_review_model->find_by_token($token);
+        $guard = $this->customerreviewguard->issue($this->guard_target($token, false), session_id());
+        if (!$guard['ok'] && $result === null) $result = $this->rejected($guard);
         $this->load->view('pos/customer_review_form', [
             'review' => $review,
             'token' => $token,
             'result' => $result,
+            'form_guard' => (string)($guard['token'] ?? ''),
         ]);
     }
 
     private function show_station_page(string $code, ?array $result = null): void
     {
         $station = $this->Pos_customer_review_model->find_station_by_code($code);
+        $guard = $this->customerreviewguard->issue($this->guard_target($code, true), session_id());
+        if (!$guard['ok'] && $result === null) $result = $this->rejected($guard);
         $this->load->view('pos/customer_review_station_form', [
             'station' => $station,
             'station_code' => $code,
             'result' => $result,
+            'form_guard' => (string)($guard['token'] ?? ''),
         ]);
     }
 }

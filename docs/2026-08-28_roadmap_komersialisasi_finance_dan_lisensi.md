@@ -13,6 +13,10 @@ RBAC sudah tersedia di Finance (detail P0-04 pada `_30`). Isi izin standar per
 jabatan/paket belum disetujui owner; baseline ini bukan entitlement/lisensi
 dan tidak mengubah izin customer. Gerbang komersialisasi tetap `BLOCKED`.
 
+Batch 152 menambahkan pengamanan ulasan publik dan privasi respons. Persyaratan
+runtime limiter single-server dan sisa UAT/moderasi berada di P2-06 `_30`;
+ini perbaikan fondasi, bukan modul lisensi atau kenaikan status siap jual.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 

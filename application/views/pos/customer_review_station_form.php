@@ -3,6 +3,11 @@ $station = is_array($station ?? null) ? $station : null;
 $result = is_array($result ?? null) ? $result : null;
 $available = $station && !empty($station['is_active']);
 $outletName = trim((string)($station['outlet_name'] ?? 'NAMUA Coffee & Eatery'));
+$posted = static function (string $key): string {
+    $ci = get_instance();
+    $value = $ci->input->post($key, false);
+    return is_string($value) ? mb_substr($value, 0, $key === 'review_text' ? 1200 : 150) : '';
+};
 ?>
 <!doctype html>
 <html lang="id">
@@ -28,19 +33,22 @@ $outletName = trim((string)($station['outlet_name'] ?? 'NAMUA Coffee & Eatery'))
   <?php if (!$available): ?>
     <div class="message error">QR ulasan ini tidak ditemukan atau sedang tidak aktif. Silakan gunakan QR lain atau minta bantuan tim kami.</div>
   <?php elseif (!empty($result['ok'])): ?>
-    <div class="closed"><div class="closed-mark">OK</div><h2>Terima kasih, <?= html_escape((string)($result['member_name'] ?? '')) ?>.</h2><p>Ulasan Anda sudah masuk ke tim <?= html_escape($outletName) ?>.</p><?php if (!empty($result['member_created']) && !empty($result['member_no'])): ?><p>Anda juga sudah terdaftar sebagai Member Namua.</p><span class="member-no"><?= html_escape((string)$result['member_no']) ?></span><p class="small">Simpan nomor atau WhatsApp ini untuk memperoleh poin dan voucher pada kunjungan berikutnya.</p><?php endif; ?></div>
+    <div class="closed"><div class="closed-mark">OK</div><h2>Terima kasih atas ulasannya.</h2><p>Ulasan Anda sudah masuk ke tim <?= html_escape($outletName) ?>. Untuk informasi keanggotaan, silakan hubungi kasir.</p></div>
   <?php else: ?>
     <p>Ceritakan pengalaman Anda di <?= html_escape($outletName) ?>. Nomor WhatsApp membantu kami mengenali Anda sebagai member tanpa perlu mengisi formulir lagi pada kunjungan berikutnya.</p>
     <div class="station"><strong><?= html_escape((string)($station['station_name'] ?? 'QR Ulasan')) ?></strong>Ulasan ini dikirim dari area <?= html_escape($outletName) ?>.</div>
     <div class="value-row"><div class="value"><b>1. Beri bintang</b><span>Nilai pelayanan, rasa, dan kenyamanan Anda.</span></div><div class="value"><b>2. Jadi member</b><span>Nomor WhatsApp dapat dihubungkan ke Member Namua untuk poin dan voucher.</span></div></div>
     <?php if ($result): ?><div class="message error"><?= html_escape((string)($result['message'] ?? 'Ulasan belum dapat dikirim.')) ?></div><?php endif; ?>
     <form method="post" action="<?= site_url('review/station/' . rawurlencode((string)$station_code) . '/submit') ?>">
-      <label for="customer-name">Nama Anda</label><input id="customer-name" name="customer_name" required maxlength="150" value="<?= html_escape((string)$this->input->post('customer_name', false)) ?>" placeholder="Contoh: Fadila Hartono">
-      <label for="mobile-phone">Nomor WhatsApp</label><input id="mobile-phone" name="mobile_phone" required inputmode="tel" maxlength="30" value="<?= html_escape((string)$this->input->post('mobile_phone', false)) ?>" placeholder="Contoh: 0812xxxx">
+      <input type="hidden" name="_review_guard" value="<?= html_escape((string)($form_guard ?? '')) ?>">
+      <div hidden aria-hidden="true"><label>Biarkan kosong<input name="website" value="" tabindex="-1" autocomplete="off"></label></div>
+      <label for="customer-name">Nama Anda</label><input id="customer-name" name="customer_name" required maxlength="150" value="<?= html_escape($posted('customer_name')) ?>" placeholder="Contoh: Fadila Hartono">
+      <label for="mobile-phone">Nomor WhatsApp</label><input id="mobile-phone" name="mobile_phone" required inputmode="tel" maxlength="30" value="<?= html_escape($posted('mobile_phone')) ?>" placeholder="Contoh: 0812xxxx">
       <label>Berikan bintang</label><div class="stars" aria-label="Rating bintang"><input id="station-star-5" type="radio" name="rating" value="5"><label for="station-star-5" title="5 bintang">&#9733;</label><input id="station-star-4" type="radio" name="rating" value="4"><label for="station-star-4" title="4 bintang">&#9733;</label><input id="station-star-3" type="radio" name="rating" value="3"><label for="station-star-3" title="3 bintang">&#9733;</label><input id="station-star-2" type="radio" name="rating" value="2"><label for="station-star-2" title="2 bintang">&#9733;</label><input id="station-star-1" type="radio" name="rating" value="1"><label for="station-star-1" title="1 bintang">&#9733;</label></div>
-      <label for="review-text">Cerita singkat Anda <span style="font-weight:normal;color:#9a837b">(opsional)</span></label><textarea id="review-text" name="review_text" maxlength="1200" placeholder="Apa yang paling Anda suka atau perlu kami perbaiki?"><?= html_escape((string)$this->input->post('review_text', false)) ?></textarea>
-      <label class="consent"><input type="checkbox" name="join_member" value="1" <?= $this->input->post('join_member', true) ? 'checked' : '' ?>><span>Saya setuju nomor WhatsApp saya digunakan untuk menghubungkan atau membuat Member Namua agar dapat menerima poin dan voucher.</span></label>
-      <button type="submit">Kirim Ulasan & Lanjutkan sebagai Member</button>
+      <label for="review-text">Cerita singkat Anda <span style="font-weight:normal;color:#9a837b">(opsional)</span></label><textarea id="review-text" name="review_text" maxlength="1200" placeholder="Apa yang paling Anda suka atau perlu kami perbaiki?"><?= html_escape($posted('review_text')) ?></textarea>
+      <label class="consent"><input type="checkbox" name="join_member" value="1" required <?= $posted('join_member') === '1' ? 'checked' : '' ?>><span>Saya setuju nomor WhatsApp saya digunakan untuk menghubungkan atau membuat Member Namua agar dapat menerima poin dan voucher.</span></label>
+      <p style="font-size:12px">Nama, nomor WhatsApp, dan ulasan digunakan oleh tim outlet untuk menindaklanjuti masukan dan keanggotaan. Formulir ini tidak menampilkan profil member atau memverifikasi kepemilikan nomor. Untuk koreksi data, hubungi kasir.</p>
+      <button type="submit" <?= empty($form_guard) ? 'disabled' : '' ?>>Kirim Ulasan & Lanjutkan sebagai Member</button>
     </form>
   <?php endif; ?>
   <div class="footer">Terima kasih telah berkunjung ke <?= html_escape($outletName) ?>.</div>

@@ -22,6 +22,7 @@ $expectedRequired = [
     'a1-master-endpoint-registry',
     'a1-master-audit-trail',
     'a1-access-simulator',
+    'a1-public-review',
     'a2-matrix',
     'a3-finance-ui-shell',
     'a3-navigation-registry',
@@ -107,7 +108,7 @@ $check(
     'Printer Agent runtime is pinned to the A4 venv Python executable'
 );
 $check(
-    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 65,
+    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 66,
     'all automated manifest IDs are unique'
 );
 $check(
