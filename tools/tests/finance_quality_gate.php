@@ -18,6 +18,7 @@ function finance_quality_gate_manifest(): array
     return [
         'required' => [
             ['id' => 'a1-required', 'file' => 'a1_direct_url_guard_matrix_smoke.php', 'args' => ['--tier=required']],
+            ['id' => 'a1-master-endpoint-registry', 'file' => 'master_endpoint_registry_smoke.php'],
             ['id' => 'a2-matrix', 'file' => 'a2_inventory_transaction_matrix_smoke.php'],
             ['id' => 'a3-finance-ui-shell', 'file' => 'a3_finance_ui_shell_smoke.php'],
             ['id' => 'a3-navigation-registry', 'file' => 'a3_navigation_registry_smoke.php'],

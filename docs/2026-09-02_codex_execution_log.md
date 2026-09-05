@@ -4776,3 +4776,32 @@
 - Batch berikutnya: setelah owner memerintahkan push, lanjutkan `GAP-01` pada
   strategi full-history/rotasi terjadwal; pekerjaan aplikasi berikutnya tetap
   mengikuti register gap `_30`.
+
+## Batch 148 — GAP-02 inventaris endpoint Master fail-closed
+
+- Waktu: 2026-09-05 WIB.
+- Prioritas: melanjutkan A1 non-mobile tanpa menyentuh POS Mobile/APK, dimulai
+  dari ketidakpastian inventaris endpoint Master generik pada P0-01.
+- Hasil audit: controller aktif mempunyai 12 endpoint publik selain constructor
+  dan 36 entity generik. Probe registry staging menemukan mapping `component`
+  masih memakai page code lama `master.component.index` yang tidak tersedia;
+  page aktifnya adalah `production.component.master.index`. Konfigurasi ke-37,
+  `payment-channel`, sengaja ditolak dari controller generik. Writer store,
+  update, toggle, stock mode, generate holiday, dan reorder sudah memakai POST
+  serta scoped CSRF; read endpoint memakai izin view yang sesuai.
+- Implementasi: memperbaiki mapping Component ke page code aktif serta
+  menambahkan smoke DB-free yang mengunci daftar public method,
+  kebijakan izin/CSRF setiap endpoint, kesetaraan registry entity-page,
+  fail-closed unknown/legacy entity, daftar route, dan urutan route spesifik
+  sebelum generic catch. Test dimasukkan ke required quality gate.
+- File berubah: `application/controllers/Master.php`,
+  `tools/tests/master_endpoint_registry_smoke.php`, quality gate beserta
+  contract manifest, roadmap `_30`, dan execution log.
+- SQL/database: tidak ada SQL baru dan tidak ada mutasi database.
+- Risiko sisa: P0-01 belum ditutup karena mutasi master sensitif belum menulis
+  audit trail atomik dan negative role UAT belum dilakukan. Formula versioning,
+  baseline role/scope, anti-spam public review, serta MFA/step-up tetap item
+  GAP-02 terpisah.
+- Batch berikutnya: audit trail perubahan Master memakai
+  `aud_transaction_log`, dengan before/after teredaksi dan transaksi atomik;
+  tetap tanpa perubahan kontrak POS Mobile/APK.

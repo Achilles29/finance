@@ -48,7 +48,7 @@ class Master extends MY_Controller
             'material' => 'master.material.index',
             'item' => 'master.item.index',
             'component-category' => 'master.component_category.index',
-            'component' => 'master.component.index',
+            'component' => 'production.component.master.index',
             'product' => 'master.product.index',
             'vendor' => 'master.vendor.index',
             'posting-type' => 'master.purchase.posting_type',
