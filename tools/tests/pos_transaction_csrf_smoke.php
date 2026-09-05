@@ -225,6 +225,26 @@ class PosTransactionCsrfSmokeLoader
     }
 }
 
+class PosTransactionCsrfSmokeStepUp
+{
+    public array $calls = [];
+
+    public function consume($userId, $action, $targetId, $proof): array
+    {
+        $this->calls[] = [(int)$userId, (string)$action, $targetId, $proof];
+
+        $valid = (int)$userId === 2
+            && in_array((string)$action, ['VOID', 'REFUND'], true)
+            && (int)$targetId === 1701
+            && is_string($proof)
+            && preg_match('/\A[a-f0-9]{64}\z/D', $proof) === 1;
+
+        return $valid
+            ? ['ok' => true]
+            : ['ok' => false, 'status' => 428, 'message' => 'Verifikasi ulang diperlukan.'];
+    }
+}
+
 class PosTransactionCsrfSmokeService
 {
     public array $calls = [];
@@ -271,6 +291,7 @@ class MY_Controller
     public PosTransactionCsrfSmokeService $posStockCommitService;
     public PosTransactionCsrfSmokeService $posRuntimeJobService;
     public PosTransactionCsrfSmokeMonitor $posOrderMonitorModel;
+    public PosTransactionCsrfSmokeStepUp $sensitiveactionstepup;
 
     public function __construct()
     {
@@ -350,6 +371,7 @@ function pos_transaction_csrf_controller(
     $controller->posStockCommitService = new PosTransactionCsrfSmokeService();
     $controller->posRuntimeJobService = new PosTransactionCsrfSmokeService();
     $controller->posOrderMonitorModel = new PosTransactionCsrfSmokeMonitor();
+    $controller->sensitiveactionstepup = new PosTransactionCsrfSmokeStepUp();
 
     return [$controller, $input, $session, $output, $model, $reflection];
 }
@@ -547,8 +569,8 @@ pos_transaction_csrf_check(
     'the eight relevant transaction views receive the rendered token'
 );
 pos_transaction_csrf_check(
-    preg_match_all('/\$this->require_pos_transaction_csrf\s*\(\s*\)/', $controllerSource, $matches) === 29,
-    'exactly twenty-nine transaction writers call the scoped guard'
+    preg_match_all('/\$this->require_pos_transaction_csrf\s*\(\s*\)/', $controllerSource, $matches) === 30,
+    'exactly thirty transaction writers call the scoped guard'
 );
 
 $actions = [
@@ -875,7 +897,7 @@ pos_transaction_csrf_check(
 
 $viewRenderMarkers = [
     'cashier' => [
-        'wrapperCalls' => 8,
+        'wrapperCalls' => 9,
         'targetCalls' => [
             "postPosTransactionJson('<?php echo site_url('pos/orders/payment/save'); ?>', payload)",
             "postPosTransactionJson('<?php echo site_url('pos/orders/draft/save'); ?>', payload)",
@@ -896,8 +918,11 @@ $viewRenderMarkers = [
         ],
     ],
     'paid' => [
-        'wrapperCalls' => 1,
-        'targetCalls' => ["postPosTransactionJson('<?php echo site_url('pos/orders/refund/save'); ?>', payload)"],
+        'wrapperCalls' => 2,
+        'targetCalls' => [
+            "postPosTransactionJson('<?php echo site_url('pos/orders/refund/save'); ?>', payload)",
+            "postPosTransactionJson('<?php echo site_url('pos/orders/reversal-step-up/verify'); ?>', {",
+        ],
     ],
     'reservation' => [
         'wrapperCalls' => 5,
@@ -1074,6 +1099,8 @@ foreach ($writerMethodByAction as $action => $writerMethod) {
         $actionRawInput = '{"verify_destination":"PAID_ORDER","sentinel":true}';
     } elseif (in_array($action, ['self_order_order_reject', 'online_food_order_reject'], true)) {
         $actionRawInput = '{"reason":"  Alasan smoke  ","sentinel":true}';
+    } elseif (in_array($action, ['order_void_save', 'order_refund_save'], true)) {
+        $actionRawInput = '{"order_id":1701,"step_up_proof":"' . str_repeat('a', 64) . '","sentinel":true}';
     } else {
         $actionRawInput = '{"sentinel":true}';
     }

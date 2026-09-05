@@ -5199,3 +5199,68 @@
   desain step-up minimal yang konsisten tanpa mengubah matrix izin existing.
 - Penyerahan: commit lokal sesudah `f4456f7`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 156 — Reauth satu-kali Void dan Refund POS web
+
+- Waktu/tanggal: 2026-09-05, validasi akhir 21:46 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01`. Tindakan Void dan Refund mengubah stok,
+  lot, kas, dan jejak audit, tetapi sebelumnya masih dapat dilakukan hanya dari
+  sesi login/RBAC yang sudah terbuka pada perangkat kasir.
+- Diskusi/arah: fixer tunggal. Reauth harus menambah konfirmasi identitas,
+  bukan role baru atau perubahan matriks izin. Password tidak boleh diteruskan
+  ke writer finansial, disimpan pada dokumen, atau dipakai sebagai token jangka
+  panjang. Setelah pemeriksaan awal, ditemukan jalur Refund di halaman Pesanan
+  Terbayar selain Void di Kasir; keduanya ditutup dalam batch yang sama agar
+  writer baru tidak membuat UI Refund web gagal.
+- File berubah:
+  - `application/libraries/SensitiveActionStepUp.php` (baru).
+  - `application/controllers/Pos.php`, `application/config/routes.php`.
+  - `application/views/pos/cashier_index.php` dan
+    `application/views/pos/order_paid_index.php`.
+  - `tools/tests/pos_reversal_step_up_smoke.php` (baru),
+    `pos_transaction_csrf_smoke.php`, `finance_quality_gate.php`, dan
+    `finance_quality_gate_contract_smoke.php`.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Endpoint POST scoped `pos/orders/reversal-step-up/verify` memakai CSRF
+    transaksi POS dan izin `edit` yang sama dengan action asal. Ia memverifikasi
+    password user aktif lalu mengeluarkan proof acak 64-hex maksimal 180 detik.
+  - Sesi menyimpan **hash** proof saja. Proof terikat ke user sesi, action
+    `VOID`/`REFUND`, dan order yang tepat; hanya bisa dikonsumsi sekali sebelum
+    model writer dijalankan. Payload model dibersihkan dari proof dan tidak
+    pernah menerima password.
+  - Lima password salah dalam jendela 10 menit mengunci verifikasi ulang sesi
+    selama 10 menit. State gagal tidak menyimpan password maupun proof mentah.
+  - Modal Void Kasir serta modal Refund Pesanan Terbayar meminta password
+    masked. Field segera dikosongkan sebelum request proof; UI hanya meneruskan
+    proof satu-kali ke writer. File backup APK dan endpoint `Pos_mobile.php`
+    tidak diubah.
+- SQL/runtime: **tidak ada SQL baru**, migration, perubahan schema/data,
+  credential, permission/sidebar, ataupun query tulis staging. Composer tidak
+  berubah sehingga `composer validate` tidak relevan.
+- Validasi:
+  - `php -l` seluruh sembilan file PHP aplikasi/test yang berubah/baru lulus;
+    `git diff --check` lulus.
+  - Smoke service baru 42 pemeriksaan lulus: input malformed tanpa query,
+    password salah/limiter, hash-only session, binding user/action/order,
+    expiry, one-use/replay, route, writer, dan dua UI web.
+  - Regresi CSRF transaksi POS 1.692 pemeriksaan lulus, termasuk jalur writer
+    Void/Refund valid dengan proof dan seluruh penolakan CSRF sebelumnya.
+  - Quality gate `parallel`: required 57/57, development 4/4, release 1/1,
+    preflight 1/1 lulus. Runtime/security/static/staging tier serta UAT browser
+    nyata tetap bukan klaim profil ini. Kontrak quality gate 27, konsistensi
+    roadmap 22, dan dashboard audit 30 pemeriksaan juga lulus.
+- Review akhir fixer tunggal: layak untuk scope web POS. Kontrak APK/mobile
+  tidak diam-diam dipalsukan sebagai selesai; tidak ada perubahan pada backup
+  APK. Password hanya dikirim ke endpoint verifikasi dan proof habis dipakai
+  bahkan jika writer berikutnya menolak aturan bisnis, sehingga operator perlu
+  verifikasi ulang setelah memperbaiki input—trade-off sengaja untuk mencegah
+  replay.
+- Risiko sisa: step-up Reopen periode, adjustment, reprint, API/APK, dan MFA
+  belum ada; UAT role kasir/finance nyata serta APK/device/printer masih wajib.
+  Limiter masih per sesi/single-server dan bukan pengganti throttling login.
+- Batch berikutnya: perluas `AUD-A1-STEP-01` ke satu action web sensitif lain
+  (prioritas Reopen periode) dengan endpoint/UI/negative test terpisah; kontrak
+  APK ditata sebagai batch sendiri agar tidak mengganggu aplikasi mobile.
+- Penyerahan: commit lokal sesudah `91e14ec`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

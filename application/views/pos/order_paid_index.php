@@ -402,6 +402,11 @@ $initDateTo   = ($filters['date_to']   ?? '') !== '' ? $filters['date_to']   : $
             <label class="form-label small text-muted mb-1">Catatan Audit</label>
             <textarea class="form-control" id="refund_reason" rows="2" placeholder="Catatan tambahan untuk audit POS (opsional)"></textarea>
           </div>
+          <div class="col-12">
+            <label class="form-label small text-muted mb-1" for="refund_step_up_password">Konfirmasi password</label>
+            <input type="password" class="form-control" id="refund_step_up_password" autocomplete="current-password" maxlength="72" placeholder="Masukkan password Anda untuk menyimpan refund">
+            <div class="small text-muted mt-1">Password hanya dipakai untuk verifikasi ulang aksi ini dan tidak disimpan pada dokumen refund.</div>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -449,6 +454,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const refundReferenceField = document.getElementById('refund_reference_no');
   const refundAccountInfo    = document.getElementById('refund_account_info');
   const refundSubmitButton   = document.getElementById('btn-save-refund');
+  const refundStepUpPassword = document.getElementById('refund_step_up_password');
 
   /* Edit payment method fields */
   const payMethodEditModalEl = document.getElementById('paymentMethodEditModal');
@@ -994,6 +1000,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     refundMethodField.value = '';
     refundReferenceField.value = '';
+    if (refundStepUpPassword) refundStepUpPassword.value = '';
     fillRefundReasonOptions();
     refreshRefundPolicyCards();
     refreshRefundAccountInfo();
@@ -1189,6 +1196,18 @@ document.addEventListener('DOMContentLoaded', function () {
     const payload = buildRefundPayload();
     try {
       if (!payload.lines.length) throw new Error('Tidak ada line yang bisa diproses untuk refund.');
+      const password = String(refundStepUpPassword?.value || '');
+      if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi ulang refund.');
+      if (refundStepUpPassword) refundStepUpPassword.value = '';
+      const stepUp = await postPosTransactionJson('<?php echo site_url('pos/orders/reversal-step-up/verify'); ?>', {
+        action: 'REFUND',
+        order_id: payload.order_id,
+        password
+      });
+      if (!/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) {
+        throw new Error('Bukti verifikasi ulang tidak valid. Coba lagi.');
+      }
+      payload.step_up_proof = String(stepUp.step_up_proof);
       const json = await postPosTransactionJson('<?php echo site_url('pos/orders/refund/save'); ?>', payload);
       if (refundModal) refundModal.hide();
       let printFailures = [];

@@ -799,6 +799,7 @@ $route['pos/orders/runtime-snapshots/dismiss/(:num)'] = 'pos/order_runtime_faile
 $route['pos/orders/runtime-sync/(:num)'] = 'pos/order_runtime_sync/$1';
 $route['pos/orders/paid'] = 'pos/order_paid';
 $route['pos/orders/reversal-preview/(:num)'] = 'pos/order_reversal_preview/$1';
+$route['pos/orders/reversal-step-up/verify'] = 'pos/order_reversal_step_up_verify';
 $route['pos/orders/void/save'] = 'pos/order_void_save';
 $route['pos/orders/refund/save'] = 'pos/order_refund_save';
 $route['pos/reports/sales'] = 'pos/report_sales';

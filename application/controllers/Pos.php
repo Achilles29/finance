@@ -4573,6 +4573,35 @@ public function self_order_tables_print()
         $this->json_ok($result);
     }
 
+    public function order_reversal_step_up_verify()
+    {
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $action = strtoupper(trim((string)($payload['action'] ?? '')));
+        if (!in_array($action, ['VOID', 'REFUND'], true)) {
+            $this->json_error('Aksi verifikasi ulang tidak valid.', 422);
+            return;
+        }
+        $this->require_permission($this->order_reversal_step_up_page_code($action), 'edit');
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            $this->current_actor_user_id(),
+            $action,
+            $payload['order_id'] ?? null,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
+    }
+
     public function order_payment_prepare($id)
     {
         $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : $this->order_workspace_page_code('view');
@@ -4677,6 +4706,10 @@ public function self_order_tables_print()
             return;
         }
         $payload = $this->request_payload();
+        if (!$this->consume_order_reversal_step_up('VOID', $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $result = $this->Pos_model->save_order_void($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan void POS.'), 422);
@@ -4704,6 +4737,10 @@ public function self_order_tables_print()
             return;
         }
         $payload = $this->request_payload();
+        if (!$this->consume_order_reversal_step_up('REFUND', $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $result = $this->Pos_model->save_order_refund($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan refund POS.'), 422);
@@ -6560,6 +6597,29 @@ public function self_order_tables_print()
     private function current_actor_user_id(): int
     {
         return max(0, (int)($this->current_user['id'] ?? 0));
+    }
+
+    private function order_reversal_step_up_page_code(string $action): string
+    {
+        return $action === 'REFUND'
+            ? $this->order_workspace_page_code('edit', 'pos.order.paid.index')
+            : $this->order_workspace_page_code('edit');
+    }
+
+    private function consume_order_reversal_step_up(string $action, array $payload): bool
+    {
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            $this->current_actor_user_id(),
+            $action,
+            $payload['order_id'] ?? null,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428), ['step_up_required' => true]);
+            return false;
+        }
+        return true;
     }
 
     private function resolve_cli_php_binary(): ?string

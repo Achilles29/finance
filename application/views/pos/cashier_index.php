@@ -1704,6 +1704,11 @@ $incomingServerDate = date('Y-m-d');
               <label class="form-label small text-muted mb-1">Catatan Audit</label>
               <textarea class="form-control" id="cashier_reversal_reason" rows="2" placeholder="Catatan tambahan untuk audit void ini (opsional)"></textarea>
             </div>
+            <div class="col-12">
+              <label class="form-label small text-muted mb-1" for="cashier_reversal_step_up_password">Konfirmasi password</label>
+              <input type="password" class="form-control" id="cashier_reversal_step_up_password" autocomplete="current-password" maxlength="72" placeholder="Masukkan password Anda untuk menyimpan void">
+              <div class="small text-muted mt-1">Password hanya dipakai untuk verifikasi ulang aksi ini dan tidak disimpan pada dokumen void.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -2309,6 +2314,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const reversalReasonCode = document.getElementById('cashier_reversal_reason_code');
   const reversalReasonOther = document.getElementById('cashier_reversal_reason_other');
   const reversalReasonHint = document.getElementById('cashier_reversal_reason_hint');
+  const reversalStepUpPassword = document.getElementById('cashier_reversal_step_up_password');
   const saveVoidButton = document.getElementById('cashier_save_void');
   const saveDraftButton = document.getElementById('cashier_save_draft');
   const confirmOrderButton = document.getElementById('cashier_confirm_order');
@@ -5193,6 +5199,7 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('cashier_reversal_adjust').checked = false;
     document.getElementById('cashier_reversal_adjustment').value = 'NONE';
     document.getElementById('cashier_reversal_reason').value = '';
+    if (reversalStepUpPassword) reversalStepUpPassword.value = '';
     if (reversalReasonCode) {
       reversalReasonCode.value = '';
     }
@@ -5432,6 +5439,20 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!payload.lines.length) {
         throw new Error('Pilih minimal satu item atau extra yang ingin dibatalkan.');
       }
+      const password = String(reversalStepUpPassword?.value || '');
+      if (password === '') {
+        throw new Error('Masukkan password Anda untuk memverifikasi ulang void.');
+      }
+      if (reversalStepUpPassword) reversalStepUpPassword.value = '';
+      const stepUp = await postPosTransactionJson('<?php echo site_url('pos/orders/reversal-step-up/verify'); ?>', {
+        action: reversalMode,
+        order_id: payload.order_id,
+        password
+      });
+      if (!/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) {
+        throw new Error('Bukti verifikasi ulang tidak valid. Coba lagi.');
+      }
+      payload.step_up_proof = String(stepUp.step_up_proof);
       const json = await postPosTransactionJson(saveUrl, payload);
       if (reversalModal) reversalModal.hide();
       await triggerReversalDirectPrint(reversalMode, Number(json.id || 0));
