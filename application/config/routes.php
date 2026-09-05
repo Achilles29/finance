@@ -334,6 +334,7 @@ $route['inventory/stock/periods/close/(:num)'] = 'inventory_control/period_close
 $route['inventory/stock/periods/reopen/(:num)'] = 'inventory_control/period_reopen/$1';
 $route['inventory/stock/transfer/item-search'] = 'inventory/stock_transfer_item_search';
 $route['inventory/stock/transfer/store'] = 'inventory/stock_transfer_store';
+$route['inventory/stock/transfer/step-up/verify'] = 'inventory/stock_transfer_step_up_verify';
 $route['inventory/stock/transfer/post/(:num)'] = 'inventory/stock_transfer_post/$1';
 $route['inventory/stock/transfer/void/(:num)'] = 'inventory/stock_transfer_void/$1';
 $route['inventory/stock/transfer/delete/(:num)'] = 'inventory/stock_transfer_delete/$1';

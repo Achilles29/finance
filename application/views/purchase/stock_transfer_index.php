@@ -5,6 +5,8 @@ $storeUrl = site_url('inventory/stock/transfer/store');
 $postBaseUrl = site_url('inventory/stock/transfer/post');
 $voidBaseUrl = site_url('inventory/stock/transfer/void');
 $deleteBaseUrl = site_url('inventory/stock/transfer/delete');
+$stepUpUrl = site_url('inventory/stock/transfer/step-up/verify');
+$stockTransferCsrfToken = (string)($stock_transfer_csrf_token ?? '');
 
 $rows = is_array($rows ?? null) ? $rows : [];
 $divisions = is_array($divisions ?? null) ? $divisions : [];
@@ -249,7 +251,31 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" id="btnCancelTransferModal">Batal</button>
         <button type="button" class="btn btn-outline-danger" id="btnSaveTransferDraft"><span class="transfer-btn-label">Simpan Draft</span><span class="transfer-btn-loader d-none"><span class="transfer-spinner"></span><span class="transfer-btn-loader-text">Menyimpan...</span></span></button>
-        <button type="button" class="btn btn-danger" id="btnSaveTransferPost"><span class="transfer-btn-label">Simpan &amp; Post</span><span class="transfer-btn-loader d-none"><span class="transfer-spinner"></span><span class="transfer-btn-loader-text">Posting...</span></span></button>
+        <button type="button" class="btn btn-danger" id="btnSaveTransferPost"><span class="transfer-btn-label">Simpan &amp; Verifikasi</span><span class="transfer-btn-loader d-none"><span class="transfer-spinner"></span><span class="transfer-btn-loader-text">Menyimpan...</span></span></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="stockTransferStepUpModal" tabindex="-1" role="dialog" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content border-0 shadow-lg transfer-modal-shell">
+      <div class="transfer-modal-head">
+        <div class="text-uppercase small font-weight-bold text-muted">Verifikasi Ulang</div>
+        <div class="transfer-modal-title" id="stockTransferStepUpTitle">Post Transfer Stok</div>
+        <div class="transfer-modal-subtitle" id="stockTransferStepUpDescription">Masukkan password akun Anda untuk melanjutkan mutasi stok ini.</div>
+      </div>
+      <div class="transfer-modal-body">
+        <div class="alert alert-danger d-none" id="stockTransferStepUpError"></div>
+        <div class="form-group mb-0">
+          <label for="stockTransferStepUpPassword">Password akun</label>
+          <input type="password" class="form-control" id="stockTransferStepUpPassword" autocomplete="current-password" placeholder="Masukkan password Anda">
+          <small class="form-text text-muted">Password hanya dipakai untuk verifikasi sekali dan tidak disimpan.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="btnStockTransferStepUpCancel">Batal</button>
+        <button type="button" class="btn btn-danger" id="btnStockTransferStepUpSubmit">Verifikasi &amp; Lanjutkan</button>
       </div>
     </div>
   </div>
@@ -269,15 +295,26 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
   const fromDestinationEl = document.getElementById('transferFromDestination');
   const toDivisionEl = document.getElementById('transferToDivision');
   const toDestinationEl = document.getElementById('transferToDestination');
+  const stepUpModalEl = document.getElementById('stockTransferStepUpModal');
+  const stepUpPasswordEl = document.getElementById('stockTransferStepUpPassword');
+  const stepUpErrorEl = document.getElementById('stockTransferStepUpError');
+  const stepUpTitleEl = document.getElementById('stockTransferStepUpTitle');
+  const stepUpDescriptionEl = document.getElementById('stockTransferStepUpDescription');
+  const stepUpSubmitButtonEl = document.getElementById('btnStockTransferStepUpSubmit');
+  const stockTransferCsrfToken = <?php echo json_encode($stockTransferCsrfToken, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  const stockTransferStepUpUrl = <?php echo json_encode($stepUpUrl, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
   const selectedLines = [];
   const destinationGuardMap = <?php echo $destinationGuardMapJson ?: '{}'; ?>;
   const destinationOptions = <?php echo $destinationOptionsJson ?: '{}'; ?>;
   let searchTimer = null;
   let submitLocked = false;
+  let pendingTransferStepUp = null;
 
   function showToast(message, type) { if (window.Swal) { Swal.fire({ toast:true, position:'top-end', timer:2200, showConfirmButton:false, icon:type || 'success', title:message }); return; } alert(message); }
   function showError(message) { errorEl.textContent = message || 'Terjadi kesalahan.'; errorEl.classList.remove('d-none'); }
   function clearError() { errorEl.textContent = ''; errorEl.classList.add('d-none'); }
+  function showStepUpError(message) { stepUpErrorEl.textContent = message || 'Verifikasi tidak dapat diproses.'; stepUpErrorEl.classList.remove('d-none'); }
+  function clearStepUpError() { stepUpErrorEl.textContent = ''; stepUpErrorEl.classList.add('d-none'); }
   function getValue(id) { const el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
   function rowKey(row) { return [row.item_id || 0, row.material_id || 0, row.buy_uom_id || 0, row.content_uom_id || 0, row.profile_key || ''].join('|'); }
   function escapeHtml(str) { return String(str || '').replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[m]; }); }
@@ -314,10 +351,45 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
       postButtonEl.disabled = true;
     }
   }
+  function stockTransferMutationHeaders() {
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-Stock-Transfer-Csrf': stockTransferCsrfToken
+    };
+  }
+  async function postStockTransferJson(url, payload) {
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: stockTransferMutationHeaders(),
+      body: JSON.stringify(payload || {})
+    });
+    let data = {};
+    try { data = await response.json(); } catch (error) { throw new Error('Respons server transfer stok tidak valid.'); }
+    if (!response.ok || !data.ok) throw new Error(data.message || 'Aksi transfer stok gagal diproses.');
+    return data;
+  }
   function closeTransferModal() {
     if (window.jQuery) {
       window.jQuery(modalEl).modal('hide');
     }
+  }
+  function closeTransferStepUpModal() {
+    if (window.jQuery) window.jQuery(stepUpModalEl).modal('hide');
+  }
+  function openTransferStepUp(transferId, operation) {
+    pendingTransferStepUp = { id: Number(transferId || 0), operation: String(operation || '').toUpperCase() };
+    const isVoid = pendingTransferStepUp.operation === 'VOID';
+    stepUpTitleEl.textContent = isVoid ? 'VOID Transfer Stok' : 'Post Transfer Stok';
+    stepUpDescriptionEl.textContent = isVoid
+      ? 'Masukkan password akun Anda untuk membatalkan transfer dan mengembalikan stok sumber/tujuan.'
+      : 'Masukkan password akun Anda untuk memposting transfer dan memutasi stok sumber ke tujuan.';
+    clearStepUpError();
+    stepUpPasswordEl.value = '';
+    if (window.jQuery) window.jQuery(stepUpModalEl).modal('show');
+    window.setTimeout(function(){ stepUpPasswordEl.focus(); }, 180);
   }
   function getSelectedDivisionLabel(selectId) {
     const el = document.getElementById(selectId);
@@ -393,7 +465,7 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
     }).join('');
   }
 
-  function collectPayload(autoPost) {
+  function collectPayload() {
     return {
       transfer_date: getValue('transferDate'),
       from_division_id: parseInt(getValue('transferFromDivision') || '0', 10) || null,
@@ -401,7 +473,7 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
       to_division_id: parseInt(getValue('transferToDivision') || '0', 10) || null,
       to_destination_type: getValue('transferToDestination'),
       notes: getValue('transferHeaderNotes'),
-      auto_post: !!autoPost,
+      auto_post: false,
       lines: selectedLines.map(function(row){ return {
         item_id: row.item_id || null,
         material_id: row.material_id || null,
@@ -421,12 +493,9 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
     };
   }
 
-  async function runAction(url, method, message, options) {
-    const opts = options || {};
-    const button = opts.button || null;
-    const busyText = opts.busyText || 'Memproses...';
-    const confirmText = opts.confirmText || '';
-    if (confirmText && window.Swal) {
+  async function confirmTransferAction(confirmText) {
+    if (!confirmText) return true;
+    if (window.Swal) {
       const result = await Swal.fire({
         icon: 'warning',
         title: 'Konfirmasi',
@@ -435,10 +504,17 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
         confirmButtonText: 'Lanjutkan',
         cancelButtonText: 'Batal',
       });
-      if (!result.isConfirmed) return;
-    } else if (confirmText && !window.confirm(confirmText)) {
-      return;
+      return !!result.isConfirmed;
     }
+    return window.confirm(confirmText);
+  }
+
+  async function runAction(url, method, message, options) {
+    const opts = options || {};
+    const button = opts.button || null;
+    const busyText = opts.busyText || 'Memproses...';
+    const confirmText = opts.confirmText || '';
+    if (!(await confirmTransferAction(confirmText))) return;
     if (button) {
       const originalHtml = button.innerHTML;
       button.dataset.originalHtml = originalHtml;
@@ -455,7 +531,12 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
       });
     }
     try {
-      const response = await fetch(url, { method: method || 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const response = await fetch(url, {
+        method: method || 'POST',
+        credentials: 'same-origin',
+        headers: stockTransferMutationHeaders(),
+        body: JSON.stringify({})
+      });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.message || 'Aksi gagal diproses.');
       if (window.Swal) Swal.close();
@@ -469,6 +550,43 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
         button.innerHTML = button.dataset.originalHtml || button.innerHTML;
         button.disabled = false;
       }
+    }
+  }
+
+  async function submitTransferStepUp() {
+    const action = pendingTransferStepUp;
+    if (!action || action.id <= 0 || !['POST', 'VOID'].includes(action.operation)) {
+      showStepUpError('Dokumen transfer yang akan diverifikasi tidak valid. Tutup formulir lalu coba lagi.');
+      return;
+    }
+    const password = String(stepUpPasswordEl.value || '');
+    if (!password) {
+      showStepUpError('Password akun wajib diisi untuk melanjutkan.');
+      stepUpPasswordEl.focus();
+      return;
+    }
+    clearStepUpError();
+    stepUpSubmitButtonEl.disabled = true;
+    const originalLabel = stepUpSubmitButtonEl.textContent;
+    stepUpSubmitButtonEl.textContent = 'Memverifikasi...';
+    stepUpPasswordEl.value = '';
+    try {
+      const verify = await postStockTransferJson(stockTransferStepUpUrl, {
+        transfer_id: action.id,
+        operation: action.operation,
+        password: password
+      });
+      const writerBaseUrl = action.operation === 'VOID' ? '<?php echo $voidBaseUrl; ?>' : '<?php echo $postBaseUrl; ?>';
+      await postStockTransferJson(writerBaseUrl + '/' + action.id, { step_up_proof: verify.step_up_proof });
+      pendingTransferStepUp = null;
+      closeTransferStepUpModal();
+      showToast(action.operation === 'VOID' ? 'Transfer berhasil di-void.' : 'Transfer berhasil diposting.', 'success');
+      window.location.reload();
+    } catch (error) {
+      showStepUpError(error.message || 'Verifikasi transfer stok gagal.');
+    } finally {
+      stepUpSubmitButtonEl.disabled = false;
+      stepUpSubmitButtonEl.textContent = originalLabel;
     }
   }
 
@@ -571,18 +689,24 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
     renderSelectedLines();
   });
 
-  async function saveTransfer(autoPost) {
+  async function saveTransfer(withVerification) {
     clearError();
     if (submitLocked) return;
     if (!selectedLines.length) { showError('Tambahkan minimal satu baris transfer.'); return; }
-    const payload = collectPayload(autoPost);
-    setSubmitBusy(true, autoPost ? 'post' : 'draft');
+    const payload = collectPayload();
+    setSubmitBusy(true, withVerification ? 'post' : 'draft');
     try {
-      const response = await fetch('<?php echo $storeUrl; ?>', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(payload) });
-      const data = await response.json();
-      if (!response.ok || !data.ok) { showError(data.message || 'Gagal menyimpan transfer.'); return; }
-      showToast(autoPost ? 'Transfer berhasil diposting.' : 'Draft transfer berhasil disimpan.', 'success');
+      const data = await postStockTransferJson('<?php echo $storeUrl; ?>', payload);
+      if (withVerification) {
+        closeTransferModal();
+        showToast('Draft transfer tersimpan. Lanjutkan dengan verifikasi password.', 'success');
+        openTransferStepUp(data.id, 'POST');
+        return;
+      }
+      showToast('Draft transfer berhasil disimpan.', 'success');
       window.location.reload();
+    } catch (error) {
+      showError(error.message || 'Gagal menyimpan transfer.');
     } finally {
       setSubmitBusy(false);
     }
@@ -591,9 +715,13 @@ $destinationOptionsJson = json_encode($destinationOptions, JSON_UNESCAPED_UNICOD
   document.getElementById('btnSaveTransferDraft')?.addEventListener('click', function(){ saveTransfer(false); });
   document.getElementById('btnSaveTransferPost')?.addEventListener('click', function(){ saveTransfer(true); });
 
-  document.querySelectorAll('.js-transfer-post').forEach(function(button){ button.addEventListener('click', function(){ runAction('<?php echo $postBaseUrl; ?>/' + button.getAttribute('data-id'), 'POST', 'Transfer berhasil diposting.', { button: button, busyText: 'Posting...' }).catch(function(error){ showToast(error.message, 'error'); }); }); });
+  document.getElementById('btnStockTransferStepUpCancel')?.addEventListener('click', function(){ pendingTransferStepUp = null; closeTransferStepUpModal(); });
+  stepUpSubmitButtonEl?.addEventListener('click', submitTransferStepUp);
+  stepUpPasswordEl?.addEventListener('keydown', function(event){ if (event.key === 'Enter') { event.preventDefault(); submitTransferStepUp(); } });
+
+  document.querySelectorAll('.js-transfer-post').forEach(function(button){ button.addEventListener('click', async function(){ if (await confirmTransferAction('Post transfer ini? Stok sumber akan berkurang dan stok tujuan akan bertambah.')) openTransferStepUp(button.getAttribute('data-id'), 'POST'); }); });
   document.querySelectorAll('.js-transfer-delete').forEach(function(button){ button.addEventListener('click', function(){ runAction('<?php echo $deleteBaseUrl; ?>/' + button.getAttribute('data-id'), 'POST', 'Draft transfer berhasil dihapus.', { button: button, busyText: 'Menghapus...', confirmText: 'Hapus draft transfer ini?' }).catch(function(error){ showToast(error.message, 'error'); }); }); });
-  document.querySelectorAll('.js-transfer-void').forEach(function(button){ button.addEventListener('click', function(){ runAction('<?php echo $voidBaseUrl; ?>/' + button.getAttribute('data-id'), 'POST', 'Transfer berhasil di-void.', { button: button, busyText: 'Void transfer...', confirmText: 'VOID transfer ini dan rollback stok sumber/tujuan?' }).catch(function(error){ showToast(error.message, 'error'); }); }); });
+  document.querySelectorAll('.js-transfer-void').forEach(function(button){ button.addEventListener('click', async function(){ if (await confirmTransferAction('VOID transfer ini dan rollback stok sumber/tujuan?')) openTransferStepUp(button.getAttribute('data-id'), 'VOID'); }); });
   refillDestinationSelect(document.getElementById('filterFromDestination'), document.querySelector('select[name="from_division_id"]')?.value || '', '<?php echo html_escape($fromDestination); ?>', true);
   refillDestinationSelect(document.getElementById('filterToDestination'), document.querySelector('select[name="to_division_id"]')?.value || '', '<?php echo html_escape($toDestination); ?>', true);
   refillDestinationSelect(fromDestinationEl, fromDivisionEl.value, fromDestinationEl.value, false);

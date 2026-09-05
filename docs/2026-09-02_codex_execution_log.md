@@ -5150,6 +5150,59 @@
 - Penyerahan: commit lokal sesudah `56f1072`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
 
+## Batch 164 — CSRF dan reauth Transfer Stok Divisi
+
+- Waktu/tanggal: 2026-09-06, implementasi dan validasi awal 06:08 WIB.
+- Prioritas: P0 / AUD-A1-STEP-01. Post transfer memanggil writer FIFO untuk
+  mengurangi stok sumber, menambah stok tujuan, serta merekam nilai/ledger;
+  VOID membalik mutasi tersebut. Jalur Save dengan auto_post sebelumnya
+  memungkinkan caller lama mem-post tanpa proof password.
+- Diskusi/arah: fixer tunggal. Scope dibatasi pada halaman Transfer Bahan
+  Baku Antar Divisi web, controller Purchase, dan kontrak proof; tidak
+  mengubah FIFO/model bisnis, data mismatch historis, SQL/schema, role
+  matrix, atau POS Mobile/APK.
+- File berubah:
+  - application/config/routes.php, application/controllers/Purchase.php, dan
+    application/libraries/SensitiveActionStepUp.php.
+  - application/views/purchase/stock_transfer_index.php.
+  - tools/tests/stock_transfer_step_up_smoke.php (baru), manifest dan
+    kontrak quality gate.
+  - Roadmap induk _30, _28, serta execution log ini.
+- Perubahan utama:
+  - Save Draft dan Delete Draft wajib POST dengan header CSRF scoped
+    X-Stock-Transfer-Csrf.
+  - auto_post ditolak sebelum draft disimpan. Tombol Simpan dan Verifikasi
+    kini menyimpan DRAFT terlebih dahulu; operator dapat membatalkan pada
+    tahap password tanpa terjadi mutasi stok.
+  - Endpoint verifikasi baru menerbitkan proof satu-kali 180 detik
+    STOCK_TRANSFER_POST atau STOCK_TRANSFER_VOID, terikat user, sesi, dan
+    satu dokumen transfer. Writer Post/VOID mengonsumsi proof sebelum
+    MaterialFifoManager atau reversal dipanggil; password tidak diteruskan
+    ke model.
+  - UI meminta konfirmasi dan password masked untuk Post/VOID, menghapus
+    nilai input sebelum request proof, serta memakai wrapper CSRF pada semua
+    mutasi halaman.
+- SQL/runtime: tidak ada SQL baru, migration, schema/data, query tulis
+  staging, credential, sidebar, atau kontrak POS Mobile/APK yang berubah.
+- Validasi:
+  - php -l seluruh file PHP berubah, smoke Transfer Stok baru (18 kontrak),
+    smoke Daily Recon (16), Component Batch (21), Adjustment Stok (17),
+    dashboard audit (30), roadmap consistency (22), quality-gate contract
+    (27), dan git diff --check lulus.
+  - Quality gate parallel lulus: required 62/62, development 4/4, release
+    1/1, dan preflight 1/1. Runtime/security/static, query staging, serta
+    UAT browser/APK/printer nyata tidak diklaim oleh profil otomatis.
+- Review akhir fixer tunggal: layak untuk shared web flow. Request lama tanpa
+  header/proof dan shortcut auto_post ditolak fail-closed. Permission transfer
+  existing tidak dinaikkan atau digabung.
+- Risiko sisa: stock opening, mutasi inventory/produksi lain, API/APK, MFA,
+  baseline role nyata, serta UAT browser/perangkat per role masih terbuka.
+- Batch berikutnya: petakan stock opening sebagai mutasi bernilai tinggi
+  berikutnya; kemudian lanjutkan action inventory/production yang masih
+  langsung memanggil writer.
+- Penyerahan: commit lokal setelah semua gate lulus, tanpa push; ringkasan
+  dikirim ke Telegram Namua setelah commit.
+
 ## Batch 155 — Reopen periode keuangan atomik
 
 - Waktu/tanggal: 2026-09-05, validasi akhir 21:35 WIB.
