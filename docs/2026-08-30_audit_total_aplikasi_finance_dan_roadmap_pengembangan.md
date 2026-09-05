@@ -4,7 +4,8 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 153 menutup CSRF empat
+**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 154 mengamankan tiga
+writer Tutup Periode Keuangan dengan CSRF dan redirect lokal tetap; Batch 153 menutup CSRF empat
 aksi admin ulasan/QR dan memperbaiki konfirmasi moderasi; Batch 152 mengamankan formulir
 ulasan publik (anti-spam, privasi, dan transaksi member/ulasan); Batch 151 menambahkan simulator
 akses dan report selisih permission read-only; Batch 150 menyamakan scope
@@ -112,6 +113,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | `AUD-A5-LIFE-01` | P2-08 | P2 / A5→C3 | Upload dan service pendamping belum mempunyai lifecycle produk. | Lokasi runtime, permission, backup, upgrade, uninstall, dan retention terdokumentasi. | `CODE_PASS` | `AUTO_PASS` | `BLOCKED` | Batch 143 menetapkan lokasi/preservasi/logrotate/uninstall; pemindahan runtime dan installer customer tetap C3. |
 | `AUD-A1-SYS-01` | NEW-01 | P0 / A1 | Halaman System Tools dapat mengirim path root, daftar dump, status replication/failover, dan seluruh config kepada satu izin view. | Pecah izin read-sensitive, whitelist field, redaksi path/backup metadata, dan negative test. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 136: hak Export menjadi izin baca sensitif terpisah; View-only mendapat ringkasan tanpa path/metadata; config di-whitelist tanpa password; test DB menjadi POST+CSRF; 18 negative contract dan 74 regression lulus. |
 | `AUD-A1-TG-01` | NEW-02 | P1 / A1+A5 | Laporan internal belum mempunyai kanal Telegram Bot yang terotorisasi dan berjejak. | Target group/channel allowlist, webhook secret, queue idempoten, jadwal, RBAC, CSRF, log, resolusi status tidak pasti, dan worker aman. | `CODE_PASS` | `UAT_PASS` | `BLOCKED` | Batch 132–139: bot, target Namua, outbound/queue/webhook aktif; notifikasi Codex kini membawa ringkasan jawaban akhir yang dibatasi dan disaring tanpa prompt/tool output. Penutupan release tetap menunggu UAT command inbound dan otorisasi per pengirim untuk grup non-tepercaya. |
+| `AUD-A1-FIN-01` | NEW-03 | P0 / A1 | Writer draft, close, dan reopen periode keuangan pernah hanya mengandalkan login/RBAC; redirect proses juga menerima URL kiriman. | Semua mutasi periode wajib izin aksi, POST, CSRF scoped, token tidak bercampur, form mengikuti hak aksi, dan redirect tetap lokal. Reopen model tetap perlu lock/transaksi terarah pada batch berikutnya. | `CODE_PASS` | `AUTO_PASS` | `BLOCKED` | Batch 154: tiga writer berhenti sebelum payload/model bila method/token salah; form asli dan negative RBAC diuji. UAT akun finance nyata, serta atomicity reopen di model, belum diklaim selesai. |
 
 ### 0.4 Checklist rollout UI 8.3
 
@@ -166,7 +168,7 @@ sudah berjalan. `DITUNDA` berarti keputusan penundaan memang disengaja.
 | ID | Klasifikasi | Pekerjaan yang belum tertutup | Alasan/status nyata | Rencana tindak lanjut |
 | --- | --- | --- | --- | --- |
 | `GAP-01` | `IN_PROGRESS` | Penutupan A0: credential produksi, rotasi secret, recovery Git, dan pemisahan runtime data customer. | Credential DB dan runtime index/package lulus Batch 146; cutoff commit/tag lokal dibuat Batch 147. Source masih shallow, cutoff belum dipush, secret lama belum dirotasi, dan off-site encryption belum aktif. | Verifikasi lalu push cutoff atas perintah owner, tetapkan strategi full-history, dan rotasi secret pada cutover terjadwal; jangan menghapus runtime staging. |
-| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; formulir publik lulus Batch 152 dan CSRF empat writer ulasan admin lulus Batch 153. Acceptance fase belum lengkap. | Berikutnya step-up aksi sensitif, dimulai dengan memeriksa alur void/refund/reopen dan approval yang sudah ada. Owner meninjau baseline tanpa reset izin otomatis; UAT admin/QR/proxy/APK tetap perlu. |
+| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, step-up/MFA, atomicity reopen finance, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; formulir publik/CSRF admin lulus Batch 152–153; Batch 154 mengunci tiga writer Tutup Periode Keuangan. Acceptance fase belum lengkap. | Berikutnya perbaiki lock/transaksi reopen periode, lalu telaah approval void/refund/reopen untuk step-up. Owner meninjau baseline tanpa reset izin otomatis; UAT finance/admin/QR/proxy/APK tetap perlu. |
 | `GAP-03` | `TERLEWAT` | P2 bisnis A2: uang makan slip payroll dan running balance rekening backdate. | Belum mendapat batch khusus walaupun pekerjaan bergerak ke A3–A5. | Audit aturan bisnis, buat fixture, lalu minta acceptance finance sebelum implementasi. |
 | `GAP-04` | `TERLEWAT` | A3.2 rollout UI 8.3 gelombang 2 dan 4–9 serta visual UAT. | Fondasi UI dan sidebar selesai, tetapi migrasi halaman tidak pernah ditutup per wave. | Kembali ke checklist UI 8.3 gelombang 01–09 setelah fondasi A5; satu rumpun per batch, bukan rewrite besar. |
 | `GAP-05` | `TERLEWAT_OPERASIONAL` | UAT browser role, APK/device, printer fisik, dan updater customer. | Automated tooling A4 lulus tetapi tidak menggantikan perangkat nyata. | Jalankan setelah kandidat build dan APK siap; bukti UAT harus terikat ke versi artefak. |
@@ -774,7 +776,8 @@ sistem, periksa user-role, dan lakukan post-delete assertion.
 Bagian yang sudah ditangani pada level kode atau smoke:
 
 - Resolver environment/production preflight untuk secret aplikasi dan database.
-- Scoped CSRF pada banyak writer prioritas.
+- Scoped CSRF pada banyak writer prioritas, termasuk draft/close/reopen periode
+  keuangan pada Batch 154.
 - Login throttling atomik, session audit fail-closed, dan kompatibilitas
   timestamp microsecond.
 

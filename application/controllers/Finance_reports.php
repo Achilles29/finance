@@ -3,6 +3,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Finance_reports extends MY_Controller
 {
+    private const PERIOD_CLOSE_CSRF_KEY = 'finance_period_close_csrf';
+
     public function __construct()
     {
         parent::__construct();
@@ -381,6 +383,8 @@ class Finance_reports extends MY_Controller
     public function period_close()
     {
         $this->require_permission('finance.period_close.index', 'view');
+        $csrf = $this->period_close_csrf();
+        $this->output->set_header('Cache-Control: private, no-store');
 
         $filters = [
             'q' => trim((string)$this->input->get('q', true)),
@@ -399,6 +403,9 @@ class Finance_reports extends MY_Controller
             'page_title' => 'Tutup Periode Keuangan',
             'active_menu' => 'finance.period_close',
             'filters' => $filters,
+            'period_close_csrf' => $csrf,
+            'can_create' => $this->can('finance.period_close.index', 'create'),
+            'can_edit' => $this->can('finance.period_close.index', 'edit'),
             'pg' => $pg,
             'rows' => $rows,
             'summary' => $summary,
@@ -412,12 +419,17 @@ class Finance_reports extends MY_Controller
         $row = $this->Finance_report_model->get_period_close_detail((int)$id);
         if (!$row) {
             show_404();
+            return;
         }
 
+        $csrf = $this->period_close_csrf();
+        $this->output->set_header('Cache-Control: private, no-store');
         $this->render('finance/period_close_detail', [
             'page_title' => 'Detail Tutup Periode',
             'active_menu' => 'finance.period_close',
             'row' => $row,
+            'period_close_csrf' => $csrf,
+            'can_edit' => $this->can('finance.period_close.index', 'edit'),
             'snapshot_rows' => $this->Finance_report_model->list_period_close_snapshots((int)$id),
             'metric_rows' => $this->Finance_report_model->list_period_close_metrics((int)$id),
             'snapshot_summary' => $this->Finance_report_model->summarize_period_close_snapshots((int)$id),
@@ -427,39 +439,84 @@ class Finance_reports extends MY_Controller
 
     public function period_close_store()
     {
-        if ($this->input->method() !== 'post') {
-            show_404();
+        $this->require_permission('finance.period_close.index', 'create');
+        if (!$this->require_period_close_csrf()) {
+            return;
         }
 
-        $this->require_permission('finance.period_close.index', 'create');
-        $result = $this->Finance_report_model->save_period_close($this->input->post(NULL, true) ?: [], $this->actor_user_id());
+        $payload = $this->input->post(NULL, true) ?: [];
+        unset($payload[self::PERIOD_CLOSE_CSRF_KEY]);
+        $result = $this->Finance_report_model->save_period_close($payload, $this->actor_user_id());
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal menyimpan draft tutup periode.'));
         redirect('finance-reports/period-close');
     }
 
     public function period_close_process($id = 0)
     {
-        if ($this->input->method() !== 'post') {
-            show_404();
+        $this->require_permission('finance.period_close.index', 'edit');
+        if (!$this->require_period_close_csrf()) {
+            return;
         }
 
-        $this->require_permission('finance.period_close.index', 'edit');
         $result = $this->Finance_report_model->close_period((int)$id, $this->actor_user_id());
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal memproses close period.'));
-        $redirectTo = trim((string)$this->input->post('redirect_to', true));
-        redirect($redirectTo !== '' ? $redirectTo : 'finance-reports/period-close');
+        // Both official forms return to this document; never trust a posted URL.
+        redirect('finance-reports/period-close/detail/' . (int)$id);
     }
 
     public function period_close_reopen($id = 0)
     {
-        if ($this->input->method() !== 'post') {
-            show_404();
+        $this->require_permission('finance.period_close.index', 'edit');
+        if (!$this->require_period_close_csrf()) {
+            return;
         }
 
-        $this->require_permission('finance.period_close.index', 'edit');
         $result = $this->Finance_report_model->reopen_period((int)$id, $this->actor_user_id());
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal membuka ulang period close.'));
         redirect('finance-reports/period-close/detail/' . (int)$id);
+    }
+
+    private function period_close_csrf(): array
+    {
+        $token = $this->session->userdata(self::PERIOD_CLOSE_CSRF_KEY);
+        if (!is_string($token) || preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::PERIOD_CLOSE_CSRF_KEY, $token);
+        }
+        return ['name' => self::PERIOD_CLOSE_CSRF_KEY, 'value' => $token];
+    }
+
+    private function require_period_close_csrf(): bool
+    {
+        $this->output->set_header('Cache-Control: private, no-store');
+        if ($this->input->method(true) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->reject_period_close_request(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $provided = $this->input->post(self::PERIOD_CLOSE_CSRF_KEY, false);
+        $expected = $this->session->userdata(self::PERIOD_CLOSE_CSRF_KEY);
+        if (!is_string($provided) || !is_string($expected)
+            || preg_match('/\A[0-9a-f]{64}\z/D', $provided) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $expected) !== 1
+            || !hash_equals($expected, $provided)
+        ) {
+            $this->reject_period_close_request(403, 'Sesi formulir tidak valid. Muat ulang halaman Tutup Periode Keuangan, lalu coba lagi.');
+            return false;
+        }
+        return true;
+    }
+
+    private function reject_period_close_request(int $status, string $message): void
+    {
+        if ($this->input->is_ajax_request()) {
+            $this->output->set_status_header($status)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => $message], JSON_INVALID_UTF8_SUBSTITUTE));
+            return;
+        }
+        show_error($message, $status, 'Tutup Periode Keuangan');
     }
 
     public function targets()

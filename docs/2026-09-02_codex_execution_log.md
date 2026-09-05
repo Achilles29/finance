@@ -5086,3 +5086,66 @@
   acceptance A1 tanpa mengubah data mismatch historis.
 - Penyerahan: commit lokal sesudah `f0b3ce4`, tanpa push; ringkasan penyelesaian
   dikirim ke Telegram Namua setelah commit.
+
+## Batch 154 — CSRF Tutup Periode Keuangan
+
+- Waktu/tanggal: 2026-09-05, validasi akhir 21:25 WIB.
+- Prioritas: P0 / AUD-A1-FIN-01 baru, temuan ketika menelaah reopen/approval
+  tindakan sensitif setelah Batch 153. Scope hanya draft, close, dan reopen
+  periode keuangan web; tidak menyentuh POS Mobile, void/refund, data period,
+  atau aturan izin owner.
+- Diskusi/arah: fixer tunggal. Tiga writer sudah memakai login dan permission,
+  tetapi belum mempunyai CSRF scoped. Aksi close juga menerima `redirect_to`
+  dari POST. Pengamanan method/token dan redirect lokal diterapkan dulu;
+  atomicity model reopen sengaja dicatat sebagai batch berikutnya, bukan
+  digabung menjadi rewrite finance besar.
+- File berubah:
+  - `application/controllers/Finance_reports.php`.
+  - `application/views/finance/period_close_index.php` dan
+    `application/views/finance/period_close_detail.php`.
+  - `tools/tests/finance_period_close_csrf_smoke.php` (baru),
+    `finance_quality_gate.php`, dan `finance_quality_gate_contract_smoke.php`.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Simpan draft, proses close, dan reopen kini mempertahankan permission
+    create/edit yang ada, lalu wajib POST serta token CSRF sesi khusus periode
+    sebelum payload atau model dibaca. Token tidak menggunakan token POS dan
+    halaman/respons diberi no-store.
+  - Tombol dan form hanya dirender sesuai izin create/edit yang sudah berlaku;
+    token tersembunyi disertakan pada setiap form mutasi resmi. Pemakai view
+    tidak lagi melihat tombol yang tidak dapat dipakai.
+  - Redirect sesudah close selalu menuju detail periode yang diproses. Nilai
+    `redirect_to` dari POST tidak lagi digunakan, sehingga tidak dapat
+    mengarahkan pengguna keluar dari aplikasi atau ke dokumen lain.
+  - Pesan token kedaluwarsa menyarankan reload halaman Tutup Periode Keuangan.
+    Tidak ada perubahan status close/reopen nyata selama batch ini.
+- SQL/runtime: **tidak ada SQL baru**, migration, query tulis staging, perubahan
+  schema/data, credential, RBAC/sidebar, atau konfigurasi runtime. Composer
+  tidak berubah sehingga `composer validate` tidak relevan.
+- Validasi:
+  - `php -l` untuk enam file PHP berubah/baru dan `git diff --check` lulus.
+  - Smoke baru 685 pemeriksaan lulus dengan controller dan form view asli:
+    GET/PUT/DELETE, token hilang/salah/array, Ajax/non-Ajax, RBAC negatif,
+    token stabil multi-tab, redirect/actor yang dipalsukan, dan form sesuai
+    izin/status diuji tanpa database atau period nyata.
+  - Kontrak Finance 20, kontrak quality gate 27, roadmap consistency 22, dan
+    dashboard roadmap 30 pemeriksaan lulus.
+  - Quality gate `parallel`: required 55/55, development 4/4, release 1/1,
+    preflight 1/1 lulus. Runtime/security/static/staging serta UAT browser
+    nyata tetap di luar klaim profil ini.
+  - HTTP staging tanpa sesi pada tiga endpoint menghasilkan 303 ke login.
+    Ini membuktikan login gate, bukan UAT create/edit atau bukti mutasi berhasil;
+    tidak ada POST terautentikasi ataupun perubahan period dilakukan.
+- Review akhir fixer tunggal: layak untuk patch terarah ini. CSRF diperiksa
+  setelah permission dan sebelum payload/model; token scoped tidak mencampuri
+  modul lain. `AUD-A1-FIN-01` menjadi CODE_PASS/AUTO_PASS untuk boundary
+  controller, tetapi release tetap BLOCKED.
+- Risiko sisa: `Finance_report_model::reopen_period()` masih perlu lock dan
+  transaksi terarah serta harus membedakan kegagalan write; UAT finance dengan
+  akun create/edit/view nyata belum dilakukan. Step-up/reauth untuk void,
+  refund, reopen, adjustment, dan reprint masih belum dibangun.
+- Batch berikutnya: perbaiki atomicity reopen periode keuangan secara kecil dan
+  teruji, lalu kembali ke telaah desain step-up aksi sensitif tanpa mengubah
+  baseline izin maupun data historis.
+- Penyerahan: commit lokal sesudah `56f1072`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

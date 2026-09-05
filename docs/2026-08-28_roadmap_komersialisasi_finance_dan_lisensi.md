@@ -18,6 +18,10 @@ pengelolaan ulasan/QR admin. Persyaratan runtime single-server serta sisa UAT
 berada di P2-06 `_30`;
 ini perbaikan fondasi, bukan modul lisensi atau kenaikan status siap jual.
 
+Batch 154 mengamankan mutasi Tutup Periode Keuangan dari request palsu dan
+redirect kiriman pengguna. Detail sisa atomicity reopen serta acceptance finance
+tetap berada di `_30`; status komersialisasi tidak berubah.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 

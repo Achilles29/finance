@@ -2,6 +2,9 @@
 $filters = is_array($filters ?? null) ? $filters : [];
 $rows = is_array($rows ?? null) ? $rows : [];
 $summary = is_array($summary ?? null) ? $summary : [];
+$csrf = is_array($period_close_csrf ?? null) ? $period_close_csrf : [];
+$canCreate = !empty($can_create);
+$canEdit = !empty($can_edit);
 $pg = is_array($pg ?? null) ? $pg : ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $baseUrl = site_url('finance-reports/period-close');
 $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl) {
@@ -104,7 +107,7 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
           <h5 class="mb-1">Daftar Period Close</h5>
           <div class="small text-muted">Period close bulanan dan tahunan akan menjadi jangkar laporan yang sudah dibekukan.</div>
         </div>
-        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#periodCloseModal">Buat Draft Period</button>
+        <?php if ($canCreate): ?><button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#periodCloseModal">Buat Draft Period</button><?php endif; ?>
       </div>
 
       <form method="get" class="row g-2 align-items-end mb-3">
@@ -173,12 +176,12 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
                   <td class="text-end">
                     <a href="<?php echo site_url('finance-reports/period-close/detail/' . (int)$row['id']); ?>" class="btn btn-sm btn-outline-secondary">Detail</a>
                     <?php $status = strtoupper((string)($row['status'] ?? '')); ?>
-                    <?php if (in_array($status, ['OPEN', 'REOPENED'], true)): ?>
+                    <?php if ($canEdit && in_array($status, ['OPEN', 'REOPENED'], true)): ?>
                       <form method="post" action="<?php echo site_url('finance-reports/period-close/process/' . (int)$row['id']); ?>" onsubmit="return confirm('Proses tutup periode ini sekarang? Snapshot lama untuk draft ini akan ditimpa.');">
-                        <input type="hidden" name="redirect_to" value="<?php echo html_escape(site_url('finance-reports/period-close/detail/' . (int)$row['id'])); ?>">
+                        <input type="hidden" name="<?php echo html_escape((string)($csrf['name'] ?? '')); ?>" value="<?php echo html_escape((string)($csrf['value'] ?? '')); ?>">
                         <button type="submit" class="btn btn-sm btn-primary">Proses Close</button>
                       </form>
-                    <?php else: ?>
+                    <?php elseif (!in_array($status, ['OPEN', 'REOPENED'], true)): ?>
                       <span class="small text-muted">Sudah dikunci</span>
                     <?php endif; ?>
                   </td>
@@ -201,10 +204,12 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
   </div>
 </div>
 
+<?php if ($canCreate): ?>
 <div class="modal fade" id="periodCloseModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content">
       <form method="post" action="<?php echo site_url('finance-reports/period-close/store'); ?>">
+        <input type="hidden" name="<?php echo html_escape((string)($csrf['name'] ?? '')); ?>" value="<?php echo html_escape((string)($csrf['value'] ?? '')); ?>">
         <div class="modal-header">
           <h5 class="modal-title">Buat Draft Period Close</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
@@ -247,3 +252,4 @@ $buildUrl = static function (array $overrides = []) use ($filters, $pg, $baseUrl
     </div>
   </div>
 </div>
+<?php endif; ?>

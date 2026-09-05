@@ -5,7 +5,8 @@ $metricRows = is_array($metric_rows ?? null) ? $metric_rows : [];
 $snapshotSummary = is_array($snapshot_summary ?? null) ? $snapshot_summary : [];
 $metricSummary = is_array($metric_summary ?? null) ? $metric_summary : [];
 $status = strtoupper((string)($row['status'] ?? 'OPEN'));
-$detailUrl = site_url('finance-reports/period-close/detail/' . (int)($row['id'] ?? 0));
+$csrf = is_array($period_close_csrf ?? null) ? $period_close_csrf : [];
+$canEdit = !empty($can_edit);
 ?>
 
 <style>
@@ -65,13 +66,14 @@ $detailUrl = site_url('finance-reports/period-close/detail/' . (int)($row['id'] 
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <a href="<?php echo site_url('finance-reports/period-close'); ?>" class="btn btn-outline-secondary">Kembali ke daftar</a>
-      <?php if (in_array($status, ['OPEN', 'REOPENED'], true)): ?>
+      <?php if ($canEdit && in_array($status, ['OPEN', 'REOPENED'], true)): ?>
         <form method="post" action="<?php echo site_url('finance-reports/period-close/process/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('Proses tutup periode ini sekarang? Snapshot lama untuk draft ini akan ditimpa.');">
-          <input type="hidden" name="redirect_to" value="<?php echo html_escape($detailUrl); ?>">
+          <input type="hidden" name="<?php echo html_escape((string)($csrf['name'] ?? '')); ?>" value="<?php echo html_escape((string)($csrf['value'] ?? '')); ?>">
           <button type="submit" class="btn btn-primary">Proses Close</button>
         </form>
-      <?php elseif ($status === 'CLOSED'): ?>
+      <?php elseif ($canEdit && $status === 'CLOSED'): ?>
         <form method="post" action="<?php echo site_url('finance-reports/period-close/reopen/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('Buka ulang period ini? Setelah itu Anda bisa close ulang untuk rebuild snapshot.');">
+          <input type="hidden" name="<?php echo html_escape((string)($csrf['name'] ?? '')); ?>" value="<?php echo html_escape((string)($csrf['value'] ?? '')); ?>">
           <button type="submit" class="btn btn-warning">Reopen</button>
         </form>
       <?php endif; ?>
