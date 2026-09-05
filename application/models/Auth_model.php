@@ -507,15 +507,24 @@ class Auth_model extends CI_Model
      */
     public function load_permissions(int $user_id): array
     {
+        return $this->preview_permissions($user_id);
+    }
+
+    /** Read-only resolver: NULL uses live assignments; [] previews no roles. */
+    public function preview_permissions(int $user_id, ?array $preview_role_ids = null, bool $include_overrides = true): array
+    {
         // 1. Cek apakah user SUPERADMIN
-        $is_superadmin = $this->_has_superadmin_role($user_id);
+        $is_superadmin = $this->_has_superadmin_role($user_id, $preview_role_ids);
 
         if ($is_superadmin) {
             return ['__superadmin__' => true];
         }
 
         // 2. Gabungkan izin dari semua role (OR)
-        $perms = $this->_get_role_permissions($user_id);
+        $perms = $this->_get_role_permissions($user_id, $preview_role_ids);
+        if (!$include_overrides) {
+            return $perms;
+        }
 
         // 3. Terapkan override GRANT
         $grants = $this->_get_overrides($user_id, 'GRANT');
@@ -557,6 +566,12 @@ class Auth_model extends CI_Model
      */
     public function resolve_division_scope(int $user_id): array
     {
+        return $this->preview_division_scope($user_id);
+    }
+
+    /** Read-only scope preview; the live method keeps its original public signature. */
+    public function preview_division_scope(int $user_id, ?array $preview_role_ids = null): array
+    {
         $resolved = [
             'state'       => 'NONE',
             'division_id' => null,
@@ -566,12 +581,15 @@ class Auth_model extends CI_Model
             return $resolved;
         }
 
-        $rows = $this->db
-            ->select('r.division_scope_id')
-            ->from('auth_user_role ur')
-            ->join('auth_role r', 'r.id = ur.role_id')
-            ->where('ur.user_id', $user_id)
-            ->where('r.is_active', 1)
+        $this->db->select('r.division_scope_id');
+        if ($preview_role_ids === null) {
+            $this->db->from('auth_user_role ur')
+                ->join('auth_role r', 'r.id = ur.role_id')
+                ->where('ur.user_id', $user_id);
+        } else {
+            $this->db->from('auth_role r')->where_in('r.id', $preview_role_ids ?: [0]);
+        }
+        $rows = $this->db->where('r.is_active', 1)
             ->get()
             ->result_array();
 
@@ -633,26 +651,35 @@ class Auth_model extends CI_Model
         return $resolved['state'] === 'SINGLE' ? (int)$resolved['division_id'] : null;
     }
 
-    private function _has_superadmin_role(int $user_id): bool
+    private function _has_superadmin_role(int $user_id, ?array $preview_role_ids = null): bool
     {
         $this->db->select('1');
-        $this->db->from('auth_user_role ur');
-        $this->db->join('auth_role r', 'r.id = ur.role_id');
-        $this->db->where('ur.user_id', $user_id);
+        if ($preview_role_ids === null) {
+            $this->db->from('auth_user_role ur');
+            $this->db->join('auth_role r', 'r.id = ur.role_id');
+            $this->db->where('ur.user_id', $user_id);
+        } else {
+            $this->db->from('auth_role r')->where_in('r.id', $preview_role_ids ?: [0]);
+        }
         $this->db->where('r.role_code', 'SUPERADMIN');
         $this->db->where('r.is_active', 1);
         $this->db->limit(1);
         return (bool) $this->db->get()->num_rows();
     }
 
-    private function _get_role_permissions(int $user_id): array
+    private function _get_role_permissions(int $user_id, ?array $preview_role_ids = null): array
     {
         $this->db->select('p.page_code, rp.can_view, rp.can_create, rp.can_edit, rp.can_delete, rp.can_export');
-        $this->db->from('auth_user_role ur');
-        $this->db->join('auth_role r', 'r.id = ur.role_id');
-        $this->db->join('auth_role_permission rp', 'rp.role_id = ur.role_id');
+        if ($preview_role_ids === null) {
+            $this->db->from('auth_user_role ur');
+            $this->db->join('auth_role r', 'r.id = ur.role_id');
+            $this->db->join('auth_role_permission rp', 'rp.role_id = ur.role_id');
+            $this->db->where('ur.user_id', $user_id);
+        } else {
+            $this->db->from('auth_role r')->where_in('r.id', $preview_role_ids ?: [0]);
+            $this->db->join('auth_role_permission rp', 'rp.role_id = r.id');
+        }
         $this->db->join('sys_page p', 'p.id = rp.page_id');
-        $this->db->where('ur.user_id', $user_id);
         $this->db->where('r.is_active', 1);
         $this->db->where('p.is_active', 1);
         $rows = $this->db->get()->result_array();

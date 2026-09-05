@@ -332,6 +332,64 @@ class Users extends MY_Controller
     }
 
     // ---------------------------------------------------------------
+    // READ-ONLY ACCESS INSPECTOR
+    // ---------------------------------------------------------------
+
+    public function access_audit(int $id = 0): void
+    {
+        $this->require_permission(self::PAGE_INDEX, 'view');
+        $this->require_permission(self::PAGE_PERMS, 'view');
+        $this->output->set_header('Cache-Control: private, no-store');
+        $this->output->set_header('X-Robots-Tag: noindex, nofollow');
+        if ($this->input->method(true) !== 'GET') {
+            show_error('Gunakan halaman simulasi melalui metode GET.', 405);
+            return;
+        }
+        $this->load->model('Access_audit_model');
+        $users = $this->User_model->get_all();
+        $roleIds = null;
+        $query = $this->input->get(null, false) ?: [];
+        if ($id === 0 && isset($query['user_id']) && is_scalar($query['user_id'])) {
+            $id = max(0, (int)$query['user_id']);
+        }
+        if (isset($query['preview']) && $query['preview'] === '1') {
+            $roleIds = $query['role_ids'] ?? [];
+            if (!is_array($roleIds) || count($roleIds) > 100) {
+                show_error('Pilihan role tidak valid.', 400);
+                return;
+            }
+        }
+        $report = null;
+        if ($id > 0) {
+            try {
+                $report = $this->Access_audit_model->report($id, $roleIds);
+            } catch (InvalidArgumentException $e) {
+                show_error('Pilihan role tidak valid. Muat ulang halaman simulasi.', 400);
+                return;
+            }
+            if ($report === null) {
+                show_404();
+                return;
+            }
+        }
+        $tab = is_string($query['tab'] ?? null) ? $query['tab'] : 'access';
+        if (!in_array($tab, ['access', 'changes', 'roles', 'baseline'], true)) {
+            $tab = 'access';
+        }
+        $search = is_string($query['q'] ?? null) ? mb_substr(trim($query['q']), 0, 100) : '';
+        $module = is_string($query['module'] ?? null) ? mb_substr($query['module'], 0, 60) : '';
+        if ($tab === 'baseline') {
+            $module = '';
+        }
+        $this->render('users/access_audit', [
+            'title' => 'Simulasi Akses Pengguna', 'active_menu' => 'sys.users',
+            'audit_users' => $users, 'report' => $report, 'tab' => $tab,
+            'search' => $search, 'module' => $module,
+            'page' => max(1, (int)(is_scalar($query['page'] ?? 1) ? ($query['page'] ?? 1) : 1)),
+        ]);
+    }
+
+    // ---------------------------------------------------------------
     // PRIVATE HELPERS
     // ---------------------------------------------------------------
 

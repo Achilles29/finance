@@ -833,6 +833,8 @@ $route['pos/terminals/toggle/(:num)'] = 'pos/terminal_toggle/$1';
 
 // Users
 $route['users']                   = 'users/index';
+$route['users/access-audit']      = 'users/access_audit';
+$route['users/access-audit/(:num)'] = 'users/access_audit/$1';
 $route['users/create']            = 'users/create';
 $route['users/store']             = 'users/store';
 $route['users/edit/(:num)']       = 'users/edit/$1';

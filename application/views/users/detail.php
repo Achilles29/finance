@@ -59,6 +59,9 @@ $canPerms = !empty($current_user['is_superadmin']) || !empty($user_perms['auth.u
       <h5 class="fw-bold mb-0 detail-title">Detail User: <span class="text-primary"><?= htmlspecialchars((string)($user['username'] ?? '')) ?></span></h5>
     </div>
     <div class="d-flex gap-2 flex-wrap">
+      <?php if (!empty($current_user['is_superadmin']) || !empty($user_perms['auth.users.permissions']['can_view'])): ?>
+      <a href="<?= base_url('users/access-audit/' . (int)($user['id'] ?? 0)) ?>" class="btn btn-outline-primary">Simulasi Akses</a>
+      <?php endif; ?>
       <?php if ($canManage): ?>
       <a href="<?= base_url('users/edit/' . (int)($user['id'] ?? 0)) ?>" class="btn btn-outline-primary">
         <i class="ri ri-edit-line me-1"></i>Edit

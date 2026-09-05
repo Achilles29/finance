@@ -120,6 +120,9 @@ $buildUserTabUrl = static function (string $tabStatus) use ($searchValue): strin
 <div class="users-index">
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <h5 class="fw-bold mb-0 users-header-title"><i class="ri ri-user-settings-line me-2 text-primary"></i>Manajemen User</h5>
+  <?php if (!empty($current_user['is_superadmin']) || !empty($user_perms['auth.users.permissions']['can_view'])): ?>
+  <a href="<?= base_url('users/access-audit') ?>" class="btn btn-outline-primary">Simulasi Akses</a>
+  <?php endif; ?>
   <?php if ($canCreate): ?>
   <a href="<?= base_url('users/create') ?>" class="btn btn-primary">
     <i class="ri ri-add-line me-1"></i> Tambah User

@@ -4,7 +4,8 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 150 menyamakan scope
+**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 151 menambahkan simulator
+akses dan report selisih permission read-only; Batch 150 menyamakan scope
 multi-role web dan POS Mobile, Batch 149 menambahkan audit trail atomik untuk
 mutasi Master, Batch 148 mengunci inventaris endpoint Master generik, dan Batch
 147 menetapkan cutoff
@@ -82,7 +83,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | `AUD-A1-SEC-01` | P0-01 | P0 / A1 | Endpoint Master belum seluruhnya deny-by-default. | Semua writer/read sensitif memakai permission aksi, scope, method, CSRF, dan negative test. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 82, 84A–C, 91–92, 148–149: 12 endpoint/36 entity terkunci; page Component kanonis dan 35 page unik aktif terbukti; enam writer memakai audit before/after atomik dan redaksi credential. Negative role UAT masih terbuka. |
 | `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 54–68; endpoint sisa dan versioning belum selesai. |
 | `AUD-A1-POS-01` | P0-03 | P0 / A1 | Surface POS Mobile/APK belum seluruhnya terikat terminal/outlet. | Semua endpoint memakai bearer context otoritatif, izin aksi, step-up, dan UAT perangkat. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 73–81, 89a–f, 93, 105–107, 150: token kini memvalidasi ulang role/scope serta membawa konteks division/outlet/terminal; step-up dan UAT APK masih terbuka. |
-| `AUD-A1-RBAC-01` | P0-04 | P0 / A1 | Multi-role dan scope operasional terlalu luas. | Baseline role, precedence multi-role, outlet/division scope, dan negative matrix nyata lulus. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 6/7/150: union izin dan scope fail-closed lulus; 16 user aktif/13 multi-role menghasilkan 0 NONE dan 0 AMBIGUOUS. Baseline hak per jabatan, simulator/drift, dan UAT tetap terbuka. |
+| `AUD-A1-RBAC-01` | P0-04 | P0 / A1 | Multi-role dan scope operasional terlalu luas. | Baseline role, precedence multi-role, outlet/division scope, dan negative matrix nyata lulus. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 6/7/150: union izin dan scope fail-closed lulus. Batch 151: simulator role/user/scope dan report selisih izin tersedia; 22 akun staging cocok dengan resolver aktif. Isi baseline hak per jabatan menunggu owner; UAT tetap terbuka. |
 | `AUD-A1-RBAC-02` | P0-05 | P0 / A1 | Penghapusan role dahulu memakai kolom relasi salah. | Relasi benar, transaksi aman, dan regression test lulus. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 2A. |
 | `AUD-A0-SEC-01` | P0-06 | P0 / A0 | Konfigurasi keamanan belum layak produksi. | External secret contract, cookie/session final, CSRF boundary, rotasi secret, MFA/step-up, dan startup fail-closed. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 146: DB staging pindah ke file privat luar source, production tetap resolver, web/DB dan preflight 0 finding lulus; rotasi secret, cookie/session final, dan MFA tetap terbuka. |
 | `AUD-A0-REPO-01` | P0-07 | P0 / A0+A5 | Backup/repository/runtime data belum sepenuhnya terisolasi. | Recovery Git non-destruktif, storage privat, enkripsi/retention, dan restore berkala. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 146–147 melepas 1.367 payload runtime tanpa menghapus data dan menetapkan cutoff lokal bertag; clone masih shallow, push/full history, temp pack, serta off-site/enkripsi terbuka. |
@@ -163,19 +164,20 @@ sudah berjalan. `DITUNDA` berarti keputusan penundaan memang disengaja.
 | ID | Klasifikasi | Pekerjaan yang belum tertutup | Alasan/status nyata | Rencana tindak lanjut |
 | --- | --- | --- | --- | --- |
 | `GAP-01` | `IN_PROGRESS` | Penutupan A0: credential produksi, rotasi secret, recovery Git, dan pemisahan runtime data customer. | Credential DB dan runtime index/package lulus Batch 146; cutoff commit/tag lokal dibuat Batch 147. Source masih shallow, cutoff belum dipush, secret lama belum dirotasi, dan off-site encryption belum aktif. | Verifikasi lalu push cutoff atas perintah owner, tetapkan strategi full-history, dan rotasi secret pada cutover terjadwal; jangan menghapus runtime staging. |
-| `GAP-02` | `IN_PROGRESS` | Sisa A1: baseline izin per jabatan, simulator/drift permission, public review anti-spam, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile; acceptance fase belum lengkap. | Lanjutkan script simulator/report drift tanpa mereset izin owner, lalu anti-spam dan step-up. POS Mobile dapat disentuh kembali sejak Batch 150. |
+| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, public review anti-spam, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator/report selisih read-only lulus Batch 151; acceptance fase belum lengkap. | Berikutnya anti-spam public review, lalu step-up. Owner dapat meninjau baseline lewat simulator tanpa reset izin otomatis. POS Mobile dapat disentuh kembali sejak Batch 150. |
 | `GAP-03` | `TERLEWAT` | P2 bisnis A2: uang makan slip payroll dan running balance rekening backdate. | Belum mendapat batch khusus walaupun pekerjaan bergerak ke A3–A5. | Audit aturan bisnis, buat fixture, lalu minta acceptance finance sebelum implementasi. |
 | `GAP-04` | `TERLEWAT` | A3.2 rollout UI 8.3 gelombang 2 dan 4–9 serta visual UAT. | Fondasi UI dan sidebar selesai, tetapi migrasi halaman tidak pernah ditutup per wave. | Kembali ke checklist UI 8.3 gelombang 01–09 setelah fondasi A5; satu rumpun per batch, bukan rewrite besar. |
 | `GAP-05` | `TERLEWAT_OPERASIONAL` | UAT browser role, APK/device, printer fisik, dan updater customer. | Automated tooling A4 lulus tetapi tidak menggantikan perangkat nyata. | Jalankan setelah kandidat build dan APK siap; bukti UAT harus terikat ke versi artefak. |
 | `GAP-06` | `TERLEWAT_SEBAGIAN` | Telegram inbound `/menu`, `/omzet`, `/belanja` dan allowlist identitas pengirim. | Outbound/queue/webhook/Namua lulus; command inbound belum diterima sebagai UAT. | Uji pada Namua, lalu tambahkan sender allowlist sebelum dipakai pada grup non-tepercaya. |
 | `GAP-07` | `SELESAI_TEKNIS` | Disposition tujuh SQL legacy dan batas jalur updater. | Batch 145 mengunci 1 baseline, 4 enroll, 1 replace, dan 1 retire; seluruh replay legacy serta adopsi ledger palsu ditolak. | Source-line `finance-managed-v1` dapat memakai migration managed; instalasi pre-catalog wajib bridge manual. UAT updater customer tetap `GAP-05`/C3. |
 | `DEFER-01` | `DITUNDA_OWNER` | Repair mismatch component dan anomali transaksi historis. | Pemilik meminta data dibiarkan; script koreksi sudah lulus. | Owner memperbaiki melalui modul; otomatisasi hanya dengan preview dan persetujuan terpisah. |
-| `DEFER-02` | `DITUNDA_TERLINDUNGI` | Sisa perubahan dan UAT POS Mobile/APK. | APK sedang dikembangkan paralel dan file integrasi dilindungi. | Jangan ubah kontrak mobile; lanjut saat pemilik menyerahkan build/acceptance terbaru. |
+| `DEFER-02` | `PENUNDAAN_DICABUT` | UAT POS Mobile/APK pada build terbaru. | Owner mengizinkan perubahan mobile kembali sebelum Batch 150; penundaan script lama tidak berlaku lagi. UAT perangkat tetap belum selesai. | Perubahan mobile boleh dalam batch terarah dengan regression test; jaga kompatibilitas kontrak APK. UAT build nyata mengikuti GAP-05. |
 | `DEFER-03` | `DITUNDA_OWNER` | Migrasi/arsip PH lama dan receipt purchase historis. | Perubahan data historis berisiko dan membutuhkan keputusan owner. | Tetap read-only sampai aturan arsip/repair disetujui. |
 
 **Urutan recovery yang berlaku:** `GAP-01` deployment/repo →
-`GAP-02` A1 non-mobile dan `GAP-03` A2 bisnis → `GAP-04` UI per rumpun →
-`GAP-05` UAT terikat artefak. `DEFER-01`–`03` tidak dikerjakan otomatis.
+`GAP-02` A1 web/mobile dan `GAP-03` A2 bisnis → `GAP-04` UI per rumpun →
+`GAP-05` UAT terikat artefak. Repair data `DEFER-01` dan `DEFER-03` tidak
+dikerjakan otomatis; penundaan script `DEFER-02` telah dicabut owner.
 
 ### 0.7 Ringkasan historis temuan (bukan sumber status)
 
@@ -200,7 +202,8 @@ control board 0.2–0.6, control board yang berlaku.
   ditutup.
 - `[~]` P0-04 — multi-role dan scope: filter role nonaktif, union izin, serta
   fail-closed scope web/mobile sudah lulus negative test dan probe staging.
-  Baseline izin per jabatan, simulator/drift, dan UAT role masih terbuka.
+  Simulator akses/report selisih sudah tersedia pada Batch 151. Isi baseline
+  izin per jabatan dan UAT role masih terbuka.
 - `[x]` P0-05 — penghapusan permission role memakai relasi yang benar dan
   sudah diuji pada Batch 2A.
 - `[~]` P0-06 — boundary secret, production preflight, session audit, login
@@ -662,8 +665,10 @@ risiko historis pada jalur lama, bukan alasan untuk menganggap patch tersebut
 belum ada. Batch 150 menerapkan resolver yang sama pada login, bearer token, dan
 sesi POS Mobile. Probe staging membuktikan 16 user aktif (13 multi-role), 3
 superadmin, 3 global, 10 single, serta 0 `NONE`/`AMBIGUOUS`; dua user dengan
-token mobile aktif juga mempunyai scope valid. Yang masih terbuka adalah
-baseline izin per jabatan, simulator/report drift, step-up, dan UAT.
+token mobile aktif juga mempunyai scope valid. Batch 151 menambahkan simulator
+akses dan report selisih permission; 22 akun (aktif/nonaktif) pada 200 halaman
+aktif staging cocok dengan resolver login. Yang masih terbuka adalah persetujuan
+isi baseline izin per jabatan, step-up, dan UAT.
 
 Jumlah izin saat ini:
 
@@ -703,14 +708,49 @@ Catatan historis yang menjadi alasan perbaikan:
 
 **Perbaikan wajib:**
 
-1. Definisikan role dari tugas user, bukan menyalin role luas lalu menambah.
-2. Seed harus bersifat konvergen: menambah hak yang benar dan mencabut hak yang
-   sudah tidak benar.
-3. Multi-role harus memakai union permission tetapi scope outlet/divisi harus
-   eksplisit, tidak boleh null berarti bebas.
-4. Pisahkan permission operasional, approval, correction, system, dan audit.
-5. Sediakan halaman simulasi: pilih user lalu lihat menu, URL, dan scope efektif.
-6. Sediakan report permission drift antara baseline paket dan database customer.
+1. `[ ]` Definisikan baseline role dari tugas user; keputusan izin tetap milik
+   owner. Tidak melakukan reset role pelanggan secara otomatis.
+2. `[ ]` Setelah baseline disetujui, siapkan preview seed konvergen dan
+   persetujuan perubahan; jangan mencabut izin bisnis tanpa review owner.
+3. `[x]` Union permission dan state scope eksplisit/fail-closed web/mobile
+   tersedia; acceptance UAT tetap dicatat terpisah di control board.
+4. `[~]` Pemisahan permission operasional, approval, correction, system, dan
+   audit masih membutuhkan acceptance baseline per jabatan.
+5. `[x]` Batch 151: halaman simulasi user, kombinasi role, menu/URL, scope,
+   dampak simulasi, dan pengecualian izin per user.
+6. `[~]` Batch 151: mesin report selisih baseline paket vs database tersedia.
+   Baseline belum disetujui, sehingga UI menampilkan **belum dinilai**, bukan
+   mengklaim nihil selisih atau menganggap izin owner salah.
+
+**Cara memakai simulator:**
+
+- Buka **Manajemen User → Simulasi Akses**, pilih pengguna, lalu **Periksa Akses**.
+- Tab **Akses Efektif** menampilkan izin per halaman dan menu yang dapat tampil;
+  tersedia pencarian, filter modul, serta paginasi 25 baris.
+- Tab **Role & Scope**: centang kombinasi role lalu **Hitung Simulasi**.
+  Tab **Perbandingan** menunjukkan dampaknya serta pengecualian izin user.
+  Semua ini baca-saja: tidak menyimpan role, mengubah sesi, atau login sebagai
+  pengguna lain. **Kembali ke Akses Saat Ini** membatalkan tampilan simulasi.
+- Tab **Baseline Paket** membandingkan role aktual, bukan kombinasi simulasi.
+  Jumlah izin bukan penentu benar/salah; akses per dokumen/outlet/perangkat
+  masih tunduk pada pemeriksaan masing-masing modul.
+- Akses halaman memakai izin lihat `auth.users.index` dan
+  `auth.users.permissions` yang sudah ada. Tidak ada SQL/sidebar baru;
+  pintu masuk berada di daftar dan detail user.
+
+**Kontrak baseline untuk pengelola aplikasi:**
+
+- File versi Git: `application/config/rbac_permission_baseline.json`.
+  Awal `approved: false`, `roles: {}`; jangan menyalin izin aktif lalu otomatis
+  menandainya disetujui. Ini acuan audit RBAC, bukan enforcement lisensi.
+- Format: `schema_version: 1`, `approved: true` hanya setelah persetujuan owner,
+  `label` teks, `roles` dipetakan dari `role_code` → `page_code` → flag
+  `can_view`, `can_create`, `can_edit`, `can_delete`, `can_export` bernilai 0/1.
+  Hanya role yang disebut dalam baseline dinilai; halaman/aksi yang tidak
+  disebut **pada role tersebut** dianggap tidak diizinkan. Role lain ditandai
+  belum dinilai. Superadmin aktif tetap dihitung akses penuh sesuai resolver.
+- Uji fixture tanpa DB staging: `php tools/tests/access_simulator_smoke.php`.
+  Uji read-only staging: `CI_ENV=staging php tools/tests/access_simulator_smoke.php --staging`.
 
 ### P0-05. Penghapusan role salah kolom — selesai pada batch prioritas
 

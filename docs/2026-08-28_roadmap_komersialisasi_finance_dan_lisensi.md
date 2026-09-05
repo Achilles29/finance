@@ -8,6 +8,11 @@ Snapshot handoff setelah A5.16: `AUDIT_GATE=TECH-HANDOFF-A0-A5`,
 `docs/2026-08-30_audit_total_aplikasi_finance_dan_roadmap_pengembangan.md`;
 dokumen komersialisasi ini tidak mengulang persentase atau checklist A0–A5.
 
+Pembaruan 2026-09-05, Batch 151: alat simulasi akses dan pembandingan baseline
+RBAC sudah tersedia di Finance (detail P0-04 pada `_30`). Isi izin standar per
+jabatan/paket belum disetujui owner; baseline ini bukan entitlement/lisensi
+dan tidak mengubah izin customer. Gerbang komersialisasi tetap `BLOCKED`.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 

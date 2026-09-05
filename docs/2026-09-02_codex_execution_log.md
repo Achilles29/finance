@@ -4880,3 +4880,66 @@
   dan UAT APK/perangkat tetap terbuka.
 - Batch berikutnya: simulator akses dan report permission drift read-only agar
   owner dapat meninjau dampak role/user tanpa mengubah matrix izin.
+
+## Batch 151 — GAP-02 simulator akses dan report selisih permission
+
+- Waktu: 2026-09-05, selesai pemeriksaan utama 20:13 WIB.
+- Prioritas: P0-04/AUD-A1-RBAC-01. Menyediakan alat pemeriksaan dampak role
+  sebelum owner mengubah izin bisnis; bukan mereset matrix role atau membangun
+  License Hub/Control Center.
+- Ringkasan arah dan implementasi: mengikuti pola fixer tunggal yang diminta
+  owner. Resolver permission/scope dipakai bersama oleh jalur aktif dan
+  simulator; mempertahankan signature publik lama untuk kompatibilitas login
+  web/mobile dan turunannya. Simulasi tidak menyimpan role atau sesi.
+- Perubahan utama:
+  - Manajemen User/detail user mendapat tombol **Simulasi Akses**.
+  - Empat tab: Akses Efektif, Perbandingan, Role & Scope, dan Baseline Paket;
+    pencarian/filter modul dan paginasi 25 baris; scope sebelum/sesudah jelas.
+  - Gabungan role aktif, GRANT lalu REVOKE, superadmin, akun nonaktif, scope
+    kosong/konflik, serta menu memakai resolver yang sama dengan aplikasi.
+  - Baseline paket berupa JSON berversi. Default belum disetujui; perbandingan
+    tidak dianggap lulus atau gagal sebelum owner menetapkan acuan izin.
+    Role di luar baseline ditandai belum dinilai, bukan otomatis salah.
+  - Endpoint GET-only, no-store, membutuhkan izin lihat user dan permission
+    user; input dibatasi dan output di-escape. Tidak ada impersonasi.
+- File berubah:
+  - `application/models/Auth_model.php`, `Access_audit_model.php` (baru).
+  - `application/controllers/Users.php`, `application/config/routes.php`.
+  - `application/config/rbac_permission_baseline.json` (baru).
+  - `application/views/users/access_audit.php` (baru), `index.php`, `detail.php`.
+  - `tools/tests/access_simulator_smoke.php` (baru), `finance_quality_gate.php`,
+    `finance_quality_gate_contract_smoke.php`.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- SQL/database: tidak ada SQL/schema baru. Probe staging menggunakan transaksi
+  read-only dan memverifikasi seluruh query laporan adalah SELECT. Hak akses,
+  role, data transaksi, dan credential tidak diubah.
+- Validasi:
+  - PHP lint seluruh 10 file PHP berubah/baru dan `git diff --check` lulus.
+  - Smoke simulator 43 pemeriksaan lulus; memakai model/query builder CI asli
+    dengan fixture SQLite in-memory yang dikunci read-only setelah setup.
+  - Probe staging `CI_ENV=staging ...access_simulator_smoke.php --staging`:
+    46 pemeriksaan, 22 akun aktif/nonaktif, 200 halaman aktif, 0 database write.
+    Preview role aktual identik dengan resolver aktif; preview tanpa role
+    selalu gagal tertutup, termasuk untuk user superadmin yang sebenarnya.
+  - Auth division scope 42, inactive-role smoke, dan login throttle 74 lulus.
+  - Quality gate `parallel`: required 52/52, development 4/4, release 1/1,
+    preflight 1/1 lulus. Runtime/security/static tier tidak dijalankan oleh
+    profil ini; UAT perangkat bukan bagian dari klaim lulus.
+  - Roadmap consistency 22 dan roadmap dashboard 30 lulus. Render Chrome
+    fixture desktop ditinjau; struktur tab disesuaikan agar tetap horizontal
+    dengan CSS aplikasi. Ini bukan pengganti UAT login browser nyata.
+  - Composer tidak berubah, sehingga composer validate tidak diperlukan.
+- Hasil review fixer tunggal: layak untuk batch ini. Regresi awal signature
+  subclass pada smoke throttle diperbaiki dengan mempertahankan signature lama,
+  bukan melemahkan test. Filter modul tidak lagi menyembunyikan hasil ketika
+  pindah ke tab baseline. Batas data pengguna versus simulasi tetap eksplisit.
+- Risiko sisa: isi baseline izin per jabatan menunggu keputusan owner;
+  simulator bukan bukti akses tiap dokumen/outlet/terminal dan tidak menguji
+  transaksi. UAT role/APK, anti-spam public review, serta step-up/MFA masih
+  terbuka. A1 secara keseluruhan **belum selesai**.
+- Catatan roadmap: penundaan edit mobile DEFER-02 lama dicatat telah dicabut
+  owner; repair mismatch/historis DEFER-01/03 tetap tidak dikerjakan otomatis.
+- Batch berikutnya: audit dan penguatan anti-spam endpoint public review,
+  dibatasi pada script/validasi tanpa mengubah izin bisnis atau data mismatch.
+- Penyerahan: commit lokal terpisah untuk pelacakan cutoff; tidak push.
+  Ringkasan penyelesaian dikirim ke Telegram Namua setelah commit.
