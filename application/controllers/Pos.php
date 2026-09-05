@@ -3662,7 +3662,14 @@ public function self_order_tables_print()
     {
         $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'view');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
+        if (!$this->consume_order_reprint_step_up((int)$id, $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $lineScope = strtoupper(trim((string)($payload['line_scope'] ?? 'ALL')));
         $printerId = (int)($payload['printer_id'] ?? 0);
         $directPrint = $this->Pos_model->direct_print_targets_for_order_reprint((int)$id, [
@@ -3678,6 +3685,31 @@ public function self_order_tables_print()
             'line_scope' => $lineScope,
             'printer_id' => $printerId,
             'direct_print_targets' => (array)($directPrint['targets'] ?? []),
+        ]);
+    }
+
+    public function order_reprint_step_up_verify()
+    {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            $this->current_actor_user_id(),
+            'ORDER_REPRINT',
+            $payload['order_id'] ?? null,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
         ]);
     }
 
@@ -6613,6 +6645,22 @@ public function self_order_tables_print()
             $this->current_actor_user_id(),
             $action,
             $payload['order_id'] ?? null,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428), ['step_up_required' => true]);
+            return false;
+        }
+        return true;
+    }
+
+    private function consume_order_reprint_step_up(int $orderId, array $payload): bool
+    {
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            $this->current_actor_user_id(),
+            'ORDER_REPRINT',
+            $orderId,
             $payload['step_up_proof'] ?? null
         );
         if (!($result['ok'] ?? false)) {

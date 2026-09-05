@@ -140,6 +140,7 @@ class PosTransactionCsrfSmokeModel
             'save_cashier_payment',
             'save_order_void',
             'save_order_refund',
+            'direct_print_targets_for_order_reprint',
             'open_cashier_session',
             'close_cashier_session',
             'delete_order_draft',
@@ -234,7 +235,7 @@ class PosTransactionCsrfSmokeStepUp
         $this->calls[] = [(int)$userId, (string)$action, $targetId, $proof];
 
         $valid = (int)$userId === 2
-            && in_array((string)$action, ['VOID', 'REFUND'], true)
+            && in_array((string)$action, ['VOID', 'REFUND', 'ORDER_REPRINT'], true)
             && (int)$targetId === 1701
             && is_string($proof)
             && preg_match('/\A[a-f0-9]{64}\z/D', $proof) === 1;
@@ -569,8 +570,8 @@ pos_transaction_csrf_check(
     'the eight relevant transaction views receive the rendered token'
 );
 pos_transaction_csrf_check(
-    preg_match_all('/\$this->require_pos_transaction_csrf\s*\(\s*\)/', $controllerSource, $matches) === 30,
-    'exactly thirty transaction writers call the scoped guard'
+    preg_match_all('/\$this->require_pos_transaction_csrf\s*\(\s*\)/', $controllerSource, $matches) === 32,
+    'exactly thirty-two transaction writers call the scoped guard'
 );
 
 $actions = [
@@ -588,6 +589,12 @@ $actions = [
         'writer' => '$this->Pos_model->save_order_refund(',
         'extra' => ['$this->Pos_order_monitor_model->sync_order_tasks('],
         'payload' => true,
+    ],
+    'order_reprint_print_targets' => [
+        'writer' => '$this->Pos_model->direct_print_targets_for_order_reprint(',
+        'extra' => [],
+        'payload' => true,
+        'strictOrder' => true,
     ],
     'cashier_open' => [
         'writer' => '$this->Pos_model->open_cashier_session(',
@@ -897,11 +904,13 @@ pos_transaction_csrf_check(
 
 $viewRenderMarkers = [
     'cashier' => [
-        'wrapperCalls' => 9,
+        'wrapperCalls' => 11,
         'targetCalls' => [
             "postPosTransactionJson('<?php echo site_url('pos/orders/payment/save'); ?>', payload)",
             "postPosTransactionJson('<?php echo site_url('pos/orders/draft/save'); ?>', payload)",
             "postPosTransactionJson('<?php echo site_url('pos/orders/draft/save-confirm'); ?>', buildOrderPayload())",
+            "postPosTransactionJson('<?php echo site_url('pos/orders/reprint-step-up/verify'); ?>', {",
+            'postPosTransactionJson(`<?php echo site_url(\'pos/orders/reprint-print-targets\'); ?>/${Number(order.id || 0)}`, {',
             'postPosTransactionJson(saveUrl, payload)',
             "postPosTransactionJson('<?php echo site_url('pos/cashier/open'); ?>', payload)",
             "postPosTransactionJson('<?php echo site_url('pos/cashier/close'); ?>', payload)",
@@ -1072,6 +1081,7 @@ $writerMethodByAction = [
     'order_payment_save' => 'save_cashier_payment',
     'order_void_save' => 'save_order_void',
     'order_refund_save' => 'save_order_refund',
+    'order_reprint_print_targets' => 'direct_print_targets_for_order_reprint',
     'cashier_open' => 'open_cashier_session',
     'cashier_close' => 'close_cashier_session',
     'order_draft_delete' => 'delete_order_draft',
@@ -1089,6 +1099,7 @@ foreach ($writerMethodByAction as $action => $writerMethod) {
     $actionArguments = in_array($action, [
         'order_draft_delete',
         'order_draft_confirm',
+        'order_reprint_print_targets',
         'reservation_verify',
         'self_order_order_verify',
         'self_order_order_reject',
@@ -1099,7 +1110,7 @@ foreach ($writerMethodByAction as $action => $writerMethod) {
         $actionRawInput = '{"verify_destination":"PAID_ORDER","sentinel":true}';
     } elseif (in_array($action, ['self_order_order_reject', 'online_food_order_reject'], true)) {
         $actionRawInput = '{"reason":"  Alasan smoke  ","sentinel":true}';
-    } elseif (in_array($action, ['order_void_save', 'order_refund_save'], true)) {
+    } elseif (in_array($action, ['order_void_save', 'order_refund_save', 'order_reprint_print_targets'], true)) {
         $actionRawInput = '{"order_id":1701,"step_up_proof":"' . str_repeat('a', 64) . '","sentinel":true}';
     } else {
         $actionRawInput = '{"sentinel":true}';

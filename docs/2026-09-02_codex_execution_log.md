@@ -5319,3 +5319,57 @@
   aplikasi mobile.
 - Penyerahan: commit lokal sesudah `abc3d9b`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 158 — Reauth Cetak Ulang Order Kasir web
+
+- Waktu/tanggal: 2026-09-05, validasi akhir 21:59 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01`. Cetak ulang membuat perintah ke printer
+  berdasarkan order yang dipilih. Sebelumnya endpoint web hanya memakai izin
+  view dan dapat menyiapkan target printer tanpa CSRF atau konfirmasi operator
+  yang masih berada di depan kasir.
+- Diskusi/arah: fixer tunggal. Reprint bukan mutasi stok/kas, sehingga matrix
+  izin `view` yang berlaku tidak dinaikkan menjadi role baru. Pengamanan yang
+  ditambahkan adalah CSRF transaksi dan reauth satu-kali khusus action
+  `ORDER_REPRINT`; endpoint maupun kontrak `Pos_mobile.php` tidak diubah.
+- File berubah:
+  - `application/libraries/SensitiveActionStepUp.php`.
+  - `application/config/routes.php`, `application/controllers/Pos.php`.
+  - `application/views/pos/cashier_index.php`.
+  - `tools/tests/pos_reversal_step_up_smoke.php` dan
+    `tools/tests/pos_transaction_csrf_smoke.php`.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Jalur web `pos/orders/reprint-step-up/verify` memakai permission view yang
+    sama, POST+CSRF transaksi, password user aktif, dan proof hash satu-kali.
+  - Endpoint pembuat target printer sekarang juga wajib POST+CSRF dan mengonsumsi
+    proof yang tepat untuk user, order, dan action `ORDER_REPRINT` sebelum
+    memanggil model. Proof tidak diteruskan ke model; password tidak pernah
+    dikirim ke endpoint target printer.
+  - Modal Cetak Ulang Kasir memiliki password masked; nilainya dikosongkan
+    sebelum request proof. Bukti yang valid baru dipakai untuk menyiapkan target
+    dan meneruskan ke Local Printer Agent seperti alur sebelumnya.
+- SQL/runtime: **tidak ada SQL baru**, migration, perubahan schema/data,
+  credential, permission/sidebar, printer configuration, atau query tulis
+  staging. Composer tidak berubah sehingga `composer validate` tidak relevan.
+- Validasi:
+  - `php -l` enam file aplikasi/test berubah lulus; `git diff --check` lulus.
+  - Smoke step-up 50 pemeriksaan lulus: action Reprint, route, endpoint,
+    writer, UI, one-use proof, expiry, limiter, dan backup APK tetap terjaga.
+  - Regresi CSRF POS 1.770 pemeriksaan lulus: endpoint reprint teruji untuk
+    GET/token salah/benar, permission, payload, proof, dan writer target
+    printer. Finance CSRF 707 serta reopen atomik 55 juga lulus.
+  - Quality gate `parallel`: required 57/57, development 4/4, release 1/1,
+    preflight 1/1 lulus. Runtime/security/static/staging tier dan UAT browser,
+    printer fisik, serta APK nyata tetap bukan klaim profil ini.
+- Review akhir fixer tunggal: layak untuk reprint web. Tidak mengubah akses
+  role yang sudah diputuskan, model printer, backup APK, atau endpoint mobile.
+  Reprint lama melalui script web yang belum diperbarui akan ditolak 403/428,
+  sesuai fail-closed; hanya caller resmi Kasir yang telah diperbarui yang dapat
+  menerbitkan proof dan menyiapkan target.
+- Risiko sisa: step-up adjustment, API/APK, MFA, serta UAT finance/kasir dan
+  printer fisik masih terbuka. Limiter per sesi bukan pengganti throttling
+  login atau audit attempt printer.
+- Batch berikutnya: petakan entry writer adjustment yang benar-benar sensitif,
+  lalu tambah reauth secara sempit tanpa menyentuh repair mismatch historis.
+- Penyerahan: commit lokal sesudah `cdd5270`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

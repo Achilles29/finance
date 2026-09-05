@@ -782,6 +782,7 @@ $route['pos/orders/payment/save'] = 'pos/order_payment_save';
 $route['pos/orders/payment/print-targets/(:num)'] = 'pos/order_payment_print_targets/$1';
 $route['pos/orders/receipt-print-targets/(:num)'] = 'pos/order_receipt_print_targets/$1';
 $route['pos/orders/confirm-print-targets/(:num)'] = 'pos/order_confirm_print_targets/$1';
+$route['pos/orders/reprint-step-up/verify'] = 'pos/order_reprint_step_up_verify';
 $route['pos/orders/reprint-print-targets/(:num)'] = 'pos/order_reprint_print_targets/$1';
 $route['pos/orders/void-print-targets/(:num)'] = 'pos/order_void_print_targets/$1';
 $route['pos/orders/refund-print-targets/(:num)'] = 'pos/order_refund_print_targets/$1';

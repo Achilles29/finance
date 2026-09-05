@@ -4,7 +4,8 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 157 menambahkan
+**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 158 menambahkan
+verifikasi ulang password pada Cetak Ulang Order Kasir web; Batch 157 menambahkan
 verifikasi ulang password pada Reopen Periode Keuangan web; Batch 156 menambahkan
 verifikasi ulang satu-kali pada Void Kasir dan Refund Pesanan Terbayar web;
 Batch 155 membuat reopen periode keuangan atomik dengan lock/transaksi; Batch 154 mengamankan tiga
@@ -76,7 +77,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | Fase | Implementasi | Validasi tertinggi | Release/data | Status fase | Alasan/gerbang berikutnya |
 | --- | --- | --- | --- | --- | --- |
 | A0 — baseline/deployment | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `PARTIAL` | Credential DB dan runtime index/package sudah dipisahkan; cutoff lokal `finance-audit-cutoff-2026-09-05` tersedia. Full history, push remote, rotasi secret, off-site encryption, dan cutover customer belum selesai. |
-| A1 — security/RBAC/scope | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `PARTIAL` | Multi-role/scope web-mobile terbukti fail-closed di staging; web Void/Refund/Reopen telah memakai reauth satu-kali, tetapi baseline izin per jabatan, MFA, step-up aksi lain/mobile, dan UAT role/APK belum selesai. |
+| A1 — security/RBAC/scope | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `PARTIAL` | Multi-role/scope web-mobile terbukti fail-closed di staging; web Void/Refund/Reopen/Reprint telah memakai reauth satu-kali, tetapi baseline izin per jabatan, MFA, step-up aksi lain/mobile, dan UAT role/APK belum selesai. |
 | A2 — integritas bisnis/data | `CODE_PASS` | `STAGING_PASS` | `DEFERRED_OWNER` | `OPERATIONAL_PENDING` | Gate kode/query lulus; mismatch historis milik owner dan UAT browser/APK belum `UAT_PASS`. |
 | A3 — navigasi/UI | `IN_PROGRESS` | `STAGING_PASS` | `N/A` | `PARTIAL` | Registry dan fondasi UI lulus; rollout UI 8.3 serta visual UAT belum selesai. |
 | A4 — quality evidence | `CODE_PASS` | `AUTO_PASS` | `BLOCKED` | `TOOLING_PASS` | Tooling selesai, tetapi release nyata tetap diblokir A0 dan UAT fisik. |
@@ -117,7 +118,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | `AUD-A1-SYS-01` | NEW-01 | P0 / A1 | Halaman System Tools dapat mengirim path root, daftar dump, status replication/failover, dan seluruh config kepada satu izin view. | Pecah izin read-sensitive, whitelist field, redaksi path/backup metadata, dan negative test. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 136: hak Export menjadi izin baca sensitif terpisah; View-only mendapat ringkasan tanpa path/metadata; config di-whitelist tanpa password; test DB menjadi POST+CSRF; 18 negative contract dan 74 regression lulus. |
 | `AUD-A1-TG-01` | NEW-02 | P1 / A1+A5 | Laporan internal belum mempunyai kanal Telegram Bot yang terotorisasi dan berjejak. | Target group/channel allowlist, webhook secret, queue idempoten, jadwal, RBAC, CSRF, log, resolusi status tidak pasti, dan worker aman. | `CODE_PASS` | `UAT_PASS` | `BLOCKED` | Batch 132–139: bot, target Namua, outbound/queue/webhook aktif; notifikasi Codex kini membawa ringkasan jawaban akhir yang dibatasi dan disaring tanpa prompt/tool output. Penutupan release tetap menunggu UAT command inbound dan otorisasi per pengirim untuk grup non-tepercaya. |
 | `AUD-A1-FIN-01` | NEW-03 | P0 / A1 | Writer draft, close, dan reopen periode keuangan pernah hanya mengandalkan login/RBAC; redirect proses juga menerima URL kiriman. | Semua mutasi periode wajib izin aksi, POST, CSRF scoped, token tidak bercampur, form mengikuti hak aksi, redirect tetap lokal, serta reopen lock/transaksi dengan update bersyarat. | `CODE_PASS` | `AUTO_PASS` | `BLOCKED` | Batch 154 mengunci boundary controller/form; Batch 155 mengunci row `CLOSED`, rollback gagal lock/write/commit, dan menolak reopen kedua; Batch 157 menambah reauth password sebelum writer reopen. UAT akun finance nyata tetap terbuka. |
-| `AUD-A1-STEP-01` | NEW-04 | P0 / A1 | Tindakan finansial sensitif hanya bergantung pada sesi login/RBAC sehingga transaksi yang ditinggal di perangkat kasir dapat dipakai ulang. | Reauth tidak mengubah matrix izin: password diverifikasi pada endpoint scoped atau form server-side, mengeluarkan proof acak satu-kali yang terikat sesi+user+aksi+dokumen, lalu writer mengonsumsi proof sebelum model. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 156: Void Kasir dan Refund Pesanan Terbayar **web** memakai password masked, CSRF transaksi, proof hash 180 detik, one-use, dan limiter kegagalan lokal sesi. Batch 157 memakai kontrak proof sama untuk Reopen Periode Keuangan web tanpa meneruskan password ke model. Adjustment, reprint, API/APK, MFA, serta UAT per role/perangkat masih terbuka. |
+| `AUD-A1-STEP-01` | NEW-04 | P0 / A1 | Tindakan finansial sensitif hanya bergantung pada sesi login/RBAC sehingga transaksi yang ditinggal di perangkat kasir dapat dipakai ulang. | Reauth tidak mengubah matrix izin: password diverifikasi pada endpoint scoped atau form server-side, mengeluarkan proof acak satu-kali yang terikat sesi+user+aksi+dokumen, lalu writer mengonsumsi proof sebelum model. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 156: Void Kasir dan Refund Pesanan Terbayar **web** memakai password masked, CSRF transaksi, proof hash 180 detik, one-use, dan limiter kegagalan lokal sesi. Batch 157 memakai kontrak proof sama untuk Reopen Periode Keuangan web tanpa meneruskan password ke model. Batch 158 menutup Cetak Ulang Order Kasir web dan menambahkan CSRF sebelum target printer dibuat. Adjustment, API/APK, MFA, serta UAT per role/perangkat masih terbuka. |
 
 ### 0.4 Checklist rollout UI 8.3
 
@@ -172,7 +173,7 @@ sudah berjalan. `DITUNDA` berarti keputusan penundaan memang disengaja.
 | ID | Klasifikasi | Pekerjaan yang belum tertutup | Alasan/status nyata | Rencana tindak lanjut |
 | --- | --- | --- | --- | --- |
 | `GAP-01` | `IN_PROGRESS` | Penutupan A0: credential produksi, rotasi secret, recovery Git, dan pemisahan runtime data customer. | Credential DB dan runtime index/package lulus Batch 146; cutoff commit/tag lokal dibuat Batch 147. Source masih shallow, cutoff belum dipush, secret lama belum dirotasi, dan off-site encryption belum aktif. | Verifikasi lalu push cutoff atas perintah owner, tetapkan strategi full-history, dan rotasi secret pada cutover terjadwal; jangan menghapus runtime staging. |
-| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; formulir publik/CSRF admin lulus Batch 152–153; Batch 154–155 mengunci seluruh alur Tutup Periode Keuangan sampai reopen atomik. Batch 156–157 menutup reauth proof satu-kali pada Void/Refund/Reopen web, tetapi bukan APK atau seluruh tindakan sensitif. Acceptance fase belum lengkap. | Lanjutkan step-up adjustment/reprint per batch kecil dan rancang kontrak APK terpisah. Owner meninjau baseline tanpa reset izin otomatis; UAT finance/admin/QR/proxy/APK tetap perlu. |
+| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; formulir publik/CSRF admin lulus Batch 152–153; Batch 154–155 mengunci seluruh alur Tutup Periode Keuangan sampai reopen atomik. Batch 156–158 menutup reauth proof satu-kali pada Void/Refund/Reopen/Reprint web, tetapi bukan APK atau seluruh tindakan sensitif. Acceptance fase belum lengkap. | Lanjutkan step-up adjustment per batch kecil dan rancang kontrak APK terpisah. Owner meninjau baseline tanpa reset izin otomatis; UAT finance/admin/QR/proxy/APK tetap perlu. |
 | `GAP-03` | `TERLEWAT` | P2 bisnis A2: uang makan slip payroll dan running balance rekening backdate. | Belum mendapat batch khusus walaupun pekerjaan bergerak ke A3–A5. | Audit aturan bisnis, buat fixture, lalu minta acceptance finance sebelum implementasi. |
 | `GAP-04` | `TERLEWAT` | A3.2 rollout UI 8.3 gelombang 2 dan 4–9 serta visual UAT. | Fondasi UI dan sidebar selesai, tetapi migrasi halaman tidak pernah ditutup per wave. | Kembali ke checklist UI 8.3 gelombang 01–09 setelah fondasi A5; satu rumpun per batch, bukan rewrite besar. |
 | `GAP-05` | `TERLEWAT_OPERASIONAL` | UAT browser role, APK/device, printer fisik, dan updater customer. | Automated tooling A4 lulus tetapi tidak menggantikan perangkat nyata. | Jalankan setelah kandidat build dan APK siap; bukti UAT harus terikat ke versi artefak. |
@@ -1753,8 +1754,8 @@ setelah gerbang ini lulus, pekerjaan paket/lisensi dilanjutkan di `_28`.
 
 1. Tutup `GAP-01`: credential produksi, rotasi secret, recovery Git, dan
    pemisahan runtime data customer tanpa melonggarkan preflight fail-closed.
-2. Lanjutkan `AUD-A1-STEP-01` secara kecil: adjustment dan reprint memakai
-   proof yang tepat tanpa mengubah matrix izin; rancang kontrak
+2. Lanjutkan `AUD-A1-STEP-01` secara kecil: adjustment memakai proof yang
+   tepat tanpa mengubah matrix izin; rancang kontrak
    APK terpisah dan jangan memakai password dalam writer transaksi.
 3. Uji command inbound `/menu`, `/omzet`, dan `/belanja` dari grup Namua;
    sebelum grup tidak tepercaya dipakai, tambahkan allowlist identitas pengirim.

@@ -2016,6 +2016,11 @@ $incomingServerDate = date('Y-m-d');
           </select>
         </div>
         <div class="small text-muted" id="cashier_order_reprint_hint">Gunakan mode item terbaru bila ingin mencetak ulang snapshot paling akhir tanpa mengulang seluruh order.</div>
+        <div class="mt-3">
+          <label class="form-label small text-muted mb-1" for="cashier_order_reprint_step_up_password">Konfirmasi password</label>
+          <input type="password" class="form-control" id="cashier_order_reprint_step_up_password" autocomplete="current-password" maxlength="72" placeholder="Masukkan password untuk cetak ulang">
+          <div class="small text-muted mt-1">Password hanya dipakai untuk verifikasi ulang perintah cetak ini.</div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
@@ -2246,6 +2251,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const orderReprintScopeSelect = document.getElementById('cashier_order_reprint_scope');
   const orderReprintHint = document.getElementById('cashier_order_reprint_hint');
   const orderReprintSubmitButton = document.getElementById('cashier_order_reprint_submit');
+  const orderReprintStepUpPassword = document.getElementById('cashier_order_reprint_step_up_password');
   const closeDenomRows = document.getElementById('cashier_close_denom_rows');
   const closeShiftMeta = document.getElementById('cashier_close_shift_meta');
   const closeMethodSummary = document.getElementById('cashier_close_method_summary');
@@ -4863,6 +4869,7 @@ document.addEventListener('DOMContentLoaded', function () {
       throw new Error(orderReprintPrinters.length ? 'Pilih 1 order aktif dulu sebelum cetak ulang.' : 'Belum ada printer direct print aktif untuk kasir ini.');
     }
     renderOrderReprintPrinterOptions();
+    if (orderReprintStepUpPassword) orderReprintStepUpPassword.value = '';
     if (orderReprintScopeSelect) {
       orderReprintScopeSelect.value = String(order.status || '').toUpperCase() === 'DRAFT' ? 'ALL' : String(orderReprintScopeSelect.value || 'LATEST').toUpperCase();
     }
@@ -4885,9 +4892,20 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     try {
-      const payloadJson = await postJson(`<?php echo site_url('pos/orders/reprint-print-targets'); ?>/${Number(order.id || 0)}`, {
+      const password = String(orderReprintStepUpPassword?.value || '');
+      if (password === '') throw new Error('Masukkan password Anda untuk memverifikasi ulang cetak ulang order.');
+      if (orderReprintStepUpPassword) orderReprintStepUpPassword.value = '';
+      const stepUp = await postPosTransactionJson('<?php echo site_url('pos/orders/reprint-step-up/verify'); ?>', {
+        order_id: Number(order.id || 0),
+        password
+      });
+      if (!/^[0-9a-f]{64}$/.test(String(stepUp.step_up_proof || ''))) {
+        throw new Error('Bukti verifikasi ulang tidak valid. Coba lagi.');
+      }
+      const payloadJson = await postPosTransactionJson(`<?php echo site_url('pos/orders/reprint-print-targets'); ?>/${Number(order.id || 0)}`, {
         line_scope: lineScope,
         printer_id: printerId,
+        step_up_proof: String(stepUp.step_up_proof),
       });
       const targets = Array.isArray(payloadJson.direct_print_targets) ? payloadJson.direct_print_targets : [];
       if (!targets.length) {

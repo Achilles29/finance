@@ -79,6 +79,8 @@ $check($service->consume(7, 'REFUND', 33, $issued['proof'])['ok'] === false, 'ex
 $now = 1700000900;
 $issued = $service->issue(7, 'PERIOD_REOPEN', 44, 'correct horse battery staple');
 $check($issued['ok'] === true && $service->consume(7, 'PERIOD_REOPEN', 44, $issued['proof'])['ok'] === true, 'period reopen can use the same scoped one-use proof contract');
+$issued = $service->issue(7, 'ORDER_REPRINT', 45, 'correct horse battery staple');
+$check($issued['ok'] === true && $service->consume(7, 'ORDER_REPRINT', 45, $issued['proof'])['ok'] === true, 'order reprint can use the same scoped one-use proof contract');
 
 $now = 1700001000;
 [$service, $ci] = posStepUpFixture(['id' => 7, 'password_hash' => $hash], $now);
@@ -108,6 +110,7 @@ $block = static function (string $source, string $method): string {
 };
 $ordered = static function (string $source, array $needles): bool { $at = -1; foreach ($needles as $needle) { $next = strpos($source, $needle, $at + 1); if ($next === false) return false; $at = $next; } return true; };
 $check(strpos($routes, "\$route['pos/orders/reversal-step-up/verify'] = 'pos/order_reversal_step_up_verify';") !== false, 'fixed local step-up route is registered');
+$check(strpos($routes, "\$route['pos/orders/reprint-step-up/verify'] = 'pos/order_reprint_step_up_verify';") !== false, 'fixed local order-reprint step-up route is registered');
 $verify = $block($controller, 'order_reversal_step_up_verify');
 $check($ordered($verify, ['require_pos_transaction_csrf()', '$this->request_payload()', 'require_permission(', "load->library('SensitiveActionStepUp'", '->issue(', '$this->json_ok(']), 'verification endpoint has CSRF, RBAC, and service issuance in order');
 foreach (['order_void_save' => ['VOID', 'save_order_void'], 'order_refund_save' => ['REFUND', 'save_order_refund']] as $method => [$action, $writer]) {
@@ -115,9 +118,16 @@ foreach (['order_void_save' => ['VOID', 'save_order_void'], 'order_refund_save' 
     $check($ordered($writerBlock, ['require_permission(', 'require_pos_transaction_csrf()', '$this->request_payload()', "consume_order_reversal_step_up('{$action}'", "unset(\$payload['step_up_proof'])", "\$this->Pos_model->{$writer}("]), $method . ' consumes proof before writer and removes it from model payload');
     $check(strpos($writerBlock, "\$payload['password']") === false, $method . ' never accepts a password at the financial writer');
 }
+$reprintVerify = $block($controller, 'order_reprint_step_up_verify');
+$check($ordered($reprintVerify, ['require_permission(', 'require_pos_transaction_csrf()', '$this->request_payload()', "load->library('SensitiveActionStepUp'", '->issue(', "'ORDER_REPRINT'", '$this->json_ok(']), 'reprint verification endpoint keeps permission, CSRF, and issuance order');
+$reprintWriter = $block($controller, 'order_reprint_print_targets');
+$check($ordered($reprintWriter, ['require_permission(', 'require_pos_transaction_csrf()', '$this->request_payload()', 'consume_order_reprint_step_up(', "unset(\$payload['step_up_proof'])", 'direct_print_targets_for_order_reprint(']), 'reprint consumes proof before preparing printer targets and removes it from model payload');
+$check(strpos($reprintWriter, "\$payload['password']") === false, 'reprint printer-target writer never accepts a password');
 $check(strpos($view, 'type="password" class="form-control" id="cashier_reversal_step_up_password"') !== false && strpos($view, 'autocomplete="current-password"') !== false, 'cashier uses a masked current-password field');
 $check($ordered($view, ["const password = String(reversalStepUpPassword?.value || '');", "reversalStepUpPassword.value = '';", "pos/orders/reversal-step-up/verify", 'step_up_proof']), 'cashier clears password before receiving and forwarding one-use proof');
+$check(strpos($view, 'type="password" class="form-control" id="cashier_order_reprint_step_up_password"') !== false && strpos($view, 'autocomplete="current-password"') !== false, 'cashier reprint uses a masked current-password field');
+$check($ordered($view, ["const password = String(orderReprintStepUpPassword?.value || '');", "orderReprintStepUpPassword.value = '';", 'pos/orders/reprint-step-up/verify', 'step_up_proof', 'pos/orders/reprint-print-targets']), 'cashier reprint clears password then forwards only the one-use proof to printer-target preparation');
 $check(strpos($paidView, 'type="password" class="form-control" id="refund_step_up_password"') !== false && strpos($paidView, 'autocomplete="current-password"') !== false, 'paid-order refund uses a masked current-password field');
 $check($ordered($paidView, ["const password = String(refundStepUpPassword?.value || '');", "refundStepUpPassword.value = '';", "pos/orders/reversal-step-up/verify", "action: 'REFUND'", 'step_up_proof', "pos/orders/refund/save"]), 'paid-order refund clears password then forwards only the one-use proof to its writer');
-$check(strpos($view, 'password only') === false && strpos((string)file_get_contents($root . '/application/views/pos/cashier_index_bak.php'), 'cashier_reversal_step_up_password') === false, 'backup APK comparison file remains untouched');
+$check(strpos($view, 'password only') === false && strpos((string)file_get_contents($root . '/application/views/pos/cashier_index_bak.php'), 'cashier_reversal_step_up_password') === false && strpos((string)file_get_contents($root . '/application/views/pos/cashier_index_bak.php'), 'cashier_order_reprint_step_up_password') === false, 'backup APK comparison file remains untouched');
 echo 'PASS pos-reversal-step-up checks=' . $checks . PHP_EOL;
