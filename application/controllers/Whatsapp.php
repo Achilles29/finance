@@ -11,6 +11,38 @@ class Whatsapp extends MY_Controller
     private const PAGE_LOG       = 'wa.log';
     private const PAGE_MANUAL    = 'wa.manual';
     private const PAGE_SETTINGS  = 'wa.settings';
+    private const WA_ENGINE_CONTROL_CSRF_SESSION_KEY = 'wa_engine_control_csrf';
+    private const WA_ENGINE_CONTROL_CSRF_HEADER = 'X-Wa-Engine-Control-CSRF';
+    private const WA_ENGINE_CONTROL_CSRF_CI_HEADER = 'X-Wa-Engine-Control-Csrf';
+    private const WA_ENV_SAVE_CSRF_SESSION_KEY = 'wa_env_save_csrf';
+    private const WA_ENV_SAVE_CSRF_HEADER = 'X-Wa-Env-Save-CSRF';
+    private const WA_ENV_SAVE_CSRF_CI_HEADER = 'X-Wa-Env-Save-Csrf';
+    private const WA_TEMPLATE_GROUP_MUTATION_CSRF_SESSION_KEY = 'wa_template_group_mutation_csrf';
+    private const WA_TEMPLATE_GROUP_MUTATION_CSRF_FORM_FIELD = 'wa_template_group_mutation_csrf';
+    private const WA_REPORT_SCHEDULE_MUTATION_CSRF_SESSION_KEY = 'wa_report_schedule_mutation_csrf';
+    private const WA_REPORT_SCHEDULE_MUTATION_CSRF_FORM_FIELD = 'wa_report_schedule_mutation_csrf';
+    private const WA_BROADCAST_MUTATION_CSRF_SESSION_KEY = 'wa_broadcast_mutation_csrf';
+    private const WA_BROADCAST_MUTATION_CSRF_FORM_FIELD = 'wa_broadcast_mutation_csrf';
+    private const WA_BROADCAST_MUTATION_CSRF_HEADER = 'X-Wa-Broadcast-CSRF';
+    private const WA_BROADCAST_MUTATION_CSRF_CI_HEADER = 'X-Wa-Broadcast-Csrf';
+    private const WA_MANUAL_SINGLE_SEND_CSRF_SESSION_KEY = 'wa_manual_single_send_csrf';
+    private const WA_MANUAL_SINGLE_SEND_CSRF_FORM_FIELD = 'wa_manual_single_send_csrf';
+    private const WA_LOG_RETRY_CSRF_SESSION_KEY = 'wa_log_retry_csrf';
+    private const WA_LOG_RETRY_CSRF_HEADER = 'X-Wa-Log-Retry-CSRF';
+    private const WA_LOG_RETRY_CSRF_CI_HEADER = 'X-Wa-Log-Retry-Csrf';
+    private const WA_SETTINGS_MUTATION_CSRF_SESSION_KEY = 'wa_settings_mutation_csrf';
+    private const WA_SETTINGS_MUTATION_CSRF_FORM_FIELD = 'wa_settings_mutation_csrf';
+    private const WA_SEND_TEST_CSRF_SESSION_KEY = 'wa_send_test_csrf';
+    private const WA_SEND_TEST_CSRF_HEADER = 'X-Wa-Send-Test-CSRF';
+    private const WA_SEND_TEST_CSRF_CI_HEADER = 'X-Wa-Send-Test-Csrf';
+    private const WA_GROUP_COMMAND_TOKEN_ENV = 'FINANCE_WA_ENGINE_COMMAND_TOKEN';
+    private const WA_GROUP_COMMAND_TOKEN_CI_HEADER = 'X-Finance-Group-Command-Token';
+    private const WA_GROUP_COMMAND_LEGACY_CI_HEADER = 'X-Sync-Token';
+    private const WA_ENGINE_API_TOKEN_ENV = 'FINANCE_WA_ENGINE_API_TOKEN';
+    private const WA_ENGINE_API_TOKEN_HEADER = 'X-Finance-Wa-Engine-Token';
+    private const WA_ENV_FIELDS = ['WA_PORT', 'DB_HOST', 'DB_USER', 'DB_PASS', 'DB_NAME'];
+    private const WA_ENV_SECRET_FIELDS = ['DB_PASS'];
+    private const WA_BOT_API_DEFAULT_URL = 'http://127.0.0.1:3070';
     private const MANUAL_BULK_NOTE_PREFIX = '[MANUAL_BULK]';
     // Emergency circuit breaker. Personal/member sends must move to the
     // official WhatsApp Business Platform before this is enabled again.
@@ -67,15 +99,25 @@ class Whatsapp extends MY_Controller
     {
         $this->require_permission(self::PAGE_DASHBOARD, 'view');
 
-        $session = $this->waSession();
+        $session = $this->waSessionStatusView($this->waSession());
         $stats   = $this->dashboardStats();
 
-        $this->render('wa/dashboard', [
+        $canRetryManual = $this->can(self::PAGE_MANUAL, 'create');
+        $canRetryGroup = $this->can(self::PAGE_GROUP, 'create');
+        $viewData = [
             'title'       => 'WA Dashboard',
             'active_menu' => 'wa.dashboard',
             'session'     => $session,
             'stats'       => $stats,
-        ]);
+            'can_retry_manual' => $canRetryManual,
+            'can_retry_group' => $canRetryGroup,
+            'can_broadcast_edit' => $this->can(self::PAGE_BROADCAST, 'edit'),
+        ];
+        if ($canRetryManual || $canRetryGroup) {
+            $viewData['wa_log_retry_csrf'] = $this->wa_log_retry_csrf();
+        }
+
+        $this->render('wa/dashboard', $viewData);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -128,7 +170,10 @@ class Whatsapp extends MY_Controller
         $broadcasts = $this->db->get()->result_array();
         $statusCounts = $this->broadcastStatusCounts();
 
-        $this->render('wa/broadcast', [
+        $canCreate = $this->can(self::PAGE_BROADCAST, 'create');
+        $canEdit = $this->can(self::PAGE_BROADCAST, 'edit');
+        $canDelete = $this->can(self::PAGE_BROADCAST, 'delete');
+        $viewData = [
             'title'       => 'WA Broadcast',
             'active_menu' => 'wa.broadcast',
             'broadcasts'  => $broadcasts,
@@ -142,12 +187,17 @@ class Whatsapp extends MY_Controller
             'total_rows'  => $totalRows,
             'total_pages' => $totalPages,
             'status_counts' => $statusCounts,
-            'can_create'  => $this->can(self::PAGE_BROADCAST, 'create'),
-            'can_edit'    => $this->can(self::PAGE_BROADCAST, 'edit'),
-            'can_delete'  => $this->can(self::PAGE_BROADCAST, 'delete'),
+            'can_create'  => $canCreate,
+            'can_edit'    => $canEdit,
+            'can_delete'  => $canDelete,
             'personal_outbound_enabled' => $this->personalOutboundEnabled(),
             'personal_outbound_lock_message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE,
-        ]);
+        ];
+        if ($canCreate || $canEdit || $canDelete) {
+            $viewData['wa_broadcast_mutation_csrf'] = $this->wa_broadcast_mutation_csrf();
+        }
+
+        $this->render('wa/broadcast', $viewData);
     }
 
     private function applyBroadcastListFilters(string $status, string $targetType, string $tab, string $q): void
@@ -204,12 +254,17 @@ class Whatsapp extends MY_Controller
     {
         $this->require_permission(self::PAGE_BROADCAST, 'create');
 
+        $requestMethod = $this->input->method(true);
+        if ($requestMethod !== 'GET' && !$this->require_wa_broadcast_mutation_csrf()) {
+            return;
+        }
+
         $templates = $this->db->from('wa_template')->where('is_active', 1)
             ->order_by('name', 'ASC')->get()->result_array();
         $groups    = $this->db->from('wa_group_map')->where('is_active', 1)
             ->order_by('group_name', 'ASC')->get()->result_array();
 
-        if ($this->input->method() === 'post') {
+        if ($requestMethod === 'POST') {
             if (!$this->personalOutboundEnabled()) {
                 $this->session->set_flashdata('error', self::PERSONAL_OUTBOUND_LOCK_MESSAGE);
                 redirect('wa/broadcast');
@@ -277,12 +332,18 @@ class Whatsapp extends MY_Controller
             'templates'   => $templates,
             'groups'      => $groups,
             'broadcast'   => [],
+            'wa_broadcast_mutation_csrf' => $this->wa_broadcast_mutation_csrf(),
         ]);
     }
 
     public function broadcast_edit(int $id = 0)
     {
         $this->require_permission(self::PAGE_BROADCAST, 'edit');
+
+        $requestMethod = $this->input->method(true);
+        if ($requestMethod !== 'GET' && !$this->require_wa_broadcast_mutation_csrf()) {
+            return;
+        }
 
         $broadcast = $this->db->from('wa_broadcast')->where('id', $id)->limit(1)->get()->row_array();
         if (!$broadcast) { show_404(); return; }
@@ -298,7 +359,7 @@ class Whatsapp extends MY_Controller
         $groups = $this->db->from('wa_group_map')->where('is_active', 1)
             ->order_by('group_name', 'ASC')->get()->result_array();
 
-        if ($this->input->method() === 'post') {
+        if ($requestMethod === 'POST') {
             if (!$this->personalOutboundEnabled()) {
                 $this->session->set_flashdata('error', self::PERSONAL_OUTBOUND_LOCK_MESSAGE);
                 redirect('wa/broadcast/detail/' . $id);
@@ -398,6 +459,7 @@ class Whatsapp extends MY_Controller
             'groups'      => $groups,
             'broadcast'   => $broadcast,
             'selected_members' => $this->broadcastSelectedMembersFromRows($lines),
+            'wa_broadcast_mutation_csrf' => $this->wa_broadcast_mutation_csrf(),
         ]);
     }
 
@@ -417,21 +479,31 @@ class Whatsapp extends MY_Controller
         $lines = $this->db->from('wa_broadcast_line')
             ->where('broadcast_id', $id)->order_by('id', 'ASC')->get()->result_array();
 
-        $this->render('wa/broadcast_detail', [
+        $canEdit = $this->can(self::PAGE_BROADCAST, 'edit');
+        $canDelete = $this->can(self::PAGE_BROADCAST, 'delete');
+        $viewData = [
             'title'       => 'Detail Broadcast',
             'active_menu' => 'wa.broadcast',
             'broadcast'   => $broadcast,
             'lines'       => $lines,
-            'can_edit'    => $this->can(self::PAGE_BROADCAST, 'edit'),
-            'can_delete'  => $this->can(self::PAGE_BROADCAST, 'delete'),
+            'can_edit'    => $canEdit,
+            'can_delete'  => $canDelete,
             'personal_outbound_enabled' => $this->personalOutboundEnabled(),
             'personal_outbound_lock_message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE,
-        ]);
+        ];
+        if ($canEdit || $canDelete) {
+            $viewData['wa_broadcast_mutation_csrf'] = $this->wa_broadcast_mutation_csrf();
+        }
+
+        $this->render('wa/broadcast_detail', $viewData);
     }
 
     public function broadcast_delete(int $id = 0)
     {
         $this->require_permission(self::PAGE_BROADCAST, 'delete');
+        if (!$this->require_wa_broadcast_mutation_csrf()) {
+            return;
+        }
 
         $row = $this->db->from('wa_broadcast')->where('id', $id)->limit(1)->get()->row_array();
         if (!$row || !in_array($row['status'], ['DRAFT','FAILED','CANCELLED'], true)) {
@@ -447,9 +519,7 @@ class Whatsapp extends MY_Controller
     public function broadcast_deactivate(int $id = 0)
     {
         $this->require_permission(self::PAGE_BROADCAST, 'edit');
-
-        if ($this->input->method() !== 'post') {
-            show_404();
+        if (!$this->require_wa_broadcast_mutation_csrf()) {
             return;
         }
 
@@ -494,6 +564,10 @@ class Whatsapp extends MY_Controller
 
             if ($action === 'save') {
                 $id           = (int)$this->input->post('id', true);
+                $this->require_permission(self::PAGE_TEMPLATE, $id > 0 ? 'edit' : 'create');
+                if (!$this->require_wa_template_group_mutation_csrf()) {
+                    return;
+                }
                 $code         = trim((string)$this->input->post('template_code', true));
                 $name         = trim((string)$this->input->post('name', true));
                 $category     = (string)$this->input->post('category', true);
@@ -521,12 +595,20 @@ class Whatsapp extends MY_Controller
                 }
             } elseif ($action === 'toggle') {
                 $id = (int)$this->input->post('id', true);
+                $this->require_permission(self::PAGE_TEMPLATE, 'edit');
+                if (!$this->require_wa_template_group_mutation_csrf()) {
+                    return;
+                }
                 $row = $this->db->from('wa_template')->where('id', $id)->limit(1)->get()->row_array();
                 if ($row) {
                     $this->db->where('id', $id)->update('wa_template', ['is_active' => $row['is_active'] ? 0 : 1]);
                 }
             } elseif ($action === 'delete') {
                 $id = (int)$this->input->post('id', true);
+                $this->require_permission(self::PAGE_TEMPLATE, 'delete');
+                if (!$this->require_wa_template_group_mutation_csrf()) {
+                    return;
+                }
                 $this->db->where('id', $id)->delete('wa_template');
                 $this->session->set_flashdata('success', 'Template dihapus.');
             }
@@ -537,14 +619,22 @@ class Whatsapp extends MY_Controller
         $templates = $this->db->from('wa_template')->order_by('category', 'ASC')
             ->order_by('name', 'ASC')->get()->result_array();
 
-        $this->render('wa/template', [
+        $canCreate = $this->can(self::PAGE_TEMPLATE, 'create');
+        $canEdit = $this->can(self::PAGE_TEMPLATE, 'edit');
+        $canDelete = $this->can(self::PAGE_TEMPLATE, 'delete');
+        $viewData = [
             'title'       => 'Template Pesan WA',
             'active_menu' => 'wa.template',
             'templates'   => $templates,
-            'can_create'  => $this->can(self::PAGE_TEMPLATE, 'create'),
-            'can_edit'    => $this->can(self::PAGE_TEMPLATE, 'edit'),
-            'can_delete'  => $this->can(self::PAGE_TEMPLATE, 'delete'),
-        ]);
+            'can_create'  => $canCreate,
+            'can_edit'    => $canEdit,
+            'can_delete'  => $canDelete,
+        ];
+        if ($canCreate || $canEdit || $canDelete) {
+            $viewData['wa_template_group_mutation_csrf'] = $this->wa_template_group_mutation_csrf();
+        }
+
+        $this->render('wa/template', $viewData);
     }
 
     public function report_schedules()
@@ -557,6 +647,9 @@ class Whatsapp extends MY_Controller
             if ($action === 'save_schedule') {
                 $id = (int)$this->input->post('id', true);
                 $this->require_permission(self::PAGE_REPORT_SCHEDULE, $id > 0 ? 'edit' : 'create');
+                if (!$this->require_wa_report_schedule_mutation_csrf()) {
+                    return;
+                }
                 $name = trim((string)$this->input->post('name', true));
                 $reportType = strtoupper(trim((string)$this->input->post('report_type', true)));
                 $templateId = (int)$this->input->post('template_id', true);
@@ -630,20 +723,29 @@ class Whatsapp extends MY_Controller
                     $this->session->set_flashdata('success', 'Jadwal laporan disimpan.');
                 }
             } elseif ($action === 'toggle_schedule') {
-                $this->require_permission(self::PAGE_REPORT_SCHEDULE, 'edit');
                 $id = (int)$this->input->post('id', true);
+                $this->require_permission(self::PAGE_REPORT_SCHEDULE, 'edit');
+                if (!$this->require_wa_report_schedule_mutation_csrf()) {
+                    return;
+                }
                 $row = $this->db->from('wa_report_schedule')->where('id', $id)->limit(1)->get()->row_array();
                 if ($row) {
                     $this->db->where('id', $id)->update('wa_report_schedule', ['is_active' => (int)$row['is_active'] ? 0 : 1]);
                 }
             } elseif ($action === 'delete_schedule') {
-                $this->require_permission(self::PAGE_REPORT_SCHEDULE, 'delete');
                 $id = (int)$this->input->post('id', true);
+                $this->require_permission(self::PAGE_REPORT_SCHEDULE, 'delete');
+                if (!$this->require_wa_report_schedule_mutation_csrf()) {
+                    return;
+                }
                 $this->db->where('id', $id)->delete('wa_report_schedule');
                 $this->session->set_flashdata('success', 'Jadwal laporan dihapus.');
             } elseif ($action === 'send_now') {
-                $this->require_permission(self::PAGE_REPORT_SCHEDULE, 'edit');
                 $id = (int)$this->input->post('id', true);
+                $this->require_permission(self::PAGE_REPORT_SCHEDULE, 'edit');
+                if (!$this->require_wa_report_schedule_mutation_csrf()) {
+                    return;
+                }
                 $result = $this->sendWaReportSchedule($id, true);
                 if ($this->input->is_ajax_request()) {
                     $this->jsonOut([
@@ -739,7 +841,10 @@ class Whatsapp extends MY_Controller
             ->get()
             ->result_array();
 
-        $this->render('wa/report_schedule', [
+        $canCreate = $this->can(self::PAGE_REPORT_SCHEDULE, 'create');
+        $canEdit = $this->can(self::PAGE_REPORT_SCHEDULE, 'edit');
+        $canDelete = $this->can(self::PAGE_REPORT_SCHEDULE, 'delete');
+        $viewData = [
             'title' => 'Jadwal Laporan WA',
             'active_menu' => 'wa.report_schedule',
             'schedules' => $schedules,
@@ -754,10 +859,15 @@ class Whatsapp extends MY_Controller
                 'total_pages' => $totalPages,
                 'offset' => $offset,
             ],
-            'can_create' => $this->can(self::PAGE_REPORT_SCHEDULE, 'create'),
-            'can_edit' => $this->can(self::PAGE_REPORT_SCHEDULE, 'edit'),
-            'can_delete' => $this->can(self::PAGE_REPORT_SCHEDULE, 'delete'),
-        ]);
+            'can_create' => $canCreate,
+            'can_edit' => $canEdit,
+            'can_delete' => $canDelete,
+        ];
+        if ($canCreate || $canEdit || $canDelete) {
+            $viewData['wa_report_schedule_mutation_csrf'] = $this->wa_report_schedule_mutation_csrf();
+        }
+
+        $this->render('wa/report_schedule', $viewData);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -771,6 +881,10 @@ class Whatsapp extends MY_Controller
             $action = (string)$this->input->post('action', true);
             if ($action === 'save') {
                 $id        = (int)$this->input->post('id', true);
+                $this->require_permission(self::PAGE_GROUP, $id > 0 ? 'edit' : 'create');
+                if (!$this->require_wa_template_group_mutation_csrf()) {
+                    return;
+                }
                 $key       = trim((string)$this->input->post('group_key', true));
                 $name      = trim((string)$this->input->post('group_name', true));
                 $jid       = trim((string)$this->input->post('group_jid', true));
@@ -793,16 +907,27 @@ class Whatsapp extends MY_Controller
                 }
             } elseif ($action === 'toggle') {
                 $id = (int)$this->input->post('id', true);
+                $this->require_permission(self::PAGE_GROUP, 'edit');
+                if (!$this->require_wa_template_group_mutation_csrf()) {
+                    return;
+                }
                 $row = $this->db->from('wa_group_map')->where('id', $id)->limit(1)->get()->row_array();
                 if ($row) {
                     $this->db->where('id', $id)->update('wa_group_map', ['is_active' => $row['is_active'] ? 0 : 1]);
                 }
             } elseif ($action === 'delete') {
                 $id = (int)$this->input->post('id', true);
+                $this->require_permission(self::PAGE_GROUP, 'delete');
+                if (!$this->require_wa_template_group_mutation_csrf()) {
+                    return;
+                }
                 $this->db->where('id', $id)->delete('wa_group_map');
                 $this->session->set_flashdata('success', 'Grup dihapus.');
             } elseif ($action === 'send_group') {
                 $this->require_permission(self::PAGE_GROUP, 'create');
+                if (!$this->require_wa_template_group_mutation_csrf()) {
+                    return;
+                }
                 $id      = (int)$this->input->post('id', true);
                 $message = trim((string)$this->input->post('message', false));
                 $media   = $this->handleWaImageUpload('media_image');
@@ -833,14 +958,22 @@ class Whatsapp extends MY_Controller
 
         $groups = $this->db->from('wa_group_map')->order_by('group_name', 'ASC')->get()->result_array();
 
-        $this->render('wa/group', [
+        $canCreate = $this->can(self::PAGE_GROUP, 'create');
+        $canEdit = $this->can(self::PAGE_GROUP, 'edit');
+        $canDelete = $this->can(self::PAGE_GROUP, 'delete');
+        $viewData = [
             'title'       => 'Manajemen Grup WA',
             'active_menu' => 'wa.group',
             'groups'      => $groups,
-            'can_create'  => $this->can(self::PAGE_GROUP, 'create'),
-            'can_edit'    => $this->can(self::PAGE_GROUP, 'edit'),
-            'can_delete'  => $this->can(self::PAGE_GROUP, 'delete'),
-        ]);
+            'can_create'  => $canCreate,
+            'can_edit'    => $canEdit,
+            'can_delete'  => $canDelete,
+        ];
+        if ($canCreate || $canEdit || $canDelete) {
+            $viewData['wa_template_group_mutation_csrf'] = $this->wa_template_group_mutation_csrf();
+        }
+
+        $this->render('wa/group', $viewData);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -873,7 +1006,9 @@ class Whatsapp extends MY_Controller
 
         $logs = $this->db->limit(200)->get()->result_array();
 
-        $this->render('wa/log', [
+        $canRetryManual = $this->can(self::PAGE_MANUAL, 'create');
+        $canRetryGroup = $this->can(self::PAGE_GROUP, 'create');
+        $viewData = [
             'title'       => 'Log Pengiriman WA',
             'active_menu' => 'wa.log',
             'logs'        => $logs,
@@ -881,7 +1016,15 @@ class Whatsapp extends MY_Controller
             'date_to'     => $dateTo,
             'filter_status' => $status,
             'filter_source' => $source,
-        ]);
+            'can_retry_manual' => $canRetryManual,
+            'can_retry_group' => $canRetryGroup,
+            'can_broadcast_edit' => $this->can(self::PAGE_BROADCAST, 'edit'),
+        ];
+        if ($canRetryManual || $canRetryGroup) {
+            $viewData['wa_log_retry_csrf'] = $this->wa_log_retry_csrf();
+        }
+
+        $this->render('wa/log', $viewData);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -891,20 +1034,30 @@ class Whatsapp extends MY_Controller
     {
         $this->require_permission(self::PAGE_MANUAL, 'view');
 
+        $requestMethod = $this->input->method(true);
         $tab = strtolower(trim((string)$this->input->get('tab', true)));
         $tab = in_array($tab, ['single', 'bulk'], true) ? $tab : 'single';
 
-        if ($this->input->method() === 'post') {
+        if ($requestMethod !== 'GET') {
             $this->require_permission(self::PAGE_MANUAL, 'create');
 
+            $deliveryMode = (string)$this->input->post('delivery_mode', true);
+            if ($deliveryMode === 'bulk') {
+                if (!$this->require_wa_broadcast_mutation_csrf()) {
+                    return;
+                }
+            } elseif (!$this->require_wa_manual_single_send_csrf()) {
+                return;
+            }
+
             if (!$this->personalOutboundEnabled()) {
-                $tab = (string)$this->input->post('delivery_mode', true) === 'bulk' ? 'bulk' : 'single';
+                $tab = $deliveryMode === 'bulk' ? 'bulk' : 'single';
                 $this->session->set_flashdata('error', self::PERSONAL_OUTBOUND_LOCK_MESSAGE);
                 redirect('wa/manual?tab=' . $tab);
                 return;
             }
 
-            if ((string)$this->input->post('delivery_mode', true) === 'bulk') {
+            if ($deliveryMode === 'bulk') {
                 $this->createManualBulkQueue();
                 return;
             }
@@ -1010,10 +1163,12 @@ class Whatsapp extends MY_Controller
             ->get()
             ->result_array();
 
-        $this->render('wa/manual', [
+        $canCreate = $this->can(self::PAGE_MANUAL, 'create');
+        $viewData = [
             'title'       => 'Kirim Pesan Manual WA',
             'active_menu' => 'wa.manual',
-            'can_create'  => $this->can(self::PAGE_MANUAL, 'create'),
+            'can_create'  => $canCreate,
+            'can_retry_manual' => $canCreate,
             'recent_logs' => $recentManualLogs,
             'active_tab'  => $tab,
             'bulk_queue'  => $bulkQueue,
@@ -1023,7 +1178,16 @@ class Whatsapp extends MY_Controller
             'bulk_auto_start' => $bulkAutoStart,
             'personal_outbound_enabled' => $this->personalOutboundEnabled(),
             'personal_outbound_lock_message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE,
-        ]);
+        ];
+        if ($canCreate && $tab === 'bulk') {
+            $viewData['wa_broadcast_mutation_csrf'] = $this->wa_broadcast_mutation_csrf();
+        }
+        if ($canCreate && $tab === 'single') {
+            $viewData['wa_manual_single_send_csrf'] = $this->wa_manual_single_send_csrf();
+            $viewData['wa_log_retry_csrf'] = $this->wa_log_retry_csrf();
+        }
+
+        $this->render('wa/manual', $viewData);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -1033,16 +1197,28 @@ class Whatsapp extends MY_Controller
     {
         $this->require_permission(self::PAGE_SETTINGS, 'view');
 
-        if ($this->input->method() === 'post') {
+        $requestMethod = $this->input->method(true);
+        if ($requestMethod === 'POST') {
             $this->require_permission(self::PAGE_SETTINGS, 'edit');
+            if (!$this->require_wa_settings_mutation_csrf()) {
+                return;
+            }
 
-            $botApiUrl   = trim((string)$this->input->post('bot_api_url', true));
-            $botApiToken = trim((string)$this->input->post('bot_api_token', true));
-            $nodePath    = trim((string)$this->input->post('node_path', true));
+            $botApiUrl = trim((string)$this->input->post('bot_api_url', true));
+            if ($botApiUrl === '') {
+                $botApiUrl = self::WA_BOT_API_DEFAULT_URL;
+            }
+            $botApiUrl = $this->normalizeBotApiBaseUrl($botApiUrl);
+            if ($botApiUrl === null) {
+                $this->session->set_flashdata('error', 'URL API Bot tidak valid. Gunakan http://127.0.0.1:<port>.');
+                redirect('wa/settings');
+                return;
+            }
+
+            $nodePath = trim((string)$this->input->post('node_path', true));
 
             $updateData = [
-                'bot_api_url'   => $botApiUrl ?: 'http://127.0.0.1:3070',
-                'bot_api_token' => $botApiToken ?: 'local-dev-token',
+                'bot_api_url'   => $botApiUrl,
                 'node_path'     => $nodePath ?: null,
             ];
             // Kolom node_path mungkin belum ada di DB lama — tangani gracefully
@@ -1056,13 +1232,26 @@ class Whatsapp extends MY_Controller
         }
 
         $session = $this->waSession();
+        $settingsView = [
+            'bot_api_url' => (string)($session['bot_api_url'] ?? 'http://127.0.0.1:3070'),
+            'node_path' => (string)($session['node_path'] ?? ''),
+        ];
+        $canEdit = $this->can(self::PAGE_SETTINGS, 'edit');
 
-        $this->render('wa/settings', [
+        $viewData = [
             'title'       => 'Pengaturan WA',
             'active_menu' => 'wa.settings',
-            'session'     => $session,
-            'can_edit'    => $this->can(self::PAGE_SETTINGS, 'edit'),
-        ]);
+            'settings'    => $settingsView,
+            'can_edit'    => $canEdit,
+        ];
+        if ($canEdit) {
+            $viewData['wa_settings_mutation_csrf'] = $this->wa_settings_mutation_csrf();
+            $viewData['wa_engine_control_csrf_token'] = $this->wa_engine_control_csrf();
+            $viewData['wa_env_save_csrf_token'] = $this->wa_env_save_csrf();
+            $viewData['wa_send_test_csrf_token'] = $this->wa_send_test_csrf();
+        }
+
+        $this->render('wa/settings', $viewData);
     }
 
     // ──────────────────────────────────────────────────────────
@@ -1080,11 +1269,16 @@ class Whatsapp extends MY_Controller
     public function api_send_test()
     {
         $this->require_permission(self::PAGE_SETTINGS, 'edit');
+        if (!$this->require_wa_send_test_csrf()) {
+            return;
+        }
+
         if (!$this->personalOutboundEnabled()) {
             $this->jsonOut(['ok' => false, 'message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE]);
             return;
         }
-        $payload = json_decode((string)$this->input->raw_input_stream, true) ?? [];
+        $decoded = json_decode((string)$this->input->raw_input_stream, true);
+        $payload = is_array($decoded) ? $decoded : [];
         $to      = trim((string)($payload['to'] ?? ''));
         $message = trim((string)($payload['message'] ?? ''));
 
@@ -1093,7 +1287,7 @@ class Whatsapp extends MY_Controller
             return;
         }
 
-            $result = $this->callBotApi('/internal/send', 'POST', ['to' => $to, 'message' => $message]);
+        $result = $this->callBotApi('/internal/send', 'POST', ['to' => $to, 'message' => $message]);
         if ($result['ok'] ?? false) {
             $this->logSend(null, 'MANUAL', $to, null, null, $message, 'SENT');
         } else {
@@ -1104,11 +1298,14 @@ class Whatsapp extends MY_Controller
 
     public function api_log_retry(int $id = 0)
     {
-        if (!$this->can(self::PAGE_LOG, 'view')
-            && !$this->can(self::PAGE_MANUAL, 'create')
+        if (!$this->can(self::PAGE_MANUAL, 'create')
             && !$this->can(self::PAGE_GROUP, 'create')
             && !$this->can(self::PAGE_BROADCAST, 'edit')) {
             $this->jsonOut(['ok' => false, 'message' => 'Akses ditolak.']);
+            return;
+        }
+
+        if (!$this->require_wa_log_retry_csrf()) {
             return;
         }
 
@@ -1118,22 +1315,37 @@ class Whatsapp extends MY_Controller
             return;
         }
 
-        if (($log['source'] ?? '') !== 'GROUP' && !$this->personalOutboundEnabled()) {
-            $this->jsonOut(['ok' => false, 'message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE]);
-            return;
-        }
+        $source = strtoupper(trim((string)($log['source'] ?? '')));
+        $groupJid = trim((string)($log['group_jid'] ?? ''));
+        $isGroup = $source === 'GROUP' || $groupJid !== '';
 
-        if (($log['source'] ?? '') === 'BROADCAST' && !empty($log['broadcast_id'])) {
-            if (!$this->can(self::PAGE_BROADCAST, 'edit') && !$this->can(self::PAGE_LOG, 'view')) {
+        if ($source === 'BROADCAST') {
+            if (!$this->can(self::PAGE_BROADCAST, 'edit')) {
                 $this->jsonOut(['ok' => false, 'message' => 'Akses retry broadcast ditolak.']);
                 return;
             }
+            $broadcastId = (int)($log['broadcast_id'] ?? 0);
             $this->jsonOut([
                 'ok' => false,
-                'open_broadcast' => true,
-                'broadcast_id' => (int)$log['broadcast_id'],
+                'open_broadcast' => $broadcastId > 0,
+                'broadcast_id' => $broadcastId,
                 'message' => 'Pesan broadcast dikirim ulang dari halaman detail broadcast.',
             ]);
+            return;
+        }
+
+        if ($isGroup) {
+            if (!$this->can(self::PAGE_GROUP, 'create')) {
+                $this->jsonOut(['ok' => false, 'message' => 'Akses retry pesan grup ditolak.']);
+                return;
+            }
+        } elseif (!$this->can(self::PAGE_MANUAL, 'create')) {
+            $this->jsonOut(['ok' => false, 'message' => 'Akses retry pesan manual ditolak.']);
+            return;
+        }
+
+        if (!$isGroup && !$this->personalOutboundEnabled()) {
+            $this->jsonOut(['ok' => false, 'message' => self::PERSONAL_OUTBOUND_LOCK_MESSAGE]);
             return;
         }
 
@@ -1143,12 +1355,7 @@ class Whatsapp extends MY_Controller
             return;
         }
 
-        if (($log['source'] ?? '') === 'GROUP' || trim((string)($log['group_jid'] ?? '')) !== '') {
-            if (!$this->can(self::PAGE_GROUP, 'create') && !$this->can(self::PAGE_LOG, 'view')) {
-                $this->jsonOut(['ok' => false, 'message' => 'Akses retry pesan grup ditolak.']);
-                return;
-            }
-            $groupJid = trim((string)($log['group_jid'] ?? ''));
+        if ($isGroup) {
             if ($groupJid === '') {
                 $this->jsonOut(['ok' => false, 'message' => 'JID grup pada log kosong.']);
                 return;
@@ -1162,10 +1369,6 @@ class Whatsapp extends MY_Controller
             return;
         }
 
-        if (!$this->can(self::PAGE_MANUAL, 'create') && !$this->can(self::PAGE_LOG, 'view')) {
-            $this->jsonOut(['ok' => false, 'message' => 'Akses retry pesan manual ditolak.']);
-            return;
-        }
         $phone = trim((string)($log['phone_number'] ?? ''));
         if ($phone === '') {
             $this->jsonOut(['ok' => false, 'message' => 'Nomor tujuan pada log kosong.']);
@@ -1272,6 +1475,9 @@ class Whatsapp extends MY_Controller
         $canManualCreate = $this->can(self::PAGE_MANUAL, 'create');
         if (!$canBroadcastEdit && !$canManualCreate) {
             $this->jsonOut(['ok' => false, 'message' => 'Akses pengiriman antrean ditolak.']);
+            return;
+        }
+        if (!$this->require_wa_broadcast_mutation_csrf(true)) {
             return;
         }
         if (!$this->personalOutboundEnabled()) {
@@ -1472,11 +1678,8 @@ class Whatsapp extends MY_Controller
 
     public function api_schedule_run()
     {
-        $token = trim((string)($this->input->get('token', true) ?: $this->input->get_request_header('X-Sync-Token', true)));
-        $session = $this->waSession();
-        $expected = trim((string)($session['bot_api_token'] ?? ''));
-        if ($expected === '' || !hash_equals($expected, $token)) {
-            $this->jsonOut(['ok' => false, 'message' => 'Token schedule tidak valid.']);
+        if (!$this->input->is_cli_request()) {
+            show_404();
             return;
         }
 
@@ -1486,11 +1689,7 @@ class Whatsapp extends MY_Controller
 
     public function api_group_command()
     {
-        $token = trim((string)($this->input->get('token', true) ?: $this->input->get_request_header('X-Sync-Token', true)));
-        $session = $this->waSession();
-        $expected = trim((string)($session['bot_api_token'] ?? ''));
-        if ($expected === '' || !hash_equals($expected, $token)) {
-            $this->jsonOut(['ok' => false, 'message' => 'Token command tidak valid.']);
+        if (!$this->require_wa_group_command_service_auth()) {
             return;
         }
 
@@ -1521,7 +1720,10 @@ class Whatsapp extends MY_Controller
             return;
         }
         if (preg_match('/^mutasi\s+(in|out|transfer)\b/', $command)) {
-            $this->jsonOut(['ok' => true, 'message' => $this->handleWaMutationInputCommand($commandRaw, $command, $group)]);
+            $this->jsonOut([
+                'ok' => true,
+                'message' => 'Mutasi rekening melalui grup WhatsApp dinonaktifkan. Silakan lakukan mutasi melalui Finance.',
+            ]);
             return;
         }
         if (preg_match('/\bstok\s+kritis\b/', $command)) {
@@ -1640,6 +1842,48 @@ class Whatsapp extends MY_Controller
         $this->jsonOut(['ok' => true, 'message' => $message]);
     }
 
+    private function require_wa_group_command_service_auth(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_group_command_service_auth(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        // Tolak credential legacy secara eksplisit agar caller tidak dapat
+        // mencampur token URL/internal engine dengan credential callback ini.
+        $legacyQueryToken = trim((string)$this->input->get('token', true));
+        $legacyHeaderToken = trim((string)$this->input->get_request_header(self::WA_GROUP_COMMAND_LEGACY_CI_HEADER, true));
+        if ($legacyQueryToken !== '' || $legacyHeaderToken !== '') {
+            $this->reject_wa_group_command_service_auth(403, 'Credential command tidak valid.');
+            return false;
+        }
+
+        $expectedToken = trim((string)getenv(self::WA_GROUP_COMMAND_TOKEN_ENV));
+        if ($expectedToken === '') {
+            $this->reject_wa_group_command_service_auth(403, 'Credential command tidak valid.');
+            return false;
+        }
+
+        // Nama ini adalah bentuk kanonis lookup header CodeIgniter/FastCGI.
+        // Tidak ada fallback ke query, X-Sync-Token, wa_session, atau token dev.
+        $providedToken = trim((string)$this->input->get_request_header(self::WA_GROUP_COMMAND_TOKEN_CI_HEADER, true));
+        if ($providedToken === '' || !hash_equals($expectedToken, $providedToken)) {
+            $this->reject_wa_group_command_service_auth(403, 'Credential command tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_wa_group_command_service_auth(int $statusCode, string $message): void
+    {
+        $this->output->set_status_header($statusCode);
+        $this->jsonOut([
+            'ok' => false,
+            'message' => $message,
+        ]);
+    }
+
     // JSON API — ambil QR aktif dari wa-engine (polling saat WAITING_QR).
     // QR WhatsApp berumur singkat, jadi jangan kirim QR cache ketika engine mati.
     public function api_qr()
@@ -1697,6 +1941,9 @@ class Whatsapp extends MY_Controller
     public function api_engine_start()
     {
         $this->require_permission(self::PAGE_SETTINGS, 'edit');
+        if (!$this->require_wa_engine_control_csrf()) {
+            return;
+        }
 
         if (!function_exists('exec')) {
             $this->jsonOut(['ok' => false, 'message' => 'PHP exec() dinonaktifkan di server ini.']);
@@ -1846,6 +2093,9 @@ class Whatsapp extends MY_Controller
     public function api_engine_stop()
     {
         $this->require_permission(self::PAGE_SETTINGS, 'edit');
+        if (!$this->require_wa_engine_control_csrf()) {
+            return;
+        }
 
         if (!function_exists('exec')) {
             $this->jsonOut(['ok' => false, 'message' => 'PHP exec() dinonaktifkan di server ini.']);
@@ -1885,75 +2135,69 @@ class Whatsapp extends MY_Controller
         }
     }
 
-    // JSON API — ambil log terakhir wa-engine
+    // JSON API — status diagnostik log wa-engine
     public function api_engine_logs()
     {
-        $this->require_permission(self::PAGE_SETTINGS, 'view');
+        // Permission harus diputuskan sebelum path atau status file disentuh.
+        $this->require_permission(self::PAGE_SETTINGS, 'edit');
 
         $engineDir = realpath(FCPATH . 'wa-engine') ?: (FCPATH . 'wa-engine');
         $logFile   = $this->engineLogPath($engineDir, false);
+        $available = is_file($logFile) && is_readable($logFile);
 
-        if (!file_exists($logFile)) {
-            // Coba cari dengan exec untuk path yang mungkin berbeda
-            if (function_exists('exec')) {
-                exec("ls -la " . escapeshellarg($engineDir) . " 2>&1", $lsOut);
-                $dirInfo = implode("\n", $lsOut);
-            } else {
-                $dirInfo = '';
-            }
-            $this->jsonOut([
-                'ok'   => true,
-                'logs' => "(Log belum ada di: {$logFile})\n\nIsi folder wa-engine:\n{$dirInfo}\n\nKemungkinan penyebab:\n- npm install belum dijalankan\n- Node.js tidak ditemukan\n- Proses crash sebelum sempat nulis log",
-            ]);
-            return;
-        }
-
-        if (!function_exists('exec')) {
-            $lines = array_slice(file($logFile, FILE_IGNORE_NEW_LINES) ?: [], -30);
-        } else {
-            exec("tail -n 30 " . escapeshellarg($logFile) . " 2>/dev/null", $lines);
-        }
-
-        $raw = implode("\n", $lines);
-        // Hapus ANSI escape codes
-        $raw = preg_replace('/\x1b\[[0-9;]*[a-zA-Z]/u', '', $raw);
-        // Ganti byte tidak valid UTF-8 agar json_encode tidak gagal
-        $raw = mb_convert_encoding($raw, 'UTF-8', 'auto');
-
-        $this->jsonOut(['ok' => true, 'file' => basename($logFile), 'logs' => $raw]);
+        // Isi log, path, nama file, dan directory listing tidak boleh keluar
+        // melalui HTTP. Endpoint ini hanya memberi status diagnostik generik.
+        $this->jsonOut([
+            'ok' => true,
+            'status' => $available ? 'available' : 'unavailable',
+            'available' => $available,
+            'message' => $available
+                ? 'Log diagnostik tersedia di server.'
+                : 'Log diagnostik belum tersedia di server.',
+        ]);
     }
 
     // JSON API — baca file .env wa-engine
     public function api_env_read()
     {
-        $this->require_permission(self::PAGE_SETTINGS, 'view');
+        // Permission harus diputuskan sebelum path atau file secret disentuh.
+        $this->require_permission(self::PAGE_SETTINGS, 'edit');
 
-        $envFile = realpath(FCPATH . 'wa-engine') . '/.env';
-        $defaults = ['WA_PORT' => '3070', 'WA_TOKEN' => 'local-dev-token',
-                     'DB_HOST' => '127.0.0.1', 'DB_USER' => 'root',
-                     'DB_PASS' => '', 'DB_NAME' => 'db_finance'];
-
-        $current = $defaults;
-        if (file_exists($envFile)) {
-            foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
-                $line = trim($line);
-                if ($line === '' || strpos($line, '#') === 0) continue;
-                [$k, $v] = array_pad(explode('=', $line, 2), 2, '');
-                $k = trim($k); $v = trim($v, " \t\"'");
-                if ($k !== '') $current[$k] = $v;
+        $engineDir = realpath(FCPATH . 'wa-engine');
+        $envFile = $engineDir ? $engineDir . '/.env' : '';
+        $exists = $envFile !== '' && is_file($envFile);
+        $content = '';
+        if ($exists) {
+            $read = @file_get_contents($envFile);
+            if ($read === false) {
+                $this->jsonOut([
+                    'ok' => false,
+                    'message' => 'Status konfigurasi wa-engine tidak dapat dibaca.',
+                ]);
+                return;
             }
+            $content = $read;
         }
 
-        $this->jsonOut(['ok' => true, 'env' => $current, 'exists' => file_exists($envFile)]);
+        // Pertahankan key `env` untuk kompatibilitas UI, tetapi hanya berisi
+        // boolean status key yang dikenal. Nilai .env tidak pernah dipantulkan.
+        $this->jsonOut([
+            'ok' => true,
+            'env' => $this->waEnvStatusFromContent($content),
+            'exists' => $exists,
+        ]);
     }
 
     // JSON API — simpan file .env wa-engine
     public function api_env_save()
     {
         $this->require_permission(self::PAGE_SETTINGS, 'edit');
+        if (!$this->require_wa_env_save_csrf()) {
+            return;
+        }
 
-        $payload  = json_decode((string)$this->input->raw_input_stream, true) ?? [];
-        $allowed  = ['WA_PORT', 'WA_TOKEN', 'DB_HOST', 'DB_USER', 'DB_PASS', 'DB_NAME'];
+        $decoded = json_decode((string)$this->input->raw_input_stream, true);
+        $payload = is_array($decoded) ? $decoded : [];
         $engineDir = realpath(FCPATH . 'wa-engine');
 
         if (!$engineDir) {
@@ -1961,34 +2205,166 @@ class Whatsapp extends MY_Controller
             return;
         }
 
-        $lines = ['# wa-engine environment — digenerate oleh Finance App', ''];
-        foreach ($allowed as $key) {
-            $val = isset($payload[$key]) ? (string)$payload[$key] : '';
-            $lines[] = $key . '=' . $val;
+        $envFile = $engineDir . '/.env';
+        $exists = is_file($envFile);
+        $existingContent = '';
+        if ($exists) {
+            $read = @file_get_contents($envFile);
+            if ($read === false) {
+                $this->jsonOut([
+                    'ok' => false,
+                    'message' => 'Konfigurasi wa-engine tidak dapat disimpan dengan aman.',
+                ]);
+                return;
+            }
+            $existingContent = $read;
         }
-        $lines[] = '';
 
-        $content = implode("\n", $lines);
-        $written = file_put_contents($engineDir . '/.env', $content);
-        if ($written === false) {
-            // Gagal tulis — kembalikan konten agar user bisa buat manual
+        $updates = $this->waEnvUpdatesFromPayload($payload);
+        if ($updates === []) {
             $this->jsonOut([
-                'ok'         => false,
-                'permission' => true,
-                'content'    => $content,
-                'path'       => $engineDir . '/.env',
-                'message'    => 'PHP tidak bisa menulis ke folder wa-engine (permission denied). Buat file .env secara manual menggunakan konten di bawah.',
+                'ok' => true,
+                'env' => $this->waEnvStatusFromContent($existingContent),
+                'exists' => $exists,
+                'message' => 'Tidak ada nilai konfigurasi yang diubah.',
             ]);
             return;
         }
 
-        $this->jsonOut(['ok' => true, 'message' => 'File .env berhasil disimpan. Restart wa-engine agar perubahan berlaku.']);
+        $content = $this->mergeWaEnvContent($existingContent, $updates);
+        $written = @file_put_contents($envFile, $content, LOCK_EX);
+        if ($written === false) {
+            $this->jsonOut([
+                'ok' => false,
+                'permission' => true,
+                'message' => 'Konfigurasi wa-engine tidak dapat disimpan. Periksa permission folder di server.',
+            ]);
+            return;
+        }
+
+        $this->jsonOut([
+            'ok' => true,
+            'env' => $this->waEnvStatusFromContent($content),
+            'exists' => true,
+            'message' => 'File .env berhasil disimpan. Restart wa-engine agar perubahan berlaku.',
+        ]);
+    }
+
+    /**
+     * Bentuk status aman untuk UI. Hanya key yang didukung yang disebutkan;
+     * nilai dan nama key tambahan dari file tidak pernah keluar dari controller.
+     */
+    private function waEnvStatusFromContent(string $content): array
+    {
+        $configured = array_fill_keys(self::WA_ENV_FIELDS, false);
+        foreach (preg_split('/\r\n|\r|\n/', $content) ?: [] as $line) {
+            if (!preg_match('/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/', $line, $matches)) {
+                continue;
+            }
+            $key = $matches[1];
+            if (!array_key_exists($key, $configured)) {
+                continue;
+            }
+            $value = trim((string)$matches[2]);
+            if (strlen($value) >= 2) {
+                $first = $value[0];
+                $last = $value[strlen($value) - 1];
+                if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
+                    $value = substr($value, 1, -1);
+                }
+            }
+            $configured[$key] = trim($value) !== '';
+        }
+
+        $status = [];
+        foreach (self::WA_ENV_FIELDS as $key) {
+            $status[$key] = [
+                'configured' => $configured[$key],
+                'secret' => in_array($key, self::WA_ENV_SECRET_FIELDS, true),
+            ];
+        }
+        return $status;
+    }
+
+    /**
+     * Secret kosong selalu berarti "tidak berubah". Non-secret hanya berubah
+     * bila key dikirim, termasuk ketika caller sengaja mengirim string kosong.
+     */
+    private function waEnvUpdatesFromPayload(array $payload): array
+    {
+        $updates = [];
+        foreach (self::WA_ENV_FIELDS as $key) {
+            if (!array_key_exists($key, $payload)) {
+                continue;
+            }
+            $value = str_replace(["\r", "\n", "\0"], '', (string)$payload[$key]);
+            if (in_array($key, self::WA_ENV_SECRET_FIELDS, true) && trim($value) === '') {
+                continue;
+            }
+            $updates[$key] = $value;
+        }
+        return $updates;
+    }
+
+    /**
+     * Update hanya key yang diminta. Baris lain, termasuk secret tambahan yang
+     * tidak dikelola UI, dipertahankan tanpa mem-parsing atau memantulkannya.
+     */
+    private function mergeWaEnvContent(string $existingContent, array $updates): string
+    {
+        $lines = $existingContent === ''
+            ? ['# wa-engine environment — digenerate oleh Finance App', '']
+            : (preg_split('/\r\n|\r|\n/', $existingContent) ?: []);
+        $seen = [];
+        $merged = [];
+
+        // Defense in depth: pemanggil normal sudah melewati
+        // waEnvUpdatesFromPayload(), tetapi merge tidak boleh bisa menyisipkan
+        // baris baru bila kelak dipakai dari jalur internal lain.
+        foreach ($updates as $key => $value) {
+            if (!in_array($key, self::WA_ENV_FIELDS, true)) {
+                unset($updates[$key]);
+                continue;
+            }
+            $updates[$key] = str_replace(["\r", "\n", "\0"], '', (string)$value);
+        }
+
+        foreach ($lines as $line) {
+            if (!preg_match('/^(\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*)=(.*)$/', $line, $matches)) {
+                $merged[] = $line;
+                continue;
+            }
+            $key = $matches[2];
+            if (!array_key_exists($key, $updates)) {
+                $merged[] = $line;
+                continue;
+            }
+
+            // Kemunculan pertama menjadi posisi kanonis. Duplikat key yang
+            // disentuh dibuang; key yang tidak disentuh tetap apa adanya.
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $merged[] = $matches[1] . $key . $matches[3] . '=' . $updates[$key];
+            $seen[$key] = true;
+        }
+
+        foreach ($updates as $key => $value) {
+            if (!isset($seen[$key])) {
+                $merged[] = $key . '=' . $value;
+            }
+        }
+
+        return rtrim(implode("\n", $merged), "\n") . "\n";
     }
 
     // JSON API — hapus sesi WA (auth_info) untuk paksa QR baru
     public function api_session_reset()
     {
         $this->require_permission(self::PAGE_SETTINGS, 'edit');
+        if (!$this->require_wa_engine_control_csrf()) {
+            return;
+        }
 
         $engineDir = realpath(FCPATH . 'wa-engine');
         if (!$engineDir) {
@@ -2045,7 +2421,7 @@ class Whatsapp extends MY_Controller
     public function guide()
     {
         $this->require_permission(self::PAGE_SETTINGS, 'view');
-        $session = $this->waSession();
+        $session = $this->waSessionStatusView($this->waSession());
         $this->render('wa/guide', [
             'title'       => 'Panduan WhatsApp Bot',
             'active_menu' => 'wa.settings',
@@ -2059,7 +2435,16 @@ class Whatsapp extends MY_Controller
     private function waSession(): array
     {
         return $this->db->from('wa_session')->where('id', 1)->limit(1)->get()->row_array()
-            ?: ['id' => 1, 'status' => 'UNKNOWN', 'bot_api_url' => 'http://127.0.0.1:3070', 'bot_api_token' => 'local-dev-token', 'node_path' => ''];
+            ?: ['id' => 1, 'status' => 'UNKNOWN', 'bot_api_url' => 'http://127.0.0.1:3070', 'bot_api_token' => '', 'node_path' => ''];
+    }
+
+    private function waSessionStatusView(array $session): array
+    {
+        return [
+            'status' => (string)($session['status'] ?? 'UNKNOWN'),
+            'phone_number' => (string)($session['phone_number'] ?? ''),
+            'last_ping_at' => (string)($session['last_ping_at'] ?? ''),
+        ];
     }
 
     private function dashboardStats(): array
@@ -2366,19 +2751,53 @@ class Whatsapp extends MY_Controller
         return $template;
     }
 
+    private function normalizeBotApiBaseUrl(string $url): ?string
+    {
+        if (preg_match('/\Ahttp:\/\/(127\.0\.0\.1|localhost):([1-9][0-9]{0,4})\/?\z/D', $url, $matches) !== 1) {
+            return null;
+        }
+
+        $port = (int)$matches[2];
+        if ($port < 1 || $port > 65535) {
+            return null;
+        }
+
+        return 'http://127.0.0.1:' . $port;
+    }
+
+    protected function initializeBotApiCurl(string $url)
+    {
+        return curl_init($url);
+    }
+
     private function callBotApi(string $endpoint, string $method = 'GET', array $payload = [], int $timeout = 8): array
     {
-        $session = $this->waSession();
-        $url     = rtrim($session['bot_api_url'], '/') . $endpoint
-                 . '?token=' . urlencode($session['bot_api_token']);
+        $serviceToken = trim((string)getenv(self::WA_ENGINE_API_TOKEN_ENV));
+        if ($serviceToken === '' || preg_match('/[\x00-\x1F\x7F]/', $serviceToken)) {
+            return ['ok' => false, 'message' => 'Credential internal WA Bot belum dikonfigurasi.'];
+        }
 
-        $ch = curl_init($url);
+        $session = $this->waSession();
+        $botApiBaseUrl = $this->normalizeBotApiBaseUrl((string)($session['bot_api_url'] ?? ''));
+        if ($botApiBaseUrl === null) {
+            return ['ok' => false, 'message' => 'Konfigurasi URL WA Bot tidak valid.'];
+        }
+
+        $url = $botApiBaseUrl . $endpoint;
+
+        $ch = $this->initializeBotApiCurl($url);
         $timeout = in_array($endpoint, ['/internal/send', '/internal/send-group'], true) ? 75 : max(1, $timeout);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => $timeout,
             CURLOPT_CONNECTTIMEOUT => min(5, $timeout),
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'X-Sync-Token: ' . $session['bot_api_token']],
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_MAXREDIRS      => 0,
+            CURLOPT_PROXY          => '',
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                self::WA_ENGINE_API_TOKEN_HEADER . ': ' . $serviceToken,
+            ],
         ]);
 
         if ($method === 'POST') {
@@ -2687,11 +3106,6 @@ class Whatsapp extends MY_Controller
             . "19. *batch gagal* - batch component draft/gagal posting yang perlu dicek.\n"
             . "20. *queue pos* - queue commit stock POS pending/gagal.\n"
             . "21. *estimasi* - estimasi keuangan seperti halaman /finance-reports/financial-estimation.\n\n"
-            . "*Input mutasi via WA* wajib format lengkap:\n"
-            . "- *mutasi in TUNAI 50000 setoran owner*\n"
-            . "- *mutasi out TUNAI 25000 beli bensin*\n"
-            . "- *mutasi transfer TUNAI MANDIRI 100000 setor bank*\n"
-            . "- *mutasi transfer TUNAI MANDIRI 100000 setor bank 2026-08-16*\n\n"
             . "Tambahkan kata *kemarin* untuk mengambil data kemarin. Contoh: *omzet kemarin*.\n"
             . "Untuk estimasi: *estimasi*, *estimasi bulan lalu*, *estimasi 2026-08*, atau *estimasi agustus 2026*.";
     }
@@ -3827,6 +4241,7 @@ class Whatsapp extends MY_Controller
         $today = date('Y-m-d');
         $nowTime = date('H:i:s');
         $retryAfter = date('Y-m-d H:i:s', strtotime('-10 minutes'));
+        $leaseExpiredAt = $retryAfter;
         $rows = $this->db->from('wa_report_schedule')
             ->where('is_active', 1)
             ->where('send_time <=', $nowTime)
@@ -3838,6 +4253,12 @@ class Whatsapp extends MY_Controller
                 ->where('last_run_at IS NULL', null, false)
                 ->or_where('last_run_at <', $retryAfter)
             ->group_end()
+            ->group_start()
+                ->where('run_claim_token IS NULL', null, false)
+                ->or_where('run_claim_token', '')
+                ->or_where('run_claimed_at IS NULL', null, false)
+                ->or_where('run_claimed_at <', $leaseExpiredAt)
+            ->group_end()
             ->order_by('send_time', 'ASC')
             ->limit(20)
             ->get()
@@ -3847,7 +4268,20 @@ class Whatsapp extends MY_Controller
         $failed = 0;
         $errors = [];
         foreach ($rows as $row) {
-            $result = $this->sendWaReportSchedule((int)$row['id'], false, $row);
+            $claimToken = $this->claimDueWaReportSchedule(
+                (int)$row['id'],
+                $today,
+                $nowTime,
+                $retryAfter,
+                $leaseExpiredAt
+            );
+            if ($claimToken === null) {
+                continue;
+            }
+
+            $row['run_claim_token'] = $claimToken;
+            $row['run_claimed_at'] = date('Y-m-d H:i:s');
+            $result = $this->sendWaReportSchedule((int)$row['id'], false, $row, $claimToken);
             if (!empty($result['ok'])) {
                 $sent++;
             } else {
@@ -3869,7 +4303,55 @@ class Whatsapp extends MY_Controller
         ];
     }
 
-    private function sendWaReportSchedule(int $scheduleId, bool $manual = false, ?array $schedule = null): array
+    private function claimDueWaReportSchedule(
+        int $scheduleId,
+        string $today,
+        string $nowTime,
+        string $retryAfter,
+        string $leaseExpiredAt
+    ): ?string {
+        if ($scheduleId <= 0) {
+            return null;
+        }
+
+        try {
+            $claimToken = bin2hex(random_bytes(16));
+        } catch (Throwable $exception) {
+            return null;
+        }
+        $claimedAt = date('Y-m-d H:i:s');
+
+        $this->db->set([
+            'run_claim_token' => $claimToken,
+            'run_claimed_at' => $claimedAt,
+        ])->where('id', $scheduleId)
+            ->where('is_active', 1)
+            ->where('send_time <=', $nowTime)
+            ->group_start()
+                ->where('last_sent_date IS NULL', null, false)
+                ->or_where('last_sent_date <', $today)
+            ->group_end()
+            ->group_start()
+                ->where('last_run_at IS NULL', null, false)
+                ->or_where('last_run_at <', $retryAfter)
+            ->group_end()
+            ->group_start()
+                ->where('run_claim_token IS NULL', null, false)
+                ->or_where('run_claim_token', '')
+                ->or_where('run_claimed_at IS NULL', null, false)
+                ->or_where('run_claimed_at <', $leaseExpiredAt)
+            ->group_end()
+            ->update('wa_report_schedule');
+
+        return $this->db->affected_rows() === 1 ? $claimToken : null;
+    }
+
+    private function sendWaReportSchedule(
+        int $scheduleId,
+        bool $manual = false,
+        ?array $schedule = null,
+        ?string $claimToken = null
+    ): array
     {
         if (!$this->db->table_exists('wa_report_schedule')) {
             return ['ok' => false, 'message' => 'Tabel jadwal laporan belum tersedia.'];
@@ -3888,7 +4370,10 @@ class Whatsapp extends MY_Controller
             ->get()
             ->row_array();
         if (!$group || !(int)($group['is_active'] ?? 0) || trim((string)($group['group_jid'] ?? '')) === '') {
-            $this->markWaReportScheduleFailed($scheduleId, 'Grup tujuan belum aktif atau JID grup kosong.');
+            $finalized = $this->markWaReportScheduleFailed($scheduleId, 'Grup tujuan belum aktif atau JID grup kosong.', $claimToken);
+            if ($claimToken !== null && !$finalized) {
+                return ['ok' => false, 'message' => 'Lease jadwal sudah berpindah; hasil runner lama tidak difinalisasi.'];
+            }
             return ['ok' => false, 'message' => 'Grup tujuan belum aktif atau JID grup kosong.'];
         }
 
@@ -3898,7 +4383,10 @@ class Whatsapp extends MY_Controller
             ->get()
             ->row_array();
         if (!$template || !(int)($template['is_active'] ?? 0)) {
-            $this->markWaReportScheduleFailed($scheduleId, 'Template laporan tidak aktif atau tidak ditemukan.');
+            $finalized = $this->markWaReportScheduleFailed($scheduleId, 'Template laporan tidak aktif atau tidak ditemukan.', $claimToken);
+            if ($claimToken !== null && !$finalized) {
+                return ['ok' => false, 'message' => 'Lease jadwal sudah berpindah; hasil runner lama tidak difinalisasi.'];
+            }
             return ['ok' => false, 'message' => 'Template laporan tidak aktif atau tidak ditemukan.'];
         }
 
@@ -3926,13 +4414,23 @@ class Whatsapp extends MY_Controller
 
         $ok = !empty($result['ok']);
         $this->logSend(null, 'SCHEDULED', null, (string)$group['group_jid'], (string)$group['group_name'], $message, $ok ? 'SENT' : 'FAILED', (string)($result['message'] ?? ''));
-        $this->db->where('id', $scheduleId)->update('wa_report_schedule', [
+        $finalPayload = [
             'last_run_at' => date('Y-m-d H:i:s'),
             'last_sent_at' => $ok ? date('Y-m-d H:i:s') : ($schedule['last_sent_at'] ?? null),
             'last_sent_date' => $ok ? date('Y-m-d') : ($schedule['last_sent_date'] ?? null),
             'last_status' => $ok ? 'SENT' : 'FAILED',
             'last_error' => $ok ? null : mb_substr((string)($result['message'] ?? 'Gagal kirim'), 0, 500, 'UTF-8'),
-        ]);
+        ];
+        $finalQuery = $this->db->where('id', $scheduleId);
+        if ($claimToken !== null) {
+            $finalQuery->where('run_claim_token', $claimToken);
+            $finalPayload['run_claim_token'] = null;
+            $finalPayload['run_claimed_at'] = null;
+        }
+        $finalQuery->update('wa_report_schedule', $finalPayload);
+        if ($claimToken !== null && $this->db->affected_rows() !== 1) {
+            return ['ok' => false, 'message' => 'Lease jadwal sudah berpindah; hasil runner lama tidak difinalisasi.'];
+        }
 
         return [
             'ok' => $ok,
@@ -3942,16 +4440,25 @@ class Whatsapp extends MY_Controller
         ];
     }
 
-    private function markWaReportScheduleFailed(int $scheduleId, string $message): void
+    private function markWaReportScheduleFailed(int $scheduleId, string $message, ?string $claimToken = null): bool
     {
         if ($scheduleId <= 0 || !$this->db->table_exists('wa_report_schedule')) {
-            return;
+            return false;
         }
-        $this->db->where('id', $scheduleId)->update('wa_report_schedule', [
+        $payload = [
             'last_run_at' => date('Y-m-d H:i:s'),
             'last_status' => 'FAILED',
             'last_error' => mb_substr($message, 0, 500, 'UTF-8'),
-        ]);
+        ];
+        $query = $this->db->where('id', $scheduleId);
+        if ($claimToken !== null) {
+            $query->where('run_claim_token', $claimToken);
+            $payload['run_claim_token'] = null;
+            $payload['run_claimed_at'] = null;
+        }
+        $query->update('wa_report_schedule', $payload);
+
+        return $claimToken === null || $this->db->affected_rows() === 1;
     }
 
     private function renderWaTemplate(string $template, array $vars): string
@@ -4569,6 +5076,474 @@ class Whatsapp extends MY_Controller
         return $note !== '' ? ('Catatan: ' . $note) : '';
     }
 
+    private function wa_engine_control_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::WA_ENGINE_CONTROL_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::WA_ENGINE_CONTROL_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function wa_env_save_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::WA_ENV_SAVE_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::WA_ENV_SAVE_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function wa_template_group_mutation_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::WA_TEMPLATE_GROUP_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::WA_TEMPLATE_GROUP_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function wa_report_schedule_mutation_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::WA_REPORT_SCHEDULE_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::WA_REPORT_SCHEDULE_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function wa_broadcast_mutation_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::WA_BROADCAST_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::WA_BROADCAST_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function wa_manual_single_send_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::WA_MANUAL_SINGLE_SEND_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::WA_MANUAL_SINGLE_SEND_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function wa_log_retry_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::WA_LOG_RETRY_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::WA_LOG_RETRY_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function wa_settings_mutation_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::WA_SETTINGS_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::WA_SETTINGS_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function wa_send_test_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::WA_SEND_TEST_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::WA_SEND_TEST_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_wa_send_test_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_send_test_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        // CI menormalkan nama CGI/FastCGI ke title case (...-Csrf).
+        // Token kirim-test hanya diterima dari header khusus endpoint ini.
+        $providedToken = (string)$this->input->get_request_header(self::WA_SEND_TEST_CSRF_CI_HEADER, true);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_wa_send_test_csrf(403, 'Permintaan pengiriman test WhatsApp tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::WA_SEND_TEST_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_wa_send_test_csrf(403, 'Permintaan pengiriman test WhatsApp tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_wa_send_test_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function require_wa_settings_mutation_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_settings_mutation_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = (string)$this->input->post(self::WA_SETTINGS_MUTATION_CSRF_FORM_FIELD, false);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_wa_settings_mutation_csrf(403, 'Permintaan perubahan pengaturan WhatsApp tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::WA_SETTINGS_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_wa_settings_mutation_csrf(403, 'Permintaan perubahan pengaturan WhatsApp tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_wa_settings_mutation_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function require_wa_log_retry_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_log_retry_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        // CI menormalkan nama CGI/FastCGI ke title case (...-Csrf).
+        // Token retry hanya diterima dari header khusus; query, form, JSON,
+        // dan raw body tidak menjadi jalur alternatif.
+        $providedToken = (string)$this->input->get_request_header(self::WA_LOG_RETRY_CSRF_CI_HEADER, true);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_wa_log_retry_csrf(403, 'Permintaan retry log WhatsApp tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::WA_LOG_RETRY_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_wa_log_retry_csrf(403, 'Permintaan retry log WhatsApp tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_wa_log_retry_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function require_wa_broadcast_mutation_csrf(bool $headerOnly = false): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_broadcast_mutation_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        if ($headerOnly) {
+            // CI menormalkan nama CGI/FastCGI ke title case (...-Csrf).
+            // Kontrak browser tetap memakai ...-CSRF; tidak ada fallback ke
+            // query, form field, atau raw body untuk endpoint dispatch.
+            $providedToken = (string)$this->input->get_request_header(self::WA_BROADCAST_MUTATION_CSRF_CI_HEADER, true);
+        } else {
+            $providedToken = (string)$this->input->post(self::WA_BROADCAST_MUTATION_CSRF_FORM_FIELD, false);
+        }
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_wa_broadcast_mutation_csrf(403, 'Permintaan mutasi broadcast WhatsApp tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::WA_BROADCAST_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_wa_broadcast_mutation_csrf(403, 'Permintaan mutasi broadcast WhatsApp tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function require_wa_manual_single_send_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_manual_single_send_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = (string)$this->input->post(self::WA_MANUAL_SINGLE_SEND_CSRF_FORM_FIELD, false);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_wa_manual_single_send_csrf(403, 'Permintaan pengiriman manual WhatsApp tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::WA_MANUAL_SINGLE_SEND_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_wa_manual_single_send_csrf(403, 'Permintaan pengiriman manual WhatsApp tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_wa_manual_single_send_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function reject_wa_broadcast_mutation_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function require_wa_report_schedule_mutation_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_report_schedule_mutation_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = (string)$this->input->post(self::WA_REPORT_SCHEDULE_MUTATION_CSRF_FORM_FIELD, false);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_wa_report_schedule_mutation_csrf(403, 'Permintaan mutasi jadwal laporan WhatsApp tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::WA_REPORT_SCHEDULE_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_wa_report_schedule_mutation_csrf(403, 'Permintaan mutasi jadwal laporan WhatsApp tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_wa_report_schedule_mutation_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function require_wa_template_group_mutation_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_template_group_mutation_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = (string)$this->input->post(self::WA_TEMPLATE_GROUP_MUTATION_CSRF_FORM_FIELD, false);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_wa_template_group_mutation_csrf(403, 'Permintaan mutasi template/grup WhatsApp tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::WA_TEMPLATE_GROUP_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_wa_template_group_mutation_csrf(403, 'Permintaan mutasi template/grup WhatsApp tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_wa_template_group_mutation_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function require_wa_env_save_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_env_save_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        // CI menormalkan nama CGI/FastCGI ke title case (...-Csrf).
+        // Kontrak browser tetap memakai ...-CSRF, sedangkan lookup memakai
+        // bentuk kanonis agar aman juga pada input double yang exact-key.
+        $providedToken = (string)$this->input->get_request_header(self::WA_ENV_SAVE_CSRF_CI_HEADER, true);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_wa_env_save_csrf(403, 'Permintaan penyimpanan konfigurasi wa-engine tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::WA_ENV_SAVE_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_wa_env_save_csrf(403, 'Permintaan penyimpanan konfigurasi wa-engine tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_wa_env_save_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function require_wa_engine_control_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_wa_engine_control_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        // CI menormalkan nama CGI/FastCGI ke title case (...-Csrf).
+        // Kontrak browser tetap memakai ...-CSRF, sedangkan lookup memakai
+        // bentuk kanonis agar aman juga pada input double yang exact-key.
+        $providedToken = trim((string)$this->input->get_request_header(self::WA_ENGINE_CONTROL_CSRF_CI_HEADER, true));
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_wa_engine_control_csrf(403, 'Permintaan kontrol wa-engine tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::WA_ENGINE_CONTROL_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-fA-F]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_wa_engine_control_csrf(403, 'Permintaan kontrol wa-engine tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_wa_engine_control_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
     private function jsonOut(array $data): void
     {
         // Flush semua output buffer (termasuk PHP warnings/notices) agar tidak mencemari JSON
@@ -4661,6 +5636,11 @@ class Whatsapp extends MY_Controller
             [$k, $v] = array_pad(explode('=', $line, 2), 2, '');
             $k = trim($k);
             $v = trim($v);
+            if ($k === self::WA_GROUP_COMMAND_TOKEN_ENV || $k === self::WA_ENGINE_API_TOKEN_ENV) {
+                // Credential service wajib diwariskan dari process environment
+                // PHP/FPM, bukan file di bawah web root.
+                continue;
+            }
             if ($k !== '' && preg_match('/^[A-Z_][A-Z0-9_]*$/i', $k)) {
                 $str .= $k . '=' . escapeshellarg($v) . ' ';
             }

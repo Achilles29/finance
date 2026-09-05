@@ -4,6 +4,10 @@ $dateFrom      = (string)($date_from ?? date('Y-m-01'));
 $dateTo        = (string)($date_to ?? date('Y-m-d'));
 $filterStatus  = (string)($filter_status ?? '');
 $filterSource  = (string)($filter_source ?? '');
+$canRetryManual = (bool)($can_retry_manual ?? false);
+$canRetryGroup = (bool)($can_retry_group ?? false);
+$canBroadcastEdit = (bool)($can_broadcast_edit ?? false);
+$retryCsrf = (string)($wa_log_retry_csrf ?? '');
 
 $statusBadge = ['SENT' => 'bg-success', 'FAILED' => 'bg-danger', 'PENDING' => 'bg-secondary'];
 $sourceBadge = ['BROADCAST' => 'bg-primary', 'MANUAL' => 'bg-info', 'GROUP' => 'bg-warning text-dark', 'SYSTEM' => 'bg-secondary', 'SCHEDULED' => 'bg-dark'];
@@ -73,6 +77,11 @@ $sourceBadge = ['BROADCAST' => 'bg-primary', 'MANUAL' => 'bg-info', 'GROUP' => '
           </thead>
           <tbody>
             <?php foreach ($logs as $log): ?>
+            <?php
+            $logSource = strtoupper(trim((string)($log['source'] ?? '')));
+            $isBroadcastLog = $logSource === 'BROADCAST';
+            $isGroupLog = $logSource === 'GROUP' || trim((string)($log['group_jid'] ?? '')) !== '';
+            ?>
             <tr>
               <td class="text-muted small text-nowrap">
                 <?= html_escape(date('d/m/y H:i:s', strtotime($log['sent_at']))) ?>
@@ -107,14 +116,20 @@ $sourceBadge = ['BROADCAST' => 'bg-primary', 'MANUAL' => 'bg-info', 'GROUP' => '
               </td>
               <td class="text-center text-nowrap">
                 <?php if (($log['status'] ?? '') === 'FAILED'): ?>
-                  <?php if (($log['source'] ?? '') === 'BROADCAST' && !empty($log['broadcast_id'])): ?>
+                  <?php if ($isBroadcastLog && !empty($log['broadcast_id']) && $canBroadcastEdit): ?>
                     <a href="<?= site_url('wa/broadcast/detail/' . (int)$log['broadcast_id']) ?>" class="btn btn-outline-danger btn-sm">
                       Kirim ulang
                     </a>
-                  <?php else: ?>
+                  <?php elseif ($isGroupLog && $canRetryGroup): ?>
                     <button type="button" class="btn btn-outline-danger btn-sm" data-retry-log="<?= (int)$log['id'] ?>">
                       Kirim ulang
                     </button>
+                  <?php elseif (!$isBroadcastLog && !$isGroupLog && $canRetryManual): ?>
+                    <button type="button" class="btn btn-outline-danger btn-sm" data-retry-log="<?= (int)$log['id'] ?>">
+                      Kirim ulang
+                    </button>
+                  <?php else: ?>
+                    <span class="text-muted">-</span>
                   <?php endif; ?>
                 <?php else: ?>
                   <span class="text-muted">-</span>
@@ -144,7 +159,12 @@ document.addEventListener('click', function (event) {
   button.textContent = 'Mengirim...';
 
   fetch('<?= site_url('wa/api/log-retry/') ?>' + button.getAttribute('data-retry-log'), {
-    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-Wa-Log-Retry-CSRF': <?= json_encode($retryCsrf) ?>
+    }
   })
     .then(response => response.json())
     .then(data => {

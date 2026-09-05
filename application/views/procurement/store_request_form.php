@@ -7,6 +7,7 @@ $lines = (array)($lines ?? []);
 $divisionOptions = $division_options ?? [];
 $destinationOptions = $destination_options ?? [];
 $destinationGuardMap = $destination_guard_map ?? [];
+$procurementMutationCsrfToken = (string)($procurement_mutation_csrf_token ?? '');
 $usagePurposeOptions = (array)($usage_purpose_options ?? [
   ['value' => 'BAHAN_BAKU', 'label' => 'Persediaan Produksi'],
   ['value' => 'OPERASIONAL', 'label' => 'Kebutuhan Operasional'],
@@ -145,6 +146,7 @@ foreach ($lines as $ln) {
   var storeUrl = <?php echo json_encode(site_url('procurement/store-request/store')); ?>;
   var updateBaseUrl = <?php echo json_encode(site_url('procurement/store-request/update/')); ?>;
   var listUrl = <?php echo json_encode(site_url('store-requests')); ?>;
+  var procurementMutationCsrfToken = <?php echo json_encode($procurementMutationCsrfToken); ?>;
   var destinationGuardMap = <?php echo json_encode($destinationGuardMap); ?>;
   var usagePurposeOptions = <?php echo json_encode($usagePurposeOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?> || [];
   var initialLines = <?php echo json_encode($initialLines); ?>;
@@ -184,6 +186,10 @@ foreach ($lines as $ln) {
     return html;
   }
   function fetchJson(url, opts){
+    opts = opts || {};
+    if (String(opts.method || 'GET').toUpperCase() === 'POST') {
+      opts.headers = Object.assign({'X-Procurement-Mutation-CSRF': procurementMutationCsrfToken}, opts.headers || {});
+    }
     return fetch(url, opts).then(function(res){
       return res.text().then(function(t){
         var d = {};

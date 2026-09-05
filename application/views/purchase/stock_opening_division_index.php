@@ -182,6 +182,7 @@ tr:hover .btn-quickfill { opacity:1; }
             <i class="ri ri-download-2-line me-1"></i>Export Template
           </button>
         </form>
+        <?php if (!empty($can_export_existing)): ?>
         <form method="get" action="<?php echo html_escape($stockOpeningExportExistingUrl); ?>" id="opn-export-existing-form">
           <input type="hidden" name="division_id" value="<?php echo $selDivisionId; ?>">
           <input type="hidden" name="destination" value="<?php echo html_escape($selDestination); ?>">
@@ -191,6 +192,7 @@ tr:hover .btn-quickfill { opacity:1; }
             <i class="ri ri-file-list-3-line me-1"></i>Export Existing
           </button>
         </form>
+        <?php endif; ?>
       </div>
     </div>
     <form method="post" action="<?php echo html_escape($stockOpeningImportUrl); ?>" enctype="multipart/form-data" id="opn-import-form" class="row g-3 align-items-end">

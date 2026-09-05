@@ -3,6 +3,8 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Procurement extends MY_Controller
 {
+    private const PROCUREMENT_MUTATION_CSRF_SESSION_KEY = 'procurement_mutation_csrf';
+    private const PROCUREMENT_MUTATION_CSRF_CI_HEADER = 'X-Procurement-Mutation-Csrf';
     private const PAGE_SR       = 'procurement.store_request.index';
     private const PAGE_DIVISION = 'procurement.division.index';
 
@@ -108,6 +110,7 @@ class Procurement extends MY_Controller
                 || in_array(strtoupper((string)($this->current_user['role_code'] ?? '')), ['SUPERADMIN', 'CEO', 'ADMIN'], true)
             ),
             'can_repair_history' => $this->canRepairStoreRequestHistory(),
+            'procurement_mutation_csrf_token' => $this->procurement_mutation_csrf(),
         ];
         $this->render('procurement/store_requests', $data);
     }
@@ -137,6 +140,7 @@ class Procurement extends MY_Controller
             'destination_guard_map' => $this->Procurement_model->build_destination_guard_map($divisionOptions),
             'can_create' => true,
             'can_edit' => true,
+            'procurement_mutation_csrf_token' => $this->procurement_mutation_csrf(),
         ];
 
         $this->render('procurement/store_request_form', $data);
@@ -185,6 +189,7 @@ class Procurement extends MY_Controller
             'destination_guard_map' => $this->Procurement_model->build_destination_guard_map($divisionOptions),
             'can_create' => true,
             'can_edit' => true,
+            'procurement_mutation_csrf_token' => $this->procurement_mutation_csrf(),
         ];
 
         $this->render('procurement/store_request_form', $data);
@@ -738,6 +743,9 @@ class Procurement extends MY_Controller
     public function store_request_store()
     {
         $this->require_permission(self::PAGE_SR, 'create');
+        if (!$this->require_procurement_mutation_csrf()) {
+            return;
+        }
 
         $payload = $this->requestPayload();
         $header = (array)($payload['header'] ?? []);
@@ -772,6 +780,9 @@ class Procurement extends MY_Controller
     public function store_request_update(int $id = 0)
     {
         $this->require_permission(self::PAGE_SR, 'edit');
+        if (!$this->require_procurement_mutation_csrf()) {
+            return;
+        }
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -811,6 +822,9 @@ class Procurement extends MY_Controller
     public function store_request_action(int $id = 0)
     {
         $this->require_permission(self::PAGE_SR, 'edit');
+        if (!$this->require_procurement_mutation_csrf()) {
+            return;
+        }
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -876,6 +890,9 @@ class Procurement extends MY_Controller
     public function store_request_fulfill(int $id = 0)
     {
         $this->require_permission(self::PAGE_SR, 'edit');
+        if (!$this->require_procurement_mutation_csrf()) {
+            return;
+        }
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -1363,6 +1380,42 @@ class Procurement extends MY_Controller
 
         $post = $this->input->post(null, true);
         return is_array($post) ? $post : [];
+    }
+
+    private function procurement_mutation_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::PROCUREMENT_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::PROCUREMENT_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_procurement_mutation_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->jsonError('Permintaan mutasi procurement tidak valid.', 405);
+            return false;
+        }
+
+        $providedToken = (string)$this->input->get_request_header(
+            self::PROCUREMENT_MUTATION_CSRF_CI_HEADER,
+            true
+        );
+        $sessionToken = (string)$this->session->userdata(self::PROCUREMENT_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->jsonError('Permintaan mutasi procurement tidak valid.', 403);
+            return false;
+        }
+
+        return true;
     }
 
     private function jsonError(string $message, int $statusCode = 400): void

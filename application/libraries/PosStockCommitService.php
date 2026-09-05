@@ -243,43 +243,25 @@ class PosStockCommitService
             return ['ok' => false, 'message' => 'Stock commit snapshot tidak siap untuk reversal.'];
         }
 
-        $header = $this->CI->db->from('pos_stock_commit')->where('id', $commitId)->limit(1)->get()->row_array();
-        if (!$header) {
-            return ['ok' => false, 'message' => 'Stock commit snapshot tidak ditemukan.'];
-        }
-
-        $existingLines = $this->CI->db->from('pos_stock_commit_line')->where('commit_id', $commitId)->get()->result_array();
-        $indexedLines = [];
-        foreach ($existingLines as $row) {
-            $indexedLines[$this->reversal_key_for_line($row)] = $row;
-        }
-
         $db = $this->CI->db;
         $db->trans_begin();
         try {
+            // Use the same lock order as the stock poster: order, commit, lines.
+            $header = $this->commit_context_for_update($commitId);
+            if (!$header) {
+                throw new RuntimeException('Stock commit snapshot tidak ditemukan.');
+            }
+            $existingLines = $this->commit_lines_for_update($commitId);
+            $prepared = self::prepare_reversal_decisions($existingLines, $lineDecisions);
+            if (!($prepared['ok'] ?? false)) {
+                throw new RuntimeException((string)($prepared['message'] ?? 'Keputusan reversal tidak valid.'));
+            }
+
             $affected = 0;
-            $allReversed = true;
-
-            foreach ($lineDecisions as $decision) {
-                $lineKey = (string)($decision['line_key'] ?? '');
-                if ($lineKey === '' || !isset($indexedLines[$lineKey])) {
-                    continue;
-                }
-
-                $row = $indexedLines[$lineKey];
-                $remainingQty = max(0, round((float)($row['committed_qty'] ?? 0) - (float)($row['reversed_qty'] ?? 0), 4));
-                if ($remainingQty <= 0) {
-                    continue;
-                }
-
-                $policy = $this->normalize_enum((string)($decision['return_policy'] ?? 'RETURN_TO_STOCK'), $this->allowedReturnPolicies, 'RETURN_TO_STOCK');
-                $reverseQty = round((float)($decision['reverse_qty'] ?? $remainingQty), 4);
-                $reverseQty = min($remainingQty, max(0, $reverseQty));
-                if ($reverseQty <= 0) {
-                    $allReversed = false;
-                    continue;
-                }
-
+            foreach ((array)$prepared['decisions'] as $decision) {
+                $row = (array)$decision['line'];
+                $policy = (string)$decision['return_policy'];
+                $reverseQty = (float)$decision['reverse_qty'];
                 $newReversedQty = round((float)($row['reversed_qty'] ?? 0) + $reverseQty, 4);
                 $reversalStatus = 'RETURNED';
                 if ($policy === 'ADJUSTMENT_ONLY') {
@@ -294,15 +276,14 @@ class PosStockCommitService
                     'reversed_qty' => $newReversedQty,
                     'notes' => $this->merge_note((string)($row['notes'] ?? ''), (string)($decision['notes'] ?? '')),
                 ];
-                $db->where('id', (int)$row['id'])->update('pos_stock_commit_line', $payload);
-                $affected++;
-
-                if ($newReversedQty < (float)($row['committed_qty'] ?? 0)) {
-                    $allReversed = false;
+                $updated = $db->where('id', (int)$row['id'])->update('pos_stock_commit_line', $payload);
+                if ($updated === false) {
+                    throw new RuntimeException('Reversal line snapshot POS gagal disimpan.');
                 }
+                $affected++;
             }
 
-            $commitStatus = $allReversed && $affected > 0 ? 'REVERSED' : 'PARTIAL_REVERSED';
+            $commitStatus = (string)$prepared['commit_status'];
             $headerUpdate = [
                 'commit_status' => $commitStatus,
                 'reversed_at' => date('Y-m-d H:i:s'),
@@ -328,6 +309,97 @@ class PosStockCommitService
             $db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
         }
+    }
+
+    /**
+     * Pure validation/projection shared by physical rollback and persistence.
+     * It intentionally caps request quantity to the locked authoritative residual.
+     */
+    public static function prepare_reversal_decisions(array $existingLines, array $lineDecisions): array
+    {
+        if (empty($lineDecisions)) {
+            return ['ok' => false, 'message' => 'Tidak ada line reversal yang dikirim.'];
+        }
+
+        $aliases = [];
+        $linesById = [];
+        foreach ($existingLines as $line) {
+            $lineId = (int)($line['id'] ?? 0);
+            if ($lineId <= 0) {
+                continue;
+            }
+            $linesById[$lineId] = $line;
+            $aliases['commit_line:' . $lineId] = $lineId;
+            $aliases[self::persisted_reversal_key_for_line($line)] = $lineId;
+        }
+
+        $seen = [];
+        $prepared = [];
+        $projected = [];
+        foreach ($lineDecisions as $decision) {
+            if (!is_array($decision)) {
+                return ['ok' => false, 'message' => 'Format line reversal tidak valid.'];
+            }
+            $lineKey = trim((string)($decision['line_key'] ?? ''));
+            if ($lineKey === '' && !empty($decision['line_id'])) {
+                $lineKey = 'commit_line:' . (int)$decision['line_id'];
+            }
+            if ($lineKey === '' || !isset($aliases[$lineKey])) {
+                return ['ok' => false, 'message' => 'Line reversal tidak dikenal: ' . ($lineKey === '' ? '(kosong)' : $lineKey) . '.'];
+            }
+
+            $lineId = (int)$aliases[$lineKey];
+            if (isset($seen[$lineId])) {
+                return ['ok' => false, 'message' => 'Keputusan reversal duplikat untuk commit line #' . $lineId . '.'];
+            }
+            $seen[$lineId] = true;
+
+            $policy = strtoupper(trim((string)($decision['return_policy'] ?? 'RETURN_TO_STOCK')));
+            if (!in_array($policy, ['RETURN_TO_STOCK', 'ADJUSTMENT_ONLY', 'NO_RETURN'], true)) {
+                return ['ok' => false, 'message' => 'Return policy reversal tidak valid untuk commit line #' . $lineId . '.'];
+            }
+
+            $line = $linesById[$lineId];
+            $remainingQty = max(0, round((float)($line['committed_qty'] ?? 0) - (float)($line['reversed_qty'] ?? 0), 4));
+            $rawQty = array_key_exists('reverse_qty', $decision) ? $decision['reverse_qty'] : $remainingQty;
+            if (!is_numeric($rawQty)) {
+                return ['ok' => false, 'message' => 'Quantity reversal tidak valid untuk commit line #' . $lineId . '.'];
+            }
+            $effectiveQty = round(min($remainingQty, max(0, (float)$rawQty)), 4);
+            if ($effectiveQty <= 0.0001) {
+                continue;
+            }
+
+            $projected[$lineId] = round((float)($line['reversed_qty'] ?? 0) + $effectiveQty, 4);
+            $prepared[] = [
+                'line_key' => self::persisted_reversal_key_for_line($line),
+                'runtime_line_key' => 'commit_line:' . $lineId,
+                'return_policy' => $policy,
+                'reverse_qty' => $effectiveQty,
+                'notes' => trim((string)($decision['notes'] ?? '')),
+                'line' => $line,
+            ];
+        }
+
+        if (empty($prepared)) {
+            return ['ok' => false, 'message' => 'Tidak ada quantity reversal efektif; line mungkin sudah habis direversal.'];
+        }
+
+        $allReversed = true;
+        foreach ($existingLines as $line) {
+            $lineId = (int)($line['id'] ?? 0);
+            $reversedQty = $projected[$lineId] ?? (float)($line['reversed_qty'] ?? 0);
+            if (round((float)($line['committed_qty'] ?? 0) - $reversedQty, 4) > 0.0001) {
+                $allReversed = false;
+                break;
+            }
+        }
+
+        return [
+            'ok' => true,
+            'decisions' => $prepared,
+            'commit_status' => $allReversed ? 'REVERSED' : 'PARTIAL_REVERSED',
+        ];
     }
 
     public function snapshot_for_order(int $orderId): array
@@ -410,6 +482,14 @@ class PosStockCommitService
         return $commit;
     }
 
+    protected function commit_lines_for_update(int $commitId): array
+    {
+        return $this->CI->db->query(
+            'SELECT * FROM pos_stock_commit_line WHERE commit_id = ? ORDER BY line_no ASC, id ASC FOR UPDATE',
+            [$commitId]
+        )->result_array();
+    }
+
     protected function terminal_commit_context_reason(array $context): string
     {
         $orderStatus = strtoupper(trim((string)($context['order_status'] ?? '')));
@@ -431,6 +511,11 @@ class PosStockCommitService
     }
 
     protected function reversal_key_for_line(array $line): string
+    {
+        return self::persisted_reversal_key_for_line($line);
+    }
+
+    private static function persisted_reversal_key_for_line(array $line): string
     {
         $type = strtoupper((string)($line['line_type'] ?? 'PRODUCT'));
         if ($type === 'EXTRA') {

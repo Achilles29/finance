@@ -1,6 +1,7 @@
 <?php
-$session = (array)($session ?? []);
+$settings = (array)($settings ?? []);
 $canEdit = (bool)($can_edit ?? false);
+$settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
 ?>
 
 <div class="container-xxl py-3">
@@ -26,11 +27,14 @@ $canEdit = (bool)($can_edit ?? false);
       <div class="card border-0 shadow-sm mb-3">
         <div class="card-header"><h5 class="mb-0">Koneksi Bot</h5></div>
         <form method="post" action="<?= site_url('wa/settings') ?>">
+          <?php if ($canEdit): ?>
+          <input type="hidden" name="wa_settings_mutation_csrf" value="<?= html_escape($settingsMutationCsrf) ?>">
+          <?php endif; ?>
           <div class="card-body">
             <div class="mb-3">
               <label class="form-label fw-semibold">URL Internal Bot</label>
               <input type="url" name="bot_api_url" class="form-control font-monospace"
-                value="<?= html_escape($session['bot_api_url'] ?? 'http://127.0.0.1:3070') ?>"
+                value="<?= html_escape($settings['bot_api_url'] ?? 'http://127.0.0.1:3070') ?>"
                 <?= !$canEdit ? 'readonly' : '' ?>
                 placeholder="http://127.0.0.1:3070">
               <div class="form-text">
@@ -39,19 +43,9 @@ $canEdit = (bool)($can_edit ?? false);
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label fw-semibold">Token Auth Bot</label>
-              <input type="text" name="bot_api_token" class="form-control font-monospace"
-                value="<?= html_escape($session['bot_api_token'] ?? 'local-dev-token') ?>"
-                <?= !$canEdit ? 'readonly' : '' ?>
-                placeholder="local-dev-token">
-              <div class="form-text">
-                Token yang sama perlu dikonfigurasi di <code>wa-engine/.env</code> → <code>WA_TOKEN</code>.
-              </div>
-            </div>
-            <div class="mb-3">
               <label class="form-label fw-semibold">Path Node.js <span class="badge bg-warning text-dark">Penting</span></label>
               <input type="text" name="node_path" class="form-control font-monospace"
-                value="<?= html_escape($session['node_path'] ?? '') ?>"
+                value="<?= html_escape($settings['node_path'] ?? '') ?>"
                 <?= !$canEdit ? 'readonly' : '' ?>
                 placeholder="Contoh: /home/ubuntu/.nvm/versions/node/v20.x.x/bin/node">
               <div class="form-text">
@@ -82,36 +76,37 @@ $canEdit = (bool)($can_edit ?? false);
         <div class="card-body" id="env-body" style="display:none;">
           <div class="alert alert-warning small py-2 mb-3">
             <i class="ri ri-error-warning-line me-1"></i>
-            Isi sesuai konfigurasi MySQL di server Ubuntu. Restart wa-engine setelah simpan.
+            Nilai dari file tidak ditampilkan. Isi hanya field yang ingin diubah; field secret kosong akan mempertahankan nilai lama. Restart wa-engine setelah simpan.
           </div>
           <div class="row g-2 mb-2">
             <div class="col-md-8">
               <label class="form-label small fw-semibold mb-1">DB_HOST</label>
-              <input type="text" id="env-db-host" class="form-control form-control-sm font-monospace" value="127.0.0.1">
+              <input type="text" id="env-db-host" data-env-key="DB_HOST" class="form-control form-control-sm font-monospace" value="" placeholder="Nilai baru (contoh: 127.0.0.1)">
+              <div class="form-text" id="env-db-host-status">Status belum dimuat.</div>
             </div>
             <div class="col-md-4">
               <label class="form-label small fw-semibold mb-1">DB_NAME</label>
-              <input type="text" id="env-db-name" class="form-control form-control-sm font-monospace" value="db_finance">
+              <input type="text" id="env-db-name" data-env-key="DB_NAME" class="form-control form-control-sm font-monospace" value="" placeholder="Nilai baru">
+              <div class="form-text" id="env-db-name-status">Status belum dimuat.</div>
             </div>
           </div>
           <div class="row g-2 mb-2">
             <div class="col-md-6">
               <label class="form-label small fw-semibold mb-1">DB_USER</label>
-              <input type="text" id="env-db-user" class="form-control form-control-sm font-monospace" value="root">
+              <input type="text" id="env-db-user" data-env-key="DB_USER" class="form-control form-control-sm font-monospace" value="" placeholder="Nilai baru">
+              <div class="form-text" id="env-db-user-status">Status belum dimuat.</div>
             </div>
             <div class="col-md-6">
               <label class="form-label small fw-semibold mb-1">DB_PASS</label>
-              <input type="text" id="env-db-pass" class="form-control form-control-sm font-monospace" placeholder="(kosong jika tanpa password)">
+              <input type="password" id="env-db-pass" data-env-key="DB_PASS" data-env-secret="1" class="form-control form-control-sm font-monospace" value="" autocomplete="new-password" placeholder="Kosong = pertahankan">
+              <div class="form-text" id="env-db-pass-status">Status belum dimuat.</div>
             </div>
           </div>
           <div class="row g-2 mb-3">
-            <div class="col-md-6">
+            <div class="col-md-12">
               <label class="form-label small fw-semibold mb-1">WA_PORT</label>
-              <input type="text" id="env-wa-port" class="form-control form-control-sm font-monospace" value="3070">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label small fw-semibold mb-1">WA_TOKEN</label>
-              <input type="text" id="env-wa-token" class="form-control form-control-sm font-monospace" value="local-dev-token">
+              <input type="text" id="env-wa-port" data-env-key="WA_PORT" class="form-control form-control-sm font-monospace" value="" placeholder="Nilai baru (contoh: 3070)">
+              <div class="form-text" id="env-wa-port-status">Status belum dimuat.</div>
             </div>
           </div>
           <div class="d-flex gap-2 align-items-center flex-wrap">
@@ -119,20 +114,6 @@ $canEdit = (bool)($can_edit ?? false);
               <i class="ri ri-save-line me-1"></i>Simpan .env
             </button>
             <span id="env-save-result" class="small"></span>
-          </div>
-          <!-- Fallback: tampilkan isi file jika PHP tidak bisa tulis -->
-          <div id="env-manual-block" class="d-none mt-3">
-            <div class="alert alert-info small py-2 mb-2">
-              <i class="ri ri-terminal-line me-1"></i>
-              Buat file <code id="env-manual-path"></code> secara manual di server:
-              <br><code>nano &lt;path-file&gt;</code> lalu paste isi di bawah, atau gunakan <code>cat &gt; file &lt;&lt; 'EOF'</code>.
-            </div>
-            <pre id="env-manual-content" class="bg-dark text-success rounded p-2 small" style="font-size:0.78rem;cursor:pointer;" title="Klik untuk copy"></pre>
-            <div class="text-muted small mt-1">Klik box di atas untuk copy ke clipboard.</div>
-            <div class="mt-2">
-              <strong class="small">Atau fix permission (jalankan di server):</strong>
-              <pre class="bg-dark text-warning rounded p-2 small mt-1" style="font-size:0.75rem;" id="env-chmod-cmd"></pre>
-            </div>
           </div>
         </div>
       </div>
@@ -173,6 +154,7 @@ $canEdit = (bool)($can_edit ?? false);
             </button>
             <div id="ping-result" class="align-self-center small text-muted"></div>
           </div>
+          <?php if ($canEdit): ?>
           <hr>
           <div class="mb-2">
             <label class="form-label fw-semibold">Kirim Pesan Test</label>
@@ -189,6 +171,7 @@ $canEdit = (bool)($can_edit ?? false);
             <i class="ri ri-send-plane-line me-1"></i>Kirim
           </button>
           <div id="test-result" class="mt-2 small"></div>
+          <?php endif; ?>
         </div>
       </div>
     </div>
@@ -227,15 +210,17 @@ $canEdit = (bool)($can_edit ?? false);
 
           <div id="engine-action-msg" class="small mb-2"></div>
 
-          <!-- Log output -->
+          <?php if ($canEdit): ?>
+          <!-- Log diagnostic status (edit-only) -->
           <div class="d-flex justify-content-between align-items-center mb-1">
-            <span class="small fw-semibold text-muted">Log (30 baris terakhir)</span>
+            <span class="small fw-semibold text-muted">Status Log Diagnostik</span>
             <button class="btn btn-link btn-sm p-0 text-muted" id="btn-engine-log">
-              <i class="ri ri-file-list-line"></i> Muat Log
+              <i class="ri ri-file-list-line"></i> Cek Status
             </button>
           </div>
           <pre id="engine-log-output" class="bg-dark text-white rounded p-2 small mb-0"
-            style="max-height:200px;overflow-y:auto;font-size:0.72rem;display:none;">(klik Muat Log)</pre>
+            style="max-height:200px;overflow-y:auto;font-size:0.72rem;display:none;">(klik Cek Status)</pre>
+          <?php endif; ?>
         </div>
       </div>
 
@@ -284,6 +269,7 @@ $canEdit = (bool)($can_edit ?? false);
         <div class="card-body small">
           <ol class="mb-0">
             <li class="mb-2">Pastikan <code>finance/wa-engine/.env</code> sudah dikonfigurasi (DB_PASS, dll).</li>
+            <li class="mb-2">Pastikan credential API internal sudah di-inject ke environment proses PHP/FPM dan wa-engine.</li>
             <li class="mb-2">Klik <strong>Start</strong> di atas untuk menjalankan wa-engine.</li>
             <li class="mb-2">Klik <strong>Muat QR Code</strong> di panel kiri → scan dengan WA.</li>
             <li class="mb-2">Status WA Bot berubah ke <span class="badge bg-success">Terhubung</span>.</li>
@@ -425,6 +411,12 @@ document.getElementById('btn-ping')?.addEventListener('click', function () {
     .finally(() => { this.disabled = false; });
 });
 
+<?php if ($canEdit): ?>
+const waSendTestCsrfToken = <?= json_encode(
+  (string)($wa_send_test_csrf_token ?? ''),
+  JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+) ?>;
+
 document.getElementById('btn-send-test')?.addEventListener('click', function () {
   const phone = document.getElementById('test-phone').value.trim();
   const msg   = document.getElementById('test-message').value.trim();
@@ -434,7 +426,12 @@ document.getElementById('btn-send-test')?.addEventListener('click', function () 
   result.textContent = 'Mengirim…';
   fetch('<?= site_url('wa/api/send-test') ?>', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-Wa-Send-Test-CSRF': waSendTestCsrfToken
+    },
     body: JSON.stringify({ to: phone, message: msg })
   })
     .then(waSafeJsonResponse)
@@ -446,8 +443,27 @@ document.getElementById('btn-send-test')?.addEventListener('click', function () 
     .catch(e => { result.innerHTML = '<span class="text-danger">✗ ' + e + '</span>'; })
     .finally(() => { this.disabled = false; });
 });
+<?php endif; ?>
 
 // ─── Engine Process Control ────────────────────────────────
+<?php if ($canEdit): ?>
+const waEngineControlCsrfToken = <?= json_encode(
+  (string)($wa_engine_control_csrf_token ?? ''),
+  JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+) ?>;
+const waEnvSaveCsrfToken = <?= json_encode(
+  (string)($wa_env_save_csrf_token ?? ''),
+  JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+) ?>;
+
+function waEngineControlHeaders() {
+  return {
+    'X-Requested-With': 'XMLHttpRequest',
+    'X-Wa-Engine-Control-CSRF': waEngineControlCsrfToken
+  };
+}
+<?php endif; ?>
+
 function engineSetBtns(running) {
   const canEdit = <?= $canEdit ? 'true' : 'false' ?>;
   if (!canEdit) return;
@@ -504,7 +520,7 @@ function engineAction(action) {
     ? '<?= site_url('wa/api/engine-start') ?>'
     : '<?= site_url('wa/api/engine-stop') ?>';
 
-  fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+  fetch(url, { method: 'POST', headers: waEngineControlHeaders() })
     .then(waSafeJsonResponse)
     .then(d => {
       if (msgEl) msgEl.innerHTML = d.ok
@@ -528,12 +544,12 @@ document.getElementById('btn-engine-restart')?.addEventListener('click', functio
   engineActionBusy = true;
   const msgEl = document.getElementById('engine-action-msg');
   if (msgEl) msgEl.innerHTML = '<span class="text-muted">Merestart…</span>';
-  fetch('<?= site_url('wa/api/engine-stop') ?>', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+  fetch('<?= site_url('wa/api/engine-stop') ?>', { method: 'POST', headers: waEngineControlHeaders() })
     .then(waSafeJsonResponse)
     .then(d => {
       if (!d.ok) throw new Error(d.message || 'Gagal menghentikan wa-engine.');
       setTimeout(() => {
-        fetch('<?= site_url('wa/api/engine-start') ?>', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        fetch('<?= site_url('wa/api/engine-start') ?>', { method: 'POST', headers: waEngineControlHeaders() })
           .then(waSafeJsonResponse)
           .then(d => {
             if (msgEl) msgEl.innerHTML = d.ok
@@ -560,82 +576,89 @@ document.getElementById('btn-engine-log')?.addEventListener('click', function ()
   const pre = document.getElementById('engine-log-output');
   if (!pre) return;
   pre.style.display = 'block';
-  pre.textContent = 'Memuat log…';
+  pre.textContent = 'Memeriksa status log…';
   fetch('<?= site_url('wa/api/engine-logs') ?>', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
     .then(waSafeJsonResponse)
     .then(d => {
-      pre.textContent = d.ok === false ? (d.message || 'Gagal memuat log.') : (d.logs || '(log kosong)');
+      pre.textContent = d.message || (d.ok === false ? 'Gagal memeriksa status log.' : 'Status log diperbarui.');
       pre.scrollTop = pre.scrollHeight;
     })
-    .catch(() => { pre.textContent = 'Gagal memuat log.'; });
+    .catch(() => { pre.textContent = 'Gagal memeriksa status log.'; });
 });
 
 // Auto-cek status engine saat halaman dibuka
 engineRefreshStatus();
 
 // ─── .env Editor ──────────────────────────────────────────
+const waEnvInputs = Array.from(document.querySelectorAll('[data-env-key]'));
+waEnvInputs.forEach(input => {
+  input.dataset.touched = '0';
+  input.addEventListener('input', () => { input.dataset.touched = '1'; });
+});
+
+function waApplyEnvStatus(statuses) {
+  waEnvInputs.forEach(input => {
+    const key = input.dataset.envKey;
+    const status = statuses && statuses[key] ? statuses[key] : {};
+    const statusEl = document.getElementById(input.id + '-status');
+    input.value = '';
+    input.dataset.touched = '0';
+    if (statusEl) {
+      statusEl.textContent = status.configured ? 'Sudah dikonfigurasi; nilai disembunyikan.' : 'Belum dikonfigurasi.';
+      statusEl.classList.toggle('text-success', status.configured === true);
+      statusEl.classList.toggle('text-warning', status.configured !== true);
+    }
+  });
+}
+
 document.getElementById('btn-env-load')?.addEventListener('click', function () {
   const body = document.getElementById('env-body');
+  const result = document.getElementById('env-save-result');
   if (!body) return;
   if (body.style.display !== 'none') { body.style.display = 'none'; return; }
   body.style.display = 'block';
   fetch('<?= site_url('wa/api/env-read') ?>', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
     .then(waSafeJsonResponse)
     .then(d => {
-      if (!d.ok) return;
-      const e = d.env || {};
-      document.getElementById('env-db-host').value  = e.DB_HOST  ?? '127.0.0.1';
-      document.getElementById('env-db-name').value  = e.DB_NAME  ?? 'db_finance';
-      document.getElementById('env-db-user').value  = e.DB_USER  ?? 'root';
-      document.getElementById('env-db-pass').value  = e.DB_PASS  ?? '';
-      document.getElementById('env-wa-port').value  = e.WA_PORT  ?? '3070';
-      document.getElementById('env-wa-token').value = e.WA_TOKEN ?? 'local-dev-token';
+      if (!d.ok) {
+        if (result) result.textContent = d.message || 'Status konfigurasi tidak dapat dimuat.';
+        return;
+      }
+      waApplyEnvStatus(d.env || {});
     })
-    .catch(() => {});
+    .catch(() => {
+      if (result) result.textContent = 'Status konfigurasi tidak dapat dimuat.';
+    });
 });
 
 document.getElementById('btn-env-save')?.addEventListener('click', function () {
-  const result     = document.getElementById('env-save-result');
-  const manualBlock = document.getElementById('env-manual-block');
+  const result = document.getElementById('env-save-result');
+  const payload = {};
+  waEnvInputs.forEach(input => {
+    if (input.dataset.envSecret === '1' || input.dataset.touched === '1') {
+      payload[input.dataset.envKey] = input.value;
+    }
+  });
   result.textContent = 'Menyimpan…';
-  if (manualBlock) manualBlock.classList.add('d-none');
   fetch('<?= site_url('wa/api/env-save') ?>', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    body: JSON.stringify({
-      DB_HOST:  document.getElementById('env-db-host').value.trim(),
-      DB_NAME:  document.getElementById('env-db-name').value.trim(),
-      DB_USER:  document.getElementById('env-db-user').value.trim(),
-      DB_PASS:  document.getElementById('env-db-pass').value,
-      WA_PORT:  document.getElementById('env-wa-port').value.trim(),
-      WA_TOKEN: document.getElementById('env-wa-token').value.trim(),
-    })
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-Wa-Env-Save-CSRF': waEnvSaveCsrfToken
+    },
+    body: JSON.stringify(payload)
   })
     .then(waSafeJsonResponse)
     .then(d => {
       if (d.ok) {
         result.innerHTML = '<span class="text-success"><i class="ri ri-checkbox-circle-line me-1"></i>' + (d.message || 'Tersimpan') + '</span>';
+        waApplyEnvStatus(d.env || {});
         return;
       }
       result.innerHTML = '<span class="text-danger">✗ ' + (d.message || 'Gagal') + '</span>';
-      // Jika permission error, tampilkan konten manual
-      if (d.permission && d.content && manualBlock) {
-        document.getElementById('env-manual-path').textContent = d.path || 'wa-engine/.env';
-        const pre = document.getElementById('env-manual-content');
-        pre.textContent = d.content;
-        pre.onclick = function () {
-          navigator.clipboard.writeText(d.content).then(() => {
-            pre.style.outline = '2px solid #28a745';
-            setTimeout(() => { pre.style.outline = ''; }, 1500);
-          }).catch(() => {});
-        };
-        // Tunjukkan perintah chmod
-        const chmodEl = document.getElementById('env-chmod-cmd');
-        if (chmodEl) chmodEl.textContent = 'sudo chown www-data:www-data ' + (d.path || '').replace(/\/[^/]+$/, '') + '\n# atau\nsudo chmod g+w ' + (d.path || '').replace(/\/[^/]+$/, '') + ' && sudo chgrp www-data ' + (d.path || '').replace(/\/[^/]+$/, '');
-        manualBlock.classList.remove('d-none');
-      }
     })
-    .catch(e => { result.innerHTML = '<span class="text-danger">✗ ' + e + '</span>'; });
+    .catch(() => { result.innerHTML = '<span class="text-danger">✗ Konfigurasi tidak dapat disimpan.</span>'; });
 });
 
 // ─── Reset Sesi WA ────────────────────────────────────────
@@ -646,7 +669,7 @@ document.getElementById('btn-session-reset')?.addEventListener('click', function
   result.textContent = 'Menghapus sesi…';
   fetch('<?= site_url('wa/api/session-reset') ?>', {
     method: 'POST',
-    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    headers: waEngineControlHeaders()
   })
     .then(waSafeJsonResponse)
     .then(d => {

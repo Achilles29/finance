@@ -3,6 +3,14 @@ $mapped = array_fill_keys(array_map('intval', $mapped_product_ids ?? []), true);
 $saveUrl = site_url('master/relation/extra-group/' . (int)$group['id'] . '/save');
 $baseUrl = site_url('master/relation/extra-group/' . (int)$group['id']);
 $extraTabActive = 'group-checklist';
+$checklistMutationCsrf = $master_relation_extra_group_checklist_mutation_csrf ?? null;
+$mappingRevision = $mapping_revision ?? null;
+$hasActiveFilter = trim((string)($q ?? '')) !== '';
+$canEditChecklist = !$hasActiveFilter
+  && is_string($checklistMutationCsrf)
+  && preg_match('/\A[0-9a-f]{64}\z/D', $checklistMutationCsrf) === 1
+  && is_string($mappingRevision)
+  && preg_match('/\A[0-9a-f]{64}\z/D', $mappingRevision) === 1;
 ?>
 
 <?php $this->load->view('master/_extra_tabs', compact('extraTabActive')); ?>
@@ -35,12 +43,23 @@ $extraTabActive = 'group-checklist';
   </div>
 </div>
 
+<?php if ($hasActiveFilter): ?>
+  <div class="alert alert-warning" role="alert">
+    Hasil filter hanya dapat dilihat. Reset filter untuk mengubah checklist penuh dengan aman.
+  </div>
+<?php endif; ?>
+
 <form method="post" action="<?php echo $saveUrl; ?>">
+  <?php if ($canEditChecklist): ?>
+    <input type="hidden" name="master_relation_extra_group_checklist_mutation_csrf" value="<?php echo html_escape($checklistMutationCsrf); ?>">
+    <input type="hidden" name="mapping_revision" value="<?php echo html_escape($mappingRevision); ?>">
+  <?php endif; ?>
   <div class="card">
     <div class="card-body border-bottom py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
       <div>
         <strong><?php echo count($rows); ?></strong> produk tampil.
       </div>
+      <?php if ($canEditChecklist): ?>
       <div class="d-flex align-items-center gap-2">
         <label class="form-check mb-0">
           <input type="checkbox" class="form-check-input" id="check_all_products">
@@ -48,6 +67,7 @@ $extraTabActive = 'group-checklist';
         </label>
         <button type="submit" class="btn btn-primary btn-sm">Simpan Checklist</button>
       </div>
+      <?php endif; ?>
     </div>
     <div class="table-responsive">
       <table class="table table-striped table-hover mb-0">
@@ -76,6 +96,7 @@ $extraTabActive = 'group-checklist';
                     name="product_ids[]"
                     value="<?php echo (int)$r['id']; ?>"
                     <?php echo $checked ? 'checked' : ''; ?>
+                    <?php echo $canEditChecklist ? '' : 'disabled'; ?>
                   >
                 </td>
                 <td class="text-cell"><?php echo html_escape((string)$r['product_code']); ?></td>
@@ -90,9 +111,11 @@ $extraTabActive = 'group-checklist';
         </tbody>
       </table>
     </div>
-    <div class="card-footer d-flex justify-content-end">
-      <button type="submit" class="btn btn-primary">Simpan Checklist</button>
-    </div>
+    <?php if ($canEditChecklist): ?>
+      <div class="card-footer d-flex justify-content-end">
+        <button type="submit" class="btn btn-primary">Simpan Checklist</button>
+      </div>
+    <?php endif; ?>
   </div>
 </form>
 

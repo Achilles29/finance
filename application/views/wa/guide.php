@@ -163,7 +163,6 @@ copy .env.example .env
 notepad .env</pre>
       <p class="small">Isi file <code>.env</code>:</p>
       <pre class="bg-dark text-white rounded p-3 small">WA_PORT=3070
-WA_TOKEN=local-dev-token
 
 DB_HOST=localhost
 DB_USER=root
@@ -414,8 +413,8 @@ _Namua Coffee_</pre>
         </div>
         <div class="col-md-6">
           <div class="small text-muted mb-1">Cron server agar jadwal berjalan otomatis:</div>
-          <pre class="bg-dark text-white rounded p-2 small" style="white-space:pre-wrap;">* * * * * curl -fsS "<?= html_escape(site_url('wa/api/schedule-run?token=TOKEN_WA_BOT')) ?>" >/dev/null 2>&1</pre>
-          <p class="small text-muted mb-0">Ganti <code>TOKEN_WA_BOT</code> dengan token internal yang sama seperti konfigurasi <code>wa-engine</code>.</p>
+          <pre class="bg-dark text-white rounded p-2 small" style="white-space:pre-wrap;">* * * * * cd /path/ke/finance &amp;&amp; php index.php whatsapp api_schedule_run &gt;/dev/null 2&gt;&amp;1</pre>
+          <p class="small text-muted mb-0">Jalankan perintah CLI lokal tersebut dari root aplikasi dan sesuaikan <code>/path/ke/finance</code> dengan lokasi instalasi.</p>
         </div>
       </div>
     </div>
@@ -459,7 +458,7 @@ npm install</pre>
               <ul>
                 <li>wa-engine belum berjalan — masuk <code>finance/wa-engine/</code> dan jalankan <code>node index.js</code></li>
                 <li>Folder <code>auth_info/</code> sudah ada (sesi lama) → bot langsung CONNECTED, tidak tampil QR. Hapus folder <code>auth_info/</code> jika ingin scan ulang</li>
-                <li>Cek URL dan token di <a href="<?= site_url('wa/settings') ?>">Pengaturan</a>: URL harus <code>http://127.0.0.1:3070</code>, token harus sama dengan <code>WA_TOKEN</code> di <code>.env</code></li>
+                <li>Cek URL di <a href="<?= site_url('wa/settings') ?>">Pengaturan</a>: URL harus <code>http://127.0.0.1:3070</code>. Credential API internal wajib tersedia pada environment proses PHP/FPM dan wa-engine.</li>
               </ul>
             </div>
           </div>

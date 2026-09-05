@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# backup_full.sh — Full DB dump + push ke GitHub
+# backup_full.sh — Full local DB dump
 # Jadwalkan via cron setiap 30 menit
 #
 # Setup cron (jalankan: crontab -e):
@@ -28,12 +28,10 @@ DB_PORT="${DB_PORT:-3306}"
 DB_USER="${DB_USER:-root}"
 DB_PASS="${DB_PASS:-}"
 DB_NAME="${DB_NAME:-db_finance}"
-BACKUP_DIR="${FINANCE_ROOT}/${BACKUP_DIR:-backup/dumps}"
-LOG_DIR="${FINANCE_ROOT}/${LOG_DIR:-backup/logs}"
-RETENTION_DAYS="${RETENTION_DAYS:-3}"
-BACKUP_REPO_REMOTE="${BACKUP_REPO_REMOTE:-origin}"
-BACKUP_REPO_BRANCH="${BACKUP_REPO_BRANCH:-main}"
-BACKUP_REPO_PATH="${BACKUP_REPO_PATH:-$FINANCE_ROOT}"
+BACKUP_DIR_VALUE="${BACKUP_DIR:-/var/lib/finance-backup/dumps}"
+LOG_DIR_VALUE="${LOG_DIR:-/var/lib/finance-backup/logs}"
+if [[ "$BACKUP_DIR_VALUE" = /* ]]; then BACKUP_DIR="$BACKUP_DIR_VALUE"; else BACKUP_DIR="${FINANCE_ROOT}/${BACKUP_DIR_VALUE}"; fi
+if [[ "$LOG_DIR_VALUE" = /* ]]; then LOG_DIR="$LOG_DIR_VALUE"; else LOG_DIR="${FINANCE_ROOT}/${LOG_DIR_VALUE}"; fi
 EXCLUDE_TABLES="${EXCLUDE_TABLES:-}"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -41,12 +39,15 @@ LOGFILE="${LOG_DIR}/backup_${TIMESTAMP}.log"
 DUMPFILE="${BACKUP_DIR}/backup_${DB_NAME}_${TIMESTAMP}.sql.gz"
 
 mkdir -p "$BACKUP_DIR" "$LOG_DIR"
+chmod 700 "$BACKUP_DIR" "$LOG_DIR"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"; }
 
 log "====== Backup START: ${TIMESTAMP} ======"
 log "Database : ${DB_NAME}@${DB_HOST}:${DB_PORT}"
 log "Output   : ${DUMPFILE}"
+log "Storage  : LOCAL-ONLY on this host"
+log "Off-site : SEPARATE encrypted backup must be configured independently"
 
 # ── Build ignore tables args ───────────────────────────────
 IGNORE_ARGS=""
@@ -81,55 +82,20 @@ fi
 [ -n "$IGNORE_ARGS" ] && MYSQL_OPTS+=($IGNORE_ARGS)
 
 if mysqldump "${MYSQL_OPTS[@]}" "$DB_NAME" | gzip -9 > "$DUMPFILE"; then
+  DUMP_HASH=$(sha256sum "$DUMPFILE" | awk '{print $1}')
+  printf '%s  %s\n' "$DUMP_HASH" "$(basename "$DUMPFILE")" > "${DUMPFILE}.sha256"
+  chmod 600 "$DUMPFILE" "${DUMPFILE}.sha256"
   SIZE=$(du -sh "$DUMPFILE" | cut -f1)
   log "Dump OK  : ${SIZE}"
+  log "SHA-256 : ${DUMP_HASH}"
 else
   log "[ERROR] mysqldump gagal!"
   exit 1
 fi
 
-# ── Cleanup file lama ──────────────────────────────────────
-DELETED=$(find "$BACKUP_DIR" -name "backup_*.sql.gz" -mtime +"${RETENTION_DAYS}" -print -delete | wc -l)
-log "Cleanup  : ${DELETED} file lama dihapus (> ${RETENTION_DAYS} hari)"
-
-# ── Git commit & push ──────────────────────────────────────
-REPO_PATH="${BACKUP_REPO_PATH}"
-cd "$REPO_PATH"
-
-# Stage hanya folder backup
-git add backup/dumps/ backup/logs/ 2>/dev/null || true
-
-CHANGED=$(git status --porcelain backup/ 2>/dev/null | wc -l | tr -d ' ')
-if [ "${CHANGED:-0}" -gt 0 ]; then
-  git commit -m "backup: ${DB_NAME} ${TIMESTAMP}" --quiet 2>/dev/null || true
-
-  # Fetch + merge (tidak butuh working tree bersih, berbeda dari rebase)
-  FETCH_CODE=0
-  git fetch "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" --quiet 2>/dev/null || FETCH_CODE=$?
-
-  if [ "$FETCH_CODE" -ne 0 ]; then
-    log "[WARN] Git fetch gagal. Skip push. Backup lokal tersimpan."
-  else
-    MERGE_CODE=0
-    MERGE_ERR=$(git merge "${BACKUP_REPO_REMOTE}/${BACKUP_REPO_BRANCH}" --no-edit --quiet 2>&1) || MERGE_CODE=$?
-    if [ "$MERGE_CODE" -ne 0 ]; then
-      git merge --abort 2>/dev/null || true
-      log "[WARN] Git merge gagal: ${MERGE_ERR}"
-      log "[WARN] Backup lokal tersimpan."
-    else
-      PUSH_CODE=0
-      PUSH_ERR=$(git push "${BACKUP_REPO_REMOTE}" "${BACKUP_REPO_BRANCH}" 2>&1) || PUSH_CODE=$?
-      if [ "$PUSH_CODE" -eq 0 ]; then
-        log "Git push : OK → ${BACKUP_REPO_REMOTE}/${BACKUP_REPO_BRANCH}"
-      else
-        log "[WARN] Git push gagal (exit ${PUSH_CODE}): ${PUSH_ERR}"
-        log "[WARN] Backup lokal tetap tersimpan."
-      fi
-    fi
-  fi
-else
-  log "Git push : Tidak ada perubahan, skip."
-fi
+# Retention tidak menghapus file langsung. Jalankan retention_manager.php plan;
+# apply hanya memindahkan kandidat tervalidasi ke quarantine berjejak.
+log "Retention: tidak ada penghapusan otomatis; gunakan A5.15 retention manager"
 
 log "====== Backup SELESAI ======"
 log ""

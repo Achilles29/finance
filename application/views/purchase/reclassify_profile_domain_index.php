@@ -1,5 +1,6 @@
 <?php
 $runUrl = site_url('purchase/reclassify-profile-domain/run');
+$maintenanceCsrfToken = (string)($purchase_maintenance_csrf_token ?? '');
 ?>
 
 <div class="mb-2">
@@ -93,6 +94,7 @@ $runUrl = site_url('purchase/reclassify-profile-domain/run');
 <script>
 (function () {
   var runUrl = <?php echo json_encode($runUrl); ?>;
+  var maintenanceCsrfToken = <?php echo json_encode($maintenanceCsrfToken); ?>;
   var alertArea = document.getElementById('alert-area');
   var summaryCard = document.getElementById('summary-card');
   var summaryGrid = document.getElementById('summary-grid');
@@ -211,7 +213,11 @@ $runUrl = site_url('purchase/reclassify-profile-domain/run');
 
     fetch(runUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Purchase-Maintenance-CSRF': maintenanceCsrfToken
+      },
       body: JSON.stringify(p)
     })
     .then(function (res) {

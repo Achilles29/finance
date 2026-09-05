@@ -119,15 +119,38 @@ class InventoryValueReconciliationService
         }
 
         $targetValue = 0.0;
+        $manualUnitCost = null;
         if ($mode === 'LOT_TO_STOCK') {
             $targetValue = (float)($state['lot_value'] ?? 0);
         } elseif ($mode === 'STOCK_TO_LOT') {
             $targetValue = (float)($state['stock_value'] ?? 0);
         } else {
-            if (!array_key_exists('manual_total_value', $payload) || !is_numeric($payload['manual_total_value'])) {
-                return ['ok' => false, 'message' => 'Isi total nilai yang benar untuk koreksi manual.'];
+            $unitProvided = array_key_exists('manual_unit_cost', $payload)
+                && trim((string)$payload['manual_unit_cost']) !== '';
+            $totalProvided = array_key_exists('manual_total_value', $payload)
+                && trim((string)$payload['manual_total_value']) !== '';
+            if ($unitProvided && !is_numeric($payload['manual_unit_cost'])) {
+                return ['ok' => false, 'message' => 'HPP per unit harus berupa angka yang valid.'];
             }
-            $targetValue = (float)$payload['manual_total_value'];
+            if ($unitProvided) {
+                $manualUnitCost = round((float)$payload['manual_unit_cost'], 6);
+                if (!is_finite($manualUnitCost) || $manualUnitCost < -0.000001) {
+                    return ['ok' => false, 'message' => 'HPP per unit tidak boleh negatif.'];
+                }
+                $targetValue = round((float)($state['stock_qty'] ?? 0) * $manualUnitCost, 2);
+                if ($totalProvided && (!is_numeric($payload['manual_total_value']) || !is_finite((float)$payload['manual_total_value']))) {
+                    return ['ok' => false, 'message' => 'Total nilai harus berupa angka yang valid.'];
+                }
+                if ($totalProvided && abs($targetValue - round((float)$payload['manual_total_value'], 2)) > 0.01) {
+                    return ['ok' => false, 'message' => 'HPP per unit dan total nilai tidak konsisten. Muat ulang perhitungan lalu periksa kembali angkanya.'];
+                }
+                $unitNote = 'HPP/unit ' . number_format($manualUnitCost, 6, '.', '');
+                $notes = $notes !== '' ? ($notes . ' | ' . $unitNote) : $unitNote;
+            } elseif (!$totalProvided || !is_numeric($payload['manual_total_value']) || !is_finite((float)$payload['manual_total_value'])) {
+                return ['ok' => false, 'message' => 'Isi HPP per unit atau total nilai yang benar untuk koreksi manual.'];
+            } else {
+                $targetValue = (float)$payload['manual_total_value'];
+            }
         }
         $targetValue = round($targetValue, 2);
         if ($targetValue < -0.0001) {
@@ -148,6 +171,13 @@ class InventoryValueReconciliationService
         $db = $this->ci->db;
         $db->trans_begin();
         try {
+            $period = $this->ci->inventoryperiodguard->lockActivePeriodsForWrite([[
+                'stock_domain' => (string)$context['stock_domain'],
+                'period_month' => (string)$context['month'],
+            ]]);
+            if (!($period['ok'] ?? false)) {
+                throw new RuntimeException((string)($period['message'] ?? 'Periode stok gagal dikunci.'));
+            }
             $lockedStock = $this->fetchStockRow($context, true);
             $lockedLots = $this->fetchOpenLots($context, true);
             if (empty($lockedStock)) {
@@ -166,8 +196,15 @@ class InventoryValueReconciliationService
             if (abs($stockQty - $lotQty) > 0.0001 || $stockQty <= 0.0001 || empty($lockedLots)) {
                 throw new RuntimeException('Jumlah stok atau lot sudah berubah. Selesaikan selisih jumlah melalui Recon Stok Fisik, lalu muat ulang halaman ini.');
             }
+            if (abs($stockQty - (float)($state['stock_qty'] ?? 0)) > 0.0001 || abs($lotQty - (float)($state['lot_qty'] ?? 0)) > 0.0001) {
+                throw new RuntimeException('Jumlah stok atau lot berubah sejak halaman dibuka. Muat ulang untuk menghitung HPP dengan saldo terbaru.');
+            }
             if (abs($stockValue - (float)($state['stock_value'] ?? 0)) > 1 || abs($lotValue - (float)($state['lot_value'] ?? 0)) > 1) {
                 throw new RuntimeException('Nilai stok atau lot sudah berubah sejak halaman dibuka. Muat ulang untuk memakai angka terbaru.');
+            }
+
+            if ($manualUnitCost !== null) {
+                $targetValue = round($stockQty * $manualUnitCost, 2);
             }
 
             $revalueLots = $mode !== 'LOT_TO_STOCK';
@@ -258,17 +295,26 @@ class InventoryValueReconciliationService
                 throw new RuntimeException('Transaksi koreksi nilai dibatalkan oleh database.');
             }
             $db->trans_commit();
-            return [
-                'ok' => true,
-                'id' => $revaluationId,
-                'revaluation_no' => $header['revaluation_no'],
-                'target_value' => $targetValue,
-            ];
         } catch (Throwable $e) {
             $db->trans_rollback();
             log_message('error', 'inventory value reconciliation failed: ' . $e->getMessage());
             return ['ok' => false, 'message' => $e->getMessage()];
         }
+
+        $availabilityRefresh = $this->refreshAvailabilityAfterCommit(
+            $context,
+            'STOCK_VALUE_REVALUATION',
+            $revaluationId,
+            $actorUserId
+        );
+        return [
+            'ok' => true,
+            'id' => $revaluationId,
+            'revaluation_no' => $header['revaluation_no'],
+            'target_value' => $targetValue,
+            'availability_refresh' => $availabilityRefresh,
+            'warning' => $availabilityRefresh['warning'],
+        ];
     }
 
     public function listRecords(string $month, int $limit = 50): array
@@ -288,6 +334,175 @@ class InventoryValueReconciliationService
             ->limit(max(1, min(100, $limit)))
             ->get()
             ->result_array();
+    }
+
+    /**
+     * Voids the latest posted value correction only when its exact before/after
+     * state is still present. The original document and lines remain intact;
+     * the operational values are restored inside the same transaction.
+     */
+    public function voidRecord(int $revaluationId, int $actorUserId, string $voidNotes): array
+    {
+        if (!$this->isReady()) {
+            return ['ok' => false, 'message' => 'Fondasi Koreksi Nilai Persediaan belum tersedia.'];
+        }
+        if ($revaluationId <= 0 || trim($voidNotes) === '') {
+            return ['ok' => false, 'message' => 'ID dokumen dan alasan void wajib diisi.'];
+        }
+
+        $db = $this->ci->db;
+        $db->trans_begin();
+        try {
+            $header = $db->query(
+                'SELECT * FROM inv_stock_value_reconciliation WHERE id = ? FOR UPDATE',
+                [$revaluationId]
+            )->row_array();
+            if (empty($header)) {
+                throw new RuntimeException('Dokumen koreksi nilai tidak ditemukan.');
+            }
+            if (strtoupper(trim((string)($header['status'] ?? ''))) !== 'POSTED') {
+                throw new RuntimeException('Dokumen koreksi ini sudah VOID atau tidak berstatus POSTED.');
+            }
+
+            $contextInput = [
+                'month' => (string)($header['period_month'] ?? ''),
+                'stock_domain' => (string)($header['stock_domain'] ?? ''),
+                'location_scope' => (string)($header['stock_scope'] ?? ''),
+                'location_type' => (string)($header['location_type'] ?? ''),
+                'division_id' => (int)($header['division_id'] ?? 0),
+                'item_id' => (int)($header['item_id'] ?? 0),
+                'material_id' => (int)($header['material_id'] ?? 0),
+                'component_id' => (int)($header['component_id'] ?? 0),
+                'buy_uom_id' => (int)($header['buy_uom_id'] ?? 0),
+                'uom_id' => (int)($header['content_uom_id'] ?? 0),
+                'profile_key' => (string)($header['profile_key'] ?? ''),
+                'monthly_stock_id' => (int)($header['monthly_stock_id'] ?? 0),
+            ];
+            $state = $this->context($contextInput);
+            if (!($state['ok'] ?? false)) {
+                throw new RuntimeException((string)($state['message'] ?? 'Konteks dokumen koreksi tidak dapat dibaca.'));
+            }
+            $context = (array)($state['context'] ?? []);
+
+            $this->ci->load->library('InventoryPeriodGuard');
+            $period = $this->ci->inventoryperiodguard->lockActivePeriodsForWrite([[
+                'stock_domain' => (string)$context['stock_domain'],
+                'period_month' => (string)$context['month'],
+            ]]);
+            if (!($period['ok'] ?? false)) {
+                throw new RuntimeException((string)($period['message'] ?? 'Periode stok tidak terbuka.'));
+            }
+
+            $lockedStock = $this->fetchStockRow($context, true);
+            $lockedLots = $this->fetchOpenLots($context, true);
+            if (empty($lockedStock) || empty($lockedLots)) {
+                throw new RuntimeException('Saldo stok atau lot OPEN tidak ditemukan. Void dibatalkan agar data tidak semakin tidak konsisten.');
+            }
+
+            $stockQty = round((float)($lockedStock['stock_qty'] ?? 0), 4);
+            $stockValue = round((float)($lockedStock['stock_value'] ?? 0), 2);
+            $lotQty = round(array_sum(array_map(static function (array $lot): float {
+                return (float)($lot['qty_balance'] ?? 0);
+            }, $lockedLots)), 4);
+            $lotValue = round(array_sum(array_map(static function (array $lot): float {
+                return (float)($lot['qty_balance'] ?? 0) * (float)($lot['unit_cost'] ?? 0);
+            }, $lockedLots)), 2);
+            if (abs($stockQty - (float)($header['stock_qty_snapshot'] ?? 0)) > 0.0001
+                || abs($lotQty - (float)($header['lot_qty_snapshot'] ?? 0)) > 0.0001
+                || abs($stockQty - $lotQty) > 0.0001) {
+                throw new RuntimeException('Jumlah stok/lot sudah berubah setelah koreksi. Selesaikan audit terbaru lalu void dibatalkan.');
+            }
+            if (abs($stockValue - (float)($header['stock_value_after'] ?? 0)) > 1
+                || abs($lotValue - (float)($header['lot_value_after'] ?? 0)) > 1) {
+                throw new RuntimeException('Nilai stok/lot sudah berubah setelah koreksi. Void hanya boleh dilakukan pada dokumen terakhir; muat ulang dan periksa riwayat.');
+            }
+
+            $lotById = [];
+            foreach ($lockedLots as $lot) {
+                $lotById[(int)($lot['id'] ?? 0)] = $lot;
+            }
+            $lines = $db->where('revaluation_id', $revaluationId)
+                ->order_by('id', 'ASC')
+                ->get('inv_stock_value_reconciliation_lot')
+                ->result_array();
+            if (empty($lines)) {
+                throw new RuntimeException('Rincian lot dokumen tidak ditemukan. Void dibatalkan.');
+            }
+            foreach ($lines as $line) {
+                $lotId = (int)($line['lot_id'] ?? 0);
+                $lot = $lotById[$lotId] ?? null;
+                if ($lot === null) {
+                    throw new RuntimeException('Lot pada dokumen sudah tidak OPEN atau tidak ditemukan. Void dibatalkan.');
+                }
+                if (abs((float)($lot['qty_balance'] ?? 0) - (float)($line['qty_balance_snapshot'] ?? 0)) > 0.0001
+                    || abs((float)($lot['unit_cost'] ?? 0) - (float)($line['new_unit_cost'] ?? 0)) > 0.01) {
+                    throw new RuntimeException('HPP lot sudah berubah setelah koreksi. Void dibatalkan agar tidak menimpa perubahan baru.');
+                }
+                if (abs((float)($line['old_unit_cost'] ?? 0) - (float)($line['new_unit_cost'] ?? 0)) > 0.000001) {
+                    $this->updateOpenLotUnitCost($context, $lotId, (float)$line['old_unit_cost'], date('Y-m-d H:i:s'));
+                }
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $this->updateMonthlyStockValue(
+                $context,
+                (int)$lockedStock['id'],
+                $stockQty,
+                round((float)($header['stock_value_before'] ?? 0), 2),
+                $revaluationId,
+                $now
+            );
+            $updated = $db->where('id', $revaluationId)->where('status', 'POSTED')->update('inv_stock_value_reconciliation', [
+                'status' => 'VOID',
+                'voided_by' => $actorUserId > 0 ? $actorUserId : null,
+                'voided_at' => $now,
+                'void_notes' => $this->nullableString($voidNotes),
+                'updated_at' => $now,
+            ]);
+            if (!$updated) {
+                throw new RuntimeException('Gagal menandai dokumen koreksi sebagai VOID.');
+            }
+
+            if ($db->table_exists('aud_transaction_log')) {
+                $db->insert('aud_transaction_log', [
+                    'module_code' => 'INVENTORY',
+                    'action_code' => 'STOCK_VALUE_REVALUATION_VOID',
+                    'entity_table' => 'inv_stock_value_reconciliation',
+                    'entity_id' => $revaluationId,
+                    'transaction_no' => (string)($header['revaluation_no'] ?? ''),
+                    'actor_user_id' => $actorUserId > 0 ? $actorUserId : null,
+                    'after_payload' => json_encode([
+                        'revaluation_id' => $revaluationId,
+                        'restored_stock_value' => round((float)($header['stock_value_before'] ?? 0), 2),
+                        'restored_lot_value' => round((float)($header['lot_value_before'] ?? 0), 2),
+                    ]),
+                    'notes' => 'Void koreksi nilai; nilai sebelum dokumen dipulihkan tanpa perubahan kuantitas.',
+                ]);
+            }
+
+            if (!$db->trans_status()) {
+                throw new RuntimeException('Transaksi void koreksi nilai dibatalkan oleh database.');
+            }
+            $db->trans_commit();
+        } catch (Throwable $e) {
+            $db->trans_rollback();
+            log_message('error', 'inventory value reconciliation void failed: ' . $e->getMessage());
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+
+        $availabilityRefresh = $this->refreshAvailabilityAfterCommit(
+            $context,
+            'STOCK_VALUE_REVALUATION_VOID',
+            $revaluationId,
+            $actorUserId
+        );
+        return [
+            'ok' => true,
+            'id' => $revaluationId,
+            'revaluation_no' => (string)($header['revaluation_no'] ?? ''),
+            'availability_refresh' => $availabilityRefresh,
+            'warning' => $availabilityRefresh['warning'],
+        ];
     }
 
     private function normalizeContextInput(array $input): array
@@ -492,6 +707,85 @@ class InventoryValueReconciliationService
             ]);
         if (!$updated) {
             throw new RuntimeException('Lot aktif berubah sebelum koreksi nilai diposting. Muat ulang halaman lalu coba kembali.');
+        }
+    }
+
+    /**
+     * Availability is a derived cache. A refresh failure after the inventory
+     * transaction commits must be visible to the caller, but must never turn
+     * the committed value correction into a reported transaction failure.
+     */
+    private function refreshAvailabilityAfterCommit(array $context, string $eventSource, int $revaluationId, int $actorUserId): array
+    {
+        $domain = strtoupper(trim((string)($context['stock_domain'] ?? '')));
+        $handler = 'handle_material_change';
+        $identityType = 'material';
+        $targetId = (int)($context['material_id'] ?? 0);
+        if ($domain === 'COMPONENT') {
+            $handler = 'handle_component_change';
+            $identityType = 'component';
+            $targetId = (int)($context['component_id'] ?? 0);
+        } elseif ($domain === 'MATERIAL' && $targetId <= 0 && (int)($context['item_id'] ?? 0) > 0) {
+            $handler = 'handle_item_change';
+            $identityType = 'item';
+            $targetId = (int)$context['item_id'];
+        }
+        $metadata = [
+            'ok' => false,
+            'status' => 'FAILED',
+            'stock_domain' => $domain,
+            'handler' => $handler,
+            'target_id' => $targetId,
+            'identity_type' => $identityType,
+            'identity_id' => $targetId,
+            'event_source' => $eventSource,
+            'result' => null,
+            'warning' => null,
+        ];
+
+        if (!in_array($domain, ['MATERIAL', 'COMPONENT'], true) || $targetId <= 0) {
+            $metadata['status'] = 'SKIPPED';
+            $metadata['warning'] = 'Koreksi nilai sudah tersimpan, tetapi refresh availability POS dilewati karena identitas stok tidak lengkap.';
+            $this->logAvailabilityRefreshWarning($eventSource, $revaluationId, (string)$metadata['warning']);
+            return $metadata;
+        }
+
+        try {
+            $this->ci->load->library('PosAvailabilityRebuildService');
+            $result = $this->ci->posavailabilityrebuildservice->{$handler}($targetId, [
+                'trigger_context' => 'INVENTORY_VALUE_RECONCILIATION',
+                'event_source' => $eventSource,
+                'event_table' => 'inv_stock_value_reconciliation',
+                'event_id' => $revaluationId,
+                'actor_user_id' => $actorUserId > 0 ? $actorUserId : null,
+            ]);
+            $metadata['result'] = $result;
+            if (!($result['ok'] ?? false)) {
+                $metadata['warning'] = 'Koreksi nilai sudah tersimpan, tetapi refresh availability POS gagal: '
+                    . (string)($result['message'] ?? 'hasil refresh tidak berhasil.');
+                $this->logAvailabilityRefreshWarning($eventSource, $revaluationId, (string)$metadata['warning']);
+                return $metadata;
+            }
+
+            $metadata['ok'] = true;
+            $metadata['status'] = 'SUCCESS';
+            return $metadata;
+        } catch (Throwable $e) {
+            $metadata['warning'] = 'Koreksi nilai sudah tersimpan, tetapi refresh availability POS gagal: ' . $e->getMessage();
+            $this->logAvailabilityRefreshWarning($eventSource, $revaluationId, (string)$metadata['warning']);
+            return $metadata;
+        }
+    }
+
+    private function logAvailabilityRefreshWarning(string $eventSource, int $revaluationId, string $warning): void
+    {
+        try {
+            log_message(
+                'error',
+                'inventory value reconciliation availability refresh failed [' . $eventSource . ' #' . $revaluationId . ']: ' . $warning
+            );
+        } catch (Throwable $ignored) {
+            // Logging is best-effort and must not alter an already committed correction.
         }
     }
 

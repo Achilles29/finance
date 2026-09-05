@@ -46,9 +46,14 @@ class PosOrderStockService
             if ($terminalReason !== '') {
                 throw new RuntimeException($terminalReason);
             }
+            $this->lock_commit_lines_for_update($commitId);
             $snapshot = $this->load_snapshot($commitId);
             if (!$snapshot['header']) {
                 throw new RuntimeException('Snapshot stock commit tidak ditemukan saat akan diposting.');
+            }
+            $periodLock = $this->prelock_snapshot_periods($snapshot['header'], $snapshot['lines'], [], false);
+            if (!($periodLock['ok'] ?? false)) {
+                throw new RuntimeException((string)($periodLock['message'] ?? 'Periode stok POS gagal dikunci.'));
             }
 
             $posted = 0;
@@ -175,38 +180,41 @@ class PosOrderStockService
             return ['ok' => false, 'message' => 'Snapshot stock commit tidak valid untuk reversal.'];
         }
 
-        $snapshot = $this->load_snapshot($commitId);
-        if (!$snapshot['header']) {
-            return ['ok' => false, 'message' => 'Snapshot stock commit tidak ditemukan.'];
-        }
-
-        $decisionMap = $this->index_decisions($lineDecisions);
-        if (empty($decisionMap)) {
+        if (empty($lineDecisions)) {
             return ['ok' => false, 'message' => 'Tidak ada line reversal yang dikirim.'];
         }
 
         $db = $this->ci->db;
         $db->trans_begin();
         try {
+            // Serialize with post_commit_snapshot using order, commit, lines.
+            if (!$this->commit_order_context_for_update($commitId)) {
+                throw new RuntimeException('Snapshot stock commit tidak ditemukan.');
+            }
+            $this->lock_commit_lines_for_update($commitId);
+            $snapshot = $this->load_snapshot($commitId);
+            if (!$snapshot['header']) {
+                throw new RuntimeException('Snapshot stock commit tidak ditemukan.');
+            }
+            $prepared = PosStockCommitService::prepare_reversal_decisions($snapshot['lines'], $lineDecisions);
+            if (!($prepared['ok'] ?? false)) {
+                throw new RuntimeException((string)($prepared['message'] ?? 'Keputusan reversal tidak valid.'));
+            }
+            $periodLock = $this->prelock_snapshot_periods($snapshot['header'], (array)$prepared['decisions'], $meta, true);
+            if (!($periodLock['ok'] ?? false)) {
+                throw new RuntimeException((string)($periodLock['message'] ?? 'Periode reversal stok POS gagal dikunci.'));
+            }
+
             $appliedDecisions = [];
             $physicalReturns = 0;
             $returnWarnings = [];
             $materialAdjustmentGroups = [];
             $componentAdjustmentGroups = [];
 
-            foreach ($snapshot['lines'] as $line) {
-                $lineKey = $this->line_key($line);
-                if (!isset($decisionMap[$lineKey])) {
-                    continue;
-                }
-
-                $decision = $decisionMap[$lineKey];
-                $reverseQty = round((float)($decision['reverse_qty'] ?? 0), 4);
-                if ($reverseQty <= 0) {
-                    continue;
-                }
-
-                $policy = strtoupper(trim((string)($decision['return_policy'] ?? 'RETURN_TO_STOCK')));
+            foreach ((array)$prepared['decisions'] as $decision) {
+                $line = (array)$decision['line'];
+                $reverseQty = (float)$decision['reverse_qty'];
+                $policy = (string)$decision['return_policy'];
                 $returnWarning = '';
                 if (in_array($policy, ['RETURN_TO_STOCK', 'ADJUSTMENT_ONLY'], true)) {
                     $result = strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT'
@@ -241,11 +249,8 @@ class PosOrderStockService
                 // commit_line:{id}. Pass the persisted key when finalising
                 // the reversal so returned stock and snapshot quantities stay
                 // in lockstep.
-                $persistedLineKey = strtoupper((string)($line['line_type'] ?? 'PRODUCT')) === 'EXTRA'
-                    ? ('EXTRA:' . (int)($line['order_line_extra_id'] ?? 0) . ':' . (int)($line['id'] ?? 0))
-                    : ('PRODUCT:' . (int)($line['order_line_id'] ?? 0) . ':' . (int)($line['id'] ?? 0));
                 $appliedDecisions[] = [
-                    'line_key' => $persistedLineKey,
+                    'line_key' => (string)$decision['line_key'],
                     'return_policy' => $policy,
                     'reverse_qty' => $reverseQty,
                     'notes' => trim(implode(' | ', array_filter([
@@ -2627,6 +2632,48 @@ class PosOrderStockService
             ->result_array();
 
         return ['header' => $header, 'lines' => $lines];
+    }
+
+    private function lock_commit_lines_for_update(int $commitId): void
+    {
+        $this->ci->db->query(
+            'SELECT id FROM pos_stock_commit_line WHERE commit_id = ? ORDER BY line_no ASC, id ASC FOR UPDATE',
+            [$commitId]
+        )->result_array();
+    }
+
+    private function prelock_snapshot_periods(array $header, array $lines, array $meta, bool $reversal): array
+    {
+        $pairs = [];
+        $movementDate = $reversal
+            ? $this->resolve_reversal_movement_date($meta)
+            : $this->resolve_commit_movement_date($header);
+        foreach ($lines as $entry) {
+            $line = $reversal ? (array)($entry['line'] ?? []) : (array)$entry;
+            if ($reversal && !in_array((string)($entry['return_policy'] ?? ''), ['RETURN_TO_STOCK', 'ADJUSTMENT_ONLY'], true)) {
+                continue;
+            }
+            if (!$reversal) {
+                $remainingQty = round(max(
+                    0,
+                    (float)($line['committed_qty'] ?? $line['required_qty'] ?? 0) - (float)($line['reversed_qty'] ?? 0)
+                ), 4);
+                $movementRefType = strtoupper(trim((string)($line['movement_ref_type'] ?? 'NONE')));
+                if ($remainingQty <= 0.0001
+                    || (($movementRefType !== '' && $movementRefType !== 'NONE') || (int)($line['movement_ref_id'] ?? 0) > 0)) {
+                    continue;
+                }
+            }
+            $pairs[] = [
+                'stock_domain' => strtoupper((string)($line['source_kind'] ?? 'MATERIAL')) === 'COMPONENT' ? 'COMPONENT' : 'MATERIAL',
+                'event_date' => $movementDate,
+            ];
+        }
+        if (empty($pairs)) {
+            return ['ok' => true, 'periods' => []];
+        }
+        $this->ci->load->library('InventoryPeriodGuard');
+        return $this->ci->inventoryperiodguard->lockActivePeriodsForWrite($pairs);
     }
 
     private function line_key(array $line): string

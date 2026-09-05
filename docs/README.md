@@ -1,6 +1,6 @@
 # Index Dokumentasi - Finance
 
-Terakhir diperbarui: 2026-06-07
+Terakhir diperbarui: 2026-09-03
 
 Dokumentasi repo ini sekarang dibagi menjadi dua lapis:
 
@@ -17,6 +17,13 @@ Urutan baca yang paling aman:
 2. [CODING_STANDARDS.md](CODING_STANDARDS.md)
 3. [ROADMAP.md](ROADMAP.md)
 4. [MODULES.md](MODULES.md)
+5. [release_runtime_contract.md](release_runtime_contract.md)
+
+## Handoff Codex Terbaru
+
+1. [2026-09-03_codex_handoff_b01-b68.md](2026-09-03_codex_handoff_b01-b68.md)
+2. [2026-09-03_codex_server_sql_runbook_b01-b68.md](2026-09-03_codex_server_sql_runbook_b01-b68.md)
+3. [2026-09-03_progress_roadmap_user_finance.md](2026-09-03_progress_roadmap_user_finance.md)
 
 ## Paket Dokumentasi Item-Centric
 
@@ -148,4 +155,3 @@ Kalau sedang buru-buru:
 
 1. baca [2026-06-07f_item_centric_runbook_short.md](2026-06-07f_item_centric_runbook_short.md)
 2. lalu buka [2026-06-07g_item_centric_hotspot_matrix.md](2026-06-07g_item_centric_hotspot_matrix.md)
-

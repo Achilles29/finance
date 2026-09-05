@@ -3,6 +3,20 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Master_relation extends MY_Controller
 {
+    private const PRODUCT_RECIPE_MUTATION_CSRF_SESSION_KEY = 'master_relation_product_recipe_mutation_csrf';
+    private const PRODUCT_RECIPE_MUTATION_CSRF_FORM_FIELD = 'master_relation_product_recipe_mutation_csrf';
+    private const COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY = 'master_relation_component_formula_mutation_csrf';
+    private const COMPONENT_FORMULA_MUTATION_CSRF_FORM_FIELD = 'master_relation_component_formula_mutation_csrf';
+    private const PRODUCT_EXTRA_MUTATION_CSRF_SESSION_KEY = 'master_relation_product_extra_mutation_csrf';
+    private const PRODUCT_EXTRA_MUTATION_CSRF_FORM_FIELD = 'master_relation_product_extra_mutation_csrf';
+    private const EXTRA_GROUP_MUTATION_CSRF_SESSION_KEY = 'master_relation_extra_group_mutation_csrf';
+    private const EXTRA_GROUP_MUTATION_CSRF_CI_HEADER = 'X-Master-Extra-Group-Csrf';
+    private const EXTRA_GROUP_CHECKLIST_MUTATION_CSRF_SESSION_KEY = 'master_relation_extra_group_checklist_mutation_csrf';
+    private const EXTRA_GROUP_CHECKLIST_MUTATION_CSRF_FORM_FIELD = 'master_relation_extra_group_checklist_mutation_csrf';
+    private const EXTRA_GROUP_PRODUCT_MAPPING_REVISION_FIELD = 'mapping_revision';
+    private const PRODUCT_BUNDLE_MUTATION_CSRF_SESSION_KEY = 'master_relation_product_bundle_mutation_csrf';
+    private const PRODUCT_BUNDLE_MUTATION_CSRF_FORM_FIELD = 'master_relation_product_bundle_mutation_csrf';
+
     private $productRecipeMaterialCostCache = [];
     private $productRecipeComponentCostCache = [];
     private $divisionCodeCache = [];
@@ -13,6 +27,770 @@ class Master_relation extends MY_Controller
         $this->load->model('Master_model');
         $this->load->library('form_validation');
         $this->load->library('PosBundlePricingService');
+    }
+
+    private function relationPageCode(string $domain): ?string
+    {
+        $map = [
+            'recipe' => 'master.product_recipe.index',
+            'formula' => 'production.component.formula.index',
+            'product' => 'master.product.index',
+            'availability' => 'product.availability',
+            'extra' => 'master.product_extra_map.index',
+            'extra-workspace' => 'master.product_extra.workspace.index',
+            'extra-group' => 'master.extra_group.index',
+            'bundle' => 'master.product_bundle.index',
+        ];
+
+        return $map[$domain] ?? null;
+    }
+
+    private function requireRelationPermission(string $domain, string $action): void
+    {
+        $pageCode = $this->relationPageCode($domain);
+        if ($pageCode === null) {
+            show_error('Domain relasi master tidak diizinkan.', 403, 'Forbidden');
+            return;
+        }
+
+        $this->require_permission($pageCode, $action);
+    }
+
+    private function productRecipeMutationCsrf(): string
+    {
+        $token = (string)$this->session->userdata(self::PRODUCT_RECIPE_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::PRODUCT_RECIPE_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function requireProductRecipeMutationCsrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return false;
+        }
+
+        // This legacy path is submitted by HTML forms. Deliberately accept only
+        // the scoped form field, without query/header/JSON/raw-body fallbacks.
+        $providedToken = (string)$this->input->post(self::PRODUCT_RECIPE_MUTATION_CSRF_FORM_FIELD, false);
+        $sessionToken = (string)$this->session->userdata(self::PRODUCT_RECIPE_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            show_error('Permintaan perubahan resep produk tidak valid.', 403, 'Forbidden');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function componentFormulaMutationCsrf(): string
+    {
+        $token = (string)$this->session->userdata(self::COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function requireComponentFormulaMutationCsrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return false;
+        }
+
+        // This legacy path is submitted by HTML forms. Deliberately accept only
+        // the scoped form field, without query/header/JSON/raw-body fallbacks.
+        $providedToken = (string)$this->input->post(self::COMPONENT_FORMULA_MUTATION_CSRF_FORM_FIELD, false);
+        $sessionToken = (string)$this->session->userdata(self::COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            show_error('Permintaan perubahan formula component tidak valid.', 403, 'Forbidden');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function productExtraMutationCsrf(): string
+    {
+        $token = (string)$this->session->userdata(self::PRODUCT_EXTRA_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::PRODUCT_EXTRA_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function requireProductExtraMutationCsrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return false;
+        }
+
+        // This legacy path is submitted by HTML forms. Deliberately accept only
+        // the scoped form field, without query/header/JSON/raw-body fallbacks.
+        $providedToken = (string)$this->input->post(self::PRODUCT_EXTRA_MUTATION_CSRF_FORM_FIELD, false);
+        $sessionToken = (string)$this->session->userdata(self::PRODUCT_EXTRA_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            show_error('Permintaan perubahan mapping product-extra tidak valid.', 403, 'Forbidden');
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Run a single-row B68 SELECT through mysqli directly so a failed statement
+     * cannot be rendered or logged by CI_DB_driver. All values are integer-bound
+     * and results use bind_result/fetch for mysqlnd-independent portability.
+     */
+    private function productExtraPreparedSelectOne(string $sql, array $integerValues, array $columnNames): array
+    {
+        $connection = $this->db->conn_id ?? null;
+        if (
+            (string)($this->db->dbdriver ?? '') !== 'mysqli'
+            || !is_object($connection)
+            || !method_exists($connection, 'prepare')
+        ) {
+            return ['ok' => false, 'row' => null, 'error_code' => 0];
+        }
+
+        $statement = null;
+        try {
+            $statement = $connection->prepare($sql);
+            if (
+                !is_object($statement)
+                || !method_exists($statement, 'bind_param')
+                || !method_exists($statement, 'execute')
+                || !method_exists($statement, 'bind_result')
+                || !method_exists($statement, 'fetch')
+            ) {
+                return [
+                    'ok' => false,
+                    'row' => null,
+                    'error_code' => $this->productExtraMysqliErrorCode($statement, $connection),
+                ];
+            }
+
+            $bindArguments = [str_repeat('i', count($integerValues))];
+            foreach ($integerValues as $index => $value) {
+                $integerValues[$index] = (int)$value;
+                $bindArguments[] = &$integerValues[$index];
+            }
+            if (!call_user_func_array([$statement, 'bind_param'], $bindArguments)) {
+                return [
+                    'ok' => false,
+                    'row' => null,
+                    'error_code' => $this->productExtraMysqliErrorCode($statement, $connection),
+                ];
+            }
+            if (!$statement->execute()) {
+                return [
+                    'ok' => false,
+                    'row' => null,
+                    'error_code' => $this->productExtraMysqliErrorCode($statement, $connection),
+                ];
+            }
+
+            $resultValues = array_fill(0, count($columnNames), null);
+            $resultArguments = [];
+            foreach ($resultValues as $index => $value) {
+                $resultArguments[] = &$resultValues[$index];
+            }
+            if (!call_user_func_array([$statement, 'bind_result'], $resultArguments)) {
+                return [
+                    'ok' => false,
+                    'row' => null,
+                    'error_code' => $this->productExtraMysqliErrorCode($statement, $connection),
+                ];
+            }
+
+            $fetchResult = $statement->fetch();
+            if ($fetchResult === false) {
+                return [
+                    'ok' => false,
+                    'row' => null,
+                    'error_code' => $this->productExtraMysqliErrorCode($statement, $connection),
+                ];
+            }
+            if ($fetchResult !== true) {
+                return ['ok' => true, 'row' => null, 'error_code' => 0];
+            }
+
+            $row = [];
+            foreach ($columnNames as $index => $columnName) {
+                $row[(string)$columnName] = $resultValues[$index] ?? null;
+            }
+            return ['ok' => true, 'row' => $row, 'error_code' => 0];
+        } catch (Throwable $exception) {
+            return [
+                'ok' => false,
+                'row' => null,
+                'error_code' => $this->productExtraMysqliErrorCode($statement, $connection),
+            ];
+        } finally {
+            if (is_object($statement) && method_exists($statement, 'close')) {
+                try {
+                    $statement->close();
+                } catch (Throwable $exception) {
+                    // The safe result is already known; never expose close details.
+                }
+            }
+        }
+    }
+
+    /**
+     * Run B68 INSERT/DELETE directly through mysqli and return only safe numeric
+     * metadata. The caller owns transaction and user-facing semantics.
+     */
+    private function productExtraPreparedMutation(string $sql, array $integerValues): array
+    {
+        $connection = $this->db->conn_id ?? null;
+        if (
+            (string)($this->db->dbdriver ?? '') !== 'mysqli'
+            || !is_object($connection)
+            || !method_exists($connection, 'prepare')
+        ) {
+            return ['ok' => false, 'affected_rows' => 0, 'error_code' => 0];
+        }
+
+        $statement = null;
+        try {
+            $statement = $connection->prepare($sql);
+            if (
+                !is_object($statement)
+                || !method_exists($statement, 'bind_param')
+                || !method_exists($statement, 'execute')
+            ) {
+                return [
+                    'ok' => false,
+                    'affected_rows' => 0,
+                    'error_code' => $this->productExtraMysqliErrorCode($statement, $connection),
+                ];
+            }
+
+            $bindArguments = [str_repeat('i', count($integerValues))];
+            foreach ($integerValues as $index => $value) {
+                $integerValues[$index] = (int)$value;
+                $bindArguments[] = &$integerValues[$index];
+            }
+            if (!call_user_func_array([$statement, 'bind_param'], $bindArguments) || !$statement->execute()) {
+                return [
+                    'ok' => false,
+                    'affected_rows' => 0,
+                    'error_code' => $this->productExtraMysqliErrorCode($statement, $connection),
+                ];
+            }
+
+            return [
+                'ok' => true,
+                'affected_rows' => isset($statement->affected_rows) ? (int)$statement->affected_rows : 0,
+                'error_code' => 0,
+            ];
+        } catch (Throwable $exception) {
+            return [
+                'ok' => false,
+                'affected_rows' => 0,
+                'error_code' => $this->productExtraMysqliErrorCode($statement, $connection),
+            ];
+        } finally {
+            if (is_object($statement) && method_exists($statement, 'close')) {
+                try {
+                    $statement->close();
+                } catch (Throwable $exception) {
+                    // The safe result is already known; never expose close details.
+                }
+            }
+        }
+    }
+
+    private function productExtraMysqliErrorCode($statement, $connection): int
+    {
+        if (is_object($statement) && isset($statement->errno)) {
+            $statementErrorCode = (int)$statement->errno;
+            if ($statementErrorCode !== 0) {
+                return $statementErrorCode;
+            }
+        }
+
+        return is_object($connection) && isset($connection->errno)
+            ? (int)$connection->errno
+            : 0;
+    }
+
+    private function extraGroupMutationCsrf(): string
+    {
+        $token = (string)$this->session->userdata(self::EXTRA_GROUP_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::EXTRA_GROUP_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function extraGroupMutationCsrfForReadResponse(): ?string
+    {
+        if (!$this->can('master.extra_group.index', 'edit')) {
+            return null;
+        }
+
+        return $this->extraGroupMutationCsrf();
+    }
+
+    private function requireExtraGroupMutationCsrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->outputJson([
+                'ok' => false,
+                'message' => 'Metode request tidak diizinkan.',
+            ], 405);
+            return false;
+        }
+
+        // The modal submits this scoped token in a dedicated header. Deliberately
+        // reject form, query, JSON, and raw-body token fallbacks.
+        $providedToken = trim((string)$this->input->get_request_header(self::EXTRA_GROUP_MUTATION_CSRF_CI_HEADER, true));
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->outputJson([
+                'ok' => false,
+                'message' => 'Permintaan perubahan relasi group extra tidak valid.',
+            ], 403);
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::EXTRA_GROUP_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->outputJson([
+                'ok' => false,
+                'message' => 'Permintaan perubahan relasi group extra tidak valid.',
+            ], 403);
+            return false;
+        }
+
+        return true;
+    }
+
+    private function extraGroupChecklistMutationCsrf(): string
+    {
+        $token = (string)$this->session->userdata(self::EXTRA_GROUP_CHECKLIST_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::EXTRA_GROUP_CHECKLIST_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function extraGroupChecklistMutationCsrfForEditor(): ?string
+    {
+        if (!$this->can('master.extra_group.index', 'edit')) {
+            return null;
+        }
+
+        return $this->extraGroupChecklistMutationCsrf();
+    }
+
+    private function requireExtraGroupChecklistMutationCsrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return false;
+        }
+
+        // These checklist pages submit a regular HTML form. Deliberately accept
+        // only this scoped form field, without query/header/JSON/raw fallbacks.
+        $providedToken = $this->input->post(self::EXTRA_GROUP_CHECKLIST_MUTATION_CSRF_FORM_FIELD, false);
+        $sessionToken = $this->session->userdata(self::EXTRA_GROUP_CHECKLIST_MUTATION_CSRF_SESSION_KEY);
+        if (
+            !is_string($providedToken)
+            || !is_string($sessionToken)
+            || preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            show_error('Permintaan perubahan checklist relasi group extra tidak valid.', 403, 'Forbidden');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function canonicalExtraGroupProductMappingRevision(array $rows): string
+    {
+        $pairs = [];
+        foreach ($rows as $row) {
+            $pairs[] = [
+                'product_id' => (int)($row['product_id'] ?? 0),
+                'sort_order' => (int)($row['sort_order'] ?? 0),
+            ];
+        }
+
+        usort($pairs, static function (array $left, array $right): int {
+            $productOrder = $left['product_id'] <=> $right['product_id'];
+            return $productOrder !== 0 ? $productOrder : ($left['sort_order'] <=> $right['sort_order']);
+        });
+
+        $canonical = '';
+        foreach ($pairs as $pair) {
+            $productId = (string)$pair['product_id'];
+            $sortOrder = (string)$pair['sort_order'];
+            $canonical .= strlen($productId) . ':' . $productId . '|' . strlen($sortOrder) . ':' . $sortOrder . ';';
+        }
+
+        return hash('sha256', $canonical);
+    }
+
+    private function extraGroupProductMappingRows(int $groupId): array
+    {
+        return $this->db
+            ->select('product_id, sort_order')
+            ->from('mst_product_extra_map')
+            ->where('extra_group_id', $groupId)
+            ->order_by('product_id', 'ASC')
+            ->order_by('sort_order', 'ASC')
+            ->get()
+            ->result_array();
+    }
+
+    private function lockExtraGroupProductMappingRows(int $groupId): ?array
+    {
+        $query = $this->db->query(
+            'SELECT product_id, sort_order FROM mst_product_extra_map WHERE extra_group_id = ? ORDER BY product_id ASC, sort_order ASC FOR UPDATE',
+            [$groupId]
+        );
+        if ($query === false) {
+            return null;
+        }
+
+        return $query->result_array();
+    }
+
+    private function replaceExtraGroupProducts(
+        int $groupId,
+        string $expectedRevision,
+        $selected,
+        bool $fieldProvided
+    ): array {
+        if ($this->db->trans_begin() === false) {
+            return ['ok' => false, 'reason' => 'database'];
+        }
+
+        try {
+            $lockQuery = $this->db->query(
+                'SELECT id, product_division_id, is_active FROM mst_extra_group WHERE id = ? FOR UPDATE',
+                [$groupId]
+            );
+            if ($lockQuery === false) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'reason' => 'database'];
+            }
+
+            $group = $lockQuery->row_array();
+            if (!$group) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'reason' => 'not_found'];
+            }
+
+            $lockedMappingRows = $this->lockExtraGroupProductMappingRows($groupId);
+            if ($lockedMappingRows === null) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'reason' => 'database'];
+            }
+
+            $actualRevision = $this->canonicalExtraGroupProductMappingRevision($lockedMappingRows);
+            if (!hash_equals($actualRevision, $expectedRevision)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'reason' => 'conflict'];
+            }
+
+            $validation = $this->validateExtraGroupProductSelection($group, $selected, $fieldProvided);
+            if (!$validation['ok']) {
+                $this->db->trans_rollback();
+                return [
+                    'ok' => false,
+                    'reason' => 'validation',
+                    'message' => $validation['message'],
+                ];
+            }
+            $productIds = $validation['ids'];
+
+            $this->db->where('extra_group_id', $groupId)->delete('mst_product_extra_map');
+
+            $sort = 10;
+            foreach ($productIds as $productId) {
+                $this->Master_model->insert('mst_product_extra_map', [
+                    'extra_group_id' => $groupId,
+                    'product_id' => $productId,
+                    'sort_order' => $sort,
+                ]);
+                $sort += 10;
+            }
+
+            if ($this->db->trans_status() === false) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'reason' => 'database'];
+            }
+
+            if ($this->db->trans_commit() === false) {
+                if ($this->db->trans_active()) {
+                    $this->db->trans_rollback();
+                }
+                return ['ok' => false, 'reason' => 'database'];
+            }
+
+            return [
+                'ok' => true,
+                'selected_count' => count($productIds),
+            ];
+        } catch (Throwable $exception) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'reason' => 'database'];
+        }
+    }
+
+    private function validateExtraGroupItemSelection(
+        array $parent,
+        $selected,
+        bool $fieldProvided,
+        string $childTable
+    ): array {
+        $config = [
+            'mst_extra_group' => [
+                'selection_label' => 'group extra',
+                'inactive_parent_message' => 'Master extra nonaktif hanya dapat dikosongkan.',
+            ],
+            'mst_extra' => [
+                'selection_label' => 'master extra',
+                'inactive_parent_message' => 'Group extra nonaktif hanya dapat dikosongkan.',
+            ],
+        ];
+        if (!isset($config[$childTable])) {
+            return ['ok' => false, 'message' => 'Jenis relasi group extra tidak valid.'];
+        }
+
+        if (!$fieldProvided) {
+            return ['ok' => true, 'ids' => []];
+        }
+
+        $selectionLabel = $config[$childTable]['selection_label'];
+        if (!is_array($selected)) {
+            return [
+                'ok' => false,
+                'message' => 'Pilihan ' . $selectionLabel . ' harus dikirim sebagai daftar.',
+            ];
+        }
+
+        $selectedIds = [];
+        foreach ($selected as $value) {
+            if (is_int($value)) {
+                $selectedId = $value;
+            } elseif (is_string($value) && preg_match('/\A[1-9][0-9]*\z/D', $value) === 1) {
+                $validated = filter_var($value, FILTER_VALIDATE_INT, [
+                    'options' => ['min_range' => 1],
+                ]);
+                if ($validated === false) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Pilihan ' . $selectionLabel . ' mengandung ID yang tidak valid.',
+                    ];
+                }
+                $selectedId = (int)$validated;
+            } else {
+                return [
+                    'ok' => false,
+                    'message' => 'Pilihan ' . $selectionLabel . ' mengandung ID yang tidak valid.',
+                ];
+            }
+
+            if ($selectedId <= 0) {
+                return [
+                    'ok' => false,
+                    'message' => 'Pilihan ' . $selectionLabel . ' mengandung ID yang tidak valid.',
+                ];
+            }
+            $selectedIds[$selectedId] = true;
+        }
+        $selectedIds = array_keys($selectedIds);
+
+        if ($selectedIds === []) {
+            return ['ok' => true, 'ids' => []];
+        }
+
+        if ((int)($parent['is_active'] ?? 0) !== 1) {
+            return [
+                'ok' => false,
+                'message' => $config[$childTable]['inactive_parent_message'],
+            ];
+        }
+
+        $this->db->select('id, is_active');
+        $this->db->from($childTable);
+        $this->db->where_in('id', $selectedIds);
+        $rows = $this->db->get()->result_array();
+
+        $activeIds = [];
+        foreach ($rows as $row) {
+            $selectedId = (int)($row['id'] ?? 0);
+            if ($selectedId > 0 && (int)($row['is_active'] ?? 0) === 1) {
+                $activeIds[$selectedId] = true;
+            }
+        }
+        foreach ($selectedIds as $selectedId) {
+            if (!isset($activeIds[$selectedId])) {
+                return [
+                    'ok' => false,
+                    'message' => 'Pilihan ' . $selectionLabel . ' harus aktif dan tersedia.',
+                ];
+            }
+        }
+
+        return ['ok' => true, 'ids' => $selectedIds];
+    }
+
+    private function validateExtraGroupProductSelection(array $group, $selected, bool $fieldProvided): array
+    {
+        if (!$fieldProvided) {
+            return ['ok' => true, 'ids' => []];
+        }
+
+        if (!is_array($selected)) {
+            return [
+                'ok' => false,
+                'message' => 'Pilihan produk harus dikirim sebagai daftar.',
+            ];
+        }
+
+        $productIds = [];
+        foreach ($selected as $value) {
+            if (is_int($value)) {
+                $productId = $value;
+            } elseif (is_string($value) && preg_match('/\A[1-9][0-9]*\z/D', $value) === 1) {
+                $validated = filter_var($value, FILTER_VALIDATE_INT, [
+                    'options' => ['min_range' => 1],
+                ]);
+                if ($validated === false) {
+                    return [
+                        'ok' => false,
+                        'message' => 'Pilihan produk mengandung ID yang tidak valid.',
+                    ];
+                }
+                $productId = (int)$validated;
+            } else {
+                return [
+                    'ok' => false,
+                    'message' => 'Pilihan produk mengandung ID yang tidak valid.',
+                ];
+            }
+
+            if ($productId <= 0) {
+                return [
+                    'ok' => false,
+                    'message' => 'Pilihan produk mengandung ID yang tidak valid.',
+                ];
+            }
+            $productIds[$productId] = true;
+        }
+        $productIds = array_keys($productIds);
+
+        if ($productIds === []) {
+            return ['ok' => true, 'ids' => []];
+        }
+
+        if ((int)($group['is_active'] ?? 0) !== 1) {
+            return [
+                'ok' => false,
+                'message' => 'Group extra nonaktif hanya dapat dikosongkan.',
+            ];
+        }
+
+        $this->db->select('id, is_active, product_division_id');
+        $this->db->from('mst_product');
+        $this->db->where_in('id', $productIds);
+        $rows = $this->db->get()->result_array();
+
+        $groupHasDivision = array_key_exists('product_division_id', $group)
+            && $group['product_division_id'] !== null;
+        $groupDivisionId = $groupHasDivision ? (int)$group['product_division_id'] : null;
+        $validProductIds = [];
+        foreach ($rows as $row) {
+            $productId = (int)($row['id'] ?? 0);
+            if (
+                $productId <= 0
+                || (int)($row['is_active'] ?? 0) !== 1
+                || ($groupHasDivision && (int)($row['product_division_id'] ?? 0) !== $groupDivisionId)
+            ) {
+                continue;
+            }
+            $validProductIds[$productId] = true;
+        }
+
+        foreach ($productIds as $productId) {
+            if (!isset($validProductIds[$productId])) {
+                return [
+                    'ok' => false,
+                    'message' => 'Pilihan produk harus aktif, tersedia, dan sesuai divisi group extra.',
+                ];
+            }
+        }
+
+        return ['ok' => true, 'ids' => $productIds];
+    }
+
+    private function productBundleMutationCsrf(): string
+    {
+        $token = (string)$this->session->userdata(self::PRODUCT_BUNDLE_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::PRODUCT_BUNDLE_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function requireProductBundleMutationCsrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return false;
+        }
+
+        // This legacy path is submitted by HTML forms. Deliberately accept only
+        // the scoped form field, without query/header/JSON/raw-body fallbacks.
+        $providedToken = (string)$this->input->post(self::PRODUCT_BUNDLE_MUTATION_CSRF_FORM_FIELD, false);
+        $sessionToken = (string)$this->session->userdata(self::PRODUCT_BUNDLE_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            show_error('Permintaan perubahan bundle produk tidak valid.', 403, 'Forbidden');
+            return false;
+        }
+
+        return true;
     }
 
     private function operationalDivisionCode(int $divisionId): string
@@ -55,6 +833,7 @@ class Master_relation extends MY_Controller
 
     public function product_recipe_hub()
     {
+        $this->requireRelationPermission('recipe', 'view');
         $q = trim((string)$this->input->get('q', true));
 
         $this->db->select('p.id, p.product_code, p.product_name, pd.name AS product_division_name, COUNT(r.id) AS total_line');
@@ -83,6 +862,7 @@ class Master_relation extends MY_Controller
 
     public function product_availability()
     {
+        $this->requireRelationPermission('availability', 'view');
         $filters = $this->productAvailabilityFilters();
         $this->load->model('Pos_model');
         $this->load->library('PosAvailabilityRebuildService');
@@ -187,6 +967,7 @@ class Master_relation extends MY_Controller
 
     public function component_formula_hub()
     {
+        $this->requireRelationPermission('formula', 'view');
         $q = trim((string)$this->input->get('q', true));
 
         $this->db->select('c.id, c.component_code, c.component_name, pd.name AS product_division_name, COUNT(f.id) AS total_line');
@@ -215,6 +996,7 @@ class Master_relation extends MY_Controller
 
     public function product_recipe(int $productId)
     {
+        $this->requireRelationPermission('recipe', 'view');
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) show_404();
 
@@ -229,11 +1011,13 @@ class Master_relation extends MY_Controller
             'summary' => $recipeData['summary'],
             'default_source_division' => $this->resolveProductRecipeDefaultDivision($product),
             'product_variable_cost' => $this->productRecipeVariableCostContext($product),
+            'master_relation_product_recipe_mutation_csrf' => $this->productRecipeMutationCsrf(),
         ]);
     }
 
     public function product_hpp_stock(int $productId)
     {
+        $this->requireRelationPermission('recipe', 'view');
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) show_404();
 
@@ -463,6 +1247,7 @@ class Master_relation extends MY_Controller
 
     public function product_recipe_bulk_edit(int $productId)
     {
+        $this->requireRelationPermission('recipe', 'edit');
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) show_404();
 
@@ -476,11 +1261,17 @@ class Master_relation extends MY_Controller
             'summary' => $recipeData['summary'],
             'options' => $this->productRecipeOptions($product),
             'product_variable_cost' => $this->productRecipeVariableCostContext($product),
+            'master_relation_product_recipe_mutation_csrf' => $this->productRecipeMutationCsrf(),
         ]);
     }
 
     public function product_recipe_bulk_save(int $productId)
     {
+        $this->requireRelationPermission('recipe', 'edit');
+        if (!$this->requireProductRecipeMutationCsrf()) {
+            return;
+        }
+
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) show_404();
 
@@ -518,6 +1309,7 @@ class Master_relation extends MY_Controller
 
     public function product_recipe_source_lookup(int $productId)
     {
+        $this->requireRelationPermission('recipe', 'view');
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) {
             show_404();
@@ -546,6 +1338,7 @@ class Master_relation extends MY_Controller
 
     public function product_recipe_create(int $productId)
     {
+        $this->requireRelationPermission('recipe', 'create');
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) show_404();
 
@@ -558,11 +1351,17 @@ class Master_relation extends MY_Controller
             'form_action' => 'master/relation/product-recipe/' . $productId . '/store',
             'options' => $this->productRecipeOptions($product),
             'product_variable_cost' => $this->productRecipeVariableCostContext($product),
+            'master_relation_product_recipe_mutation_csrf' => $this->productRecipeMutationCsrf(),
         ]);
     }
 
     public function product_recipe_store(int $productId)
     {
+        $this->requireRelationPermission('recipe', 'create');
+        if (!$this->requireProductRecipeMutationCsrf()) {
+            return;
+        }
+
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) show_404();
 
@@ -637,6 +1436,7 @@ class Master_relation extends MY_Controller
 
     public function product_recipe_edit(int $id)
     {
+        $this->requireRelationPermission('recipe', 'edit');
         $row = $this->Master_model->get_by_id('mst_product_recipe', $id);
         if (!$row) show_404();
         $parent = $this->loadProductRecipeParent((int)$row['product_id']);
@@ -651,11 +1451,17 @@ class Master_relation extends MY_Controller
             'form_action' => 'master/relation/product-recipe/edit/' . $id . '/update',
             'options' => $this->productRecipeOptions($parent, $row),
             'product_variable_cost' => $this->productRecipeVariableCostContext($parent),
+            'master_relation_product_recipe_mutation_csrf' => $this->productRecipeMutationCsrf(),
         ]);
     }
 
     public function product_recipe_update(int $id)
     {
+        $this->requireRelationPermission('recipe', 'edit');
+        if (!$this->requireProductRecipeMutationCsrf()) {
+            return;
+        }
+
         $row = $this->Master_model->get_by_id('mst_product_recipe', $id);
         if (!$row) show_404();
 
@@ -733,6 +1539,11 @@ class Master_relation extends MY_Controller
 
     public function product_recipe_delete(int $id)
     {
+        $this->requireRelationPermission('recipe', 'delete');
+        if (!$this->requireProductRecipeMutationCsrf()) {
+            return;
+        }
+
         $row = $this->Master_model->get_by_id('mst_product_recipe', $id);
         if (!$row) show_404();
 
@@ -743,6 +1554,7 @@ class Master_relation extends MY_Controller
 
     public function component_formula(int $componentId)
     {
+        $this->requireRelationPermission('formula', 'view');
         $component = $this->Master_model->get_by_id('mst_component', $componentId);
         if (!$component) show_404();
 
@@ -762,11 +1574,13 @@ class Master_relation extends MY_Controller
             'relation_type' => 'component-formula',
             'parent' => $component,
             'rows' => $rows,
+            'master_relation_component_formula_mutation_csrf' => $this->componentFormulaMutationCsrf(),
         ]);
     }
 
     public function component_formula_create(int $componentId)
     {
+        $this->requireRelationPermission('formula', 'create');
         $component = $this->Master_model->get_by_id('mst_component', $componentId);
         if (!$component) show_404();
 
@@ -778,11 +1592,17 @@ class Master_relation extends MY_Controller
             'row' => null,
             'form_action' => 'master/relation/component-formula/' . $componentId . '/store',
             'options' => $this->componentFormulaOptions($componentId),
+            'master_relation_component_formula_mutation_csrf' => $this->componentFormulaMutationCsrf(),
         ]);
     }
 
     public function component_formula_store(int $componentId)
     {
+        $this->requireRelationPermission('formula', 'create');
+        if (!$this->requireComponentFormulaMutationCsrf()) {
+            return;
+        }
+
         $component = $this->Master_model->get_by_id('mst_component', $componentId);
         if (!$component) show_404();
 
@@ -824,6 +1644,7 @@ class Master_relation extends MY_Controller
 
     public function component_formula_edit(int $id)
     {
+        $this->requireRelationPermission('formula', 'edit');
         $row = $this->Master_model->get_by_id('mst_component_formula', $id);
         if (!$row) show_404();
         $parent = $this->Master_model->get_by_id('mst_component', (int)$row['component_id']);
@@ -837,11 +1658,17 @@ class Master_relation extends MY_Controller
             'row' => $row,
             'form_action' => 'master/relation/component-formula/edit/' . $id . '/update',
             'options' => $this->componentFormulaOptions((int)$row['component_id']),
+            'master_relation_component_formula_mutation_csrf' => $this->componentFormulaMutationCsrf(),
         ]);
     }
 
     public function component_formula_update(int $id)
     {
+        $this->requireRelationPermission('formula', 'edit');
+        if (!$this->requireComponentFormulaMutationCsrf()) {
+            return;
+        }
+
         $row = $this->Master_model->get_by_id('mst_component_formula', $id);
         if (!$row) show_404();
 
@@ -872,6 +1699,11 @@ class Master_relation extends MY_Controller
 
     public function component_formula_delete(int $id)
     {
+        $this->requireRelationPermission('formula', 'delete');
+        if (!$this->requireComponentFormulaMutationCsrf()) {
+            return;
+        }
+
         $row = $this->Master_model->get_by_id('mst_component_formula', $id);
         if (!$row) show_404();
 
@@ -882,6 +1714,7 @@ class Master_relation extends MY_Controller
 
     public function product_extra(int $productId)
     {
+        $this->requireRelationPermission('extra', 'view');
         $product = $this->Master_model->get_by_id('mst_product', $productId);
         if (!$product) show_404();
 
@@ -898,11 +1731,13 @@ class Master_relation extends MY_Controller
             'relation_type' => 'product-extra',
             'parent' => $product,
             'rows' => $rows,
+            'master_relation_product_extra_mutation_csrf' => $this->productExtraMutationCsrf(),
         ]);
     }
 
     public function product_extra_hub()
     {
+        $this->requireRelationPermission('extra', 'view');
         $q = trim((string)$this->input->get('q', true));
 
         $this->db->select('p.id, p.product_code, p.product_name, pd.name AS product_division_name, COUNT(m.id) AS total_line');
@@ -931,10 +1766,7 @@ class Master_relation extends MY_Controller
 
     public function extra_workspace()
     {
-        $pageCode = $this->can('product.monitoring.availability.index', 'view')
-            ? 'product.monitoring.availability.index'
-            : 'master.product_extra.workspace.index';
-        $this->require_permission($pageCode, 'view');
+        $this->requireRelationPermission('extra-workspace', 'view');
         $summary = [
             'total_extra' => $this->db->table_exists('mst_extra') ? (int)$this->db->from('mst_extra')->count_all_results() : 0,
             'total_group' => $this->db->table_exists('mst_extra_group') ? (int)$this->db->from('mst_extra_group')->count_all_results() : 0,
@@ -954,6 +1786,7 @@ class Master_relation extends MY_Controller
 
     public function extra_group_hub()
     {
+        $this->requireRelationPermission('extra-group', 'view');
         $q = trim((string)$this->input->get('q', true));
 
         $this->db->select('g.id, g.group_code, g.group_name, pd.name AS product_division_name, COUNT(m.id) AS total_product');
@@ -980,15 +1813,17 @@ class Master_relation extends MY_Controller
 
     public function extra_group_products(int $groupId)
     {
+        $this->requireRelationPermission('extra-group', 'view');
         $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
         if (!$group) show_404();
 
         $q = trim((string)$this->input->get('q', true));
+        $mappingRows = $this->extraGroupProductMappingRows($groupId);
+        $mappedProductIds = array_values(array_map('intval', array_column($mappingRows, 'product_id')));
 
-        $this->db->select('p.id, p.product_code, p.product_name, pd.name AS product_division_name, m.id AS map_id, m.sort_order AS map_sort_order');
+        $this->db->select('p.id, p.product_code, p.product_name, pd.name AS product_division_name');
         $this->db->from('mst_product p');
         $this->db->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left');
-        $this->db->join('mst_product_extra_map m', 'm.product_id = p.id AND m.extra_group_id = ' . (int)$groupId, 'left');
         $this->db->where('p.is_active', 1);
         if (!empty($group['product_division_id'])) {
             $this->db->where('p.product_division_id', (int)$group['product_division_id']);
@@ -1002,69 +1837,81 @@ class Master_relation extends MY_Controller
         $this->db->order_by('p.product_name', 'ASC');
         $rows = $this->db->get()->result_array();
 
-        $mappedProductIds = [];
-        foreach ($rows as $row) {
-            if (!empty($row['map_id'])) {
-                $mappedProductIds[] = (int)$row['id'];
-            }
-        }
-
-        $this->render('master/extra_group_products', [
+        $viewData = [
             'title' => 'Checklist Produk untuk Group Extra',
             'active_menu' => 'grp.master',
             'group' => $group,
             'rows' => $rows,
             'mapped_product_ids' => $mappedProductIds,
+            'mapping_revision' => $this->canonicalExtraGroupProductMappingRevision($mappingRows),
             'q' => $q,
-        ]);
+        ];
+        if ($q === '') {
+            $mutationCsrf = $this->extraGroupChecklistMutationCsrfForEditor();
+            if ($mutationCsrf !== null) {
+                $viewData[self::EXTRA_GROUP_CHECKLIST_MUTATION_CSRF_FORM_FIELD] = $mutationCsrf;
+            }
+        }
+
+        $this->render('master/extra_group_products', $viewData);
     }
 
     public function extra_group_products_save(int $groupId)
     {
-        $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
-        if (!$group) show_404();
-
-        $selected = $this->input->post('product_ids');
-        if (!is_array($selected)) {
-            $selected = [];
+        $this->requireRelationPermission('extra-group', 'edit');
+        if (!$this->requireExtraGroupChecklistMutationCsrf()) {
+            return;
         }
 
-        $productIds = [];
-        foreach ($selected as $pid) {
-            $pid = (int)$pid;
-            if ($pid > 0) {
-                $productIds[$pid] = true;
+        $q = trim((string)$this->input->get('q', true));
+        if ($q !== '') {
+            $this->session->set_flashdata('warning', 'Checklist yang sedang difilter hanya dapat dilihat. Reset filter untuk mengubah checklist penuh.');
+            redirect('master/relation/extra-group/' . $groupId . '?q=' . rawurlencode($q));
+            return;
+        }
+
+        $expectedRevision = $this->input->post(self::EXTRA_GROUP_PRODUCT_MAPPING_REVISION_FIELD, false);
+        if (!is_string($expectedRevision) || preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            $this->session->set_flashdata('error', 'Snapshot mapping produk tidak valid. Muat ulang halaman sebelum menyimpan.');
+            redirect('master/relation/extra-group/' . $groupId);
+            return;
+        }
+
+        $postData = $this->input->post(null, false);
+        if (!is_array($postData)) {
+            $postData = [];
+        }
+        $fieldProvided = array_key_exists('product_ids', $postData);
+        $result = $this->replaceExtraGroupProducts(
+            $groupId,
+            $expectedRevision,
+            $fieldProvided ? $postData['product_ids'] : null,
+            $fieldProvided
+        );
+        if (!$result['ok']) {
+            if ($result['reason'] === 'not_found') {
+                show_404();
+                return;
             }
-        }
-        $productIds = array_keys($productIds);
-
-        $this->db->trans_start();
-
-        $this->db->where('extra_group_id', $groupId)->delete('mst_product_extra_map');
-
-        $sort = 10;
-        foreach ($productIds as $pid) {
-            $this->Master_model->insert('mst_product_extra_map', [
-                'extra_group_id' => $groupId,
-                'product_id' => $pid,
-                'sort_order' => $sort,
-            ]);
-            $sort += 10;
+            if ($result['reason'] === 'conflict') {
+                $this->session->set_flashdata('warning', 'Mapping produk telah berubah. Muat ulang halaman sebelum menyimpan kembali.');
+            } elseif ($result['reason'] === 'validation') {
+                $this->session->set_flashdata('error', $result['message']);
+            } else {
+                $this->session->set_flashdata('error', 'Gagal menyimpan mapping produk untuk group extra.');
+            }
+            redirect('master/relation/extra-group/' . $groupId);
+            return;
         }
 
-        $this->db->trans_complete();
-
-        if ($this->db->trans_status() === false) {
-            $this->session->set_flashdata('error', 'Gagal menyimpan mapping produk untuk group extra.');
-        } else {
-            $this->session->set_flashdata('success', 'Mapping produk untuk group extra berhasil disimpan.');
-        }
+        $this->session->set_flashdata('success', 'Mapping produk untuk group extra berhasil disimpan.');
 
         redirect('master/relation/extra-group/' . $groupId);
     }
 
     public function extra_group_items_ajax(int $groupId)
     {
+        $this->requireRelationPermission('extra-group', 'view');
         $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
         if (!$group) {
             return $this->outputJson(['ok' => false, 'message' => 'Group extra tidak ditemukan.'], 404);
@@ -1073,7 +1920,7 @@ class Master_relation extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $rows = $this->loadExtraRowsForGroup($groupId, $q);
 
-        return $this->outputJson([
+        $response = [
             'ok' => true,
             'group' => [
                 'id' => (int)$group['id'],
@@ -1084,29 +1931,42 @@ class Master_relation extends MY_Controller
             'selected_ids' => array_values(array_map('intval', array_column(array_filter($rows, static function ($row) {
                 return !empty($row['mapped']);
             }), 'id'))),
-        ]);
+        ];
+        $mutationCsrf = $this->extraGroupMutationCsrfForReadResponse();
+        if ($mutationCsrf !== null) {
+            $response['mutation_csrf'] = $mutationCsrf;
+        }
+
+        return $this->outputJson($response);
     }
 
     public function extra_group_items_save_ajax(int $groupId)
     {
+        $this->requireRelationPermission('extra-group', 'edit');
+        if (!$this->requireExtraGroupMutationCsrf()) {
+            return;
+        }
+
         $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
         if (!$group) {
             return $this->outputJson(['ok' => false, 'message' => 'Group extra tidak ditemukan.'], 404);
         }
 
-        $selected = $this->input->post('extra_ids');
-        if (!is_array($selected)) {
-            $selected = [];
+        $postData = $this->input->post(null, false);
+        if (!is_array($postData)) {
+            $postData = [];
         }
-
-        $extraIds = [];
-        foreach ($selected as $extraId) {
-            $extraId = (int)$extraId;
-            if ($extraId > 0) {
-                $extraIds[$extraId] = true;
-            }
+        $fieldProvided = array_key_exists('extra_ids', $postData);
+        $validation = $this->validateExtraGroupItemSelection(
+            $group,
+            $fieldProvided ? $postData['extra_ids'] : null,
+            $fieldProvided,
+            'mst_extra'
+        );
+        if (!$validation['ok']) {
+            return $this->outputJson(['ok' => false, 'message' => $validation['message']], 422);
         }
-        $extraIds = array_keys($extraIds);
+        $extraIds = $validation['ids'];
 
         $this->db->trans_start();
         $this->db->where('extra_group_id', $groupId)->delete('mst_extra_group_item');
@@ -1135,15 +1995,18 @@ class Master_relation extends MY_Controller
 
     public function extra_group_products_ajax(int $groupId)
     {
+        $this->requireRelationPermission('extra-group', 'view');
         $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
         if (!$group) {
             return $this->outputJson(['ok' => false, 'message' => 'Group extra tidak ditemukan.'], 404);
         }
 
         $q = trim((string)$this->input->get('q', true));
-        $rows = $this->loadProductRowsForGroup($group, $q);
+        $mappingRows = $this->extraGroupProductMappingRows($groupId);
+        $mappedProductIds = array_values(array_map('intval', array_column($mappingRows, 'product_id')));
+        $rows = $this->loadProductRowsForGroup($group, $q, $mappedProductIds);
 
-        return $this->outputJson([
+        $response = [
             'ok' => true,
             'group' => [
                 'id' => (int)$group['id'],
@@ -1155,57 +2018,68 @@ class Master_relation extends MY_Controller
             'selected_ids' => array_values(array_map('intval', array_column(array_filter($rows, static function ($row) {
                 return !empty($row['mapped']);
             }), 'id'))),
-        ]);
+            'mapping_revision' => $this->canonicalExtraGroupProductMappingRevision($mappingRows),
+        ];
+        $mutationCsrf = $this->extraGroupMutationCsrfForReadResponse();
+        if ($mutationCsrf !== null) {
+            $response['mutation_csrf'] = $mutationCsrf;
+        }
+
+        return $this->outputJson($response);
     }
 
     public function extra_group_products_save_ajax(int $groupId)
     {
-        $group = $this->Master_model->get_by_id('mst_extra_group', $groupId);
-        if (!$group) {
-            return $this->outputJson(['ok' => false, 'message' => 'Group extra tidak ditemukan.'], 404);
+        $this->requireRelationPermission('extra-group', 'edit');
+        if (!$this->requireExtraGroupMutationCsrf()) {
+            return;
         }
 
-        $selected = $this->input->post('product_ids');
-        if (!is_array($selected)) {
-            $selected = [];
+        $expectedRevision = $this->input->post(self::EXTRA_GROUP_PRODUCT_MAPPING_REVISION_FIELD, false);
+        if (!is_string($expectedRevision) || preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            return $this->outputJson([
+                'ok' => false,
+                'message' => 'Snapshot mapping produk tidak valid. Muat ulang data sebelum menyimpan.',
+            ], 422);
         }
 
-        $productIds = [];
-        foreach ($selected as $productId) {
-            $productId = (int)$productId;
-            if ($productId > 0) {
-                $productIds[$productId] = true;
+        $postData = $this->input->post(null, false);
+        if (!is_array($postData)) {
+            $postData = [];
+        }
+        $fieldProvided = array_key_exists('product_ids', $postData);
+        $result = $this->replaceExtraGroupProducts(
+            $groupId,
+            $expectedRevision,
+            $fieldProvided ? $postData['product_ids'] : null,
+            $fieldProvided
+        );
+        if (!$result['ok']) {
+            if ($result['reason'] === 'not_found') {
+                return $this->outputJson(['ok' => false, 'message' => 'Group extra tidak ditemukan.'], 404);
             }
-        }
-        $productIds = array_keys($productIds);
-
-        $this->db->trans_start();
-        $this->db->where('extra_group_id', $groupId)->delete('mst_product_extra_map');
-
-        $sort = 10;
-        foreach ($productIds as $productId) {
-            $this->Master_model->insert('mst_product_extra_map', [
-                'extra_group_id' => $groupId,
-                'product_id' => $productId,
-                'sort_order' => $sort,
-            ]);
-            $sort += 10;
-        }
-        $this->db->trans_complete();
-
-        if ($this->db->trans_status() === false) {
+            if ($result['reason'] === 'conflict') {
+                return $this->outputJson([
+                    'ok' => false,
+                    'message' => 'Mapping produk telah berubah. Muat ulang data sebelum menyimpan kembali.',
+                ], 409);
+            }
+            if ($result['reason'] === 'validation') {
+                return $this->outputJson(['ok' => false, 'message' => $result['message']], 422);
+            }
             return $this->outputJson(['ok' => false, 'message' => 'Gagal menyimpan mapping produk untuk group extra.'], 500);
         }
 
         return $this->outputJson([
             'ok' => true,
             'message' => 'Mapping produk untuk group extra berhasil disimpan.',
-            'selected_count' => count($productIds),
+            'selected_count' => $result['selected_count'],
         ]);
     }
 
     public function extra_item_group_hub()
     {
+        $this->requireRelationPermission('extra-group', 'view');
         $q = trim((string)$this->input->get('q', true));
 
         $this->db->select('e.id, e.extra_code, e.extra_name, e.extra_type, COUNT(m.id) AS total_group');
@@ -1231,6 +2105,7 @@ class Master_relation extends MY_Controller
 
     public function extra_item_groups(int $extraId)
     {
+        $this->requireRelationPermission('extra-group', 'view');
         $extra = $this->Master_model->get_by_id('mst_extra', $extraId);
         if (!$extra) show_404();
 
@@ -1257,34 +2132,58 @@ class Master_relation extends MY_Controller
             }
         }
 
-        $this->render('master/extra_item_groups', [
+        $viewData = [
             'title' => 'Checklist Group untuk Master Extra',
             'active_menu' => 'grp.master',
             'extra' => $extra,
             'rows' => $rows,
             'mapped_group_ids' => $mappedGroupIds,
             'q' => $q,
-        ]);
+        ];
+        if ($q === '') {
+            $mutationCsrf = $this->extraGroupChecklistMutationCsrfForEditor();
+            if ($mutationCsrf !== null) {
+                $viewData[self::EXTRA_GROUP_CHECKLIST_MUTATION_CSRF_FORM_FIELD] = $mutationCsrf;
+            }
+        }
+
+        $this->render('master/extra_item_groups', $viewData);
     }
 
     public function extra_item_groups_save(int $extraId)
     {
+        $this->requireRelationPermission('extra-group', 'edit');
+        if (!$this->requireExtraGroupChecklistMutationCsrf()) {
+            return;
+        }
+
+        $q = trim((string)$this->input->get('q', true));
+        if ($q !== '') {
+            $this->session->set_flashdata('warning', 'Checklist yang sedang difilter hanya dapat dilihat. Reset filter untuk mengubah checklist penuh.');
+            redirect('master/relation/extra-item-group/' . $extraId . '?q=' . rawurlencode($q));
+            return;
+        }
+
         $extra = $this->Master_model->get_by_id('mst_extra', $extraId);
         if (!$extra) show_404();
 
-        $selected = $this->input->post('group_ids');
-        if (!is_array($selected)) {
-            $selected = [];
+        $postData = $this->input->post(null, false);
+        if (!is_array($postData)) {
+            $postData = [];
         }
-
-        $groupIds = [];
-        foreach ($selected as $groupId) {
-            $groupId = (int)$groupId;
-            if ($groupId > 0) {
-                $groupIds[$groupId] = true;
-            }
+        $fieldProvided = array_key_exists('group_ids', $postData);
+        $validation = $this->validateExtraGroupItemSelection(
+            $extra,
+            $fieldProvided ? $postData['group_ids'] : null,
+            $fieldProvided,
+            'mst_extra_group'
+        );
+        if (!$validation['ok']) {
+            $this->session->set_flashdata('error', $validation['message']);
+            redirect('master/relation/extra-item-group/' . $extraId);
+            return;
         }
-        $groupIds = array_keys($groupIds);
+        $groupIds = $validation['ids'];
 
         $this->db->trans_start();
 
@@ -1333,9 +2232,8 @@ class Master_relation extends MY_Controller
         return $rows;
     }
 
-    private function loadProductRowsForGroup(array $group, string $q = ''): array
+    private function loadProductRowsForGroup(array $group, string $q = '', array $mappedProductIds = []): array
     {
-        $groupId = (int)($group['id'] ?? 0);
         $groupDivisionId = (int)($group['product_division_id'] ?? 0);
 
         $this->db->select('
@@ -1344,15 +2242,12 @@ class Master_relation extends MY_Controller
             p.product_name,
             pd.name AS product_division_name,
             pc.name AS classification_name,
-            cat.name AS product_category_name,
-            m.id AS map_id,
-            m.sort_order AS map_sort_order
+            cat.name AS product_category_name
         ');
         $this->db->from('mst_product p');
         $this->db->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left');
         $this->db->join('mst_product_classification pc', 'pc.id = p.classification_id', 'left');
         $this->db->join('mst_product_category cat', 'cat.id = p.product_category_id', 'left');
-        $this->db->join('mst_product_extra_map m', 'm.product_id = p.id AND m.extra_group_id = ' . $groupId, 'left');
         $this->db->where('p.is_active', 1);
         if ($groupDivisionId > 0) {
             $this->db->where('p.product_division_id', $groupDivisionId);
@@ -1372,8 +2267,9 @@ class Master_relation extends MY_Controller
         $this->db->order_by('p.product_name', 'ASC');
         $rows = $this->db->get()->result_array();
 
+        $mapped = array_fill_keys(array_map('intval', $mappedProductIds), true);
         foreach ($rows as &$row) {
-            $row['mapped'] = !empty($row['map_id']);
+            $row['mapped'] = isset($mapped[(int)($row['id'] ?? 0)]);
         }
         unset($row);
 
@@ -1393,8 +2289,23 @@ class Master_relation extends MY_Controller
 
     public function product_extra_create(int $productId)
     {
+        $this->requireRelationPermission('extra', 'create');
         $product = $this->Master_model->get_by_id('mst_product', $productId);
         if (!$product) show_404();
+
+        $this->db->select('id AS value, group_name AS label', false);
+        $this->db->from('mst_extra_group');
+        $this->db->where('is_active', 1);
+        $this->db->group_start();
+        $this->db->where('product_division_id IS NULL', null, false);
+        $productDivisionId = (int)($product['product_division_id'] ?? 0);
+        if ($productDivisionId > 0) {
+            $this->db->or_where('product_division_id', $productDivisionId);
+        }
+        $this->db->group_end();
+        $this->db->order_by('sort_order', 'ASC');
+        $this->db->order_by('group_name', 'ASC');
+        $extraGroupOptions = $this->db->get()->result_array();
 
         $this->render('master/relation_form', [
             'title' => 'Tambah Mapping Product Extra Group',
@@ -1404,56 +2315,335 @@ class Master_relation extends MY_Controller
             'row' => null,
             'form_action' => 'master/relation/product-extra/' . $productId . '/store',
             'options' => [
-                'extra_groups' => $this->Master_model->get_options('mst_extra_group', 'id', 'group_name', false),
+                'extra_groups' => $extraGroupOptions,
             ],
+            'master_relation_product_extra_mutation_csrf' => $this->productExtraMutationCsrf(),
         ]);
     }
 
     public function product_extra_store(int $productId)
     {
-        $product = $this->Master_model->get_by_id('mst_product', $productId);
-        if (!$product) show_404();
+        $this->requireRelationPermission('extra', 'create');
+        if (!$this->requireProductExtraMutationCsrf()) {
+            return;
+        }
 
-        $extraGroupId = (int)$this->input->post('extra_group_id', true);
+        $extraGroupInput = $this->input->post('extra_group_id', true);
+        if (is_int($extraGroupInput)) {
+            $extraGroupId = $extraGroupInput;
+        } elseif (is_string($extraGroupInput) && preg_match('/\A[1-9][0-9]*\z/D', $extraGroupInput) === 1) {
+            $validatedExtraGroupId = filter_var($extraGroupInput, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            $extraGroupId = $validatedExtraGroupId === false ? 0 : (int)$validatedExtraGroupId;
+        } else {
+            $extraGroupId = 0;
+        }
         if ($extraGroupId <= 0) {
-            $this->session->set_flashdata('error', 'Group extra wajib dipilih.');
+            $this->session->set_flashdata('error', 'Group extra tidak valid.');
             redirect('master/relation/product-extra/' . $productId . '/create');
             return;
         }
 
-        $exists = $this->db->get_where('mst_product_extra_map', [
-            'product_id' => $productId,
-            'extra_group_id' => $extraGroupId,
-        ])->row_array();
-
-        if ($exists) {
-            $this->session->set_flashdata('warning', 'Mapping sudah ada.');
-            redirect('master/relation/product-extra/' . $productId);
-            return;
-        }
-
-        $this->Master_model->insert('mst_product_extra_map', [
+        $payload = [
             'product_id' => $productId,
             'extra_group_id' => $extraGroupId,
             'sort_order' => (int)$this->input->post('sort_order', true) ?: 0,
-        ]);
+        ];
 
-        $this->session->set_flashdata('success', 'Mapping product-extra berhasil ditambahkan.');
-        redirect('master/relation/product-extra/' . $productId);
+        $previousDbDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        $failureOperation = 'transaction';
+        $failureErrorCode = 0;
+
+        if ($this->db->trans_begin() === false) {
+            $this->db->db_debug = $previousDbDebug;
+            log_message(
+                'error',
+                sprintf(
+                    'Master_relation::product_extra_store product_id=%d extra_group_id=%d transaction_begin_failed',
+                    $productId,
+                    $extraGroupId
+                )
+            );
+            $this->session->set_flashdata('error', 'Mapping product-extra gagal ditambahkan. Silakan coba lagi.');
+            redirect('master/relation/product-extra/' . $productId . '/create');
+            return;
+        }
+
+        try {
+            $groupLockResult = $this->productExtraPreparedSelectOne(
+                'SELECT id, product_division_id, is_active FROM mst_extra_group WHERE id = ? FOR UPDATE',
+                [$extraGroupId],
+                ['id', 'product_division_id', 'is_active']
+            );
+            if (!$groupLockResult['ok']) {
+                $failureOperation = 'extra_group_lock';
+                $failureErrorCode = (int)$groupLockResult['error_code'];
+                throw new RuntimeException('extra_group_lock_failed');
+            }
+
+            $extraGroup = $groupLockResult['row'];
+            if (!$extraGroup || (int)($extraGroup['is_active'] ?? 0) !== 1) {
+                $this->db->trans_rollback();
+                $this->session->set_flashdata('error', 'Group extra harus aktif dan tersedia.');
+                redirect('master/relation/product-extra/' . $productId . '/create');
+                return;
+            }
+
+            $productResult = $this->productExtraPreparedSelectOne(
+                'SELECT id, product_division_id, is_active FROM mst_product WHERE id = ?',
+                [$productId],
+                ['id', 'product_division_id', 'is_active']
+            );
+            if (!$productResult['ok']) {
+                $failureOperation = 'product_revalidation';
+                $failureErrorCode = (int)$productResult['error_code'];
+                throw new RuntimeException('product_revalidation_failed');
+            }
+
+            $product = $productResult['row'];
+            if (!$product || (int)($product['is_active'] ?? 0) !== 1) {
+                $this->db->trans_rollback();
+                $this->session->set_flashdata('error', 'Produk harus aktif dan tersedia.');
+                redirect('master/relation/product-extra/' . $productId . '/create');
+                return;
+            }
+
+            $extraGroupDivisionId = $extraGroup['product_division_id'] ?? null;
+            if (
+                $extraGroupDivisionId !== null
+                && (int)$extraGroupDivisionId !== (int)($product['product_division_id'] ?? 0)
+            ) {
+                $this->db->trans_rollback();
+                $this->session->set_flashdata('error', 'Divisi group extra tidak sesuai dengan divisi produk.');
+                redirect('master/relation/product-extra/' . $productId . '/create');
+                return;
+            }
+
+            $duplicateResult = $this->productExtraPreparedSelectOne(
+                'SELECT id FROM mst_product_extra_map WHERE product_id = ? AND extra_group_id = ? LIMIT 1',
+                [$productId, $extraGroupId],
+                ['id']
+            );
+            if (!$duplicateResult['ok']) {
+                $failureOperation = 'duplicate_check';
+                $failureErrorCode = (int)$duplicateResult['error_code'];
+                throw new RuntimeException('duplicate_check_failed');
+            }
+            if ($duplicateResult['row']) {
+                $this->db->trans_rollback();
+                $this->session->set_flashdata('warning', 'Mapping sudah ada.');
+                redirect('master/relation/product-extra/' . $productId);
+                return;
+            }
+
+            $insertResult = $this->productExtraPreparedMutation(
+                'INSERT INTO mst_product_extra_map (product_id, extra_group_id, sort_order) VALUES (?, ?, ?)',
+                [(int)$payload['product_id'], (int)$payload['extra_group_id'], (int)$payload['sort_order']]
+            );
+            if (!$insertResult['ok'] || (int)$insertResult['affected_rows'] !== 1) {
+                $this->db->trans_rollback();
+                $insertErrorCode = (int)$insertResult['error_code'];
+                if ($insertErrorCode === 1062) {
+                    $this->session->set_flashdata('warning', 'Mapping sudah ada.');
+                    redirect('master/relation/product-extra/' . $productId);
+                    return;
+                }
+
+                log_message(
+                    'error',
+                    sprintf(
+                        'Master_relation::product_extra_store product_id=%d extra_group_id=%d error_code=%d',
+                        $productId,
+                        $extraGroupId,
+                        $insertErrorCode
+                    )
+                );
+                $this->session->set_flashdata('error', 'Mapping product-extra gagal ditambahkan. Silakan coba lagi.');
+                redirect('master/relation/product-extra/' . $productId . '/create');
+                return;
+            }
+
+            if ($this->db->trans_status() === false) {
+                $failureOperation = 'transaction_status';
+                throw new RuntimeException('transaction_status_failed');
+            }
+            if ($this->db->trans_commit() === false) {
+                $failureOperation = 'transaction_commit';
+                throw new RuntimeException('transaction_commit_failed');
+            }
+
+            $this->session->set_flashdata('success', 'Mapping product-extra berhasil ditambahkan.');
+            redirect('master/relation/product-extra/' . $productId);
+        } catch (Throwable $exception) {
+            $this->db->trans_rollback();
+            log_message(
+                'error',
+                sprintf(
+                    'Master_relation::product_extra_store product_id=%d extra_group_id=%d operation=%s error_code=%d',
+                    $productId,
+                    $extraGroupId,
+                    $failureOperation,
+                    $failureErrorCode
+                )
+            );
+            $this->session->set_flashdata('error', 'Mapping product-extra gagal ditambahkan. Silakan coba lagi.');
+            redirect('master/relation/product-extra/' . $productId . '/create');
+        } finally {
+            $this->db->db_debug = $previousDbDebug;
+        }
     }
 
     public function product_extra_delete(int $id)
     {
-        $row = $this->Master_model->get_by_id('mst_product_extra_map', $id);
-        if (!$row) show_404();
+        $this->requireRelationPermission('extra', 'delete');
+        if (!$this->requireProductExtraMutationCsrf()) {
+            return;
+        }
 
-        $this->db->where('id', $id)->delete('mst_product_extra_map');
-        $this->session->set_flashdata('success', 'Mapping product-extra berhasil dihapus.');
-        redirect('master/relation/product-extra/' . (int)$row['product_id']);
+        $productId = 0;
+        $extraGroupId = 0;
+        $transactionStarted = false;
+        $mappingNotFound = false;
+        $failureOperation = 'transaction';
+        $failureErrorCode = 0;
+        $previousDbDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+
+        try {
+            $mappingLookupResult = $this->productExtraPreparedSelectOne(
+                'SELECT product_id, extra_group_id FROM mst_product_extra_map WHERE id = ? LIMIT 1',
+                [$id],
+                ['product_id', 'extra_group_id']
+            );
+            if (!$mappingLookupResult['ok']) {
+                log_message(
+                    'error',
+                    sprintf(
+                        'Master_relation::product_extra_delete mapping_id=%d operation=mapping_lookup error_code=%d',
+                        $id,
+                        (int)$mappingLookupResult['error_code']
+                    )
+                );
+                $this->session->set_flashdata('error', 'Mapping product-extra gagal dihapus. Silakan coba lagi.');
+                redirect('master/relation/product-extra');
+                return;
+            }
+
+            $row = $mappingLookupResult['row'];
+            if (!$row) {
+                $mappingNotFound = true;
+                show_404();
+                return;
+            }
+            $productId = (int)($row['product_id'] ?? 0);
+            $extraGroupId = (int)($row['extra_group_id'] ?? 0);
+
+            if ($this->db->trans_begin() === false) {
+                log_message(
+                    'error',
+                    sprintf(
+                        'Master_relation::product_extra_delete mapping_id=%d product_id=%d extra_group_id=%d transaction_begin_failed',
+                        $id,
+                        $productId,
+                        $extraGroupId
+                    )
+                );
+                $this->session->set_flashdata('error', 'Mapping product-extra gagal dihapus. Silakan coba lagi.');
+                redirect('master/relation/product-extra/' . $productId);
+                return;
+            }
+            $transactionStarted = true;
+
+            $parentLockResult = $this->productExtraPreparedSelectOne(
+                'SELECT id FROM mst_extra_group WHERE id = ? FOR UPDATE',
+                [$extraGroupId],
+                ['id']
+            );
+            if (!$parentLockResult['ok']) {
+                $failureOperation = 'extra_group_lock';
+                $failureErrorCode = (int)$parentLockResult['error_code'];
+                throw new RuntimeException('extra_group_lock_failed');
+            }
+
+            // If no parent row exists, the exact mapping becomes the lock target
+            // and historical orphan cleanup remains available.
+            $mappingLockResult = $this->productExtraPreparedSelectOne(
+                'SELECT id, product_id, extra_group_id FROM mst_product_extra_map WHERE id = ? AND extra_group_id = ? FOR UPDATE',
+                [$id, $extraGroupId],
+                ['id', 'product_id', 'extra_group_id']
+            );
+            if (!$mappingLockResult['ok']) {
+                $failureOperation = 'mapping_lock';
+                $failureErrorCode = (int)$mappingLockResult['error_code'];
+                throw new RuntimeException('mapping_lock_failed');
+            }
+
+            $lockedRow = $mappingLockResult['row'];
+            if (!$lockedRow) {
+                $this->db->trans_rollback();
+                $this->session->set_flashdata('warning', 'Mapping berubah. Muat ulang data sebelum menghapus.');
+                redirect('master/relation/product-extra/' . $productId);
+                return;
+            }
+
+            $deleteResult = $this->productExtraPreparedMutation(
+                'DELETE FROM mst_product_extra_map WHERE id = ? AND extra_group_id = ?',
+                [$id, $extraGroupId]
+            );
+            if (!$deleteResult['ok']) {
+                $failureOperation = 'mapping_delete';
+                $failureErrorCode = (int)$deleteResult['error_code'];
+                throw new RuntimeException('mapping_delete_failed');
+            }
+
+            $affectedRows = (int)$deleteResult['affected_rows'];
+            if ($affectedRows !== 1) {
+                $this->db->trans_rollback();
+                $this->session->set_flashdata('warning', 'Mapping berubah. Muat ulang data sebelum menghapus.');
+                redirect('master/relation/product-extra/' . $productId);
+                return;
+            }
+            if ($this->db->trans_status() === false) {
+                $failureOperation = 'transaction_status';
+                throw new RuntimeException('transaction_status_failed');
+            }
+            if ($this->db->trans_commit() === false) {
+                $failureOperation = 'transaction_commit';
+                throw new RuntimeException('transaction_commit_failed');
+            }
+
+            $this->session->set_flashdata('success', 'Mapping product-extra berhasil dihapus.');
+            redirect('master/relation/product-extra/' . $productId);
+        } catch (Throwable $exception) {
+            if ($mappingNotFound) {
+                throw $exception;
+            }
+            if ($transactionStarted) {
+                $this->db->trans_rollback();
+            }
+            log_message(
+                'error',
+                sprintf(
+                    'Master_relation::product_extra_delete mapping_id=%d product_id=%d extra_group_id=%d operation=%s error_code=%d',
+                    $id,
+                    $productId,
+                    $extraGroupId,
+                    $failureOperation,
+                    $failureErrorCode
+                )
+            );
+            $this->session->set_flashdata('error', 'Mapping product-extra gagal dihapus. Silakan coba lagi.');
+            redirect('master/relation/product-extra/' . $productId);
+        } finally {
+            $this->db->db_debug = $previousDbDebug;
+        }
     }
 
     public function product_bundle_hub()
     {
+        $this->requireRelationPermission('bundle', 'view');
         if (!$this->db->table_exists('pos_product_bundle')) {
             show_error('Tabel pos_product_bundle belum tersedia. Jalankan fondasi POS bundle terlebih dulu.', 500, 'Bundle Produk Belum Siap');
         }
@@ -1534,11 +2724,13 @@ class Master_relation extends MY_Controller
             'filters' => $filters,
             'summary' => $summary,
             'product_division_options' => $this->Master_model->get_options('mst_product_division', 'id', 'name', true),
+            'master_relation_product_bundle_mutation_csrf' => $this->productBundleMutationCsrf(),
         ]);
     }
 
     public function product_bundle(int $bundleId)
     {
+        $this->requireRelationPermission('bundle', 'view');
         $bundle = $this->loadProductBundle($bundleId);
         if (!$bundle) {
             show_404();
@@ -1560,6 +2752,7 @@ class Master_relation extends MY_Controller
 
     public function product_bundle_create()
     {
+        $this->requireRelationPermission('bundle', 'create');
         if (!$this->db->table_exists('pos_product_bundle')) {
             show_error('Tabel pos_product_bundle belum tersedia. Jalankan fondasi POS bundle terlebih dulu.', 500, 'Bundle Produk Belum Siap');
         }
@@ -1579,11 +2772,17 @@ class Master_relation extends MY_Controller
             'product_division_options' => $this->Master_model->get_options('mst_product_division', 'id', 'name', true),
             'save_url' => site_url('master/relation/product-bundle/create/save'),
             'back_url' => site_url('master/relation/product-bundle'),
+            'master_relation_product_bundle_mutation_csrf' => $this->productBundleMutationCsrf(),
         ]);
     }
 
     public function product_bundle_store()
     {
+        $this->requireRelationPermission('bundle', 'create');
+        if (!$this->requireProductBundleMutationCsrf()) {
+            return;
+        }
+
         $payload = $this->normalizeProductBundlePayload(0);
         if (empty($payload['ok'])) {
             $this->session->set_flashdata('error', (string)($payload['message'] ?? 'Payload bundle produk tidak valid.'));
@@ -1612,6 +2811,7 @@ class Master_relation extends MY_Controller
 
     public function product_bundle_edit(int $bundleId)
     {
+        $this->requireRelationPermission('bundle', 'edit');
         $bundle = $this->loadProductBundle($bundleId);
         if (!$bundle) {
             show_404();
@@ -1629,11 +2829,17 @@ class Master_relation extends MY_Controller
             'product_division_options' => $this->Master_model->get_options('mst_product_division', 'id', 'name', true),
             'save_url' => site_url('master/relation/product-bundle/edit/' . $bundleId . '/save'),
             'back_url' => site_url('master/relation/product-bundle/' . $bundleId),
+            'master_relation_product_bundle_mutation_csrf' => $this->productBundleMutationCsrf(),
         ]);
     }
 
     public function product_bundle_update(int $bundleId)
     {
+        $this->requireRelationPermission('bundle', 'edit');
+        if (!$this->requireProductBundleMutationCsrf()) {
+            return;
+        }
+
         $bundle = $this->loadProductBundle($bundleId);
         if (!$bundle) {
             show_404();
@@ -1667,6 +2873,11 @@ class Master_relation extends MY_Controller
 
     public function product_bundle_toggle(int $bundleId)
     {
+        $this->requireRelationPermission('bundle', 'edit');
+        if (!$this->requireProductBundleMutationCsrf()) {
+            return;
+        }
+
         $bundle = $this->loadProductBundle($bundleId);
         if (!$bundle) {
             show_404();
@@ -1681,6 +2892,7 @@ class Master_relation extends MY_Controller
 
     public function product_bundle_product_search()
     {
+        $this->requireRelationPermission('bundle', 'view');
         if (!$this->input->is_ajax_request()) {
             show_404();
         }

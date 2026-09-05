@@ -1,6 +1,7 @@
 <?php
 $runUrl = site_url('purchase/rebuild-impact/run');
 $statusOptions = is_array($status_options ?? null) ? $status_options : [];
+$maintenanceCsrfToken = (string)($purchase_maintenance_csrf_token ?? '');
 ?>
 
 <div class="mb-2">
@@ -105,6 +106,7 @@ $statusOptions = is_array($status_options ?? null) ? $status_options : [];
 <script>
 (function () {
   var runUrl = <?php echo json_encode($runUrl); ?>;
+  var maintenanceCsrfToken = <?php echo json_encode($maintenanceCsrfToken); ?>;
   var alertArea = document.getElementById('alert-area');
   var scopeInput = document.getElementById('scope');
   var scopeHelp = document.getElementById('scope-help');
@@ -337,7 +339,8 @@ $statusOptions = is_array($status_options ?? null) ? $status_options : [];
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'X-Purchase-Maintenance-CSRF': maintenanceCsrfToken
           },
           body: JSON.stringify(payload)
         })

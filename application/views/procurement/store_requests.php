@@ -16,6 +16,7 @@ $activeTab = in_array((string)($active_tab ?? 'nota'), ['nota', 'rincian'], true
 $canCreate = !empty($can_create);
 $canEdit = !empty($can_edit);
 $canRepairHistory = !empty($can_repair_history);
+$procurementMutationCsrfToken = (string)($procurement_mutation_csrf_token ?? '');
 $monthAttentionSummary = (array)($month_attention_summary ?? []);
 $usagePurposeAttention = (array)($usage_purpose_attention ?? []);
 
@@ -944,6 +945,7 @@ foreach ($lineRows as $lineRow) {
     { value: 'OPERASIONAL', label: 'Kebutuhan Operasional' }
   ];
   var canRepairHistory = <?php echo $canRepairHistory ? 'true' : 'false'; ?>;
+  var procurementMutationCsrfToken = <?php echo json_encode($procurementMutationCsrfToken); ?>;
   var alertBox = document.getElementById('srAlert');
   var createAlertBox = document.getElementById('srCreateAlert');
   var splitModalEl = document.getElementById('srSplitModal');
@@ -994,6 +996,9 @@ foreach ($lineRows as $lineRow) {
   }
   function fetchJson(url, opts){
     opts=opts||{};
+    if(String(opts.method||'GET').toUpperCase()==='POST'){
+      opts.headers=Object.assign({'X-Procurement-Mutation-CSRF':procurementMutationCsrfToken},opts.headers||{});
+    }
     opts.headers=Object.assign({'Accept':'application/json','X-Requested-With':'XMLHttpRequest'},opts.headers||{});
     return fetch(url, opts).then(function(res){ return res.text().then(function(t){ var d={}, invalidJson=false; try{d=t?JSON.parse(t):{};}catch(e){d={};invalidJson=true;} if(!res.ok && !d.ok){ d.ok=false; d.message=d.message||(invalidJson ? serverMessage(t,'Server gagal memproses permintaan. Muat ulang halaman lalu coba kembali.') : ('Request gagal ('+res.status+')')); } return d;}); });
   }

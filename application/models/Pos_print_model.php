@@ -319,6 +319,10 @@ class Pos_print_model extends CI_Model
         $db = $this->db->from('pos_print_connection c')
             ->join('pos_outlet o', 'o.id = c.outlet_id', 'left')
             ->join('mst_operational_division d', 'd.id = c.operational_division_id', 'left');
+        $outletId = max(0, (int)($filters['outlet_id'] ?? 0));
+        if ($outletId > 0) {
+            $db->where('c.outlet_id', $outletId);
+        }
         if ($q !== '') {
             $db->group_start()->like('c.connection_code', $q)->or_like('c.connection_name', $q)
                 ->or_like('c.location_label', $q)->or_like('c.agent_printer_code', $q)
@@ -343,6 +347,20 @@ class Pos_print_model extends CI_Model
             return null;
         }
         return $this->db->from('pos_print_connection')->where('id', $id)->limit(1)->get()->row_array() ?: null;
+    }
+
+    public function find_active_connection_at_outlet(int $id, int $outletId): ?array
+    {
+        if (!$this->ready() || $id <= 0 || $outletId <= 0) {
+            return null;
+        }
+        return $this->db->from('pos_print_connection')
+            ->where('id', $id)
+            ->where('outlet_id', $outletId)
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get()
+            ->row_array() ?: null;
     }
 
     public function save_connection(array $data): array
@@ -618,12 +636,59 @@ class Pos_print_model extends CI_Model
         if (in_array($event, self::EVENT_TYPES, true)) {
             $db->where('r.event_code', $event);
         }
+        $connectionOutletId = max(0, (int)($filters['connection_outlet_id'] ?? 0));
+        if ($connectionOutletId > 0) {
+            $db->where('c.outlet_id', $connectionOutletId);
+        }
+        $outletId = max(0, (int)($filters['outlet_id'] ?? 0));
+        if ($outletId > 0) {
+            $db->group_start()->where('r.outlet_id', $outletId)->or_where('r.outlet_id IS NULL', null, false)->group_end();
+        }
+        $terminalId = max(0, (int)($filters['terminal_id'] ?? 0));
+        if ($terminalId > 0) {
+            $db->group_start()->where('r.terminal_id', $terminalId)->or_where('r.terminal_id IS NULL', null, false)->group_end();
+        }
+        if (!empty($filters['runtime_ready'])) {
+            $db->where('c.is_active', 1)
+                ->where('l.is_active', 1)
+                ->where('c.connection_type', 'LOCAL_AGENT')
+                ->where('c.python_port IS NOT NULL', null, false);
+        }
         $total = (int)$db->count_all_results('', false);
         [$page, $offset, $pages] = $this->paginate($total, $page, $limit);
         $rows = $db->select($this->route_select())
             ->order_by('r.event_code', 'ASC')->order_by('r.priority', 'ASC')->order_by('r.route_name', 'ASC')
             ->limit($limit, $offset)->get()->result_array();
         return ['rows' => $rows, 'meta' => ['total' => $total, 'page' => $page, 'limit' => $limit, 'total_pages' => $pages]];
+    }
+
+    public function find_mobile_test_route(int $connectionId, int $outletId, int $terminalId): ?array
+    {
+        if (!$this->routes_enabled() || $connectionId <= 0 || $outletId <= 0 || $terminalId <= 0) {
+            return null;
+        }
+        $db = $this->route_base_query()
+            ->select($this->route_select())
+            ->where('r.connection_id', $connectionId)
+            ->where('r.is_active', 1)
+            ->where('c.is_active', 1)
+            ->where('c.outlet_id', $outletId)
+            ->where('l.is_active', 1)
+            ->where('c.connection_type', 'LOCAL_AGENT')
+            ->where('c.python_port IS NOT NULL', null, false)
+            ->group_start()->where('r.outlet_id', $outletId)->or_where('r.outlet_id IS NULL', null, false)->group_end()
+            ->group_start()->where('r.terminal_id', $terminalId)->or_where('r.terminal_id IS NULL', null, false)->group_end();
+        if ($this->route_print_mode_supported()) {
+            $db->where("COALESCE(r.print_mode, 'AUTO') != 'OFF'", null, false);
+        }
+        return $db
+            ->order_by('CASE WHEN r.outlet_id IS NULL THEN 0 ELSE 1 END', 'DESC', false)
+            ->order_by('CASE WHEN r.terminal_id IS NULL THEN 0 ELSE 1 END', 'DESC', false)
+            ->order_by('r.priority', 'ASC')
+            ->order_by('r.id', 'ASC')
+            ->limit(1)
+            ->get()
+            ->row_array() ?: null;
     }
 
     public function find_route(int $id): ?array

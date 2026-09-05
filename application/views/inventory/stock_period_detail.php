@@ -37,8 +37,9 @@ $domainHealth = $domain === 'MATERIAL' ? (array)($health['material'] ?? []) : (a
 $healthUrl = (string)($health_url ?? site_url('inventory/stock/health'));
 $reconcileUrl = $domain === 'MATERIAL' ? site_url('inventory/stock/division/reconcile') : site_url('production/component-reconcile');
 $opnameUrl = $domain === 'MATERIAL' ? site_url('inventory/stock/opname/division/monthly') : site_url('production/component-opname');
-$csrfName = $this->security->get_csrf_token_name();
-$csrfHash = $this->security->get_csrf_hash();
+$mutationCsrfName = (string)($inventory_control_mutation_csrf_name ?? '');
+$mutationCsrfValue = (string)($inventory_control_mutation_csrf_value ?? '');
+$hasMutationCsrf = $mutationCsrfName !== '' && $mutationCsrfValue !== '';
 $warnings = array_values((array)($preflight['warnings'] ?? []));
 $openingMonth = (string)($cutoffPreview['opening_month'] ?? '');
 $openingMonthLabel = $openingMonth !== '' ? date('F Y', strtotime($openingMonth)) : 'bulan berikutnya';
@@ -241,9 +242,9 @@ $openingMonthLabel = $openingMonth !== '' ? date('F Y', strtotime($openingMonth)
           </div>
         <?php endif; ?>
 
-        <?php if ($canPostCutoff && $canEdit): ?>
+        <?php if ($canPostCutoff && $canEdit && $hasMutationCsrf): ?>
           <form method="post" action="<?php echo site_url('inventory/stock/periods/cutoff-post/' . (int)($period['id'] ?? 0)); ?>">
-            <input type="hidden" name="<?php echo html_escape($csrfName); ?>" value="<?php echo html_escape($csrfHash); ?>">
+            <input type="hidden" name="<?php echo html_escape($mutationCsrfName); ?>" value="<?php echo html_escape($mutationCsrfValue); ?>">
             <?php if (!empty($cutoffPosting['requires_acknowledgement'])): ?>
               <div class="form-check mb-3"><input class="form-check-input" required type="checkbox" name="acknowledge_warnings" value="1" id="ackCutoffWarnings"><label class="form-check-label" for="ackCutoffWarnings">Saya sudah membaca catatan defisit dan kesehatan stok yang masih tercatat pada bulan ini.</label></div>
             <?php endif; ?>
@@ -289,12 +290,12 @@ $openingMonthLabel = $openingMonth !== '' ? date('F Y', strtotime($openingMonth)
     </section>
   <?php endif; ?>
 
-  <?php if ($canEdit && in_array($status, ['CLOSED', 'CLOSING'], true)): ?>
+  <?php if ($canEdit && $hasMutationCsrf && in_array($status, ['CLOSED', 'CLOSING'], true)): ?>
     <div class="action-card card">
       <div class="card-header"><strong><?php echo $status === 'CLOSING' ? 'Pulihkan Periode yang Macet' : 'Buka Kembali Periode'; ?></strong></div>
       <form method="post" action="<?php echo site_url('inventory/stock/periods/reopen/' . (int)($period['id'] ?? 0)); ?>">
         <div class="card-body">
-          <input type="hidden" name="<?php echo html_escape($csrfName); ?>" value="<?php echo html_escape($csrfHash); ?>">
+          <input type="hidden" name="<?php echo html_escape($mutationCsrfName); ?>" value="<?php echo html_escape($mutationCsrfValue); ?>">
           <div class="alert alert-danger small">
             <?php echo $status === 'CLOSING'
                 ? 'Gunakan hanya bila proses cut-off benar-benar sudah berhenti. Periksa riwayat run sebelum memulihkan periode.'

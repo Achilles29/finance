@@ -7,6 +7,10 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  */
 class Auth extends CI_Controller
 {
+    private const INVALID_SCOPE_MESSAGE = 'Konfigurasi akses akun belum lengkap. Hubungi administrator.';
+    private const LOGIN_FAILURE_MESSAGE = 'Login tidak berhasil. Periksa kredensial atau coba lagi nanti.';
+    private const LOGIN_MAINTENANCE_MESSAGE = 'Layanan login sementara tidak tersedia. Silakan coba lagi nanti.';
+
     public function __construct()
     {
         parent::__construct();
@@ -43,6 +47,16 @@ class Auth extends CI_Controller
 
     public function do_login()
     {
+        // Endpoint autentikasi tidak boleh dipanggil lewat GET/HEAD sebelum
+        // pemeriksaan throttle, lookup akun, atau verifikasi password berjalan.
+        $requestMethod = method_exists($this->input, 'method')
+            ? strtoupper((string)$this->input->method(true))
+            : strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'POST'));
+        if ($requestMethod !== 'POST') {
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return;
+        }
+
         if ($this->session->userdata('auth_user')) {
             $perms = (array)$this->session->userdata('user_perms');
             $target = $this->resolve_post_login_redirect($perms);
@@ -59,42 +73,96 @@ class Auth extends CI_Controller
         $this->form_validation->set_rules('password', 'Password', 'required|min_length[6]|max_length[72]');
 
         if ($this->form_validation->run() === false) {
-            $this->session->set_flashdata('login_error', validation_errors('<li>', '</li>'));
+            $this->session->set_flashdata('login_error', self::LOGIN_FAILURE_MESSAGE);
             redirect('login');
+            return;
         }
 
-        $identifier = $this->input->post('identifier', true);
-        $password   = $this->input->post('password');   // tidak di-XSS untuk password
+        $identifier = (string)$this->input->post('identifier', true);
+        $password   = (string)$this->input->post('password');   // tidak di-XSS untuk password
 
-        $user = $this->Auth_model->attempt_login($identifier, $password);
+        try {
+            // Parameter IP ketiga mengaktifkan throttle khusus login web.
+            $user = $this->Auth_model->attempt_login(
+                $identifier,
+                $password,
+                (string)$this->input->ip_address()
+            );
+        } catch (Throwable $e) {
+            log_message('error', 'Web login unavailable because an authentication persistence operation failed.');
+            $this->session->set_flashdata('login_error', self::LOGIN_MAINTENANCE_MESSAGE);
+            redirect('login');
+            return;
+        }
 
         if (!$user) {
-            $this->session->set_flashdata('login_error', 'Username / email atau password salah.');
+            $this->session->set_flashdata('login_error', self::LOGIN_FAILURE_MESSAGE);
             redirect('login');
+            return;
         }
 
-        // Load permissions dan cache ke session
-        $perms = $this->Auth_model->load_permissions($user['id']);
-        $is_superadmin = isset($perms['__superadmin__']);
+        // Load permissions tanpa membuat session authenticated. Advisory lock
+        // login web tetap ditahan sampai audit login sukses tersimpan.
+        try {
+            $perms = $this->Auth_model->load_permissions($user['id']);
+            $is_superadmin = isset($perms['__superadmin__']);
+        } catch (Throwable $e) {
+            $this->cancel_pending_web_login();
+            log_message('error', 'Web login finalization failed before permission resolution completed.');
+            $this->session->set_flashdata('login_error', self::LOGIN_MAINTENANCE_MESSAGE);
+            redirect('login');
+            return;
+        }
 
-        // Ambil division scope efektif (null = lintas divisi / tidak dibatasi)
-        $divisionScopeId = $is_superadmin ? null : $this->Auth_model->get_division_scope($user['id']);
+        // Resolusi scope harus selesai sebelum session authenticated dibuat.
+        try {
+            $divisionScope = $this->Auth_model->resolve_division_scope((int)$user['id']);
+        } catch (Throwable $e) {
+            $released = $this->cancel_pending_web_login();
+            $this->session->set_flashdata(
+                'login_error',
+                $released ? self::INVALID_SCOPE_MESSAGE : self::LOGIN_MAINTENANCE_MESSAGE
+            );
+            redirect('login');
+            return;
+        }
 
-        // Simpan ke session
+        $hasUsableScope = $divisionScope['state'] === 'GLOBAL'
+            || ($divisionScope['state'] === 'SINGLE' && (int)($divisionScope['division_id'] ?? 0) > 0);
+        if (!$is_superadmin && !$hasUsableScope) {
+            $released = $this->cancel_pending_web_login();
+            $this->session->set_flashdata(
+                'login_error',
+                $released ? self::INVALID_SCOPE_MESSAGE : self::LOGIN_MAINTENANCE_MESSAGE
+            );
+            redirect('login');
+            return;
+        }
+
+        // Audit login harus berhasil sebelum session authenticated dibuat.
+        try {
+            $log_id = $this->Auth_model->log_login(
+                $user['id'],
+                $this->input->ip_address(),
+                $this->input->user_agent()
+            );
+        } catch (Throwable $e) {
+            $this->cancel_pending_web_login();
+            log_message('error', 'Web login finalization failed while writing the session audit.');
+            $this->session->set_flashdata('login_error', self::LOGIN_MAINTENANCE_MESSAGE);
+            redirect('login');
+            return;
+        }
+
+        // Simpan ke session hanya setelah auth_session_log berhasil.
         $this->session->set_userdata([
             'auth_user'            => array_merge($user, ['is_superadmin' => $is_superadmin]),
             'user_perms'           => $perms,
-            'user_division_scope'  => $divisionScopeId,
+            'user_division_scope_state' => $divisionScope['state'],
+            'user_division_scope'  => $divisionScope['state'] === 'SINGLE' ? $divisionScope['division_id'] : null,
             'user_perms_cached_at' => time(),
+            'session_log_id'       => $log_id,
         ]);
-
-        // Catat log
-        $log_id = $this->Auth_model->log_login(
-            $user['id'],
-            $this->input->ip_address(),
-            $this->input->user_agent()
-        );
-        $this->session->set_userdata('session_log_id', $log_id);
 
         // Redirect ke halaman sebelumnya jika ada, fallback ke halaman pertama yang boleh diakses
         $redirect_to = $this->session->flashdata('redirect_after_login');
@@ -144,5 +212,22 @@ class Auth extends CI_Controller
         }
 
         return '';
+    }
+
+    private function cancel_pending_web_login(): bool
+    {
+        // method_exists menjaga compatibility test-double/legacy caller;
+        // model runtime selalu menyediakan cancel_web_login().
+        if (!method_exists($this->Auth_model, 'cancel_web_login')) {
+            return true;
+        }
+
+        try {
+            $this->Auth_model->cancel_web_login();
+            return true;
+        } catch (Throwable $e) {
+            log_message('error', 'Web login advisory lock cleanup failed.');
+            return false;
+        }
     }
 }

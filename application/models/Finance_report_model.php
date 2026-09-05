@@ -2738,53 +2738,79 @@ class Finance_report_model extends CI_Model
             return ['ok' => false, 'message' => 'Fondasi tutup periode belum lengkap. Jalankan SQL foundation terlebih dahulu.'];
         }
 
-        $period = $this->get_period_close_by_id($periodCloseId);
+        if ($this->db->trans_begin() === false) {
+            return ['ok' => false, 'message' => 'Gagal memulai transaksi tutup periode.'];
+        }
+        $rollback = function (string $message): array {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $message];
+        };
+
+        $periodQuery = $this->db->query(
+            'SELECT * FROM fin_period_close WHERE id = ? LIMIT 1 FOR UPDATE',
+            [$periodCloseId]
+        );
+        if ($periodQuery === false) {
+            return $rollback('Gagal mengunci draft period close.');
+        }
+        $period = $periodQuery->row_array();
         if (!$period) {
-            return ['ok' => false, 'message' => 'Draft period close tidak ditemukan.'];
+            return $rollback('Draft period close tidak ditemukan.');
         }
 
         $status = strtoupper(trim((string)($period['status'] ?? 'OPEN')));
         if (!in_array($status, ['OPEN', 'REOPENED'], true)) {
-            return ['ok' => false, 'message' => 'Period ini tidak bisa diproses karena statusnya bukan OPEN/REOPENED.'];
+            return $rollback('Period ini tidak bisa diproses karena statusnya bukan OPEN/REOPENED.');
         }
 
         $dateStart = (string)($period['period_start'] ?? '');
         $dateEnd = (string)($period['period_end'] ?? '');
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStart) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateEnd)) {
-            return ['ok' => false, 'message' => 'Tanggal period close tidak valid.'];
+            return $rollback('Tanggal period close tidak valid.');
         }
 
         $accounts = $this->active_company_accounts();
-        if (empty($accounts)) {
-            return ['ok' => false, 'message' => 'Belum ada rekening aktif untuk dibuat snapshot.'];
+        if (empty($accounts) || $this->db->trans_status() === false) {
+            return $rollback('Belum ada rekening aktif untuk dibuat snapshot.');
         }
 
-        $this->db->trans_start();
-
-        $this->db->where('period_close_id', $periodCloseId)->delete('fin_account_period_snapshot');
-        $this->db->where('period_close_id', $periodCloseId)->delete('fin_management_period_metric');
+        $snapshotDeleted = $this->db->where('period_close_id', $periodCloseId)->delete('fin_account_period_snapshot');
+        $metricDeleted = $this->db->where('period_close_id', $periodCloseId)->delete('fin_management_period_metric');
+        if ($snapshotDeleted === false || $metricDeleted === false || $this->db->trans_status() === false) {
+            return $rollback('Gagal membersihkan snapshot tutup periode sebelumnya.');
+        }
 
         $snapshotRows = $this->collect_account_snapshot_rows($dateStart, $dateEnd, $accounts);
         foreach ($snapshotRows as $row) {
             $row['period_close_id'] = $periodCloseId;
-            $this->db->insert('fin_account_period_snapshot', $row);
+            if ($this->db->insert('fin_account_period_snapshot', $row) === false) {
+                return $rollback('Gagal menyimpan snapshot rekening tutup periode.');
+            }
         }
 
         $metricRows = $this->collect_management_metric_rows($dateStart, $dateEnd, $snapshotRows);
         foreach ($metricRows as $row) {
             $row['period_close_id'] = $periodCloseId;
-            $this->db->insert('fin_management_period_metric', $row);
+            if ($this->db->insert('fin_management_period_metric', $row) === false) {
+                return $rollback('Gagal menyimpan metric manajerial tutup periode.');
+            }
         }
 
-        $this->db->where('id', $periodCloseId)->update('fin_period_close', [
+        $periodUpdated = $this->db
+            ->where('id', $periodCloseId)
+            ->where_in('status', ['OPEN', 'REOPENED'])
+            ->update('fin_period_close', [
             'status' => 'CLOSED',
             'closed_by' => $actorUserId > 0 ? $actorUserId : null,
             'closed_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
+        if ($periodUpdated === false || $this->db->affected_rows() !== 1 || $this->db->trans_status() === false) {
+            return $rollback('Gagal memfinalkan status tutup periode.');
+        }
 
-        $this->db->trans_complete();
-        if (!$this->db->trans_status()) {
+        if ($this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
             return ['ok' => false, 'message' => 'Gagal membuat snapshot tutup periode.'];
         }
 

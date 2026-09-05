@@ -269,23 +269,6 @@ class Pos_order_monitor_model extends CI_Model
         }
     }
 
-    public function bootstrap_open_tasks(int $outletId = 0): void
-    {
-        if (!$this->table_ready()) {
-            return;
-        }
-
-        $rows = $this->desired_task_rows(0, $outletId);
-        if (empty($rows)) {
-            return;
-        }
-
-        $orderIds = array_values(array_unique(array_map('intval', array_column($rows, 'order_id'))));
-        foreach ($orderIds as $orderId) {
-            $this->sync_order_tasks($orderId);
-        }
-    }
-
     private function line_extras_grouped(array $lineIds): array
     {
         if (empty($lineIds) || !$this->db->table_exists('pos_order_line_extra')) {

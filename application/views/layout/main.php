@@ -4,8 +4,22 @@
  * Di-load dari MY_Controller::render()
  */
 $activeMenuCode = (string)($active_menu ?? '');
-$isPurchaseScope = strpos($activeMenuCode, 'purchase.') === 0;
 $isMyScope = strpos($activeMenuCode, 'my.') === 0;
+$activeMenuSegments = explode('.', strtolower($activeMenuCode));
+$moduleSegment = (string)($activeMenuSegments[0] ?? '');
+if ($moduleSegment === 'grp' && !empty($activeMenuSegments[1])) {
+  $moduleSegment = (string)$activeMenuSegments[1];
+}
+$moduleSegment = trim((string)preg_replace('/[^a-z0-9_-]+/', '-', $moduleSegment), '-');
+$moduleSegment = $moduleSegment !== '' ? $moduleSegment : 'general';
+$flashMessages = [
+  'success' => $this->session->flashdata('success'),
+  'error' => $this->session->flashdata('error'),
+  'warning' => $this->session->flashdata('warning'),
+];
+$hasFlashMessages = array_filter($flashMessages, static function ($message) {
+  return $message !== null && $message !== false && $message !== '';
+}) !== [];
 $isSuperadmin = !empty($current_user['is_superadmin']);
 $canGlobalSelfOrderNotify = $isSuperadmin || !empty($user_perms['pos.self_order.index']['can_view']);
 $canGlobalOnlineFoodNotify = $isSuperadmin || !empty($user_perms['pos.online_food.index']['can_view']);
@@ -36,37 +50,10 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
 ?>
 <!-- Layout wrapper -->
 <div
-  class="layout-wrapper layout-content-navbar<?php echo $isPurchaseScope ? ' purchase-soft-ui' : ''; ?><?php echo $isMyScope ? ' my-portal-scope' : ''; ?>"
+  class="layout-wrapper layout-content-navbar<?php echo $isMyScope ? ' my-portal-scope' : ''; ?>"
   data-active-menu="<?= htmlspecialchars($active_menu ?? '', ENT_QUOTES, 'UTF-8') ?>"
   data-current-url="<?= htmlspecialchars(uri_string(), ENT_QUOTES, 'UTF-8') ?>"
 >
-  <?php if ($isPurchaseScope): ?>
-  <style>
-    .purchase-soft-ui .container-xxl,
-    .purchase-soft-ui .container-xxl .card,
-    .purchase-soft-ui .container-xxl .table,
-    .purchase-soft-ui .container-xxl .form-control,
-    .purchase-soft-ui .container-xxl .form-select,
-    .purchase-soft-ui .container-xxl .btn,
-    .purchase-soft-ui .container-xxl .badge {
-      font-family: 'Segoe UI', 'Noto Sans', Arial, sans-serif;
-      letter-spacing: 0.01em;
-    }
-    .purchase-soft-ui .container-xxl h1,
-    .purchase-soft-ui .container-xxl h2,
-    .purchase-soft-ui .container-xxl h3,
-    .purchase-soft-ui .container-xxl h4,
-    .purchase-soft-ui .container-xxl h5 {
-      font-family: 'Segoe UI', 'Noto Sans', Arial, sans-serif;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-    }
-    .purchase-soft-ui .container-xxl .table td,
-    .purchase-soft-ui .container-xxl .table th {
-      line-height: 1.35;
-    }
-  </style>
-  <?php endif; ?>
   <div class="layout-container">
 
     <!-- Sidebar / Menu -->
@@ -80,30 +67,34 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
 
       <!-- Content wrapper -->
       <div class="content-wrapper">
-        <div class="container-xxl flex-grow-1 container-p-y">
+        <div class="container-xxl flex-grow-1 container-p-y finance-page-shell" data-module="<?= htmlspecialchars($moduleSegment, ENT_QUOTES, 'UTF-8') ?>" role="main">
 
           <!-- Flash messages -->
-          <?php if ($this->session->flashdata('success')): ?>
-          <div class="alert alert-success alert-dismissible fade show" role="alert">
-            <i class="ri ri-checkbox-circle-line me-2"></i>
-            <?= htmlspecialchars($this->session->flashdata('success')) ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-          </div>
-          <?php endif; ?>
+          <?php if ($hasFlashMessages): ?>
+          <div class="finance-feedback-region" role="status" aria-live="polite" aria-atomic="false">
+            <?php if ($flashMessages['success'] !== null && $flashMessages['success'] !== false && $flashMessages['success'] !== ''): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+              <i class="ri ri-checkbox-circle-line me-2" aria-hidden="true"></i>
+              <?= htmlspecialchars((string)$flashMessages['success'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Tutup pesan sukses"></button>
+            </div>
+            <?php endif; ?>
 
-          <?php if ($this->session->flashdata('error')): ?>
-          <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            <i class="ri ri-error-warning-line me-2"></i>
-            <?= $this->session->flashdata('error') ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-          </div>
-          <?php endif; ?>
+            <?php if ($flashMessages['error'] !== null && $flashMessages['error'] !== false && $flashMessages['error'] !== ''): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+              <i class="ri ri-error-warning-line me-2" aria-hidden="true"></i>
+              <?= htmlspecialchars((string)$flashMessages['error'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Tutup pesan error"></button>
+            </div>
+            <?php endif; ?>
 
-          <?php if ($this->session->flashdata('warning')): ?>
-          <div class="alert alert-warning alert-dismissible fade show" role="alert">
-            <i class="ri ri-alert-line me-2"></i>
-            <?= htmlspecialchars($this->session->flashdata('warning')) ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            <?php if ($flashMessages['warning'] !== null && $flashMessages['warning'] !== false && $flashMessages['warning'] !== ''): ?>
+            <div class="alert alert-warning alert-dismissible fade show" role="alert">
+              <i class="ri ri-alert-line me-2" aria-hidden="true"></i>
+              <?= htmlspecialchars((string)$flashMessages['warning'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Tutup pesan peringatan"></button>
+            </div>
+            <?php endif; ?>
           </div>
           <?php endif; ?>
 
@@ -154,4 +145,9 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
   <div class="layout-overlay layout-menu-toggle"></div>
 </div><!-- /layout-wrapper -->
 
-<?php $this->load->view('layout/footer', ['global_notifier_config' => $globalNotifierConfig]); ?>
+<?php
+$this->load->view('layout/footer', [
+  'global_notifier_config' => $globalNotifierConfig,
+  'sidebar_favorite_csrf_token' => (string)($sidebar_favorite_csrf_token ?? ''),
+]);
+?>

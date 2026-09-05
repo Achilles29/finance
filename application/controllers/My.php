@@ -1100,9 +1100,7 @@ class My extends MY_Controller
 
     private function require_registered_page_permission(string $pageCode): void
     {
-        if ($this->is_registered_page($pageCode)) {
-            $this->require_permission($pageCode, 'view');
-        }
+        $this->require_permission($pageCode, 'view');
     }
 
     private function sync_profile_portal_registry(): void

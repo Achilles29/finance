@@ -1,6 +1,12 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
 
+require_once dirname(__DIR__) . '/libraries/DeploymentConfig.php';
+
+if (!isset($finance_deployment_config) || !($finance_deployment_config instanceof DeploymentConfig)) {
+    $finance_deployment_config = new DeploymentConfig();
+}
+
 /*
 |--------------------------------------------------------------------------
 | Base Site URL
@@ -29,15 +35,10 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 $is_cli_request = (PHP_SAPI === 'cli' || defined('STDIN'));
 $script_name = str_replace(basename($_SERVER['SCRIPT_NAME'] ?? 'index.php'), '', (string)($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
 $http_host = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
-$config['base_url'] = ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? "https" : "http")
+$forwarded_proto = strtolower(trim(explode(',', (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+$is_https = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || $forwarded_proto === 'https';
+$config['base_url'] = ($is_https ? "https" : "http")
     . "://" . $http_host . rtrim($script_name, '/') . '/';
-
-if (!$is_cli_request) {
-    header("Access-Control-Allow-Origin: *");
-    header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
-    header("Access-Control-Allow-Headers: Content-Type, Authorization");
-}
-
 
 /*
 |--------------------------------------------------------------------------
@@ -340,7 +341,7 @@ $config['cache_query_string'] = FALSE;
 | https://codeigniter.com/userguide3/libraries/encryption.html
 |
 */
-$config['encryption_key'] = 'fin4nc3@AppKey#2026!xK9mPqR';
+$config['encryption_key'] = $finance_deployment_config->get(DeploymentConfig::ENCRYPTION_KEY, '');
 
 /*
 |--------------------------------------------------------------------------
@@ -425,8 +426,8 @@ $config['sess_regenerate_destroy'] = FALSE;
 $config['cookie_prefix']	= '';
 $config['cookie_domain']	= '';
 $config['cookie_path']		= '/';
-$config['cookie_secure']	= FALSE;
-$config['cookie_httponly'] 	= FALSE;
+$config['cookie_secure']	= (ENVIRONMENT === 'production');
+$config['cookie_httponly'] 	= TRUE;
 $config['cookie_samesite'] 	= 'Lax';
 
 /*

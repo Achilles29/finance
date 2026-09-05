@@ -53,8 +53,9 @@ if (!$globalNotifierConfig) {
 ?>
 <script>
 window.FINANCE_GLOBAL_NOTIFIER_CONFIG = <?= json_encode($globalNotifierConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+window.FINANCE_SIDEBAR_FAVORITE_CSRF = <?= json_encode((string)($sidebar_favorite_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 </script>
 <!-- Finance App JS -->
-<script src="<?= base_url('assets/js/app.js?v=20260728a') ?>"></script>
+<script src="<?= base_url('assets/js/app.js?v=20260903a') ?>"></script>
 </body>
 </html>

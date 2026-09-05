@@ -184,6 +184,9 @@ class ComponentStockWriter
         if (empty($lines)) {
             return ['ok' => false, 'message' => 'Tidak ada baris adjustment untuk diposting.'];
         }
+        if ($sourceId <= 0) {
+            return ['ok' => false, 'message' => 'Dokumen adjustment tidak valid untuk posting.'];
+        }
         if (file_exists(APPPATH . 'libraries/InventoryPeriodGuard.php')) {
             $this->ci->load->library('InventoryPeriodGuard');
             $period = $this->ci->inventoryperiodguard->ensureActiveMonthOpen(
@@ -197,6 +200,8 @@ class ComponentStockWriter
             }
         }
 
+        $originalDbDebug = isset($db->db_debug) ? (bool)$db->db_debug : false;
+        $db->db_debug = false;
         $db->trans_start();
         try {
             $rebuildIdentities = [];
@@ -454,6 +459,24 @@ class ComponentStockWriter
                     throw new RuntimeException((string)($lotSync['message'] ?? 'Gagal menyamakan lot component dengan hasil hitung fisik.'));
                 }
             }
+
+            $statusUpdated = $db
+                ->where('id', $sourceId)
+                ->where('status', 'DRAFT')
+                ->update('inv_component_adjustment', [
+                    'status' => 'POSTED',
+                    'posted_at' => date('Y-m-d H:i:s'),
+                    'posted_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+                ]);
+            $statusError = $db->error();
+            if (
+                !$statusUpdated
+                || (int)($statusError['code'] ?? 0) !== 0
+                || $db->affected_rows() !== 1
+                || $db->trans_status() === false
+            ) {
+                throw new RuntimeException('Gagal memfinalkan status adjustment component. Dokumen mungkin sudah diposting atau berubah.');
+            }
         } catch (RuntimeException $e) {
             $db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
@@ -461,6 +484,8 @@ class ComponentStockWriter
             $db->trans_rollback();
             log_message('error', 'ComponentStockWriter::post_adjustment fatal: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
             return ['ok' => false, 'message' => $this->formatThrowableMessage('Posting adjustment gagal di backend.', $e)];
+        } finally {
+            $db->db_debug = $originalDbDebug;
         }
 
         $db->trans_complete();
@@ -555,8 +580,6 @@ class ComponentStockWriter
     public function post_batch(array $header, array $inputs, int $actorEmployeeId = 0): array
     {
         $db = $this->ci->db;
-        $originalDbDebug = isset($db->db_debug) ? (bool)$db->db_debug : false;
-        $db->db_debug = false;
         $locationType = strtoupper(trim((string)($header['location_type'] ?? '')));
         $divisionId = isset($header['division_id']) ? (int)$header['division_id'] : null;
         $movementDate = (string)($header['batch_date'] ?? date('Y-m-d'));
@@ -565,7 +588,7 @@ class ComponentStockWriter
         $uomIdOutput = (int)($header['output_uom_id'] ?? 0);
         $outputQty = round((float)($header['output_qty'] ?? 0), 4);
 
-        if ($componentIdOutput <= 0 || $uomIdOutput <= 0 || $outputQty <= 0 || !$this->valid_location($locationType)) {
+        if ($sourceId <= 0 || $componentIdOutput <= 0 || $uomIdOutput <= 0 || $outputQty <= 0 || !$this->valid_location($locationType)) {
             return ['ok' => false, 'message' => 'Header batch tidak valid untuk posting.'];
         }
         if (file_exists(APPPATH . 'libraries/InventoryPeriodGuard.php')) {
@@ -610,6 +633,8 @@ class ComponentStockWriter
             $this->ci->load->library('InventoryLedger');
         }
 
+        $originalDbDebug = isset($db->db_debug) ? (bool)$db->db_debug : false;
+        $db->db_debug = false;
         $db->trans_start();
         try {
             $totalInputCost = 0.0;
@@ -805,11 +830,24 @@ class ComponentStockWriter
                 throw new RuntimeException((string)($lotRegister['message'] ?? 'Registrasi lot component gagal.'));
             }
 
-            if ($sourceId > 0) {
-                $this->ci->db->where('id', $sourceId)->update('inv_component_batch', [
+            $statusUpdated = $db
+                ->where('id', $sourceId)
+                ->where('status', 'DRAFT')
+                ->update('inv_component_batch', [
                     'total_input_cost' => $finalTotalInputCost,
                     'unit_cost' => $unitCostOutput,
+                    'status' => 'POSTED',
+                    'posted_at' => date('Y-m-d H:i:s'),
+                    'posted_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
                 ]);
+            $statusError = $db->error();
+            if (
+                !$statusUpdated
+                || (int)($statusError['code'] ?? 0) !== 0
+                || $db->affected_rows() !== 1
+                || $db->trans_status() === false
+            ) {
+                throw new RuntimeException('Gagal memfinalkan status batch component. Dokumen mungkin sudah diposting atau berubah.');
             }
 
         } catch (RuntimeException $e) {
@@ -825,13 +863,6 @@ class ComponentStockWriter
         $db->trans_complete();
         if ($db->trans_status() === false) {
             return ['ok' => false, 'message' => 'Posting batch gagal.'];
-        }
-        if ($sourceId > 0) {
-            $this->ci->db->where('id', $sourceId)->update('inv_component_batch', [
-                'status' => 'POSTED',
-                'posted_at' => date('Y-m-d H:i:s'),
-                'posted_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
-            ]);
         }
         $changedComponentIds = array_values(array_unique(array_filter(array_merge(
             [(int)$componentIdOutput],

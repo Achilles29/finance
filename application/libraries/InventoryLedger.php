@@ -49,22 +49,6 @@ class InventoryLedger
             ];
         }
 
-        // This is the final material writer. Keeping the period check here
-        // protects stock/movement writes that do not pass through a screen
-        // specific controller, while the guard cache keeps POS jobs light.
-        if (file_exists(APPPATH . 'libraries/InventoryPeriodGuard.php')) {
-            $this->ci->load->library('InventoryPeriodGuard');
-            $period = $this->ci->inventoryperiodguard->ensureActiveMonthOpen(
-                'MATERIAL',
-                $movementDate,
-                null,
-                'Automatic material period from inventory ledger'
-            );
-            if (!($period['ok'] ?? false)) {
-                return $period;
-            }
-        }
-
         $movementType = strtoupper(trim((string)($payload['movement_type'] ?? '')));
         $allowedTypes = ['PURCHASE_IN', 'TRANSFER_IN', 'TRANSFER_OUT', 'USAGE_OUT', 'DISCARDED_OUT', 'SPOIL_OUT', 'WASTE_OUT', 'PROCESS_LOSS_OUT', 'VARIANCE_OUT', 'ADJUSTMENT', 'ADJUSTMENT_IN', 'VOID_REVERSE'];
         if (!in_array($movementType, $allowedTypes, true)) {
@@ -136,8 +120,27 @@ class InventoryLedger
         }
 
         $manageTransaction = array_key_exists('manage_transaction', $payload) ? (bool)$payload['manage_transaction'] : true;
+        if (!$manageTransaction && !$this->ci->db->trans_active()) {
+            return [
+                'ok' => false,
+                'code' => 'INVENTORY_TRANSACTION_REQUIRED',
+                'message' => 'Caller InventoryLedger dengan manage_transaction=false wajib memiliki transaksi database aktif.',
+            ];
+        }
         if ($manageTransaction) {
             $this->ci->db->trans_begin();
+        }
+
+        $this->ci->load->library('InventoryPeriodGuard');
+        $period = $this->ci->inventoryperiodguard->lockActivePeriodsForWrite([[
+            'stock_domain' => 'MATERIAL',
+            'event_date' => $movementDate,
+        ]]);
+        if (!($period['ok'] ?? false)) {
+            if ($manageTransaction) {
+                $this->ci->db->trans_rollback();
+            }
+            return $period;
         }
 
         $balanceResult = ($scope === 'WAREHOUSE')

@@ -22,13 +22,12 @@ Salin folder ini secara utuh. Minimal file berikut harus ada:
 - `detect_windows.bat` atau `detect_linux.sh`
 - `detect_printers.py` dan `check_saved_printers.py` untuk pemeriksaan
 
-Jangan salin `config.json` dari komputer lain tanpa memeriksa nama agent, API key, dan perangkatnya.
+Jangan salin `config.json` dari komputer lain tanpa memeriksa nama agent, API key, dan perangkatnya. Nilai key hanya dikirim ke endpoint bootstrap melalui header `X-Printer-Key`, bukan query string.
 
 ## Dependensi
 
 ```text
 Flask>=3.0.0
-flask-cors>=4.0.0
 pyserial>=3.5
 Pillow>=10.0.0
 qrcode[pil]>=7.4.2
@@ -97,9 +96,9 @@ Untuk autostart, lihat contoh systemd di halaman `POS > Printer > Panduan` pada 
   "api": {
     "enabled": true,
     "base_url": "https://finance.example.com",
+    "allowed_origins": ["https://finance.example.com"],
     "endpoint": "/pos/printers/bootstrap",
     "key": "",
-    "key_query_param": "key",
     "agent_name_param": "agent_name",
     "refresh_seconds": 30,
     "timeout_seconds": 8
@@ -114,6 +113,10 @@ Untuk autostart, lihat contoh systemd di halaman `POS > Printer > Panduan` pada 
   "printers": []
 }
 ```
+
+`api.base_url` menjadi origin browser yang diizinkan setelah dinormalisasi ke skema, host, dan port. `api.allowed_origins` bersifat opsional dan hanya menerima daftar origin exact tanpa wildcard; gunakan ini bila Finance dibuka dari origin lain atau saat mode offline (`api.enabled` = `false`). Origin harus berupa `http://` atau `https://` dengan host dan port opsional, tanpa path. Tanpa `base_url` yang valid dan tanpa allowlist, endpoint lokal `/cetak` menolak semua request browser.
+
+Bootstrap key wajib dipasang sebagai environment `POS_PRINTER_BOOTSTRAP_KEY` pada PHP-FPM dan nilai pasangan pada `api.key` di komputer kasir. Jangan menaruh nilainya di dokumentasi atau commit. Endpoint bootstrap hanya menerima header `X-Printer-Key`; agent dan helper pemeriksaan tidak lagi mengirim key melalui query string. Jika environment PHP-FPM kosong, bootstrap berhenti fail-closed dan harus diperbaiki sebelum agent dijalankan.
 
 ## Endpoint lokal
 
@@ -144,6 +147,7 @@ Logo dan QR ditulis ke payload sebagai marker, kemudian diubah agent menjadi gam
 
 - QR tidak tercetak: restart agent lebih dulu. Bila printer tidak mendukung QR native ESC/POS, jalankan kembali `python -m pip install -r requirements.txt` agar agent kembali memakai mode gambar.
 - Test gagal: buka `http://127.0.0.1:<port>/health` pada komputer kasir dan periksa `agent.log`.
+- Browser ditolak saat mencetak: pastikan origin halaman Finance sama persis dengan `api.base_url` atau tercantum di `api.allowed_origins`; `null`, origin kosong, dan wildcard tidak didukung.
 - Teks terlalu sempit: cocokkan `paper_width_mm` dan `chars_per_line` pada Koneksi Printer dengan printer fisik.
 - Routing salah: periksa Aturan Cetak di Finance. Jangan mengubah routing di `config.json`.
 - Port berubah: restart agent karena proses lama masih memegang port sebelumnya.

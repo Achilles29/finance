@@ -146,12 +146,9 @@ def bootstrap_printers(config: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Di
         endpoint = "/" + endpoint
     alt_endpoint = endpoint if "/index.php/" in endpoint else "/index.php" + endpoint
     agent_param = str(api.get("agent_name_param") or "agent_name").strip()
-    key_query_param = str(api.get("key_query_param") or "key").strip()
     api_key = str(api.get("key") or "").strip()
     timeout = int(api.get("timeout_seconds") or 8)
     params = {agent_param: str(config.get("agent_name") or platform.node() or "POS-PRINTER-AGENT-01")}
-    if api_key and key_query_param:
-        params[key_query_param] = api_key
     headers = {
         "Accept": "application/json",
         "User-Agent": "CorePrinterLocalService/1.0",

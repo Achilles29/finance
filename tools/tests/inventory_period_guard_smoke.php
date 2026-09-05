@@ -21,16 +21,18 @@ class InventoryPeriodGuardFakeDb
 {
     public bool $db_debug = true;
     public array $periods;
+    private bool $periodTableExists;
     private array $where = [];
 
-    public function __construct(array $periods)
+    public function __construct(array $periods, bool $periodTableExists = true)
     {
         $this->periods = $periods;
+        $this->periodTableExists = $periodTableExists;
     }
 
     public function table_exists(string $table): bool
     {
-        return $table === 'inv_stock_period';
+        return $table === 'inv_stock_period' && $this->periodTableExists;
     }
 
     public function select($fields): self
@@ -164,6 +166,28 @@ $periods = [
     ['id' => 2, 'stock_domain' => 'MATERIAL', 'period_month' => $activeMonth, 'status' => 'OPEN'],
 ];
 
+$inventoryPeriodGuardFakeCi = new InventoryPeriodGuardFakeCi(new InventoryPeriodGuardFakeDb([], false));
+$guard = new InventoryPeriodGuard();
+$result = $guard->ensureActiveMonthOpen('MATERIAL', $activeMonth);
+inventory_period_guard_expect(
+    empty($result['ok']) && ($result['code'] ?? '') === 'INVENTORY_PERIOD_SCHEMA_NOT_READY',
+    'missing period table fails closed with a stable code'
+);
+
+$inventoryPeriodGuardFakeCi = new InventoryPeriodGuardFakeCi(new InventoryPeriodGuardFakeDb($periods));
+$guard = new InventoryPeriodGuard();
+$result = $guard->assertOpen('MATERIAL', '2026-02-30');
+inventory_period_guard_expect(
+    empty($result['ok']),
+    'impossible calendar dates are rejected'
+);
+
+$result = $guard->assertOpen('MATERIAL', '09/04/2026');
+inventory_period_guard_expect(
+    empty($result['ok']),
+    'ambiguous date formats are rejected'
+);
+
 $inventoryPeriodGuardFakeCi = new InventoryPeriodGuardFakeCi(new InventoryPeriodGuardFakeDb($periods));
 $guard = new InventoryPeriodGuard();
 $result = $guard->ensureActiveMonthOpen('MATERIAL', $oldMonth);
@@ -182,6 +206,16 @@ $result = $guard->ensureActiveMonthOpen('MATERIAL', $futureMonth);
 inventory_period_guard_expect(
     empty($result['ok']) && ($result['code'] ?? '') === 'INVENTORY_FUTURE_PERIOD_WRITE',
     'future stock events are rejected'
+);
+
+$closedPeriods = $periods;
+$closedPeriods[1]['status'] = 'CLOSED';
+$inventoryPeriodGuardFakeCi = new InventoryPeriodGuardFakeCi(new InventoryPeriodGuardFakeDb($closedPeriods));
+$guard = new InventoryPeriodGuard();
+$result = $guard->assertOpen('MATERIAL', $activeMonth);
+inventory_period_guard_expect(
+    empty($result['ok']) && ($result['code'] ?? '') === 'INVENTORY_PERIOD_CLOSED',
+    'closed periods remain rejected'
 );
 
 $inventoryPeriodGuardFakeCi = new InventoryPeriodGuardFakeCi(new InventoryPeriodGuardFakeDb($periods));

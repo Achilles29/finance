@@ -1,4 +1,5 @@
 <?php
+$purchaseMutationCsrfToken = (string)($purchase_mutation_csrf_token ?? '');
 $cardSummary = (array)($card_summary ?? []);
 $filteredSummary = (array)($filtered_summary ?? []);
 $lineSummary = (array)($line_summary ?? []);
@@ -1454,7 +1455,7 @@ $ptTotal = array_sum(array_column($typeBreakdown, 'total_value'));
 
             fetch(endpoint, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Purchase-Mutation-CSRF': <?php echo json_encode($purchaseMutationCsrfToken); ?> },
                 body: JSON.stringify({ purchase_order_id: id, status: status })
             })
             .then(parseJsonResponse)

@@ -3,6 +3,18 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Pos extends MY_Controller
 {
+    private const POS_TRANSACTION_CSRF_SESSION_KEY = 'pos_transaction_csrf';
+    private const POS_TRANSACTION_CSRF_HEADER = 'X-Pos-Transaction-CSRF';
+    private const POS_TRANSACTION_CSRF_CI_HEADER = 'X-Pos-Transaction-Csrf';
+    private const POS_STOCK_COMMIT_AUDIT_CSRF_SESSION_KEY = 'pos_stock_commit_audit_csrf';
+    private const POS_STOCK_COMMIT_AUDIT_CSRF_HEADER = 'X-Pos-Stock-Commit-CSRF';
+    private const POS_STOCK_COMMIT_AUDIT_CSRF_CI_HEADER = 'X-Pos-Stock-Commit-Csrf';
+    private const POS_ORDER_MONITOR_CSRF_SESSION_KEY = 'pos_order_monitor_csrf';
+    private const POS_ORDER_MONITOR_CSRF_HEADER = 'X-Pos-Order-Monitor-CSRF';
+    private const POS_ORDER_MONITOR_CSRF_CI_HEADER = 'X-Pos-Order-Monitor-Csrf';
+    private const POS_AVAILABILITY_QUEUE_CSRF_SESSION_KEY = 'pos_availability_queue_csrf';
+    private const POS_AVAILABILITY_QUEUE_CSRF_FORM_FIELD = 'pos_availability_queue_csrf';
+
     public function __construct()
     {
         parent::__construct();
@@ -80,6 +92,8 @@ class Pos extends MY_Controller
             ? 'pos.stock.commit.audit.index'
             : 'pos.stock.live.index';
         $this->require_permission($pageCode, 'view');
+        $posTransactionCsrfToken = $this->pos_transaction_csrf();
+        $stockCommitAuditCsrfToken = $this->stock_commit_audit_csrf();
         if (!isset($this->posruntimejobservice) || !is_object($this->posruntimejobservice)) {
             $this->load->library('PosRuntimeJobService', null, 'posruntimejobservice');
         }
@@ -234,6 +248,8 @@ class Pos extends MY_Controller
             'failed_jobs' => !empty($failedJobs['ok']) ? (array)($failedJobs['rows'] ?? []) : [],
             'active_jobs' => !empty($activeJobs['ok']) ? (array)($activeJobs['rows'] ?? []) : [],
             'failed_commit_snapshots' => !empty($failedCommitSnapshots['ok']) ? (array)($failedCommitSnapshots['rows'] ?? []) : [],
+            'pos_transaction_csrf_token' => $posTransactionCsrfToken,
+            'stock_commit_audit_csrf_token' => $stockCommitAuditCsrfToken,
         ]);
     }
 
@@ -243,6 +259,9 @@ class Pos extends MY_Controller
             ? 'pos.stock.commit.audit.index'
             : 'pos.stock.live.index';
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_stock_commit_audit_csrf()) {
+            return;
+        }
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];
@@ -321,6 +340,9 @@ class Pos extends MY_Controller
             ? 'pos.stock.commit.audit.index'
             : 'pos.stock.live.index';
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_stock_commit_audit_csrf()) {
+            return;
+        }
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];
@@ -405,6 +427,9 @@ class Pos extends MY_Controller
             ? 'pos.stock.commit.audit.index'
             : 'pos.stock.live.index';
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_stock_commit_audit_csrf()) {
+            return;
+        }
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];
@@ -475,6 +500,9 @@ class Pos extends MY_Controller
             ? 'pos.stock.commit.audit.index'
             : 'pos.stock.live.index';
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_stock_commit_audit_csrf()) {
+            return;
+        }
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
             $payload = $this->input->post(null, true) ?: [];
@@ -538,6 +566,59 @@ class Pos extends MY_Controller
             'failed_count' => count($rows) - $successCount,
             'results' => $results,
         ]);
+    }
+
+    private function stock_commit_audit_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::POS_STOCK_COMMIT_AUDIT_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::POS_STOCK_COMMIT_AUDIT_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_stock_commit_audit_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_stock_commit_audit_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        // CI normalizes CGI/FastCGI names to title case (for example, ...-Csrf).
+        // Keep the browser-facing contract above, but use that canonical name for
+        // the request lookup so this guard is safe with exact-key input doubles too.
+        $providedToken = trim((string)$this->input->get_request_header(self::POS_STOCK_COMMIT_AUDIT_CSRF_CI_HEADER, true));
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_stock_commit_audit_csrf(403, 'Permintaan repair stock commit POS tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::POS_STOCK_COMMIT_AUDIT_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-fA-F]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_stock_commit_audit_csrf(403, 'Permintaan repair stock commit POS tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_stock_commit_audit_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     private function sort_material_compare_rows(array $rows): array
@@ -794,6 +875,7 @@ class Pos extends MY_Controller
     public function reservations()
     {
         $this->require_permission('pos.reservation.index', 'view');
+        $posTransactionCsrfToken = $this->pos_transaction_csrf();
         $this->render('pos/reservation_index', [
             'page_title' => 'Reservasi Customer',
             'active_menu' => 'pos.reservation.index',
@@ -801,6 +883,7 @@ class Pos extends MY_Controller
             'filters' => $this->reservation_filters(),
             'filter_options' => $this->Pos_reservation_model->page_options($this->current_actor_employee_id()),
             'schema_ready' => $this->Pos_reservation_model->schema_ready(),
+            'pos_transaction_csrf_token' => $posTransactionCsrfToken,
         ]);
     }
 
@@ -869,9 +952,14 @@ class Pos extends MY_Controller
 
     public function reservation_save()
     {
+        $this->require_permission('pos.reservation.index', 'view');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $id = max(0, (int)($payload['id'] ?? 0));
-        $this->require_permission('pos.reservation.index', $id > 0 ? 'edit' : 'create');
+        $action = $id > 0 ? 'edit' : 'create';
+        $this->require_permission('pos.reservation.index', $action);
         $result = $this->Pos_reservation_model->save_reservation(
             $payload,
             $this->current_actor_employee_id(),
@@ -892,9 +980,13 @@ class Pos extends MY_Controller
     public function reservation_deposit($id)
     {
         $this->require_permission('pos.reservation.index', 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
         $result = $this->Pos_reservation_model->add_deposit(
             (int)$id,
-            $this->request_payload(),
+            $payload,
             $this->current_actor_employee_id(),
             $this->current_actor_user_id()
         );
@@ -911,6 +1003,9 @@ class Pos extends MY_Controller
     public function reservation_verify($id)
     {
         $this->require_permission('pos.reservation.index', 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $this->verify_reservation_and_respond(
             (int)$id,
             $this->current_actor_employee_id(),
@@ -921,6 +1016,9 @@ class Pos extends MY_Controller
     public function reservation_reject($id)
     {
         $this->require_permission('pos.reservation.index', 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $result = $this->Pos_reservation_model->reject_reservation(
             (int)$id,
@@ -939,6 +1037,9 @@ class Pos extends MY_Controller
     public function reservation_cancel($id)
     {
         $this->require_permission('pos.reservation.index', 'delete');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $result = $this->Pos_reservation_model->cancel_reservation(
             (int)$id,
@@ -1072,12 +1173,14 @@ public function self_order_tables_print()
     public function self_order_orders()
     {
         $this->require_permission('pos.self_order.index', 'view');
+        $posTransactionCsrfToken = $this->pos_transaction_csrf();
         $filters = $this->self_order_order_filters();
         $this->render('pos/self_order_orders', [
             'page_title' => 'Orderan Self Order',
             'active_menu' => 'pos.self_order.index',
             'filters' => $filters,
             'filter_options' => $this->Pos_model->self_order_order_filter_options(),
+            'pos_transaction_csrf_token' => $posTransactionCsrfToken,
         ]);
     }
 
@@ -1105,6 +1208,9 @@ public function self_order_tables_print()
     public function self_order_order_verify($id)
     {
         $this->require_permission('pos.self_order.index', 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $this->verify_self_order_and_respond((int)$id, $this->current_actor_employee_id(), $payload);
     }
@@ -1112,6 +1218,9 @@ public function self_order_tables_print()
     public function self_order_order_reject($id)
     {
         $this->require_permission('pos.self_order.index', 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $reason = trim((string)($payload['reason'] ?? ''));
         $result = $this->Pos_model->reject_self_order_order((int)$id, $this->current_actor_employee_id(), $reason);
@@ -1134,12 +1243,14 @@ public function self_order_tables_print()
     public function online_food_orders()
     {
         $this->require_permission('pos.online_food.index', 'view');
+        $posTransactionCsrfToken = $this->pos_transaction_csrf();
         $filters = $this->self_order_order_filters();
         $this->render('pos/online_food_orders', [
             'page_title' => 'Orderan Online Food',
             'active_menu' => 'pos.online_food.index',
             'filters' => $filters,
             'filter_options' => $this->Pos_model->online_food_order_filter_options(),
+            'pos_transaction_csrf_token' => $posTransactionCsrfToken,
         ]);
     }
 
@@ -1167,6 +1278,9 @@ public function self_order_tables_print()
     public function online_food_order_verify($id)
     {
         $this->require_permission('pos.online_food.index', 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $this->verify_self_order_and_respond((int)$id, $this->current_actor_employee_id(), $payload, [
             'context_method' => 'online_food_verification_context',
@@ -1180,6 +1294,9 @@ public function self_order_tables_print()
     public function online_food_order_reject($id)
     {
         $this->require_permission('pos.online_food.index', 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $reason = trim((string)($payload['reason'] ?? ''));
         $result = $this->Pos_model->reject_online_food_order((int)$id, $this->current_actor_employee_id(), $reason);
@@ -2133,6 +2250,7 @@ public function self_order_tables_print()
             'page_title' => 'Panduan Printer POS',
             'active_menu' => 'pos.printer.index',
             'download_files' => $this->printer_download_files(),
+            'can_agent_provision' => $this->can('pos.printer.connection', 'edit'),
         ]);
     }
 
@@ -2530,12 +2648,17 @@ public function self_order_tables_print()
             'page_title' => 'Panduan Printer POS',
             'active_menu' => 'pos.printer.index',
             'download_files' => $this->printer_download_files(),
+            'can_agent_provision' => $this->can('pos.printer.connection', 'edit'),
         ]);
     }
 
     public function printer_download($key = '')
     {
-        $this->require_permission('pos.printer.index', 'view');
+        if (in_array($key, ['config_json', 'agent_bundle'], true)) {
+            $this->require_permission('pos.printer.connection', 'edit');
+        } else {
+            $this->require_permission('pos.printer.index', 'view');
+        }
         if ($key === 'agent_bundle') {
             $this->printer_download_bundle();
             return;
@@ -2582,26 +2705,10 @@ public function self_order_tables_print()
             ->set_output((string)file_get_contents($path));
     }
 
-    public function printer_bootstrap()
-    {
-        if (!$this->verify_printer_agent_key()) {
-            return;
-        }
-
-        $agentName = trim((string)$this->input->get('agent_name', true));
-        $rows = $this->Pos_model->active_printer_devices_for_agent_config($agentName);
-        $this->output
-            ->set_content_type('application/json')
-            ->set_output(json_encode([
-                'status' => 'success',
-                'message' => 'Printer bootstrap loaded.',
-                'data' => $rows,
-            ], JSON_INVALID_UTF8_SUBSTITUTE));
-    }
-
     public function order_draft()
     {
         $this->require_permission('pos.order.draft.index', 'view');
+        $posTransactionCsrfToken = $this->pos_transaction_csrf();
         $filters = $this->order_draft_filters('UNPAID');
         $this->render('pos/order_draft_index', [
             'page_title' => 'Draft Order POS',
@@ -2609,6 +2716,7 @@ public function self_order_tables_print()
             'workspace_mode' => 'UNPAID',
             'filters' => $filters,
             'filter_options' => $this->Pos_model->order_draft_filter_options(),
+            'pos_transaction_csrf_token' => $posTransactionCsrfToken,
         ]);
     }
 
@@ -2616,6 +2724,7 @@ public function self_order_tables_print()
     {
         $pageCode = $this->order_workspace_page_code('view', 'pos.order.paid.index');
         $this->require_permission($pageCode, 'view');
+        $posTransactionCsrfToken = $this->pos_transaction_csrf();
         $filters = $this->order_draft_filters('PAID');
         $this->render('pos/order_paid_index', [
             'page_title'               => 'Pesanan Terbayar POS',
@@ -2625,6 +2734,7 @@ public function self_order_tables_print()
             'filter_options'           => $this->Pos_model->order_draft_filter_options(),
             'payment_method_options'   => $this->Pos_model->deposit_payment_method_options(),
             'can_edit_payment_method'  => $this->can_edit_sales_transaction_payment(),
+            'pos_transaction_csrf_token' => $posTransactionCsrfToken,
         ]);
     }
 
@@ -2632,6 +2742,7 @@ public function self_order_tables_print()
     {
         $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'view');
+        $posTransactionCsrfToken = $this->pos_transaction_csrf();
         $bootstrap = $this->Pos_model->cashier_bootstrap_options($this->current_actor_employee_id());
         $this->render_cashier('pos/cashier_index', [
             'page_title' => 'Kasir POS',
@@ -2641,6 +2752,7 @@ public function self_order_tables_print()
             'catalog_filters' => $this->Pos_model->cashier_catalog_filter_options(),
             'cashier_bootstrap' => $bootstrap,
             'active_cashier_session' => $bootstrap['active_session'] ?? null,
+            'pos_transaction_csrf_token' => $posTransactionCsrfToken,
         ]);
     }
 
@@ -2648,6 +2760,9 @@ public function self_order_tables_print()
     {
         $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $reconStatus = $this->Pos_model->daily_recon_gate_status('OPEN');
         if (!empty($reconStatus['enabled']) && empty($reconStatus['complete'])) {
@@ -2773,6 +2888,9 @@ public function self_order_tables_print()
     {
         $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $reconStatus = $this->Pos_model->daily_recon_gate_status('CLOSE');
         if (!empty($reconStatus['enabled']) && empty($reconStatus['complete'])) {
@@ -2834,14 +2952,15 @@ public function self_order_tables_print()
     {
         $pageCode = 'pos.order.monitor.index';
         $this->require_permission($pageCode, 'view');
+        $orderMonitorCsrfToken = $this->order_monitor_task_csrf();
         $filters = $this->order_monitor_filters();
         $monitorScope = $this->current_actor_monitor_scope();
-        $this->Pos_order_monitor_model->bootstrap_open_tasks((int)($filters['outlet_id'] ?? 0));
         $this->render('pos/order_monitor_index', [
             'page_title' => 'Monitor Dapur, Bar & Checker',
             'active_menu' => 'pos.order.monitor',
             'filters' => $filters,
             'monitor_scope' => $monitorScope,
+            'order_monitor_csrf_token' => $orderMonitorCsrfToken,
             'station_options' => $this->Pos_order_monitor_model->station_options(),
             'outlet_options' => $this->Pos_order_monitor_model->active_outlets(),
             'payload' => $this->Pos_order_monitor_model->board_payload(
@@ -2861,7 +2980,6 @@ public function self_order_tables_print()
         $this->require_permission($pageCode, 'view');
         $filters = $this->order_monitor_filters();
         $monitorScope = $this->current_actor_monitor_scope();
-        $this->Pos_order_monitor_model->bootstrap_open_tasks((int)($filters['outlet_id'] ?? 0));
         $this->json_ok([
             'payload' => $this->Pos_order_monitor_model->board_payload(
                 (string)($filters['station'] ?? 'ALL'),
@@ -2890,58 +3008,17 @@ public function self_order_tables_print()
 
     public function order_monitor_ack_order_station()
     {
-        $pageCode = 'pos.order.monitor.index';
-        $this->require_permission($pageCode, 'edit');
-        $payload = $this->request_payload();
-        $monitorScope = $this->current_actor_monitor_scope();
-        $orderId = max(0, (int)($payload['order_id'] ?? 0));
-        $stationRole = strtoupper(trim((string)($payload['station_role'] ?? '')));
-        if ($orderId <= 0 || !in_array($stationRole, ['BAR', 'KITCHEN'], true)) {
-            $this->json_error('Order atau stasiun monitor tidak valid.', 422);
-            return;
-        }
-        if (!$this->Pos_order_monitor_model->ack_order_station($orderId, $stationRole, $this->current_actor_employee_id(), $monitorScope)) {
-            $this->json_error('Task stasiun gagal diterima.', 422);
-            return;
-        }
-        $this->json_ok(['order_id' => $orderId, 'station_role' => $stationRole]);
+        $this->handle_order_monitor_bulk_action('ack');
     }
 
     public function order_monitor_ready_order_station()
     {
-        $pageCode = 'pos.order.monitor.index';
-        $this->require_permission($pageCode, 'edit');
-        $payload = $this->request_payload();
-        $monitorScope = $this->current_actor_monitor_scope();
-        $orderId = max(0, (int)($payload['order_id'] ?? 0));
-        $stationRole = strtoupper(trim((string)($payload['station_role'] ?? '')));
-        if ($orderId <= 0 || !in_array($stationRole, ['BAR', 'KITCHEN'], true)) {
-            $this->json_error('Order atau stasiun monitor tidak valid.', 422);
-            return;
-        }
-        if (!$this->Pos_order_monitor_model->ready_order_station($orderId, $stationRole, $this->current_actor_employee_id(), $monitorScope)) {
-            $this->json_error('Task stasiun gagal ditandai siap.', 422);
-            return;
-        }
-        $this->json_ok(['order_id' => $orderId, 'station_role' => $stationRole]);
+        $this->handle_order_monitor_bulk_action('ready');
     }
 
     public function order_monitor_checker_order()
     {
-        $pageCode = 'pos.order.monitor.index';
-        $this->require_permission($pageCode, 'edit');
-        $payload = $this->request_payload();
-        $monitorScope = $this->current_actor_monitor_scope();
-        $orderId = max(0, (int)($payload['order_id'] ?? 0));
-        if ($orderId <= 0) {
-            $this->json_error('Order monitor tidak valid.', 422);
-            return;
-        }
-        if (!$this->Pos_order_monitor_model->checker_order($orderId, $this->current_actor_employee_id(), $monitorScope)) {
-            $this->json_error('Task checker gagal diselesaikan.', 422);
-            return;
-        }
-        $this->json_ok(['order_id' => $orderId]);
+        $this->handle_order_monitor_bulk_action('checker');
     }
 
     public function stock_live()
@@ -2950,6 +3027,7 @@ public function self_order_tables_print()
             ? 'pos.stock.live.index'
             : ($this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'view');
+        $posTransactionCsrfToken = $this->pos_transaction_csrf();
         $filters = $this->stock_live_filters();
         $filterOptions = $this->Pos_model->stock_live_filter_options();
         if ((int)($filters['outlet_id'] ?? 0) <= 0 && !empty($filterOptions['outlets'][0]['id'])) {
@@ -2960,6 +3038,7 @@ public function self_order_tables_print()
             'active_menu' => 'pos.stock.live.index',
             'filters' => $filters,
             'filter_options' => $filterOptions,
+            'pos_transaction_csrf_token' => $posTransactionCsrfToken,
         ]);
     }
 
@@ -3076,6 +3155,9 @@ public function self_order_tables_print()
             ? 'pos.stock.live.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $outletId = max(0, (int)($payload['outlet_id'] ?? 0));
         $divisionId = max(0, (int)($payload['division_id'] ?? 0));
@@ -3102,6 +3184,9 @@ public function self_order_tables_print()
             ? 'pos.stock.live.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $outletId = max(0, (int)($payload['outlet_id'] ?? 0));
         $productId = max(0, (int)($payload['product_id'] ?? 0));
@@ -3127,6 +3212,7 @@ public function self_order_tables_print()
     public function availability_queue()
     {
         $this->require_permission('pos.availability.queue.index', 'view');
+        $availabilityQueueCsrfToken = $this->pos_availability_queue_csrf();
         $filters = $this->availability_queue_filters();
         $dataset = $this->Pos_availability_queue_model->rows($filters);
 
@@ -3140,6 +3226,7 @@ public function self_order_tables_print()
             'outlets' => $this->Pos_availability_queue_model->outlet_options(),
             'queue_ready' => $this->Pos_availability_queue_model->is_ready(),
             'can_process_queue' => $this->can('pos.availability.queue.index', 'edit'),
+            'pos_availability_queue_csrf_token' => $availabilityQueueCsrfToken,
             // Path ini mengikuti cron Ubuntu yang sudah disiapkan untuk server.
             'cron_command' => '* * * * * /usr/bin/php /www/wwwroot/finance/index.php pos availability_queue_run 100',
         ]);
@@ -3152,8 +3239,7 @@ public function self_order_tables_print()
     public function availability_queue_process()
     {
         $this->require_permission('pos.availability.queue.index', 'edit');
-        if (strtoupper((string)$this->input->method(true)) !== 'POST') {
-            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+        if (!$this->require_pos_availability_queue_csrf()) {
             return;
         }
 
@@ -3191,8 +3277,7 @@ public function self_order_tables_print()
     public function availability_queue_retry($jobId)
     {
         $this->require_permission('pos.availability.queue.index', 'edit');
-        if (strtoupper((string)$this->input->method(true)) !== 'POST') {
-            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+        if (!$this->require_pos_availability_queue_csrf()) {
             return;
         }
 
@@ -3235,8 +3320,11 @@ public function self_order_tables_print()
 
     public function order_draft_delete($id)
     {
-        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
-        $this->require_permission($pageCode, 'edit');
+        $pageCode = $this->can('pos.cashier.index', 'delete') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'delete');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $result = $this->Pos_model->delete_order_draft((int)$id, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menghapus draft order POS.'), 422);
@@ -3325,14 +3413,26 @@ public function self_order_tables_print()
 
     public function order_draft_save()
     {
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $id = (int)($payload['id'] ?? 0);
-        $pageCode = $this->can('pos.cashier.index', $id > 0 ? 'edit' : 'create') ? 'pos.cashier.index' : 'pos.order.draft.index';
-        $this->require_permission($pageCode, $id > 0 ? 'edit' : 'create');
+        $action = $id > 0 ? 'edit' : 'create';
+        $this->require_permission($pageCode, $action);
         $result = $this->Pos_model->save_order_draft($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menyimpan draft order POS.'), 422);
             return;
+        }
+        if (
+            !empty($result['append_mode'])
+            && empty($result['header_only_update'])
+            && (int)($result['appended_line_count'] ?? 0) > 0
+        ) {
+            $this->Pos_order_monitor_model->sync_order_tasks((int)($result['id'] ?? 0));
         }
         $this->json_ok([
             'id' => (int)$result['id'],
@@ -3344,6 +3444,9 @@ public function self_order_tables_print()
     {
         $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $actorEmployeeId = $this->current_actor_employee_id();
         $orderId = (int)$id;
         $this->confirm_order_and_respond($orderId, $actorEmployeeId);
@@ -3351,10 +3454,16 @@ public function self_order_tables_print()
 
     public function order_draft_save_confirm()
     {
-        $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
-        $this->require_permission($pageCode, 'edit');
-        $actorEmployeeId = $this->current_actor_employee_id();
+        $pageCode = $this->can('pos.cashier.index', 'view') ? 'pos.cashier.index' : 'pos.order.draft.index';
+        $this->require_permission($pageCode, 'view');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
+        $id = (int)($payload['id'] ?? 0);
+        $action = $id > 0 ? 'edit' : 'create';
+        $this->require_permission($pageCode, $action);
+        $actorEmployeeId = $this->current_actor_employee_id();
         $saved = $this->Pos_model->save_order_draft($payload, $actorEmployeeId);
         if (!($saved['ok'] ?? false)) {
             $this->json_error((string)($saved['message'] ?? 'Gagal menyimpan draft order POS.'), 422);
@@ -3596,6 +3705,9 @@ public function self_order_tables_print()
     {
         $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $eventSource = strtoupper(trim((string)($payload['event_source'] ?? 'ORDER_CONFIRM')));
         if (!in_array($eventSource, ['ORDER_CONFIRM', 'ORDER_VOID', 'ORDER_REFUND'], true)) {
@@ -3623,18 +3735,136 @@ public function self_order_tables_print()
     {
         $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index';
         $this->require_permission($pageCode, 'edit');
-        $payload = $this->request_payload();
-        $this->load->library('PosRuntimeJobService');
 
-        $orderId = (int)$id;
-        $jobId = max(0, (int)($payload['job_id'] ?? 0));
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
+
+        $orderId = $this->parse_positive_runtime_id($id);
+        if ($orderId === null) {
+            $this->reject_pos_runtime_job_trigger(422, 'Order runtime POS tidak valid.');
+            return;
+        }
+
+        $payload = $this->request_payload();
+        $jobId = $this->parse_positive_runtime_id($payload['job_id'] ?? null);
+        if ($jobId === null) {
+            $this->reject_pos_runtime_job_trigger(422, 'Job runtime POS tidak valid.');
+            return;
+        }
+
+        // The trigger has one fixed resource scope: the route order and its
+        // ORDER_CONFIRM_STOCK_COMMIT job. Do not accept a client-supplied scope.
+        if (array_key_exists('scope', $payload)) {
+            $this->reject_pos_runtime_job_trigger(422, 'Scope job runtime POS tidak dapat ditentukan dari request.');
+            return;
+        }
+        if (array_key_exists('order_id', $payload)) {
+            $payloadOrderId = $this->parse_positive_runtime_id($payload['order_id']);
+            if ($payloadOrderId === null || $payloadOrderId !== $orderId) {
+                $this->reject_pos_runtime_job_trigger(422, 'Scope order job runtime POS tidak sesuai route.');
+                return;
+            }
+        }
+
         $limit = max(1, min(5, (int)($payload['limit'] ?? 1)));
-        $processed = $this->process_runtime_job_now($orderId, $jobId, $limit);
-        $latest = $this->posruntimejobservice->latest_job_for_order($orderId);
+
+        if (
+            !$this->db->table_exists('pos_runtime_job')
+            || !$this->db->table_exists('pos_order')
+            || !$this->db->table_exists('pos_stock_commit')
+        ) {
+            $this->reject_pos_runtime_job_trigger(422, 'Queue runtime POS belum siap.');
+            return;
+        }
+
+        // Keep this binding read-only and aligned with PosRuntimeJobService's
+        // existing job_context query. No new table or schema is introduced.
+        $job = $this->db->query(
+            "SELECT j.*, o.id AS linked_order_id, o.status AS order_status,
+                    o.stock_commit_status, o.stock_committed_at, o.outlet_id,
+                    s.order_id AS snapshot_order_id,
+                    s.commit_status AS snapshot_commit_status, s.commit_no
+             FROM pos_runtime_job j
+             LEFT JOIN pos_order o ON o.id = j.order_id
+             LEFT JOIN pos_stock_commit s ON s.id = j.snapshot_id
+             WHERE j.id = ?
+             LIMIT 1",
+            [$jobId]
+        )->row_array();
+
+        if (!$job) {
+            $this->reject_pos_runtime_job_trigger(404, 'Job runtime POS tidak ditemukan.');
+            return;
+        }
+        if ((int)($job['order_id'] ?? 0) !== $orderId) {
+            $this->reject_pos_runtime_job_trigger(422, 'Job runtime POS tidak terikat pada order route.');
+            return;
+        }
+        if ((string)($job['job_type'] ?? '') !== 'ORDER_CONFIRM_STOCK_COMMIT') {
+            $this->reject_pos_runtime_job_trigger(422, 'Tipe job runtime POS tidak diizinkan untuk trigger ini.');
+            return;
+        }
+        if ((int)($job['linked_order_id'] ?? 0) !== $orderId) {
+            $this->reject_pos_runtime_job_trigger(422, 'Order scope job runtime POS tidak ditemukan.');
+            return;
+        }
+        if (
+            (int)($job['snapshot_id'] ?? 0) <= 0
+            || (int)($job['snapshot_order_id'] ?? 0) !== $orderId
+        ) {
+            $this->reject_pos_runtime_job_trigger(422, 'Snapshot job runtime POS tidak berada pada scope order.');
+            return;
+        }
+
+        $jobStatus = strtoupper(trim((string)($job['status'] ?? '')));
+        if (!in_array($jobStatus, ['QUEUED', 'PROCESSING', 'FAILED'], true)) {
+            $this->reject_pos_runtime_job_trigger(422, 'Job runtime POS sudah terminal atau statusnya tidak dapat diproses.');
+            return;
+        }
+        if ($jobStatus === 'PROCESSING') {
+            $startedAt = strtotime((string)($job['started_at'] ?? ''));
+            if ($startedAt > 0 && $startedAt >= strtotime('-5 minutes')) {
+                $this->reject_pos_runtime_job_trigger(422, 'Job runtime POS sedang diproses oleh worker lain.');
+                return;
+            }
+        }
+        if (
+            $jobStatus === 'FAILED'
+            && (int)($job['attempts'] ?? 0) >= (int)($job['max_attempts'] ?? 0)
+        ) {
+            $this->reject_pos_runtime_job_trigger(422, 'Job runtime POS sudah mencapai batas percobaan.');
+            return;
+        }
+
+        $orderStatus = strtoupper(trim((string)($job['order_status'] ?? '')));
+        if (in_array($orderStatus, ['VOID', 'REFUND_FULL', 'REFUNDED_FULL'], true)) {
+            $this->reject_pos_runtime_job_trigger(422, 'Order sudah terminal; job runtime POS tidak boleh diproses ulang.');
+            return;
+        }
+        if (strtoupper(trim((string)($job['stock_commit_status'] ?? ''))) === 'REVERSED') {
+            $this->reject_pos_runtime_job_trigger(422, 'Stock commit order sudah direversal; job runtime POS tidak boleh diproses ulang.');
+            return;
+        }
+        if (in_array(strtoupper(trim((string)($job['snapshot_commit_status'] ?? ''))), ['REVERSED', 'VOID'], true)) {
+            $this->reject_pos_runtime_job_trigger(422, 'Snapshot stock commit sudah terminal; job runtime POS tidak boleh diproses ulang.');
+            return;
+        }
+
+        $this->load->library('PosRuntimeJobService');
+        $processed = $this->posruntimejobservice->process_pending_jobs([
+            'limit' => $limit,
+            'order_id' => $orderId,
+            'job_id' => $jobId,
+        ]);
+        $latestJob = [];
+        if (!empty($processed['jobs'][0]['job']) && is_array($processed['jobs'][0]['job'])) {
+            $latestJob = $processed['jobs'][0]['job'];
+        }
 
         if (!($processed['ok'] ?? false)) {
             $this->json_error((string)($processed['message'] ?? 'Job runtime POS gagal diproses.'), 422, [
-                'job' => (array)($latest['job'] ?? []),
+                'job' => (array)$latestJob,
                 'result' => $processed,
             ]);
             return;
@@ -3642,7 +3872,7 @@ public function self_order_tables_print()
 
         $this->json_ok([
             'id' => $orderId,
-            'job' => (array)($latest['job'] ?? []),
+            'job' => (array)$latestJob,
             'processed_count' => (int)($processed['processed_count'] ?? 0),
             'success_count' => (int)($processed['success_count'] ?? 0),
             'failed_count' => (int)($processed['failed_count'] ?? 0),
@@ -3720,9 +3950,19 @@ public function self_order_tables_print()
             ? 'pos.stock.live.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
+
+        $jobId = $this->parse_positive_runtime_id($jobId);
+        if ($jobId === null) {
+            $this->json_error('Job runtime POS tidak valid untuk retry.', 422);
+            return;
+        }
+
         $this->load->library('PosRuntimeJobService');
 
-        $retried = $this->posruntimejobservice->retry_job((int)$jobId, $this->current_actor_employee_id());
+        $retried = $this->posruntimejobservice->retry_job($jobId, $this->current_actor_employee_id());
         if (!($retried['ok'] ?? false)) {
             $this->json_error((string)($retried['message'] ?? 'Job runtime POS gagal di-retry.'), 422);
             return;
@@ -3754,9 +3994,12 @@ public function self_order_tables_print()
             ? 'pos.stock.commit.audit.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
 
-        $jobId = (int)$jobId;
-        if ($jobId <= 0) {
+        $jobId = $this->parse_positive_runtime_id($jobId);
+        if ($jobId === null) {
             $this->json_error('Job runtime POS tidak valid untuk hapus draft.', 422);
             return;
         }
@@ -3810,10 +4053,13 @@ public function self_order_tables_print()
             ? 'pos.stock.commit.audit.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'edit');
-        $this->load->library('PosRuntimeJobService');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
 
-        $jobId = (int)$jobId;
-        if ($jobId <= 0) {
+        $routeJobId = $jobId;
+        $jobId = $this->parse_positive_runtime_id($jobId);
+        if ($jobId === null || (string)$jobId !== (string)$routeJobId) {
             $this->json_error('Job runtime POS tidak valid untuk ditutup.', 422);
             return;
         }
@@ -3842,6 +4088,7 @@ public function self_order_tables_print()
             return;
         }
 
+        $this->load->library('PosRuntimeJobService');
         $closed = $this->posruntimejobservice->cancel_job(
             $jobId,
             'Ditutup manual dari audit stock commit POS karena order sudah tidak perlu diproses ulang.'
@@ -3864,11 +4111,13 @@ public function self_order_tables_print()
             ? 'pos.stock.commit.audit.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'edit');
-        $this->load->library('PosRuntimeJobService', null, 'posruntimejobservice');
-        $this->load->library('PosStockCommitService', null, 'posstockcommitservice');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
 
-        $snapshotId = (int)$snapshotId;
-        if ($snapshotId <= 0) {
+        $routeSnapshotId = $snapshotId;
+        $snapshotId = $this->parse_positive_runtime_id($snapshotId);
+        if ($snapshotId === null || (string)$snapshotId !== (string)$routeSnapshotId) {
             $this->json_error('Snapshot stock commit POS tidak valid untuk retry.', 422);
             return;
         }
@@ -3909,7 +4158,11 @@ public function self_order_tables_print()
             return;
         }
 
-        $refreshed = $this->posstockcommitservice->refresh_snapshot_from_order($snapshotId, $this->current_actor_employee_id());
+        $actorEmployeeId = $this->current_actor_employee_id();
+        $this->load->library('PosRuntimeJobService', null, 'posruntimejobservice');
+        $this->load->library('PosStockCommitService', null, 'posstockcommitservice');
+
+        $refreshed = $this->posstockcommitservice->refresh_snapshot_from_order($snapshotId, $actorEmployeeId);
         if (!($refreshed['ok'] ?? false)) {
             $this->json_error((string)($refreshed['message'] ?? 'Snapshot gagal direfresh sebelum retry.'), 422);
             return;
@@ -3917,12 +4170,12 @@ public function self_order_tables_print()
 
         $this->posstockcommitservice->mark_queued($snapshotId);
         $this->Pos_model->update_order_stock_commit_state($orderId, 'QUEUED', [
-            'actor_employee_id' => $this->current_actor_employee_id(),
+            'actor_employee_id' => $actorEmployeeId,
             'event_code' => 'ORDER_CONFIRM_STOCK_RETRY_AUDIT',
             'note' => 'Retry manual snapshot FAILED dari audit stock commit POS.',
         ]);
 
-        $queued = $this->posruntimejobservice->queue_order_confirm_commit($orderId, $snapshotId, $this->current_actor_employee_id(), [
+        $queued = $this->posruntimejobservice->queue_order_confirm_commit($orderId, $snapshotId, $actorEmployeeId, [
             'event_source' => 'ORDER_CONFIRM_AUDIT_RETRY',
             'event_id' => $snapshotId,
         ]);
@@ -3962,10 +4215,13 @@ public function self_order_tables_print()
             ? 'pos.stock.commit.audit.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'edit');
-        $this->load->library('PosStockCommitService', null, 'posstockcommitservice');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
 
-        $snapshotId = (int)$snapshotId;
-        if ($snapshotId <= 0) {
+        $routeSnapshotId = $snapshotId;
+        $snapshotId = $this->parse_positive_runtime_id($snapshotId);
+        if ($snapshotId === null || (string)$snapshotId !== (string)$routeSnapshotId) {
             $this->json_error('Snapshot stock commit POS tidak valid untuk ditutup.', 422);
             return;
         }
@@ -3988,6 +4244,12 @@ public function self_order_tables_print()
             return;
         }
 
+        $orderId = (int)($snapshot['order_id'] ?? 0);
+        if ($orderId <= 0) {
+            $this->json_error('Snapshot FAILED ini masih butuh retry/rebuild. Tutup manual hanya diizinkan bila order sudah VOID atau stock commit order sudah final.', 422);
+            return;
+        }
+
         $orderStatus = strtoupper(trim((string)($snapshot['order_status'] ?? '')));
         $orderCommitStatus = strtoupper(trim((string)($snapshot['stock_commit_status'] ?? '')));
         $closeAs = '';
@@ -4002,6 +4264,7 @@ public function self_order_tables_print()
             return;
         }
 
+        $this->load->library('PosStockCommitService', null, 'posstockcommitservice');
         $closed = $this->posstockcommitservice->mark_reversed($snapshotId, $closeAs);
         if (!($closed['ok'] ?? false)) {
             $this->json_error((string)($closed['message'] ?? 'Snapshot FAILED tidak bisa ditutup.'), 422);
@@ -4033,6 +4296,9 @@ public function self_order_tables_print()
             ? 'pos.stock.live.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
 
         $payload = $this->request_payload();
         $outletId = max(0, (int)($payload['outlet_id'] ?? 0));
@@ -4065,15 +4331,18 @@ public function self_order_tables_print()
 
     public function order_runtime_failed_jobs_retry_all()
     {
-        @set_time_limit(0);
         $pageCode = $this->can('pos.stock.live.index', 'edit')
             ? 'pos.stock.live.index'
             : ($this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : 'pos.order.draft.index');
         $this->require_permission($pageCode, 'edit');
-        $this->load->library('PosRuntimeJobService');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
 
         $payload = $this->request_payload();
         $limit = max(1, min(25, (int)($payload['limit'] ?? 10)));
+        @set_time_limit(0);
+        $this->load->library('PosRuntimeJobService');
         $failed = $this->posruntimejobservice->failed_jobs([
             'limit' => $limit,
             'outlet_id' => max(0, (int)($payload['outlet_id'] ?? 0)),
@@ -4329,6 +4598,9 @@ public function self_order_tables_print()
     {
         $pageCode = $this->can('pos.cashier.index', 'edit') ? 'pos.cashier.index' : $this->order_workspace_page_code('edit');
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $result = $this->Pos_model->save_cashier_payment($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
@@ -4391,6 +4663,9 @@ public function self_order_tables_print()
     {
         $pageCode = $this->order_workspace_page_code('edit');
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $result = $this->Pos_model->save_order_void($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
@@ -4398,9 +4673,7 @@ public function self_order_tables_print()
             return;
         }
         $this->Pos_order_monitor_model->sync_order_tasks((int)($payload['order_id'] ?? 0));
-        // Void changes availability immediately. Rebuild once for the order so
-        // the cashier never keeps an indefinitely dirty product cache.
-        $availabilityRefresh = $this->trigger_stock_live_refresh_for_order((int)($payload['order_id'] ?? 0), 'ORDER_VOID', (int)($result['id'] ?? 0), true);
+        $availabilityRefresh = (array)($result['availability_rebuild'] ?? []);
         $this->json_ok([
             'id' => (int)($result['id'] ?? 0),
             'void_no' => (string)($result['void_no'] ?? ''),
@@ -4409,6 +4682,7 @@ public function self_order_tables_print()
                 'success_count' => (int)($availabilityRefresh['success_count'] ?? 0),
                 'failed_count' => (int)($availabilityRefresh['failed_count'] ?? 0),
             ],
+            'warning' => $result['warning'] ?? null,
         ]);
     }
 
@@ -4416,6 +4690,9 @@ public function self_order_tables_print()
     {
         $pageCode = $this->order_workspace_page_code('edit', 'pos.order.paid.index');
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
         $result = $this->Pos_model->save_order_refund($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
@@ -4423,9 +4700,7 @@ public function self_order_tables_print()
             return;
         }
         $this->Pos_order_monitor_model->sync_order_tasks((int)($payload['order_id'] ?? 0));
-        // Refund changes availability immediately. Rebuild once for the order
-        // instead of leaving the cache dirty until a separate manual sync.
-        $availabilityRefresh = $this->trigger_stock_live_refresh_for_order((int)($payload['order_id'] ?? 0), 'ORDER_REFUND', (int)($result['id'] ?? 0), true);
+        $availabilityRefresh = (array)($result['availability_rebuild'] ?? []);
         $this->json_ok([
             'id' => (int)($result['id'] ?? 0),
             'refund_no' => (string)($result['refund_no'] ?? ''),
@@ -4434,6 +4709,7 @@ public function self_order_tables_print()
                 'success_count' => (int)($availabilityRefresh['success_count'] ?? 0),
                 'failed_count' => (int)($availabilityRefresh['failed_count'] ?? 0),
             ],
+            'warning' => $result['warning'] ?? null,
         ]);
     }
 
@@ -5391,6 +5667,39 @@ public function self_order_tables_print()
         ];
     }
 
+    private function pos_availability_queue_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::POS_AVAILABILITY_QUEUE_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::POS_AVAILABILITY_QUEUE_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_pos_availability_queue_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return false;
+        }
+
+        $providedToken = trim((string)$this->input->post(self::POS_AVAILABILITY_QUEUE_CSRF_FORM_FIELD, false));
+        $sessionToken = (string)$this->session->userdata(self::POS_AVAILABILITY_QUEUE_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            show_error('Permintaan antrean ketersediaan POS tidak valid.', 403, 'Akses Ditolak');
+            return false;
+        }
+
+        return true;
+    }
+
     private function availability_queue_filters(): array
     {
         $status = strtoupper(trim((string)$this->input->get('status', true)));
@@ -5518,6 +5827,7 @@ public function self_order_tables_print()
                 $this->json_error((string)($completed['message'] ?? 'Order POS sudah terbentuk, tetapi status reservasi belum dapat diselesaikan.'), 422);
                 return;
             }
+            $this->Pos_order_monitor_model->sync_order_tasks($orderId);
             $this->json_ok([
                 'id' => $orderId,
                 'reservation_id' => $reservationId,
@@ -5848,22 +6158,27 @@ public function self_order_tables_print()
     {
         $pageCode = 'pos.order.monitor.index';
         $this->require_permission($pageCode, 'edit');
+        if (!$this->require_order_monitor_task_csrf()) {
+            return;
+        }
+
         $payload = $this->request_payload();
-        $monitorScope = $this->current_actor_monitor_scope();
         $taskId = max(0, (int)($payload['task_id'] ?? 0));
         if ($taskId <= 0) {
             $this->json_error('Task monitor tidak valid.', 422);
             return;
         }
 
+        $actorEmployeeId = $this->current_actor_employee_id();
+        $monitorScope = $this->current_actor_monitor_scope();
         if ($action === 'ack') {
-            $ok = $this->Pos_order_monitor_model->ack_task($taskId, $this->current_actor_employee_id(), $monitorScope);
+            $ok = $this->Pos_order_monitor_model->ack_task($taskId, $actorEmployeeId, $monitorScope);
             $errorMessage = 'Task gagal diterima.';
         } elseif ($action === 'ready') {
-            $ok = $this->Pos_order_monitor_model->ready_task($taskId, $this->current_actor_employee_id(), $monitorScope);
+            $ok = $this->Pos_order_monitor_model->ready_task($taskId, $actorEmployeeId, $monitorScope);
             $errorMessage = 'Task gagal ditandai siap.';
         } else {
-            $ok = $this->Pos_order_monitor_model->checker_task($taskId, $this->current_actor_employee_id(), $monitorScope);
+            $ok = $this->Pos_order_monitor_model->checker_task($taskId, $actorEmployeeId, $monitorScope);
             $errorMessage = 'Task checker gagal diselesaikan.';
         }
 
@@ -5873,6 +6188,120 @@ public function self_order_tables_print()
         }
 
         $this->json_ok(['task_id' => $taskId]);
+    }
+
+    private function handle_order_monitor_bulk_action(string $action): void
+    {
+        $pageCode = 'pos.order.monitor.index';
+        $this->require_permission($pageCode, 'edit');
+        if (!$this->require_order_monitor_task_csrf()) {
+            return;
+        }
+
+        $payload = $this->request_payload();
+        $orderId = $this->parse_positive_order_monitor_id($payload['order_id'] ?? null);
+        $stationRoleValue = $payload['station_role'] ?? null;
+        $stationRole = is_string($stationRoleValue) ? strtoupper(trim($stationRoleValue)) : '';
+
+        if ($action !== 'checker' && ($orderId === null || !in_array($stationRole, ['BAR', 'KITCHEN'], true))) {
+            $this->json_error('Order atau stasiun monitor tidak valid.', 422);
+            return;
+        }
+        if ($action === 'checker' && $orderId === null) {
+            $this->json_error('Order monitor tidak valid.', 422);
+            return;
+        }
+
+        $actorEmployeeId = $this->current_actor_employee_id();
+        $monitorScope = $this->current_actor_monitor_scope();
+        if ($action === 'ack') {
+            $ok = $this->Pos_order_monitor_model->ack_order_station($orderId, $stationRole, $actorEmployeeId, $monitorScope);
+            $errorMessage = 'Task stasiun gagal diterima.';
+        } elseif ($action === 'ready') {
+            $ok = $this->Pos_order_monitor_model->ready_order_station($orderId, $stationRole, $actorEmployeeId, $monitorScope);
+            $errorMessage = 'Task stasiun gagal ditandai siap.';
+        } else {
+            $ok = $this->Pos_order_monitor_model->checker_order($orderId, $actorEmployeeId, $monitorScope);
+            $errorMessage = 'Task checker gagal diselesaikan.';
+        }
+
+        if (!$ok) {
+            $this->json_error($errorMessage, 422);
+            return;
+        }
+
+        if ($action === 'checker') {
+            $this->json_ok(['order_id' => $orderId]);
+            return;
+        }
+        $this->json_ok(['order_id' => $orderId, 'station_role' => $stationRole]);
+    }
+
+    private function parse_positive_order_monitor_id($value): ?int
+    {
+        if (is_bool($value) || is_float($value) || is_array($value) || is_object($value)) {
+            return null;
+        }
+
+        $value = trim((string)$value);
+        if (preg_match('/\A[1-9][0-9]*\z/D', $value) !== 1) {
+            return null;
+        }
+
+        $parsed = filter_var($value, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        return $parsed === false ? null : (int)$parsed;
+    }
+
+    private function order_monitor_task_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::POS_ORDER_MONITOR_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::POS_ORDER_MONITOR_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_order_monitor_task_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_order_monitor_task_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = trim((string)$this->input->get_request_header(self::POS_ORDER_MONITOR_CSRF_CI_HEADER, true));
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_order_monitor_task_csrf(403, 'Permintaan task order monitor tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::POS_ORDER_MONITOR_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-fA-F]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_order_monitor_task_csrf(403, 'Permintaan task order monitor tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_order_monitor_task_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     private function current_actor_monitor_scope(): array
@@ -6129,6 +6558,90 @@ public function self_order_tables_print()
         return is_array($decoded) ? $decoded : $_POST;
     }
 
+    private function parse_positive_runtime_id($value): ?int
+    {
+        if (is_bool($value) || is_float($value) || is_array($value) || is_object($value)) {
+            return null;
+        }
+
+        $value = trim((string)$value);
+        if (preg_match('/\A[1-9][0-9]*\z/D', $value) !== 1) {
+            return null;
+        }
+
+        $parsed = filter_var($value, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        return $parsed === false ? null : (int)$parsed;
+    }
+
+    private function pos_transaction_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::POS_TRANSACTION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::POS_TRANSACTION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_pos_transaction_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_pos_transaction_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        // CI normalizes CGI/FastCGI names to title case (for example, ...-Csrf).
+        // Keep the browser-facing contract above, but use that canonical name for
+        // the request lookup so this guard is safe with exact-key input doubles too.
+        $providedToken = trim((string)$this->input->get_request_header(self::POS_TRANSACTION_CSRF_CI_HEADER, true));
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_pos_transaction_csrf(403, 'Permintaan transaksi POS tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::POS_TRANSACTION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-fA-F]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_pos_transaction_csrf(403, 'Permintaan transaksi POS tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_pos_transaction_csrf(int $statusCode, string $message): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function reject_pos_runtime_job_trigger(int $statusCode, string $message, array $data = []): void
+    {
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ] + $data, JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
     private function save_printer_template_from_form(int $id): array
     {
         $documentType = strtoupper(trim((string)$this->input->post('document_type', true)));
@@ -6231,7 +6744,6 @@ public function self_order_tables_print()
                 'base_url' => rtrim(base_url(), '/'),
                 'endpoint' => '/pos/printers/bootstrap',
                 'key' => trim((string)getenv('POS_PRINTER_BOOTSTRAP_KEY')),
-                'key_query_param' => 'key',
                 'agent_name_param' => 'agent_name',
                 'refresh_seconds' => 30,
                 'timeout_seconds' => 8,
@@ -6269,20 +6781,24 @@ public function self_order_tables_print()
     {
         $expectedKey = trim((string)getenv('POS_PRINTER_BOOTSTRAP_KEY'));
         if ($expectedKey === '') {
-            return true;
+            $this->output
+                ->set_status_header(503)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => 'error',
+                    'message' => 'Printer agent tidak tersedia.',
+                ], JSON_INVALID_UTF8_SUBSTITUTE));
+            return false;
         }
 
         $providedKey = trim((string)$this->input->get_request_header('X-Printer-Key', true));
-        if ($providedKey === '') {
-            $providedKey = trim((string)$this->input->get('key', true));
-        }
-        if (!hash_equals($expectedKey, $providedKey)) {
+        if ($providedKey === '' || !hash_equals($expectedKey, $providedKey)) {
             $this->output
                 ->set_status_header(403)
                 ->set_content_type('application/json')
                 ->set_output(json_encode([
                     'status' => 'error',
-                    'message' => 'Printer agent key tidak valid.',
+                    'message' => 'Akses printer agent ditolak.',
                 ], JSON_INVALID_UTF8_SUBSTITUTE));
             return false;
         }

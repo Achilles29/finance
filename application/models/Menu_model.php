@@ -20,7 +20,7 @@ class Menu_model extends CI_Model
      */
     public function get_sidebar_tree(array $perms, bool $is_superadmin, string $type = 'MAIN'): array
     {
-        $this->db->select('m.id, m.parent_id, m.menu_code, m.menu_label, m.icon, m.url, m.page_id, m.sort_order, p.page_code');
+        $this->db->select('m.id, m.parent_id, m.menu_code, m.menu_label, m.icon, m.url, m.page_id, m.sort_order, m.is_active, p.page_code, p.is_active AS page_is_active');
         $this->db->from('sys_menu m');
         $this->db->join('sys_page p', 'p.id = m.page_id', 'left');
         $this->db->where('m.is_active', 1);
@@ -32,21 +32,11 @@ class Menu_model extends CI_Model
         $allowed = [];
         foreach ($rows as $row) {
             $row = $this->normalize_sidebar_menu_row($row);
-            // Tidak ada page_id = selalu tampil (heading/grup)
-            if (empty($row['page_id'])) {
-                $allowed[$row['id']] = $row;
+            if (!$this->is_menu_accessible_for_user($row, $perms, $is_superadmin)) {
                 continue;
             }
-            // Superadmin bypass
-            if ($is_superadmin) {
-                $allowed[$row['id']] = $row;
-                continue;
-            }
-            // Cek can_view
-            $code = $row['page_code'] ?? '';
-            if (!empty($perms[$code]['can_view'])) {
-                $allowed[$row['id']] = $row;
-            }
+            $row['is_favoritable'] = $this->is_favoritable_menu_for_user($row, $perms, $is_superadmin);
+            $allowed[$row['id']] = $row;
         }
 
         return $this->_build_tree($allowed);
@@ -69,52 +59,118 @@ class Menu_model extends CI_Model
     // FAVORITES
     // ---------------------------------------------------------------
 
-    public function get_favorites(int $user_id): array
+    public function is_menu_accessible_for_user(array $row, array $perms, bool $is_superadmin): bool
     {
-        $this->db->select('f.id, f.menu_id, f.sort_order, m.menu_label, m.icon, m.url');
+        if (empty($row['is_active']) || (int)$row['is_active'] !== 1) {
+            return false;
+        }
+
+        $url = trim((string)($row['url'] ?? ''));
+        $hasRealUrl = $url !== '' && $url !== '#' && stripos($url, 'javascript:') !== 0;
+        if (empty($row['page_id'])) {
+            return !$hasRealUrl;
+        }
+
+        $pageCode = trim((string)($row['page_code'] ?? ''));
+        if ($pageCode === '' || empty($row['page_is_active']) || (int)$row['page_is_active'] !== 1) {
+            return false;
+        }
+        if ($is_superadmin) {
+            return true;
+        }
+
+        return !empty($perms[$pageCode]['can_view']);
+    }
+
+    public function is_favoritable_menu_for_user(array $row, array $perms, bool $is_superadmin): bool
+    {
+        if (!$this->is_menu_accessible_for_user($row, $perms, $is_superadmin)) {
+            return false;
+        }
+
+        $url = trim((string)($row['url'] ?? ''));
+        return $url !== '' && $url !== '#' && stripos($url, 'javascript:') !== 0;
+    }
+
+    public function find_favoritable_menu_for_user(int $menu_id, array $perms, bool $is_superadmin): ?array
+    {
+        $row = $this->db
+            ->select('m.id, m.menu_label, m.icon, m.url, m.page_id, m.is_active, p.page_code, p.is_active AS page_is_active')
+            ->from('sys_menu m')
+            ->join('sys_page p', 'p.id = m.page_id', 'left')
+            ->where('m.id', $menu_id)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$row) {
+            return null;
+        }
+
+        $row = $this->normalize_sidebar_menu_row($row);
+        return $this->is_favoritable_menu_for_user($row, $perms, $is_superadmin) ? $row : null;
+    }
+
+    public function get_favorites(int $user_id, array $perms, bool $is_superadmin): array
+    {
+        $this->db->select('f.id, f.menu_id, f.sort_order, m.menu_label, m.icon, m.url, m.page_id, m.is_active, p.page_code, p.is_active AS page_is_active');
         $this->db->from('sys_sidebar_favorite f');
         $this->db->join('sys_menu m', 'm.id = f.menu_id');
+        $this->db->join('sys_page p', 'p.id = m.page_id', 'left');
         $this->db->where('f.user_id', $user_id);
-        $this->db->where('m.is_active', 1);
         $this->db->order_by('f.sort_order', 'ASC');
         $rows = $this->db->get()->result_array();
-        return array_map([$this, 'normalize_sidebar_menu_row'], $rows);
-    }
-
-    public function pin_favorite(int $user_id, int $menu_id): void
-    {
-        $max = $this->db->select_max('sort_order')->where('user_id', $user_id)
-            ->get('sys_sidebar_favorite')->row();
-        $next_order = (int)($max->sort_order ?? 0) + 1;
-
-        // Insert or ignore jika sudah ada
-        $exists = $this->db->get_where('sys_sidebar_favorite', [
-            'user_id' => $user_id, 'menu_id' => $menu_id
-        ])->num_rows();
-
-        if (!$exists) {
-            $this->db->insert('sys_sidebar_favorite', [
-                'user_id'    => $user_id,
-                'menu_id'    => $menu_id,
-                'sort_order' => $next_order,
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
+        $favorites = [];
+        foreach ($rows as $row) {
+            $row = $this->normalize_sidebar_menu_row($row);
+            if ($this->is_favoritable_menu_for_user($row, $perms, $is_superadmin)) {
+                $favorites[] = $row;
+            }
         }
+        return $favorites;
     }
 
-    public function unpin_favorite(int $user_id, int $menu_id): void
+    public function pin_favorite(int $user_id, int $menu_id): bool
     {
-        $this->db->where('user_id', $user_id)->where('menu_id', $menu_id)
+        if ($user_id <= 0 || $menu_id <= 0) {
+            return false;
+        }
+
+        $sql = 'INSERT INTO sys_sidebar_favorite (user_id, menu_id, sort_order, created_at) '
+            . 'SELECT ?, ?, COALESCE(MAX(sort_order), 0) + 1, ? '
+            . 'FROM sys_sidebar_favorite WHERE user_id = ? '
+            . 'ON DUPLICATE KEY UPDATE menu_id = VALUES(menu_id)';
+
+        return (bool)$this->db->query($sql, [
+            $user_id,
+            $menu_id,
+            date('Y-m-d H:i:s'),
+            $user_id,
+        ]);
+    }
+
+    public function unpin_favorite(int $user_id, int $menu_id): bool
+    {
+        return (bool)$this->db->where('user_id', $user_id)->where('menu_id', $menu_id)
             ->delete('sys_sidebar_favorite');
     }
 
-    public function reorder_favorites(int $user_id, array $menu_ids): void
+    public function get_favorite_menu_ids_for_user(int $user_id, array $perms, bool $is_superadmin): array
     {
+        return array_map(static function (array $row): int {
+            return (int)($row['menu_id'] ?? 0);
+        }, $this->get_favorites($user_id, $perms, $is_superadmin));
+    }
+
+    public function reorder_favorites(int $user_id, array $menu_ids): bool
+    {
+        $this->db->trans_start();
         $order = 1;
         foreach ($menu_ids as $menu_id) {
             $this->db->where('user_id', $user_id)->where('menu_id', (int)$menu_id)
                 ->update('sys_sidebar_favorite', ['sort_order' => $order++]);
         }
+        $this->db->trans_complete();
+        return $this->db->trans_status() !== false;
     }
 
     public function get_favorite_summary(): array
@@ -195,6 +251,78 @@ class Menu_model extends CI_Model
         return array_map([$this, 'normalize_sidebar_menu_row'], $rows);
     }
 
+    /**
+     * Read-only health check for the canonical sys_page/sys_menu foundation.
+     * Counts represent issue groups; details remain bounded for the admin UI.
+     */
+    public function validate_navigation_registry(int $detailLimit = 25): array
+    {
+        $detailLimit = max(1, min(100, $detailLimit));
+        $realUrl = "TRIM(COALESCE(m.url, '')) <> ''"
+            . " AND TRIM(COALESCE(m.url, '')) <> '#'"
+            . " AND LOWER(TRIM(COALESCE(m.url, ''))) NOT IN ('javascript:void(0)', 'javascript:void(0);')";
+        $normalizedUrl = "LOWER(TRIM(BOTH '/' FROM TRIM(COALESCE(m.url, ''))))";
+
+        $queries = [
+            'missing_page' => "SELECT m.id, m.menu_code, m.menu_label, m.url, m.page_id, p.page_code, p.is_active AS page_is_active
+                FROM sys_menu m LEFT JOIN sys_page p ON p.id = m.page_id
+                WHERE m.is_active = 1 AND {$realUrl} AND (m.page_id IS NULL OR p.id IS NULL OR p.is_active <> 1)
+                ORDER BY m.id ASC",
+            'missing_icon' => "SELECT m.id, m.menu_code, m.menu_label, m.parent_id, m.sort_order
+                FROM sys_menu m
+                WHERE m.is_active = 1 AND TRIM(COALESCE(m.icon, '')) = ''
+                ORDER BY m.id ASC",
+            'duplicate_url' => "SELECT {$normalizedUrl} AS canonical_url, COUNT(*) AS total_rows,
+                    GROUP_CONCAT(m.id ORDER BY m.id) AS menu_ids,
+                    GROUP_CONCAT(m.menu_code ORDER BY m.id SEPARATOR ', ') AS menu_codes
+                FROM sys_menu m
+                WHERE m.is_active = 1 AND {$realUrl}
+                GROUP BY {$normalizedUrl} HAVING COUNT(*) > 1
+                ORDER BY canonical_url ASC",
+            'duplicate_code' => "SELECT LOWER(TRIM(m.menu_code)) AS canonical_code, COUNT(*) AS total_rows,
+                    GROUP_CONCAT(m.id ORDER BY m.id) AS menu_ids
+                FROM sys_menu m
+                WHERE m.is_active = 1
+                GROUP BY LOWER(TRIM(m.menu_code)) HAVING COUNT(*) > 1
+                ORDER BY canonical_code ASC",
+            'sort_collision' => "SELECT m.sidebar_type, COALESCE(m.parent_id, 0) AS parent_id, m.sort_order,
+                    COUNT(*) AS total_rows, GROUP_CONCAT(m.id ORDER BY m.id) AS menu_ids,
+                    GROUP_CONCAT(m.menu_code ORDER BY m.id SEPARATOR ', ') AS menu_codes
+                FROM sys_menu m
+                WHERE m.is_active = 1
+                GROUP BY m.sidebar_type, COALESCE(m.parent_id, 0), m.sort_order HAVING COUNT(*) > 1
+                ORDER BY m.sidebar_type, parent_id, m.sort_order",
+            'invalid_favorite' => "SELECT f.id, f.user_id, f.menu_id, m.menu_code, m.url, m.is_active
+                FROM sys_sidebar_favorite f LEFT JOIN sys_menu m ON m.id = f.menu_id
+                LEFT JOIN sys_page p ON p.id = m.page_id
+                WHERE m.id IS NULL OR m.is_active <> 1
+                   OR TRIM(COALESCE(m.url, '')) IN ('', '#', 'javascript:void(0)', 'javascript:void(0);')
+                   OR (m.page_id IS NOT NULL AND (p.id IS NULL OR p.is_active <> 1))
+                ORDER BY f.id ASC",
+            'invalid_group_url' => "SELECT DISTINCT m.id, m.menu_code, m.menu_label, m.url
+                FROM sys_menu m INNER JOIN sys_menu child ON child.parent_id = m.id AND child.is_active = 1
+                WHERE m.is_active = 1 AND {$realUrl}
+                ORDER BY m.id ASC",
+        ];
+
+        $counts = [];
+        $details = [];
+        foreach ($queries as $issueCode => $sql) {
+            $query = $this->db->query($sql);
+            $rows = $query ? $query->result_array() : [];
+            $counts[$issueCode] = count($rows);
+            $details[$issueCode] = array_slice($rows, 0, $detailLimit);
+        }
+
+        return [
+            'ok' => true,
+            'total_issues' => array_sum($counts),
+            'issue_counts' => $counts,
+            'details' => $details,
+            'detail_limit' => $detailLimit,
+        ];
+    }
+
     public function get_menu_by_id(int $id): ?array
     {
         $row = $this->db->get_where('sys_menu', ['id' => $id])->row_array() ?: null;
@@ -269,14 +397,8 @@ class Menu_model extends CI_Model
 
     private function normalize_sidebar_menu_row(array $row): array
     {
-        $url = trim((string)($row['url'] ?? ''));
-        $aliasMap = [
-            '/master/company-account' => '/finance/accounts',
-            'master/company-account' => 'finance/accounts',
-        ];
-
-        if ($url !== '' && isset($aliasMap[$url])) {
-            $row['url'] = $aliasMap[$url];
+        if (array_key_exists('url', $row) && $row['url'] !== null) {
+            $row['url'] = trim((string)$row['url']);
         }
 
         return $row;

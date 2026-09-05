@@ -11,6 +11,7 @@ $auditRows = (array)($detail['audit_rows'] ?? []);
 $editability = (array)($editability ?? []);
 $editabilityData = (array)($editability['data'] ?? []);
 $editMode = (string)($editabilityData['mode'] ?? '');
+$purchaseMutationCsrfToken = (string)($purchase_mutation_csrf_token ?? '');
 
 $currentStatus = strtoupper((string)($order['status'] ?? 'DRAFT'));
 $timelineStatus = $currentStatus === 'CLOSED' ? 'PAID' : $currentStatus;
@@ -554,7 +555,7 @@ if (!function_exists('finance_po_usage_purpose_from_notes')) {
 
         fetch(endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Purchase-Mutation-CSRF': <?php echo json_encode($purchaseMutationCsrfToken); ?> },
             body: JSON.stringify({ purchase_order_id: poId, status: nextStatus })
         })
         .then(parseJsonResponse)
@@ -584,7 +585,7 @@ if (!function_exists('finance_po_usage_purpose_from_notes')) {
 
             fetch(endpoint, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Purchase-Mutation-CSRF': <?php echo json_encode($purchaseMutationCsrfToken); ?> },
                 body: JSON.stringify({ purchase_order_id: poId, status: String(reconcileBtn.getAttribute('data-status') || '').toUpperCase() })
             })
             .then(parseJsonResponse)

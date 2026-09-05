@@ -23,7 +23,7 @@ $cronExample    = rtrim($financeRoot, '/\\') . DIRECTORY_SEPARATOR . 'scripts' .
   <div>
     <p class="fin-breadcrumb">Sistem / Panduan</p>
     <h4 class="fin-page-title"><i class="ri ri-database-2-line me-1 text-primary"></i>Backup Database — Skema 1</h4>
-    <p class="fin-page-subtitle mb-0">Backup otomatis via mysqldump + push ke GitHub. Data disimpan lokal 3 hari.</p>
+    <p class="fin-page-subtitle mb-0">Backup otomatis via mysqldump. Dump dan log disimpan lokal sesuai masa retensi.</p>
   </div>
   <div class="fin-page-actions">
     <a href="<?php echo site_url('dbtools'); ?>" class="btn btn-outline-info btn-sm">
@@ -80,7 +80,7 @@ $cronExample    = rtrim($financeRoot, '/\\') . DIRECTORY_SEPARATOR . 'scripts' .
         <div class="text-muted small mb-2">Di folder <code>scripts/backup/</code>, salin .env.example menjadi .env lalu isi sesuai server kamu.</div>
         <pre class="guide-code">cd <?php echo htmlspecialchars(rtrim($financeRoot, '/\\')); ?>/scripts/backup
 cp .env.example .env
-nano .env        # Edit DB_USER, DB_PASS, DB_NAME, BACKUP_REPO_REMOTE, dst.</pre>
+nano .env        # Edit DB_USER, DB_PASS, DB_NAME, RETENTION_DAYS, dst.</pre>
       </div>
     </div>
 
@@ -98,7 +98,7 @@ chmod +x <?php echo htmlspecialchars(rtrim($financeRoot, '/\\')); ?>/scripts/rep
       <div class="flex-fill">
         <div class="fw-semibold mb-1">Test manual sekali</div>
         <pre class="guide-code"><?php echo htmlspecialchars(rtrim($financeRoot, '/\\')); ?>/scripts/backup/backup_full.sh</pre>
-        <div class="text-muted small mt-1">Cek apakah file .sql.gz muncul di <code>backup/dumps/</code> dan push ke GitHub berhasil.</div>
+        <div class="text-muted small mt-1">Cek apakah file .sql.gz muncul di <code>backup/dumps/</code>. Runner ini menyimpan backup lokal saja.</div>
       </div>
     </div>
 
@@ -164,11 +164,9 @@ Arguments: /c "<?php echo htmlspecialchars(rtrim($financeRoot, '/\\')); ?>\scrip
   <div class="card-body">
     <div class="fw-bold mb-2"><i class="ri ri-alert-line me-1 text-warning"></i>Catatan Penting</div>
     <ul class="mb-0 small">
-      <li>File dump <strong>tidak ditrack git</strong> (ada di .gitignore) — hanya file log yang masuk repo.</li>
-      <li>GitHub memiliki limit <strong>100MB per file</strong>. Jika DB sangat besar, tambahkan tabel log besar ke <code>EXCLUDE_TABLES</code> di .env.</li>
-      <li>Pastikan git user sudah dikonfigurasi dan SSH key sudah terhubung ke GitHub di server.</li>
+      <li>File dump dan log hasil runner diabaikan oleh kontrol versi; placeholder <code>.gitkeep</code> tetap dipertahankan.</li>
       <li>File dump lokal otomatis dihapus setelah <strong>3 hari</strong> (konfigurasi <code>RETENTION_DAYS</code>).</li>
-      <li>Backup di GitHub tersimpan selamanya sesuai riwayat commit.</li>
+      <li>Jika membutuhkan salinan di luar host, konfigurasi backup off-site terenkripsi secara terpisah dari runner ini.</li>
     </ul>
   </div>
 </div>

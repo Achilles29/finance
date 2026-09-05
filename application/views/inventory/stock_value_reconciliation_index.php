@@ -3,6 +3,7 @@ $contextInput = is_array($context_input ?? null) ? $context_input : [];
 $context = is_array($context ?? null) ? $context : [];
 $records = is_array($records ?? null) ? $records : [];
 $valueCandidates = is_array($value_candidates ?? null) ? $value_candidates : [];
+$hppSuggestions = is_array($hpp_suggestions ?? null) ? $hpp_suggestions : [];
 $candidateFilters = is_array($candidate_filters ?? null) ? $candidate_filters : [];
 $schemaReady = !empty($schema_ready);
 $canPost = !empty($can_post);
@@ -23,6 +24,10 @@ $contextFields = [
 ];
 $domainLabel = strtoupper((string)($contextInput['stock_domain'] ?? '')) === 'COMPONENT' ? 'Component' : 'Bahan baku';
 $uomCode = (string)($stock['uom_code'] ?? '');
+$mutationCsrfName = (string)($inventory_control_mutation_csrf_name ?? '');
+$mutationCsrfValue = (string)($inventory_control_mutation_csrf_value ?? '');
+$hasMutationCsrf = $mutationCsrfName !== '' && $mutationCsrfValue !== '';
+$canVoid = $canPost && $hasMutationCsrf;
 $healthUrl = (string)($health_url ?? site_url('inventory/stock/health'));
 $candidateMonth = (string)($candidateFilters['month'] ?? $contextInput['month'] ?? date('Y-m-01'));
 $candidateUrl = static function (array $row) use ($candidateMonth): string {
@@ -91,14 +96,33 @@ $candidateUrl = static function (array $row) use ($candidateMonth): string {
           <div class="vr-card is-alert"><span>Selisih nilai</span><strong><?php echo $fmtMoney($context['value_gap'] ?? 0); ?></strong><small>Stok sistem dikurangi nilai lot OPEN</small></div>
         </div>
 
-        <?php if (!empty($context['can_post']) && $schemaReady && $canPost): ?>
+        <?php if (strtoupper((string)($contextInput['stock_domain'] ?? '')) === 'COMPONENT' && !empty($hppSuggestions['sources'])): ?>
+          <div class="border rounded-3 p-3 mb-3" style="border-color:#e8cfc4 !important;background:#fffaf7">
+            <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+              <div><strong style="color:#45261d">Saran HPP/unit untuk verifikasi</strong><div class="small text-muted">Saran ini hanya membantu memilih angka. Tidak ada yang diposting otomatis.</div></div>
+              <?php if ((float)($hppSuggestions['recommended_hpp'] ?? 0) > 0): ?><span class="badge rounded-pill text-bg-success">Rekomendasi: <?php echo $fmtCost($hppSuggestions['recommended_hpp']); ?></span><?php endif; ?>
+            </div>
+            <?php if (!empty($hppSuggestions['warning'])): ?><div class="alert alert-warning py-2 px-3 mt-2 mb-2 small"><?php echo html_escape((string)$hppSuggestions['warning']); ?></div><?php endif; ?>
+            <div class="table-responsive mt-2"><table class="table table-sm mb-0 align-middle" style="font-size:.76rem">
+              <thead><tr><th>Sumber</th><th class="text-end">HPP/unit</th><th>Keterangan</th><?php if (!empty($context['can_post']) && $schemaReady && $canPost && $hasMutationCsrf): ?><th class="text-center">Pakai</th><?php endif; ?></tr></thead>
+              <tbody>
+                <tr><td>HPP stok bulanan saat ini</td><td class="text-end fw-bold"><?php echo $fmtCost($hppSuggestions['stock_hpp'] ?? 0); ?></td><td class="text-muted">Angka diagnostik dari saldo; jangan dipakai bila nol/negatif.</td><?php if (!empty($context['can_post']) && $schemaReady && $canPost && $hasMutationCsrf): ?><td></td><?php endif; ?></tr>
+                <?php foreach ($hppSuggestions['sources'] as $source): ?>
+                  <tr><td><?php echo html_escape((string)($source['label'] ?? '-')); ?></td><td class="text-end fw-bold"><?php echo $fmtCost($source['value'] ?? 0); ?></td><td class="text-muted"><?php echo html_escape((string)($source['note'] ?? '')); ?></td><?php if (!empty($context['can_post']) && $schemaReady && $canPost && $hasMutationCsrf): ?><td class="text-center"><?php if (!empty($source['usable'])): ?><button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 hpp-suggestion-btn" data-hpp-value="<?php echo html_escape((string)$source['value']); ?>" data-resolution-mode="<?php echo html_escape((string)($source['resolution_mode'] ?? 'MANUAL_TOTAL_VALUE')); ?>">Pakai</button><?php endif; ?></td><?php endif; ?></tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table></div>
+          </div>
+        <?php endif; ?>
+
+        <?php if (!empty($context['can_post']) && $schemaReady && $canPost && $hasMutationCsrf): ?>
           <form method="post" action="<?php echo site_url('inventory/stock/value-reconciliation/post'); ?>">
-            <input type="hidden" name="<?php echo html_escape((string)($csrfName ?? '')); ?>" value="<?php echo html_escape((string)($csrfHash ?? '')); ?>">
+            <input type="hidden" name="<?php echo html_escape($mutationCsrfName); ?>" value="<?php echo html_escape($mutationCsrfValue); ?>">
             <?php foreach ($contextFields as $field): ?><input type="hidden" name="<?php echo html_escape($field); ?>" value="<?php echo html_escape((string)($contextInput[$field] ?? '')); ?>"><?php endforeach; ?>
             <div class="vr-form-grid">
               <div class="wide"><label class="form-label small fw-bold">Nilai mana yang sudah Anda verifikasi benar?</label><select class="form-select" name="resolution_mode" id="resolutionMode" required><option value="LOT_TO_STOCK">Nilai lot OPEN benar: samakan nilai stok sistem dengan lot</option><option value="STOCK_TO_LOT">Nilai stok sistem benar: samakan biaya lot OPEN dengan stok</option><option value="MANUAL_TOTAL_VALUE">Saya punya total nilai hasil verifikasi: samakan keduanya ke angka itu</option></select></div>
               <div class="wide"><div class="vr-mode-help" id="resolutionHelp">Pilihan pertama hanya mengubah nilai stok bulan aktif. Nilai dan biaya lot OPEN tetap seperti sekarang.</div></div>
-              <div id="manualValueWrap" style="display:none"><label class="form-label small fw-bold">Total nilai hasil verifikasi</label><input class="form-control" type="number" min="0" step="0.01" name="manual_total_value" id="manualTotalValue" placeholder="Contoh: 44000"></div>
+              <div id="manualValueWrap" class="wide" style="display:none"><div class="row g-2"><div class="col-md-5"><label class="form-label small fw-bold">HPP/unit hasil verifikasi</label><input class="form-control" type="number" min="0" step="0.000001" name="manual_unit_cost" id="manualUnitCost" placeholder="Contoh: 12500"><div class="form-text">Jika diisi, total otomatis = qty stok × HPP/unit.</div></div><div class="col-md-7"><label class="form-label small fw-bold">Total nilai hasil verifikasi</label><input class="form-control" type="number" min="0" step="0.01" name="manual_total_value" id="manualTotalValue" placeholder="Contoh: 44000"><div class="form-text" id="manualCalcHint">Boleh isi total langsung bila HPP/unit belum diketahui.</div></div></div></div>
               <div><label class="form-label small fw-bold">Alasan</label><select class="form-select" name="reason" required><option value="">Pilih alasan</option><option value="LOT_VALUE_MISSING">Nilai lot belum terbawa</option><option value="MONTHLY_VALUE_MISSING">Nilai stok bulanan belum terbawa</option><option value="OPEN_LOT_VALUE_MISMATCH">Nilai lot aktif dan stok berbeda</option><option value="CUT_OFF_VERIFIED">Diverifikasi saat cut-off</option><option value="OTHER">Lainnya</option></select></div>
               <div><label class="form-label small fw-bold">Ketik konfirmasi</label><input class="form-control" name="confirmation" required placeholder="NILAI" autocomplete="off"></div>
               <div class="wide"><label class="form-label small fw-bold">Catatan pemeriksaan</label><textarea class="form-control" rows="2" name="notes" placeholder="Sebutkan dasar verifikasi, misalnya dokumen receipt, hasil cek lot, atau persetujuan penanggung jawab."></textarea></div>
@@ -119,7 +143,7 @@ $candidateUrl = static function (array $row) use ($candidateMonth): string {
     <section class="vr-panel mb-3"><div class="vr-panel-head"><h5>Lot OPEN yang dipakai dalam perhitungan</h5><small>Lot CLOSED tidak ditampilkan karena tidak termasuk saldo aktif.</small></div><div class="vr-table-wrap"><table class="table table-sm vr-table"><thead><tr><th>Lot</th><th class="text-end">Qty tersisa</th><th class="text-end">Biaya saat ini</th><th class="text-end">Nilai saat ini</th></tr></thead><tbody><?php if (empty($lots)): ?><tr><td colspan="4" class="text-center text-muted py-4">Tidak ada lot OPEN bersaldo.</td></tr><?php else: foreach ($lots as $lot): ?><?php $lotNo = trim((string)($lot['lot_no'] ?? '')); ?><tr><td><strong><?php echo html_escape($lotNo !== '' ? $lotNo : ('Lot #' . (int)($lot['id'] ?? 0))); ?></strong><div class="small text-muted">ID lot <?php echo (int)($lot['id'] ?? 0); ?></div></td><td class="text-end"><?php echo $fmtQty($lot['qty_balance'] ?? 0); ?> <?php echo html_escape($uomCode); ?></td><td class="text-end"><?php echo $fmtCost($lot['unit_cost'] ?? 0); ?></td><td class="text-end"><?php echo $fmtMoney((float)($lot['qty_balance'] ?? 0) * (float)($lot['unit_cost'] ?? 0)); ?></td></tr><?php endforeach; endif; ?></tbody></table></div></section>
   <?php endif; ?>
 
-  <section class="vr-panel vr-history"><div class="vr-panel-head"><h5>Riwayat koreksi nilai bulan ini</h5><small>Riwayat bersifat jejak audit. Kesalahan baru diperbaiki dengan dokumen baru, bukan mengubah dokumen lama.</small></div><div class="vr-table-wrap"><table class="table table-sm vr-table"><thead><tr><th>No. dokumen</th><th>Barang</th><th>Area</th><th class="text-end">Nilai sebelum</th><th class="text-end">Nilai sesudah</th><th>Cara koreksi</th><th>Alasan</th><th>Status</th><th>Waktu</th></tr></thead><tbody><?php if (empty($records)): ?><tr><td colspan="9" class="text-center text-muted py-4">Belum ada koreksi nilai pada bulan ini.</td></tr><?php else: foreach ($records as $record): ?><tr><td><strong><?php echo html_escape((string)($record['revaluation_no'] ?? '-')); ?></strong></td><td><?php echo html_escape((string)($record['inventory_name'] ?? '-')); ?></td><td><?php echo html_escape((string)($record['stock_scope'] ?? '-')); ?><div class="small text-muted"><?php echo html_escape((string)($record['location_type'] ?? '-')); ?></div></td><td class="text-end"><?php echo $fmtMoney($record['stock_value_before'] ?? 0); ?></td><td class="text-end"><?php echo $fmtMoney($record['stock_value_after'] ?? 0); ?></td><td><span class="vr-chip"><?php echo html_escape(str_replace('_', ' ', (string)($record['resolution_mode'] ?? '-'))); ?></span></td><td><?php echo html_escape((string)($record['reason'] ?? '-')); ?></td><td><span class="vr-chip"><?php echo html_escape((string)($record['status'] ?? '-')); ?></span></td><td><?php echo html_escape((string)($record['posted_at'] ?? $record['created_at'] ?? '-')); ?></td></tr><?php endforeach; endif; ?></tbody></table></div></section>
+  <section class="vr-panel vr-history"><div class="vr-panel-head"><h5>Riwayat koreksi nilai bulan ini</h5><small>Jika salah input, Superadmin dapat melakukan VOID selama belum ada perubahan lanjutan. Setelah VOID, nilai sebelum dokumen dipulihkan dan koreksi baru dapat dibuat.</small></div><div class="vr-table-wrap"><table class="table table-sm vr-table"><thead><tr><th>No. dokumen</th><th>Barang</th><th>Area</th><th class="text-end">Nilai sebelum</th><th class="text-end">Nilai sesudah</th><th>Cara koreksi</th><th>Alasan</th><th>Status</th><th>Waktu</th><th>Aksi</th></tr></thead><tbody><?php if (empty($records)): ?><tr><td colspan="10" class="text-center text-muted py-4">Belum ada koreksi nilai pada bulan ini.</td></tr><?php else: foreach ($records as $record): ?><?php $recordStatus = strtoupper(trim((string)($record['status'] ?? ''))); ?><tr><td><strong><?php echo html_escape((string)($record['revaluation_no'] ?? '-')); ?></strong></td><td><?php echo html_escape((string)($record['inventory_name'] ?? '-')); ?></td><td><?php echo html_escape((string)($record['stock_scope'] ?? '-')); ?><div class="small text-muted"><?php echo html_escape((string)($record['location_type'] ?? '-')); ?></div></td><td class="text-end"><?php echo $fmtMoney($record['stock_value_before'] ?? 0); ?></td><td class="text-end"><?php echo $fmtMoney($record['stock_value_after'] ?? 0); ?></td><td><span class="vr-chip"><?php echo html_escape(str_replace('_', ' ', (string)($record['resolution_mode'] ?? '-'))); ?></span></td><td><?php echo html_escape((string)($record['reason'] ?? '-')); ?></td><td><span class="vr-chip"><?php echo html_escape($recordStatus !== '' ? $recordStatus : '-'); ?></span><?php if ($recordStatus === 'VOID' && !empty($record['void_notes'])): ?><div class="small text-muted"><?php echo html_escape((string)$record['void_notes']); ?></div><?php endif; ?></td><td><?php echo html_escape((string)($record['voided_at'] ?? $record['posted_at'] ?? $record['created_at'] ?? '-')); ?></td><td><?php if ($recordStatus === 'POSTED' && $canVoid): ?><form method="post" action="<?php echo site_url('inventory/stock/value-reconciliation/void'); ?>" onsubmit="var n=window.prompt('Alasan VOID koreksi ini:','Salah input HPP, akan dikoreksi ulang'); if(n===null || n.trim()===''){return false;} this.elements.void_notes.value=n; return window.confirm('VOID dokumen ini dan pulihkan nilai sebelum koreksi?');"><input type="hidden" name="<?php echo html_escape($mutationCsrfName); ?>" value="<?php echo html_escape($mutationCsrfValue); ?>"><input type="hidden" name="revaluation_id" value="<?php echo (int)($record['id'] ?? 0); ?>"><input type="hidden" name="month" value="<?php echo html_escape($candidateMonth); ?>"><input type="hidden" name="void_notes" value=""><button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-2">Void</button></form><?php else: ?><span class="small text-muted">-</span><?php endif; ?></td></tr><?php endforeach; endif; ?></tbody></table></div></section>
 </div>
 
 <script>
@@ -129,6 +153,9 @@ $candidateUrl = static function (array $row) use ($candidateMonth): string {
   var wrap = document.getElementById('manualValueWrap');
   var input = document.getElementById('manualTotalValue');
   if (!mode || !help || !wrap || !input) return;
+  var unitInput = document.getElementById('manualUnitCost');
+  var calcHint = document.getElementById('manualCalcHint');
+  var stockQty = <?php echo json_encode((float)($context['stock_qty'] ?? 0)); ?>;
   var messages = {
     LOT_TO_STOCK: 'Nilai lot OPEN dianggap benar. Sistem hanya menyamakan nilai saldo stok bulan aktif dengan total nilai lot OPEN.',
     STOCK_TO_LOT: 'Nilai stok sistem dianggap benar. Sistem membagi ulang biaya lot OPEN secara proporsional agar totalnya sama dengan nilai stok.',
@@ -139,9 +166,44 @@ $candidateUrl = static function (array $row) use ($candidateMonth): string {
     help.textContent = messages[value] || messages.LOT_TO_STOCK;
     var manual = value === 'MANUAL_TOTAL_VALUE';
     wrap.style.display = manual ? '' : 'none';
-    input.required = manual;
-    if (!manual) input.value = '';
+    input.required = manual && (!unitInput || unitInput.value === '');
+    if (unitInput) unitInput.required = false;
+    if (!manual) {
+      input.value = '';
+      if (unitInput) unitInput.value = '';
+    }
   }
+  function syncUnitCost() {
+    if (!unitInput || !input || mode.value !== 'MANUAL_TOTAL_VALUE') return;
+    var unit = parseFloat(unitInput.value);
+    if (!isNaN(unit) && unit >= 0 && stockQty > 0) {
+      input.value = (stockQty * unit).toFixed(2);
+      input.readOnly = true;
+      input.required = false;
+      if (calcHint) calcHint.textContent = 'Total otomatis dari ' + stockQty.toFixed(4) + ' unit × HPP/unit.';
+    } else {
+      input.readOnly = false;
+      input.required = true;
+      if (calcHint) calcHint.textContent = 'Boleh isi total langsung bila HPP/unit belum diketahui.';
+    }
+  }
+  if (unitInput) unitInput.addEventListener('input', syncUnitCost);
+  input.addEventListener('input', function () {
+    if (unitInput && input.value !== '') unitInput.value = '';
+    input.readOnly = false;
+    input.required = mode.value === 'MANUAL_TOTAL_VALUE';
+  });
+  document.querySelectorAll('.hpp-suggestion-btn').forEach(function (button) {
+    button.addEventListener('click', function () {
+      mode.value = button.getAttribute('data-resolution-mode') || 'MANUAL_TOTAL_VALUE';
+      syncMode();
+      if (unitInput && mode.value === 'MANUAL_TOTAL_VALUE') {
+        unitInput.value = button.getAttribute('data-hpp-value') || '';
+        syncUnitCost();
+        unitInput.focus();
+      }
+    });
+  });
   mode.addEventListener('change', syncMode);
   syncMode();
 }());

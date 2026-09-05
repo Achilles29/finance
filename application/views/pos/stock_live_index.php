@@ -492,6 +492,7 @@ $divisions = is_array($filterOptions['divisions'] ?? null) ? $filterOptions['div
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  const posTransactionCsrfToken = <?php echo json_encode((string)($pos_transaction_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
   const initialFilters = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const defaultOutletId = parseInt(initialFilters.outlet_id || 0, 10) || 0;
   const state = {
@@ -633,6 +634,18 @@ document.addEventListener('DOMContentLoaded', function () {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(payload || {})
+    });
+    const text = await response.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch (e) { throw new Error('Response backend tidak valid: ' + String(text || '').slice(0, 180)); }
+    if (!response.ok || !json.ok) throw new Error(json.message || 'Gagal memproses aksi.');
+    return json;
+  }
+  async function postPosTransactionJson(url, payload) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Pos-Transaction-CSRF': posTransactionCsrfToken },
       body: JSON.stringify(payload || {})
     });
     const text = await response.text();
@@ -959,7 +972,7 @@ document.addEventListener('DOMContentLoaded', function () {
     this.disabled = true;
     this.innerHTML = '<span class="pos-stock-live-spinner me-2"></span>Rebuild total...';
     try {
-      const result = await postJson('<?php echo site_url('pos/stock-live/rebuild-all'); ?>', {
+      const result = await postPosTransactionJson('<?php echo site_url('pos/stock-live/rebuild-all'); ?>', {
         outlet_id: state.outlet_id,
         division_id: state.division_id
       });
@@ -1000,7 +1013,7 @@ document.addEventListener('DOMContentLoaded', function () {
       rebuildBtn.disabled = true;
       rebuildBtn.innerHTML = '<span class="pos-stock-live-spinner me-2"></span>Rebuild...';
       try {
-        await postJson('<?php echo site_url('pos/stock-live/rebuild'); ?>', {
+        await postPosTransactionJson('<?php echo site_url('pos/stock-live/rebuild'); ?>', {
           outlet_id: state.outlet_id,
           product_id: parseInt(rebuildBtn.dataset.productId || '0', 10) || 0
         });
@@ -1033,7 +1046,7 @@ document.addEventListener('DOMContentLoaded', function () {
     processAllActiveJobsBtn.disabled = true;
     processAllActiveJobsBtn.innerHTML = '<span class="pos-stock-live-spinner me-2"></span>Memproses pending...';
     try {
-      const result = await postJson('<?php echo site_url('pos/orders/runtime-jobs/process-all'); ?>', {
+      const result = await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-jobs/process-all'); ?>', {
         outlet_id: state.outlet_id,
         limit: 25
       });
@@ -1054,7 +1067,7 @@ document.addEventListener('DOMContentLoaded', function () {
     processBtn.disabled = true;
     processBtn.innerHTML = '<span class="pos-stock-live-spinner me-2"></span>Proses...';
     try {
-      await postJson('<?php echo site_url('pos/orders/runtime-jobs/trigger'); ?>/' + encodeURIComponent(processBtn.dataset.orderId || '0'), {
+      await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-jobs/trigger'); ?>/' + encodeURIComponent(processBtn.dataset.orderId || '0'), {
         job_id: parseInt(processBtn.dataset.jobId || '0', 10) || 0,
         limit: 1
       });
@@ -1081,7 +1094,7 @@ document.addEventListener('DOMContentLoaded', function () {
     retryBtn.disabled = true;
     retryBtn.innerHTML = '<span class="pos-stock-live-spinner me-2"></span>Retry...';
     try {
-      await postJson('<?php echo site_url('pos/orders/runtime-jobs/retry'); ?>/' + encodeURIComponent(retryBtn.dataset.jobId || '0'), {});
+      await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-jobs/retry'); ?>/' + encodeURIComponent(retryBtn.dataset.jobId || '0'), {});
       await loadFailedJobs();
     } catch (e) {
       alert(e.message);

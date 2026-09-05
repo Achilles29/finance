@@ -4,6 +4,7 @@ $rows           = is_array($rows ?? null) ? $rows : [];
 $summary        = is_array($summary ?? null) ? $summary : [];
 $divisions      = is_array($divisions ?? null) ? $divisions : [];
 $locationOptions= is_array($location_options ?? null) ? $location_options : [];
+$canValueReconciliation = !empty($can_value_reconciliation);
 $asOfDate       = (string)($as_of_date ?? date('Y-m-d'));
 $dateFrom       = (string)($filters['date_from'] ?? date('Y-m-01'));
 $dateTo         = (string)($filters['date_to'] ?? $asOfDate);
@@ -312,6 +313,7 @@ $uniqueCompCount = count($uniqueComps);
               $locType   = (string)($row['location_type'] ?? '');
               $lotCount  = (int)($row['lot_count']    ?? 0);
               $lotRows   = is_array($row['lot_rows'] ?? null) ? $row['lot_rows'] : [];
+              $monthlyStockId = (int)($row['monthly_stock_id'] ?? 0);
               $defaultAdjCost = (float)($row['balance_avg_cost'] ?? 0);
               if ($defaultAdjCost <= 0 && !empty($lotRows)) {
                   foreach ($lotRows as $lotRow) {
@@ -324,6 +326,21 @@ $uniqueCompCount = count($uniqueComps);
               }
               $bKey      = 'cmp_' . $compId . '_' . $divId . '_' . $uomId . '_' . md5($locType);
               $mvtUrl    = site_url('production/component-movements') . '?' . http_build_query(['component_id' => $compId, 'division_id' => $divId, 'location_type' => $locType]);
+              $valueReconUrl = site_url('inventory/stock/value-reconciliation') . '?' . http_build_query([
+                  'month' => substr($asOfDate, 0, 7) . '-01',
+                  'stock_domain' => 'COMPONENT',
+                  'location_scope' => 'COMPONENT',
+                  'location_type' => $locType,
+                  'division_id' => $divId > 0 ? $divId : '',
+                  'component_id' => $compId,
+                  'uom_id' => $uomId,
+                  'monthly_stock_id' => $monthlyStockId,
+              ]);
+              $canOpenValueRecon = $canValueReconciliation
+                  && $monthlyStockId > 0
+                  && $hasValueMismatch
+                  && $qtyIsMatch
+                  && $asOfDate === date('Y-m-d');
               $searchStr = strtolower(implode(' ', [$row['component_name'] ?? '', $row['component_code'] ?? '', $row['component_type'] ?? '', $row['division_name'] ?? '', $locType, $isMatch ? 'match ok' : 'mismatch selisih']));
             ?>
             <tr class="recon-row" data-search="<?php echo html_escape($searchStr); ?>">
@@ -387,6 +404,9 @@ $uniqueCompCount = count($uniqueComps);
                     data-lot-qty="<?php echo html_escape((string)$lotQ); ?>"
                     data-movement-qty="<?php echo html_escape((string)$mvtQ); ?>"
                     title="Sinkronkan struktur lot ke saldo stok bulan aktif dan catat auditnya"><i class="ri ri-stack-line"></i></button>
+                  <?php endif; ?>
+                  <?php if ($canOpenValueRecon): ?>
+                  <a href="<?php echo html_escape($valueReconUrl); ?>" class="rec-icon-btn btn-outline-success" target="_blank" title="Koreksi HPP/nilai tanpa mengubah saldo qty"><i class="ri ri-money-dollar-circle-line"></i></a>
                   <?php endif; ?>
                   <a href="<?php echo html_escape($mvtUrl); ?>" class="rec-icon-btn btn-outline-info" target="_blank" title="Lihat movement log"><i class="ri ri-history-line"></i></a>
                   <?php if (empty($lotRows)): ?>

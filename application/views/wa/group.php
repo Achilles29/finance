@@ -3,6 +3,7 @@ $groups    = (array)($groups ?? []);
 $canCreate = (bool)($can_create ?? false);
 $canEdit   = (bool)($can_edit ?? false);
 $canDelete = (bool)($can_delete ?? false);
+$mutationCsrf = (string)($wa_template_group_mutation_csrf ?? '');
 ?>
 
 <style>
@@ -107,6 +108,9 @@ $canDelete = (bool)($can_delete ?? false);
             <i class="ri ri-edit-line"></i>
           </button>
           <form method="post" action="<?= site_url('wa/group') ?>" class="d-inline">
+            <?php if ($mutationCsrf !== ''): ?>
+            <input type="hidden" name="wa_template_group_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>">
+            <?php endif; ?>
             <input type="hidden" name="action" value="toggle">
             <input type="hidden" name="id" value="<?= (int)$grp['id'] ?>">
             <button type="submit" class="btn btn-xs <?= $grp['is_active'] ? 'btn-outline-warning' : 'btn-outline-success' ?>">
@@ -116,6 +120,9 @@ $canDelete = (bool)($can_delete ?? false);
           <?php endif; ?>
           <?php if ($canDelete): ?>
           <form method="post" action="<?= site_url('wa/group') ?>" class="d-inline ms-auto">
+            <?php if ($mutationCsrf !== ''): ?>
+            <input type="hidden" name="wa_template_group_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>">
+            <?php endif; ?>
             <input type="hidden" name="action" value="delete">
             <input type="hidden" name="id" value="<?= (int)$grp['id'] ?>">
             <button type="submit" class="btn btn-xs btn-outline-danger" onclick="return confirm('Hapus grup ini?')">
@@ -150,6 +157,9 @@ $canDelete = (bool)($can_delete ?? false);
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" action="<?= site_url('wa/group') ?>">
+        <?php if ($mutationCsrf !== ''): ?>
+        <input type="hidden" name="wa_template_group_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>">
+        <?php endif; ?>
         <input type="hidden" name="action" value="save">
         <input type="hidden" name="id" id="grp-id" value="0">
         <div class="modal-body">
@@ -202,6 +212,9 @@ $canDelete = (bool)($can_delete ?? false);
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" enctype="multipart/form-data" action="<?= site_url('wa/group') ?>">
+        <?php if ($mutationCsrf !== ''): ?>
+        <input type="hidden" name="wa_template_group_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>">
+        <?php endif; ?>
         <input type="hidden" name="action" value="send_group">
         <input type="hidden" name="id" id="send-group-id" value="">
         <div class="modal-body">

@@ -7,6 +7,7 @@ $accountBreakdown = (array)($account_breakdown ?? []);
 $scope    = (string)($scope ?? 'all');
 $filterMutationType = strtoupper((string)($filter_mutation_type ?? 'ALL'));
 $filterModule = strtoupper((string)($filter_module ?? 'ALL'));
+$purchaseMutationCsrfToken = (string)($purchase_mutation_csrf_token ?? '');
 
 $buildQuery = static function ($overrides = []) use ($filter_account_id, $date_from, $date_to, $pg, $scope, $filterMutationType, $filterModule): string {
     $base = [
@@ -789,6 +790,7 @@ $moduleFilterOptions = [
 <script>
 (function () {
   var storeUrl      = <?php echo json_encode($storeUrl); ?>;
+  var purchaseMutationCsrfToken = <?php echo json_encode($purchaseMutationCsrfToken); ?>;
   var alertArea     = document.getElementById('mut-alert-area');
   var modalAlert    = document.getElementById('mut-modal-alert');
   var mutTypeEl     = document.getElementById('mutation_type');
@@ -846,7 +848,7 @@ $moduleFilterOptions = [
 
     fetch(storeUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Purchase-Mutation-CSRF': purchaseMutationCsrfToken },
       body: JSON.stringify(payload)
     })
     .then(function (r) { return r.json().then(function (j) { return { status: r.status, json: j }; }); })

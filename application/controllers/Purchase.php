@@ -3,6 +3,14 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Purchase extends MY_Controller
 {
+    private const PURCHASE_MUTATION_CSRF_SESSION_KEY = 'purchase_mutation_csrf';
+    private const PURCHASE_MUTATION_CSRF_CI_HEADER = 'X-Purchase-Mutation-Csrf';
+    private const POS_TRANSACTION_CSRF_SESSION_KEY = 'pos_transaction_csrf';
+    private const PURCHASE_MAINTENANCE_CSRF_SESSION_KEY = 'purchase_maintenance_csrf';
+    private const INVENTORY_DIVISION_RECONCILE_CSRF_SESSION_KEY = 'inventory_division_reconcile_csrf';
+    private const INVENTORY_DIVISION_RECONCILE_CSRF_HEADER = 'X-Inventory-Reconcile-CSRF';
+    private const INVENTORY_DIVISION_RECONCILE_CSRF_CI_HEADER = 'X-Inventory-Reconcile-Csrf';
+
     const PAGE_ORDER = 'purchase.order.index';
     const PAGE_CATALOG = 'purchase.catalog.index';
     const PAGE_ACCOUNT = 'purchase.account.index';
@@ -76,6 +84,7 @@ class Purchase extends MY_Controller
             'line_rows' => $this->Purchase_model->list_purchase_order_lines_dashboard($q, $status, $dateStart, $dateEnd, $limit),
             'paid_rows' => $tab === 'paid' ? $this->Purchase_model->list_purchase_orders_paid_dashboard($q, $dateStart, $dateEnd, $limit) : [],
             'paid_summary' => $tab === 'paid' ? $this->Purchase_model->get_purchase_order_paid_filtered_summary($q, $dateStart, $dateEnd) : ['total_count' => 0, 'total_value' => 0.0],
+            'purchase_mutation_csrf_token' => $this->purchase_mutation_csrf(),
         ];
 
         $this->render('purchase/index', $data);
@@ -103,6 +112,7 @@ class Purchase extends MY_Controller
             'active_menu' => 'purchase.order',
             'detail' => $detail,
             'editability' => $this->Purchase_model->get_order_data_editability($purchaseOrderId),
+            'purchase_mutation_csrf_token' => $this->purchase_mutation_csrf(),
         ];
 
         $this->render('purchase/order_detail', $data);
@@ -412,14 +422,13 @@ class Purchase extends MY_Controller
 
     public function rebuild_impact_index()
     {
-        if (!$this->can(self::PAGE_REBUILD_IMPACT, 'view')) {
-            $this->require_permission(self::PAGE_ORDER, 'view');
-        }
+        $this->require_permission(self::PAGE_REBUILD_IMPACT, 'view');
 
         $data = [
             'title' => 'Rebuild Impact Purchase',
             'active_menu' => 'purchase.rebuild.impact',
             'status_options' => ['DRAFT', 'APPROVED', 'ORDERED', 'REJECTED', 'PARTIAL_RECEIVED', 'RECEIVED', 'PAID', 'VOID'],
+            'purchase_maintenance_csrf_token' => $this->purchase_maintenance_csrf(),
         ];
 
         $this->render('purchase/rebuild_impact_index', $data);
@@ -427,8 +436,8 @@ class Purchase extends MY_Controller
 
     public function rebuild_impact_run()
     {
-        if (!$this->can(self::PAGE_REBUILD_IMPACT, 'edit') && !$this->can(self::PAGE_ORDER, 'edit')) {
-            $this->jsonError('Anda tidak memiliki izin untuk menjalankan rebuild impact purchase.', 403);
+        $this->require_permission(self::PAGE_REBUILD_IMPACT, 'edit');
+        if (!$this->require_purchase_maintenance_mutation_request()) {
             return;
         }
 
@@ -502,17 +511,12 @@ class Purchase extends MY_Controller
 
     public function reclassify_profile_domain_index()
     {
-        if (
-            !$this->can(self::PAGE_RECLASSIFY_PROFILE_DOMAIN, 'view')
-            && !$this->can(self::PAGE_REBUILD_IMPACT, 'view')
-            && !$this->can(self::PAGE_ORDER, 'view')
-        ) {
-            $this->require_permission(self::PAGE_ORDER, 'view');
-        }
+        $this->require_permission(self::PAGE_RECLASSIFY_PROFILE_DOMAIN, 'view');
 
         $data = [
             'title' => 'Reclassify ITEM/MATERIAL by Profile Key',
             'active_menu' => 'purchase.reclassify-profile-domain',
+            'purchase_maintenance_csrf_token' => $this->purchase_maintenance_csrf(),
         ];
 
         $this->render('purchase/reclassify_profile_domain_index', $data);
@@ -520,12 +524,8 @@ class Purchase extends MY_Controller
 
     public function reclassify_profile_domain_run()
     {
-        if (
-            !$this->can(self::PAGE_RECLASSIFY_PROFILE_DOMAIN, 'edit')
-            && !$this->can(self::PAGE_REBUILD_IMPACT, 'edit')
-            && !$this->can(self::PAGE_ORDER, 'edit')
-        ) {
-            $this->jsonError('Anda tidak memiliki izin untuk menjalankan reclassify profile domain.', 403);
+        $this->require_permission(self::PAGE_RECLASSIFY_PROFILE_DOMAIN, 'edit');
+        if (!$this->require_purchase_maintenance_mutation_request()) {
             return;
         }
 
@@ -566,6 +566,7 @@ class Purchase extends MY_Controller
             'uoms' => $this->Purchase_model->list_active_uoms(),
             'payment_accounts' => $this->Purchase_model->list_active_payment_accounts(),
             'status_options' => ['DRAFT'],
+            'purchase_mutation_csrf_token' => $this->purchase_mutation_csrf(),
         ];
 
         $this->render('purchase/order_create', $data);
@@ -607,6 +608,7 @@ class Purchase extends MY_Controller
             'edit_mode' => true,
             'detail' => $detail,
             'editability' => $editability,
+            'purchase_mutation_csrf_token' => $this->purchase_mutation_csrf(),
         ];
 
         $this->render('purchase/order_create', $data);
@@ -688,6 +690,7 @@ class Purchase extends MY_Controller
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'month' => $range['month'],
+            'purchase_mutation_csrf_token' => $this->purchase_mutation_csrf(),
         ];
 
         $this->render('purchase/finance_mutation_index', $data);
@@ -696,6 +699,9 @@ class Purchase extends MY_Controller
     public function finance_mutation_store()
     {
         $this->require_permission(self::PAGE_ORDER, 'edit');
+        if (!$this->require_purchase_mutation_csrf()) {
+            return;
+        }
 
         $payload = $this->requestPayload();
         $result = $this->Purchase_model->apply_manual_account_mutation(
@@ -818,9 +824,7 @@ class Purchase extends MY_Controller
 
     public function stock_opening_division_index()
     {
-        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view')) {
-            $this->require_permission(self::PAGE_ORDER, 'view');
-        }
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'view');
 
         $month      = trim((string)$this->input->get('month', true));
         $q          = trim((string)$this->input->get('q', true));
@@ -845,6 +849,7 @@ class Purchase extends MY_Controller
             'stock_opening_export_url'      => site_url('inventory/stock/opening/division/export-template'),
             'stock_opening_export_existing_url' => site_url('inventory/stock/opening/division/export-existing'),
             'stock_opening_import_url'      => site_url('inventory/stock/opening/division/import'),
+            'can_export_existing'           => $this->can(self::PAGE_STOCK_DIVISION, 'export'),
             'month'       => $month,
             'q'           => $q,
             'division_id' => $divisionId,
@@ -861,9 +866,7 @@ class Purchase extends MY_Controller
 
     public function stock_opening_division_generated()
     {
-        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view')) {
-            $this->require_permission(self::PAGE_ORDER, 'view');
-        }
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'view');
 
         $month       = trim((string)$this->input->get('month', true));
         $q           = trim((string)$this->input->get('q', true));
@@ -902,7 +905,7 @@ class Purchase extends MY_Controller
     public function stock_opening_division_export_template()
     {
         if (!$this->can(self::PAGE_STOCK_DIVISION, 'view') && !$this->can(self::PAGE_STOCK_DIVISION, 'create')) {
-            $this->require_permission(self::PAGE_ORDER, 'view');
+            $this->require_permission(self::PAGE_STOCK_DIVISION, 'view');
         }
 
         $divisionId = (int)$this->input->get('division_id', true);
@@ -966,9 +969,7 @@ class Purchase extends MY_Controller
 
     public function stock_opening_division_export_existing()
     {
-        if (!$this->can(self::PAGE_STOCK_DIVISION, 'view') && !$this->can(self::PAGE_STOCK_DIVISION, 'export')) {
-            $this->require_permission(self::PAGE_STOCK_DIVISION, 'view');
-        }
+        $this->require_permission(self::PAGE_STOCK_DIVISION, 'export');
 
         $month = trim((string)$this->input->get('month', true));
         $q = trim((string)$this->input->get('q', true));
@@ -2423,6 +2424,8 @@ class Purchase extends MY_Controller
             $this->require_permission(self::PAGE_ORDER, 'view');
         }
 
+        $inventoryDivisionReconcileCsrfToken = $this->inventory_division_reconcile_csrf();
+        $posTransactionCsrfToken = $this->pos_transaction_csrf();
         $divisions           = $this->filterReconcileDivisions($this->Purchase_model->list_active_operational_divisions());
         $destinationGuardMap = $this->buildDivisionDestinationGuardMap($divisions);
         $asOfDate            = trim((string)$this->input->get('as_of_date', true));
@@ -2472,7 +2475,52 @@ class Purchase extends MY_Controller
             'rows'                 => $compare['rows'] ?? [],
             'summary'              => $compare['summary'] ?? [],
             'orphan_stock'         => $orphanStock,
+            'inventory_division_reconcile_csrf_token' => $inventoryDivisionReconcileCsrfToken,
+            'pos_transaction_csrf_token' => $posTransactionCsrfToken,
         ]);
+    }
+
+    private function inventory_division_reconcile_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::INVENTORY_DIVISION_RECONCILE_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::INVENTORY_DIVISION_RECONCILE_CSRF_SESSION_KEY, $token);
+        }
+        return $token;
+    }
+
+    private function require_inventory_division_reconcile_csrf(): bool
+    {
+        if (strtoupper((string)$this->input->method(true)) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->jsonError('Permintaan rekonsiliasi inventori tidak valid.', 405);
+            return false;
+        }
+
+        $provided = trim((string)$this->input->get_request_header(self::INVENTORY_DIVISION_RECONCILE_CSRF_CI_HEADER, true));
+        $expected = (string)$this->session->userdata(self::INVENTORY_DIVISION_RECONCILE_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-fA-F]{64}\z/D', $provided) !== 1
+            || preg_match('/\A[0-9a-fA-F]{64}\z/D', $expected) !== 1
+            || !hash_equals($expected, $provided)
+        ) {
+            $this->jsonError('Permintaan rekonsiliasi inventori tidak valid.', 403);
+            return false;
+        }
+
+        return true;
+    }
+
+    private function pos_transaction_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::POS_TRANSACTION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::POS_TRANSACTION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
     }
 
     private function filterReconcileDivisions(array $divisions): array
@@ -3064,6 +3112,9 @@ class Purchase extends MY_Controller
     public function stock_division_reconcile_repair_material_id()
     {
         $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+        if (!$this->require_inventory_division_reconcile_csrf()) {
+            return;
+        }
 
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
@@ -3085,6 +3136,9 @@ class Purchase extends MY_Controller
     public function stock_division_reconcile_profile_repair()
     {
         $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+        if (!$this->require_inventory_division_reconcile_csrf()) {
+            return;
+        }
 
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
@@ -3110,6 +3164,9 @@ class Purchase extends MY_Controller
     public function stock_division_reconcile_profile_merge()
     {
         $this->require_permission(self::PAGE_STOCK_DIVISION, 'edit');
+        if (!$this->require_inventory_division_reconcile_csrf()) {
+            return;
+        }
 
         $payload = json_decode((string)$this->input->raw_input_stream, true);
         if (!is_array($payload)) {
@@ -3622,6 +3679,7 @@ class Purchase extends MY_Controller
             'active_menu' => 'purchase.receipt',
             'q' => $q,
             'po_options' => $poOptions,
+            'purchase_mutation_csrf_token' => $this->purchase_mutation_csrf(),
         ];
 
         $this->render('purchase/receipt_index', $data);
@@ -3662,6 +3720,9 @@ class Purchase extends MY_Controller
     {
         if (!$this->can(self::PAGE_RECEIPT, 'create')) {
             $this->require_permission(self::PAGE_ORDER, 'create');
+        }
+        if (!$this->require_purchase_mutation_csrf()) {
+            return;
         }
 
         $payload = $this->requestPayload();
@@ -3862,6 +3923,9 @@ class Purchase extends MY_Controller
     public function order_store()
     {
         $this->require_permission(self::PAGE_ORDER, 'create');
+        if (!$this->require_purchase_mutation_csrf()) {
+            return;
+        }
 
         $payload = $this->requestPayload();
         $header = (array)($payload['header'] ?? []);
@@ -3917,6 +3981,9 @@ class Purchase extends MY_Controller
             $this->jsonError('Anda tidak memiliki izin untuk update status purchase order.', 403);
             return;
         }
+        if (!$this->require_purchase_mutation_csrf()) {
+            return;
+        }
 
         $payload = $this->requestPayload();
         $purchaseOrderId = (int)($payload['purchase_order_id'] ?? 0);
@@ -3957,6 +4024,9 @@ class Purchase extends MY_Controller
     {
         if (!$this->can(self::PAGE_ORDER, 'edit')) {
             $this->jsonError('Anda tidak memiliki izin untuk edit purchase order.', 403);
+            return;
+        }
+        if (!$this->require_purchase_mutation_csrf()) {
             return;
         }
 
@@ -4190,6 +4260,74 @@ class Purchase extends MY_Controller
         }
 
         return $post;
+    }
+
+    private function purchase_mutation_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::PURCHASE_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::PURCHASE_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_purchase_mutation_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->jsonError('Permintaan mutasi purchase tidak valid.', 405);
+            return false;
+        }
+
+        $providedToken = (string)$this->input->get_request_header(
+            self::PURCHASE_MUTATION_CSRF_CI_HEADER,
+            true
+        );
+        $sessionToken = (string)$this->session->userdata(self::PURCHASE_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->jsonError('Permintaan mutasi purchase tidak valid.', 403);
+            return false;
+        }
+
+        return true;
+    }
+
+    private function purchase_maintenance_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::PURCHASE_MAINTENANCE_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::PURCHASE_MAINTENANCE_CSRF_SESSION_KEY, $token);
+        }
+        return $token;
+    }
+
+    private function require_purchase_maintenance_mutation_request(): bool
+    {
+        if (strtoupper((string)$this->input->method(true)) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->jsonError('Permintaan maintenance tidak valid.', 405);
+            return false;
+        }
+
+        $provided = trim((string)$this->input->get_request_header('X-Purchase-Maintenance-Csrf', true));
+        $expected = (string)$this->session->userdata(self::PURCHASE_MAINTENANCE_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-fA-F]{64}\z/D', $provided) !== 1
+            || preg_match('/\A[0-9a-fA-F]{64}\z/D', $expected) !== 1
+            || !hash_equals($expected, $provided)
+        ) {
+            $this->jsonError('Permintaan maintenance tidak valid.', 403);
+            return false;
+        }
+
+        return true;
     }
 
     private function jsonOk(array $data = []): void

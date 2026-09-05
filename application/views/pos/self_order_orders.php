@@ -311,6 +311,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
 
 <script>
 (function() {
+  const posTransactionCsrfToken = <?php echo json_encode((string)($pos_transaction_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
   const state = {
     q: <?php echo json_encode((string)($filters['q'] ?? ''), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>,
     outlet_id: <?php echo (int)($filters['outlet_id'] ?? 0); ?>,
@@ -417,6 +418,23 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    }).then(async (res) => {
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch (e) { json = null; }
+      if (!res.ok || !json || json.ok === false) {
+        throw new Error(json && json.message ? json.message : (text || ('HTTP ' + res.status)));
+      }
+      return json;
+    });
+  }
+
+  function postPosTransactionJson(url, payload) {
+    return fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Pos-Transaction-CSRF': posTransactionCsrfToken },
       body: JSON.stringify(payload || {})
     }).then(async (res) => {
       const text = await res.text();
@@ -565,9 +583,9 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     }
     try {
       if (safeJobId > 0) {
-        await postJson(`<?php echo site_url('pos/orders/runtime-jobs/trigger'); ?>/${safeOrderId}`, { job_id: safeJobId, limit: 1 });
+        await postPosTransactionJson(`<?php echo site_url('pos/orders/runtime-jobs/trigger'); ?>/${safeOrderId}`, { job_id: safeJobId, limit: 1 });
       }
-      await postJson(`<?php echo site_url('pos/orders/runtime-sync'); ?>/${safeOrderId}`, {
+      await postPosTransactionJson(`<?php echo site_url('pos/orders/runtime-sync'); ?>/${safeOrderId}`, {
         event_source: 'ORDER_CONFIRM',
         event_id: safeOrderId
       });
@@ -1029,7 +1047,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     btn.disabled = true;
     btn.innerHTML = '<span class="self-order-btn-spinner" aria-hidden="true"></span> Memproses';
     try {
-      const json = await postJson(`<?php echo site_url('pos/self-order/orders/verify'); ?>/${Number(verifyRow.id || 0)}`, {
+      const json = await postPosTransactionJson(`<?php echo site_url('pos/self-order/orders/verify'); ?>/${Number(verifyRow.id || 0)}`, {
         verify_destination: verifyDestination
       });
       hideModal(verifyModalEl, verifyModal);
@@ -1083,7 +1101,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     btn.disabled = true;
     btn.innerHTML = '<span class="self-order-btn-spinner" aria-hidden="true"></span> Memproses';
     try {
-      await postJson(`<?php echo site_url('pos/self-order/orders/reject'); ?>/${Number(rejectRow.id || 0)}`, { reason });
+      await postPosTransactionJson(`<?php echo site_url('pos/self-order/orders/reject'); ?>/${Number(rejectRow.id || 0)}`, { reason });
       hideModal(rejectModalEl, rejectModal);
       showToast('Order self order berhasil ditolak.', 'warning');
       state.payment_tab = 'ALL';

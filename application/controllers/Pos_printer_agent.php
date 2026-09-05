@@ -6,7 +6,6 @@ class Pos_printer_agent extends CI_Controller
     public function __construct()
     {
         parent::__construct();
-        $this->load->model('Pos_print_model');
     }
 
     public function bootstrap()
@@ -15,6 +14,7 @@ class Pos_printer_agent extends CI_Controller
             return;
         }
 
+        $this->load->model('Pos_print_model');
         $agentName = trim((string)$this->input->get('agent_name', true));
         if (!$this->Pos_print_model->agent_connection_ready()) {
             $this->bootstrap_error('Konfigurasi Koneksi Printer baru belum lengkap. Jalankan migration printer dan lengkapi Koneksi Printer terlebih dahulu.');
@@ -62,21 +62,24 @@ class Pos_printer_agent extends CI_Controller
     {
         $expectedKey = trim((string)getenv('POS_PRINTER_BOOTSTRAP_KEY'));
         if ($expectedKey === '') {
-            return true;
+            $this->output
+                ->set_status_header(503)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'status' => 'error',
+                    'message' => 'Printer agent tidak tersedia.',
+                ], JSON_INVALID_UTF8_SUBSTITUTE));
+            return false;
         }
 
         $providedKey = trim((string)$this->input->get_request_header('X-Printer-Key', true));
-        if ($providedKey === '') {
-            $providedKey = trim((string)$this->input->get('key', true));
-        }
-
-        if (!hash_equals($expectedKey, $providedKey)) {
+        if ($providedKey === '' || !hash_equals($expectedKey, $providedKey)) {
             $this->output
                 ->set_status_header(403)
                 ->set_content_type('application/json')
                 ->set_output(json_encode([
                     'status' => 'error',
-                    'message' => 'Printer agent key tidak valid.',
+                    'message' => 'Akses printer agent ditolak.',
                 ], JSON_INVALID_UTF8_SUBSTITUTE));
             return false;
         }

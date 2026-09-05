@@ -11,6 +11,10 @@ class MY_Controller extends CI_Controller
 {
     private const SIDEBAR_CACHE_TTL_SECONDS = 300;
     private const SIDEBAR_CACHE_DIR = 'sidebar';
+    protected const SIDEBAR_FAVORITE_CSRF_SESSION_KEY = 'sidebar_favorite_csrf';
+    protected const SIDEBAR_FAVORITE_CSRF_HEADER = 'X-Sidebar-Favorite-CSRF';
+    protected const SIDEBAR_FAVORITE_CSRF_CI_HEADER = 'X-Sidebar-Favorite-Csrf';
+    private const INVALID_SCOPE_MESSAGE = 'Konfigurasi akses akun belum lengkap. Hubungi administrator.';
 
     /** Data user yang sedang login (dari session) */
     protected $current_user = [];
@@ -23,6 +27,15 @@ class MY_Controller extends CI_Controller
      * Ini penting setelah role/override diubah saat user masih login.
      */
     private $permission_recovery_attempted = false;
+
+    /** @var array<string,string>|null Alias aktif ke page_code kanonis, dimuat sekali per request. */
+    private $page_permission_aliases = null;
+
+    /** Menutup request bila pemulihan permission gagal, termasuk sesi superadmin. */
+    private $permission_refresh_failed = false;
+
+    /** Mencegah lebih dari satu pemulihan scope sesi lama dalam satu request. */
+    private $division_scope_recovery_attempted = false;
 
     public function __construct()
     {
@@ -41,7 +54,7 @@ class MY_Controller extends CI_Controller
         if (empty($user)) { 
             $class  = strtolower((string)$this->router->fetch_class());
             $method = strtolower((string)$this->router->fetch_method());
-            if ($this->input->is_cli_request() || ($class === 'whatsapp' && in_array($method, ['api_schedule_run', 'api_group_command'], true))) {
+            if ($this->input->is_cli_request() || $this->_allows_anonymous_http_request($class, $method)) {
                 $this->current_user = [];
                 $this->user_perms = [];
                 return;
@@ -72,14 +85,24 @@ class MY_Controller extends CI_Controller
 
         // Auto-refresh jika permission role telah diubah sejak cache terakhir
         $this->_maybe_refresh_stale_perms();
+
+        // Semua non-superadmin harus memiliki scope operasional tunggal atau
+        // role global yang sah sebelum controller turunan bekerja.
+        if (!$this->_has_valid_division_scope()) {
+            $this->_deny_invalid_division_scope();
+            return;
+        }
+    }
+
+    private function _allows_anonymous_http_request(string $class, string $method): bool
+    {
+        return $class === 'whatsapp'
+            && $method === 'api_group_command'
+            && $this->input->method(true) === 'POST';
     }
 
     private function _maybe_refresh_stale_perms(): void
     {
-        if ($this->is_superadmin()) {
-            return;
-        }
-
         $userId = (int)($this->current_user['id'] ?? 0);
         if ($userId <= 0) {
             return;
@@ -96,9 +119,7 @@ class MY_Controller extends CI_Controller
 
         // Jika belum ada timestamp (session lama / baru deploy), refresh sekali
         if ($cachedAt <= 0) {
-            $this->load->model('Auth_model');
-            $this->Auth_model->refresh_permissions($userId);
-            $this->user_perms = $this->session->userdata('user_perms') ?? [];
+            $this->_refresh_authenticated_permissions($userId);
             return;
         }
 
@@ -114,25 +135,99 @@ class MY_Controller extends CI_Controller
             ->get()
             ->num_rows();
 
-        // Cek 2: permission matrix salah satu role user berubah
+        // Cek 2: permission matrix atau konfigurasi role salah satu role user berubah.
+        // Kedua kolom ini sudah ada pada auth_role; tidak ada perubahan schema di batch ini.
         if (!$isStale) {
             $isStale = (bool)$this->db
                 ->select('1')
                 ->from('auth_user_role ur')
                 ->join('auth_role r', 'r.id = ur.role_id')
                 ->where('ur.user_id', $userId)
-                ->where('r.is_active', 1)
+                ->group_start()
                 ->where('r.permissions_updated_at >', $cachedAtStr)
+                ->or_where('r.updated_at >', $cachedAtStr)
+                ->group_end()
                 ->limit(1)
                 ->get()
                 ->num_rows();
         }
 
         if ($isStale) {
+            $this->_refresh_authenticated_permissions($userId);
+        }
+    }
+
+    private function _refresh_authenticated_permissions(int $userId): void
+    {
+        $this->division_scope_recovery_attempted = true;
+        try {
             $this->load->model('Auth_model');
             $this->Auth_model->refresh_permissions($userId);
+
+            // Refresh juga dapat mencabut SUPERADMIN. Jangan mempertahankan
+            // flag lama hanya di property controller.
+            $this->current_user = $this->session->userdata('auth_user') ?: [];
             $this->user_perms = $this->session->userdata('user_perms') ?? [];
+        } catch (Throwable $e) {
+            $this->permission_refresh_failed = true;
+            log_message('error', 'Authenticated permission refresh failed.');
         }
+    }
+
+    private function _has_valid_division_scope(): bool
+    {
+        if ($this->permission_refresh_failed || $this->is_superadmin()) {
+            return !$this->permission_refresh_failed;
+        }
+
+        $scopeState = $this->session->userdata('user_division_scope_state');
+        if ($scopeState === 'SINGLE' && (int)$this->session->userdata('user_division_scope') > 0) {
+            return true;
+        }
+
+        if ($scopeState === 'GLOBAL') {
+            return true;
+        }
+
+        // Session sebelum P0-04A tidak punya state. Refresh satu kali dari DB;
+        // hasil selain SINGLE tetap ditolak.
+        if ($scopeState === null && !$this->division_scope_recovery_attempted) {
+            $userId = (int)($this->current_user['id'] ?? 0);
+            if ($userId > 0) {
+                $this->_refresh_authenticated_permissions($userId);
+                if ($this->permission_refresh_failed) {
+                    return false;
+                }
+                if ($this->is_superadmin()) {
+                    return true;
+                }
+
+                $scopeState = $this->session->userdata('user_division_scope_state');
+            }
+        }
+
+        return $scopeState === 'GLOBAL'
+            || ($scopeState === 'SINGLE' && (int)$this->session->userdata('user_division_scope') > 0);
+    }
+
+    private function _deny_invalid_division_scope(): void
+    {
+        if ($this->input->is_ajax_request()) {
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+            $this->output
+                ->set_status_header(403)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'ok' => false,
+                    'message' => self::INVALID_SCOPE_MESSAGE,
+                ], JSON_INVALID_UTF8_SUBSTITUTE));
+            $this->output->_display();
+            exit;
+        }
+
+        show_error(self::INVALID_SCOPE_MESSAGE, 403, 'Akses Ditolak');
     }
 
     // ---------------------------------------------------------------
@@ -161,7 +256,10 @@ class MY_Controller extends CI_Controller
         }
 
         $permissionKey = 'can_' . $action;
-        if (!empty($this->user_perms[$page_code][$permissionKey])) {
+        $resolvedPageCode = $this->_resolve_page_permission_alias($page_code);
+        $permissionPageCode = $resolvedPageCode ?? $page_code;
+
+        if (!empty($this->user_perms[$permissionPageCode][$permissionKey])) {
             return true;
         }
 
@@ -174,15 +272,55 @@ class MY_Controller extends CI_Controller
 
         $this->permission_recovery_attempted = true;
         try {
-            $this->load->model('Auth_model');
-            $this->Auth_model->refresh_permissions($userId);
-            $this->user_perms = $this->session->userdata('user_perms') ?? [];
+            $this->_refresh_authenticated_permissions($userId);
+            if ($this->permission_refresh_failed) {
+                return false;
+            }
+            if ($this->is_superadmin()) {
+                return true;
+            }
         } catch (Throwable $e) {
             log_message('error', 'Permission refresh recovery failed for user ' . $userId . ': ' . $e->getMessage());
             return false;
         }
 
-        return !empty($this->user_perms[$page_code][$permissionKey]);
+        return !empty($this->user_perms[$permissionPageCode][$permissionKey]);
+    }
+
+    /**
+     * Resolve hanya alias yang terdaftar aktif menuju page kanonis aktif.
+     * Map kosong juga di-cache agar schema lama/error DB tetap fail closed.
+     */
+    private function _resolve_page_permission_alias(string $pageCode): ?string
+    {
+        if ($this->page_permission_aliases === null) {
+            $this->page_permission_aliases = [];
+
+            try {
+                if ($this->db->table_exists('sys_page_alias')) {
+                    $rows = $this->db
+                        ->select('alias.alias_code, page.page_code AS canonical_page_code')
+                        ->from('sys_page_alias alias')
+                        ->join('sys_page page', 'page.id = alias.page_id')
+                        ->where('alias.is_active', 1)
+                        ->where('page.is_active', 1)
+                        ->get()
+                        ->result_array();
+
+                    foreach ($rows as $row) {
+                        $aliasCode = (string)($row['alias_code'] ?? '');
+                        $canonicalPageCode = (string)($row['canonical_page_code'] ?? '');
+                        if ($aliasCode !== '' && $canonicalPageCode !== '') {
+                            $this->page_permission_aliases[$aliasCode] = $canonicalPageCode;
+                        }
+                    }
+                }
+            } catch (Throwable $e) {
+                log_message('error', 'Page permission alias registry could not be loaded.');
+            }
+        }
+
+        return $this->page_permission_aliases[$pageCode] ?? null;
     }
 
     /**
@@ -219,7 +357,7 @@ class MY_Controller extends CI_Controller
      * Kembalikan division_id yang berlaku untuk user yang sedang login.
      * - Superadmin → null (lihat semua divisi)
      * - User dengan role ber-scope → ID divisi tersebut
-     * - User tanpa scope → null (lihat semua divisi)
+     * - Non-superadmin tanpa scope SINGLE → request sudah ditolak di entry.
      *
      * Cara pakai di controller:
      *   $divId = $this->active_division_id();
@@ -231,10 +369,20 @@ class MY_Controller extends CI_Controller
             return null;
         }
 
+        $scopeState = $this->session->userdata('user_division_scope_state');
         $scope = $this->session->userdata('user_division_scope');
-        return ($scope !== null && $scope !== false && (int)$scope > 0)
-            ? (int)$scope
-            : null;
+        if ($scopeState === 'SINGLE' && (int)$scope > 0) {
+            return (int)$scope;
+        }
+
+        if ($scopeState === 'GLOBAL') {
+            return null;
+        }
+
+        // Fail closed if called outside the normal constructor gate. Returning
+        // NULL for an unresolved state would be interpreted as unrestricted by
+        // legacy callers.
+        throw new RuntimeException('Division scope is not resolved.');
     }
 
     // ---------------------------------------------------------------
@@ -263,6 +411,7 @@ class MY_Controller extends CI_Controller
 
         $data['current_user'] = $this->current_user;
         $data['user_perms']   = $this->user_perms;
+        $data['sidebar_favorite_csrf_token'] = $this->sidebar_favorite_csrf();
 
         // Load sidebar data otomatis (kecuali sudah diset manual oleh controller)
         if (!isset($data['sidebar_main'])) {
@@ -276,6 +425,17 @@ class MY_Controller extends CI_Controller
         $data['content_data'] = $data;
 
         return $this->load->view('layout/main', $data, $return);
+    }
+
+    protected function sidebar_favorite_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::SIDEBAR_FAVORITE_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::SIDEBAR_FAVORITE_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
     }
 
     protected function render_cashier(string $view, array $data = [], bool $return = false)
@@ -311,7 +471,7 @@ class MY_Controller extends CI_Controller
         $sidebarData = [
             'sidebar_main' => $this->Menu_model->get_sidebar_tree($this->user_perms, $isSuperadmin, 'MAIN'),
             'sidebar_my' => $this->Menu_model->get_sidebar_tree($this->user_perms, $isSuperadmin, 'MY'),
-            'sidebar_favorites' => $this->Menu_model->get_favorites($userId),
+            'sidebar_favorites' => $this->Menu_model->get_favorites($userId, $this->user_perms, $isSuperadmin),
         ];
 
         $this->write_sidebar_cache($cacheFile, $sidebarData);
@@ -339,7 +499,7 @@ class MY_Controller extends CI_Controller
         $favoriteVersion = 'fav:none';
         if ($userId > 0 && $this->db->table_exists('sys_sidebar_favorite')) {
             $favoriteRow = $this->db
-                ->select('COUNT(*) AS total_rows, MAX(created_at) AS latest_change', false)
+                ->select("COUNT(*) AS total_rows, MAX(created_at) AS latest_change, GROUP_CONCAT(CONCAT(menu_id, ':', sort_order) ORDER BY menu_id SEPARATOR ',') AS order_fingerprint", false)
                 ->from('sys_sidebar_favorite')
                 ->where('user_id', $userId)
                 ->get()
@@ -347,7 +507,9 @@ class MY_Controller extends CI_Controller
             $favoriteVersion = 'fav:'
                 . (int)($favoriteRow['total_rows'] ?? 0)
                 . ':'
-                . (string)($favoriteRow['latest_change'] ?? '');
+                . (string)($favoriteRow['latest_change'] ?? '')
+                . ':'
+                . (string)($favoriteRow['order_fingerprint'] ?? '');
         }
 
         return md5(implode('|', [

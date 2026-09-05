@@ -891,16 +891,39 @@ document.addEventListener('DOMContentLoaded', function () {
       contentWrapper.style.overflowX = 'hidden';
     }
   }
-  async function postJson(url, payload) {
+  const stockCommitAuditCsrfToken = <?php echo json_encode((string)($stock_commit_audit_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+  const posTransactionCsrfToken = <?php echo json_encode((string)($pos_transaction_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+  async function postJson(url, payload, scopedOptions) {
+    const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+    if (scopedOptions && scopedOptions.headers && typeof scopedOptions.headers === 'object') {
+      Object.assign(headers, scopedOptions.headers);
+    }
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      headers: headers,
       body: JSON.stringify(payload || {})
     });
     const text = await response.text();
     let json;
     try { json = JSON.parse(text); } catch (e) { throw new Error('Response backend tidak valid: ' + String(text || '').slice(0, 180)); }
     if (!response.ok || !json.ok) throw new Error(json.message || 'Gagal memproses data.');
+    return json;
+  }
+  function postStockCommitAuditRepairJson(url, payload) {
+    return postJson(url, payload, {
+      headers: { 'X-Pos-Stock-Commit-CSRF': stockCommitAuditCsrfToken }
+    });
+  }
+  async function postPosTransactionJson(url, payload) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Pos-Transaction-CSRF': posTransactionCsrfToken },
+      body: JSON.stringify(payload || {})
+    });
+    const text = await response.text();
+    let json;
+    try { json = JSON.parse(text); } catch (e) { throw new Error('Response backend tidak valid: ' + String(text || '').slice(0, 180)); }
+    if (!response.ok || !json.ok) throw new Error(json.message || 'Gagal memproses aksi.');
     return json;
   }
   function showAlert(message, title) {
@@ -947,7 +970,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!confirmed) return;
       setButtonLoading(this, 'Retry...');
       try {
-        const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/retry'); ?>/' + jobId, {});
+        const json = await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-jobs/retry'); ?>/' + jobId, {});
         await showAlert(json.message || 'Job berhasil diantrekan ulang.', 'Retry Stock Commit POS');
         window.location.reload();
       } catch (e) {
@@ -973,7 +996,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!confirmed) return;
       setButtonLoading(this, 'Menghapus...');
       try {
-        const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/delete-draft'); ?>/' + jobId, {});
+        const json = await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-jobs/delete-draft'); ?>/' + jobId, {});
         await showAlert(json.message || 'Order berhasil dihapus.', confirmTitle);
         window.location.reload();
       } catch (e) {
@@ -996,7 +1019,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!confirmed) return;
       setButtonLoading(this, 'Menutup...');
       try {
-        const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/dismiss'); ?>/' + jobId, {});
+        const json = await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-jobs/dismiss'); ?>/' + jobId, {});
         await showAlert(json.message || 'Job gagal berhasil ditutup.', 'Tutup Job Gagal POS');
         window.location.reload();
       } catch (e) {
@@ -1018,7 +1041,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!confirmed) return;
       setButtonLoading(this, 'Retry snapshot...');
       try {
-        const json = await postJson('<?php echo site_url('pos/orders/runtime-snapshots/retry'); ?>/' + snapshotId, {});
+        const json = await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-snapshots/retry'); ?>/' + snapshotId, {});
         await showAlert(json.message || 'Snapshot FAILED berhasil diproses ulang.', 'Retry Snapshot FAILED POS');
         window.location.reload();
       } catch (e) {
@@ -1042,7 +1065,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!confirmed) return;
       setButtonLoading(this, 'Menutup snapshot...');
       try {
-        const json = await postJson('<?php echo site_url('pos/orders/runtime-snapshots/dismiss'); ?>/' + snapshotId, {});
+        const json = await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-snapshots/dismiss'); ?>/' + snapshotId, {});
         await showAlert(json.message || 'Snapshot FAILED berhasil ditutup.', 'Tutup Snapshot FAILED POS');
         window.location.reload();
       } catch (e) {
@@ -1060,7 +1083,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!confirmed) return;
       setButtonLoading(this, 'Memproses...');
       try {
-        const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/process-all'); ?>', { limit: 10 });
+        const json = await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-jobs/process-all'); ?>', { limit: 10 });
         await showAlert(
           'Processed: ' + Number((json.processed_count || 0)) + '\n'
           + 'Success: ' + Number((json.success_count || 0)) + '\n'
@@ -1084,7 +1107,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!confirmed) return;
       setButtonLoading(this, 'Retry semua...');
       try {
-        const json = await postJson('<?php echo site_url('pos/orders/runtime-jobs/retry-failed-all'); ?>', { limit: totalFailed > 0 ? totalFailed : 50 });
+        const json = await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-jobs/retry-failed-all'); ?>', { limit: totalFailed > 0 ? totalFailed : 50 });
         await showAlert(scaBatchRetryDetail(json), 'Retry Semua Job Gagal POS');
         window.location.reload();
       } catch (e) {
@@ -1157,7 +1180,7 @@ document.addEventListener('DOMContentLoaded', function () {
             'destination' => (string)($materialFilters['destination'] ?? 'ALL'),
             'suspect' => (string)($materialFilters['suspect'] ?? 'ALL'),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
-        const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-material-mismatches'); ?>', payload);
+        const json = await postStockCommitAuditRepairJson('<?php echo site_url('pos/stock-commit-audit/repair-material-mismatches'); ?>', payload);
         await showAlert(scaBatchRepairDetail(json), 'Batch Repair Bahan Baku POS');
         window.location.reload();
       } catch (e) {
@@ -1182,7 +1205,7 @@ document.addEventListener('DOMContentLoaded', function () {
             'location_type' => (string)($componentFilters['location_type'] ?? 'ALL'),
             'type' => (string)($componentFilters['type'] ?? 'ALL'),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
-        const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-component-mismatches'); ?>', payload);
+        const json = await postStockCommitAuditRepairJson('<?php echo site_url('pos/stock-commit-audit/repair-component-mismatches'); ?>', payload);
         await showAlert(scaBatchRepairDetail(json), 'Batch Repair Base/Prepare POS');
         window.location.reload();
       } catch (e) {
@@ -1209,7 +1232,7 @@ document.addEventListener('DOMContentLoaded', function () {
             'division_id' => (int)($materialFilters['division_id'] ?? 0),
             'destination' => (string)($materialFilters['destination'] ?? 'ALL'),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
-        const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-material-drift'); ?>', payload);
+        const json = await postStockCommitAuditRepairJson('<?php echo site_url('pos/stock-commit-audit/repair-material-drift'); ?>', payload);
         await showAlert(scaBatchRepairDetail(json), 'Repair Drift Monthly Stock Bahan');
         window.location.reload();
       } catch (e) {
@@ -1271,7 +1294,7 @@ document.addEventListener('DOMContentLoaded', function () {
             'location_type' => (string)($componentFilters['location_type'] ?? 'ALL'),
             'type' => (string)($componentFilters['type'] ?? 'ALL'),
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
-        const json = await postJson('<?php echo site_url('pos/stock-commit-audit/repair-component-drift'); ?>', payload);
+        const json = await postStockCommitAuditRepairJson('<?php echo site_url('pos/stock-commit-audit/repair-component-drift'); ?>', payload);
         await showAlert(scaBatchRepairDetail(json), 'Repair Drift Monthly Stock Base/Prepare');
         window.location.reload();
       } catch (e) {

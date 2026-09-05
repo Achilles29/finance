@@ -793,12 +793,114 @@ class Role_model extends CI_Model
 
     public function delete(int $id): bool
     {
-        // Cegah hapus jika masih dipakai user
-        $count = $this->db->where('role_id', $id)->count_all_results('auth_user_role');
-        if ($count > 0) return false;
+        if ($this->db->trans_begin() === false) {
+            return false;
+        }
 
-        $this->db->where('id', $id)->delete('auth_role_permission');
-        $this->db->where('id', $id)->delete('auth_role');
+        $role_query = $this->db->query(
+            'SELECT id, role_code FROM auth_role WHERE id = ? LIMIT 1 FOR UPDATE',
+            [$id]
+        );
+
+        if ($role_query === false) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $role = $role_query->row_array();
+        if (!$role || strtoupper(trim((string) $role['role_code'])) === 'SUPERADMIN') {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $user_query = $this->db
+            ->select('role_id')
+            ->from('auth_user_role')
+            ->where('role_id', $id)
+            ->limit(1)
+            ->get();
+
+        if ($user_query === false || $user_query->num_rows() > 0) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $permission_delete = $this->db
+            ->where('role_id', $id)
+            ->delete('auth_role_permission');
+        $permission_affected = $this->db->affected_rows();
+
+        if ($permission_delete === false
+            || $permission_affected < 0
+            || $this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $role_delete = $this->db
+            ->where('id', $id)
+            ->delete('auth_role');
+        $role_affected = $this->db->affected_rows();
+
+        if ($role_delete === false
+            || $role_affected !== 1
+            || $this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $permission_assert_query = $this->db
+            ->select('role_id')
+            ->from('auth_role_permission')
+            ->where('role_id', $id)
+            ->limit(1)
+            ->get();
+
+        if ($permission_assert_query === false || $permission_assert_query->num_rows() > 0) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $role_assert_query = $this->db
+            ->select('id')
+            ->from('auth_role')
+            ->where('id', $id)
+            ->limit(1)
+            ->get();
+
+        if ($role_assert_query === false || $role_assert_query->num_rows() > 0) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        if ($this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
+            return false;
+        }
+
+        $permission_postcondition_query = $this->db
+            ->select('role_id')
+            ->from('auth_role_permission')
+            ->where('role_id', $id)
+            ->limit(1)
+            ->get();
+
+        if ($permission_postcondition_query === false
+            || $permission_postcondition_query->num_rows() > 0) {
+            return false;
+        }
+
+        $role_postcondition_query = $this->db
+            ->select('id')
+            ->from('auth_role')
+            ->where('id', $id)
+            ->limit(1)
+            ->get();
+
+        if ($role_postcondition_query === false || $role_postcondition_query->num_rows() > 0) {
+            return false;
+        }
+
         return true;
     }
 

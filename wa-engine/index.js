@@ -6,9 +6,11 @@
  *   npm install   ← hanya pertama kali / setelah update
  *   node index.js
  *
- * Konfigurasi via environment variable (opsional, ada default semua):
+ * Konfigurasi via environment variable:
  *   WA_PORT    port internal HTTP (default 3070)
- *   WA_TOKEN   token auth API (default local-dev-token)
+ *   FINANCE_WA_ENGINE_API_TOKEN credential API internal (wajib, tanpa default)
+ *   FINANCE_COMMAND_URL URL callback command grup Finance
+ *   FINANCE_WA_ENGINE_COMMAND_TOKEN credential callback (wajib, tanpa default)
  *   DB_HOST    host MySQL (default localhost)
  *   DB_USER    user MySQL (default root)
  *   DB_PASS    password MySQL
@@ -61,31 +63,42 @@ async function loadBaileys() {
 }
 
 // ─── Load .env sederhana ───────────────────────────────────
-try {
+function loadEnvironmentFile() {
   const envFile = path.join(__dirname, '.env');
-  if (fs.existsSync(envFile)) {
-    const lines = fs.readFileSync(envFile, 'utf8').split(/\r?\n/);
-    for (const rawLine of lines) {
-      const line = String(rawLine || '').trim();
-      if (!line || line.startsWith('#')) continue;
-      const eqPos = line.indexOf('=');
-      if (eqPos <= 0) continue;
-      const key = line.slice(0, eqPos).trim();
-      const value = line.slice(eqPos + 1).trim();
-      if (!key) continue;
-      if (typeof process.env[key] === 'undefined' || process.env[key] === '') {
-        process.env[key] = value;
-      }
+  if (!fs.existsSync(envFile)) return;
+
+  const lines = fs.readFileSync(envFile, 'utf8').split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = String(rawLine || '').trim();
+    if (!line || line.startsWith('#')) continue;
+    const eqPos = line.indexOf('=');
+    if (eqPos <= 0) continue;
+    const key = line.slice(0, eqPos).trim();
+    const value = line.slice(eqPos + 1).trim();
+    if (!key) continue;
+    // Service credentials are process-only. Never import them from
+    // wa-engine/.env because that file resides below the web root.
+    if (key === 'FINANCE_WA_ENGINE_COMMAND_TOKEN'
+      || key === 'FINANCE_WA_ENGINE_API_TOKEN') {
+      continue;
+    }
+    if (typeof process.env[key] === 'undefined' || process.env[key] === '') {
+      process.env[key] = value;
     }
   }
+}
+
+try {
+  loadEnvironmentFile();
 } catch (err) {
   console.warn('⚠️  Gagal membaca .env:', err?.message || err);
 }
 
 // ─── Konfigurasi ────────────────────────────────────────────
 const SYNC_PORT  = Number(process.env.WA_PORT  || 3070);
-const SYNC_TOKEN = String(process.env.WA_TOKEN || 'local-dev-token');
-const FINANCE_COMMAND_URL = String(process.env.FINANCE_COMMAND_URL || 'https://core.namuacoffee.com/wa/api/group-command');
+const FINANCE_WA_ENGINE_API_TOKEN = String(process.env.FINANCE_WA_ENGINE_API_TOKEN || '').trim();
+const FINANCE_COMMAND_URL = String(process.env.FINANCE_COMMAND_URL || 'https://core.namuacoffee.com/wa/api/group-command').trim();
+const FINANCE_WA_ENGINE_COMMAND_TOKEN = String(process.env.FINANCE_WA_ENGINE_COMMAND_TOKEN || '').trim();
 // Baileys is retained only for the existing internal group-report workflow.
 // Member/customer outreach must use the official WhatsApp Business Platform.
 // Keep this off by default so reconnecting a restricted account cannot resume
@@ -192,6 +205,17 @@ function jsonReply(res, code, data) {
   res.end(JSON.stringify(data));
 }
 
+function authorizeInternalRequest(req, url, expectedToken = FINANCE_WA_ENGINE_API_TOKEN) {
+  const headers = req && req.headers && typeof req.headers === 'object' ? req.headers : {};
+  if (!expectedToken || url.searchParams.has('token')) return false;
+  if (Object.prototype.hasOwnProperty.call(headers, 'x-sync-token')) return false;
+
+  const presentedToken = headers['x-finance-wa-engine-token'];
+  return typeof presentedToken === 'string'
+    && presentedToken !== ''
+    && presentedToken === expectedToken;
+}
+
 function buildOutgoingMessage(payload) {
   const message = String(payload.message || '').trim();
   const imagePath = String(payload.image_path || '').trim();
@@ -241,12 +265,16 @@ function normalizeIncomingCommand(text) {
 }
 
 async function buildGroupCommandReply(groupJid, command) {
-  const url = `${FINANCE_COMMAND_URL}?token=${encodeURIComponent(SYNC_TOKEN)}`;
-  const resp = await fetch(url, {
+  if (!FINANCE_WA_ENGINE_COMMAND_TOKEN) {
+    throw new Error('Credential callback command grup Finance belum dikonfigurasi.');
+  }
+
+  const resp = await fetch(FINANCE_COMMAND_URL, {
     method: 'POST',
+    redirect: 'error',
     headers: {
       'Content-Type': 'application/json',
-      'X-Sync-Token': SYNC_TOKEN,
+      'X-Finance-Group-Command-Token': FINANCE_WA_ENGINE_COMMAND_TOKEN,
     },
     body: JSON.stringify({ group_jid: groupJid, command }),
   });
@@ -465,9 +493,7 @@ function startServer() {
   const server = http.createServer(async (req, res) => {
     try {
       const url   = new URL(req.url || '/', `http://127.0.0.1`);
-      const token = url.searchParams.get('token') || req.headers['x-sync-token'] || '';
-
-      if (token !== SYNC_TOKEN) {
+      if (url.pathname.startsWith('/internal/') && !authorizeInternalRequest(req, url)) {
         return jsonReply(res, 403, { ok: false, message: 'Forbidden' });
       }
 
@@ -588,7 +614,9 @@ function startServer() {
 
   server.listen(SYNC_PORT, '127.0.0.1', () => {
     console.log(`🔄  Internal API siap di http://127.0.0.1:${SYNC_PORT}`);
-    console.log('🔑  Token internal dikonfigurasi.');
+    if (!FINANCE_WA_ENGINE_API_TOKEN) {
+      console.warn('⚠️  Credential API internal belum tersedia; seluruh endpoint /internal/* menolak request.');
+    }
   });
 }
 

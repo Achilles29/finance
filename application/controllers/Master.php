@@ -3,6 +3,11 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Master extends MY_Controller
 {
+    private const MASTER_MUTATION_CSRF_SESSION_KEY = 'master_mutation_csrf';
+    private const MASTER_MUTATION_CSRF_FORM_FIELD = 'master_mutation_csrf';
+    private const MASTER_MUTATION_CSRF_HEADER = 'X-Master-Mutation-CSRF';
+    private const MASTER_MUTATION_CSRF_CI_HEADER = 'X-Master-Mutation-Csrf';
+
     private $productListLiveHppCache = [];
     private $productRecipeMaterialCostCache = [];
     private $productRecipeComponentCostCache = [];
@@ -13,6 +18,115 @@ class Master extends MY_Controller
         parent::__construct();
         $this->load->model(['Master_model', 'User_model', 'Auth_model']);
         $this->load->library('form_validation');
+    }
+
+    private function masterPageCode(string $entity): ?string
+    {
+        $map = [
+            'bank' => 'master.bank.index',
+            'uom' => 'master.uom.index',
+            'operational-division' => 'master.operational_division.index',
+            'org-division' => 'hr.org_division.index',
+            'org-position' => 'hr.org_position.index',
+            'org-employee' => 'hr.org_employee.index',
+            'att-shift' => 'attendance.shift.index',
+            'att-location' => 'attendance.location.index',
+            'att-overtime-standard' => 'attendance.overtime_entry.index',
+            'att-holiday' => 'attendance.holiday.index',
+            'pay-component' => 'payroll.component.index',
+            'pay-profile' => 'payroll.profile.index',
+            'pay-assignment' => 'payroll.assignment.index',
+            'pay-basic-salary' => 'payroll.basic_salary.index',
+            'pay-objective-override' => 'payroll.objective_override.index',
+            'pay-profile-line' => 'payroll.profile.index',
+            'hr-contract-template' => 'hr.contract_template.index',
+            'hr-contract' => 'hr.contract.index',
+            'product-division' => 'master.product_division.index',
+            'product-classification' => 'master.product_classification.index',
+            'product-category' => 'master.product_category.index',
+            'item-category' => 'master.item_category.index',
+            'material' => 'master.material.index',
+            'item' => 'master.item.index',
+            'component-category' => 'master.component_category.index',
+            'component' => 'master.component.index',
+            'product' => 'master.product.index',
+            'vendor' => 'master.vendor.index',
+            'posting-type' => 'master.purchase.posting_type',
+            'purchase-type' => 'master.purchase.purchase_type',
+            'purchase-catalog' => 'master.purchase.catalog',
+            'purchase-catalog-vendor' => 'master.purchase.catalog_vendor',
+            'company-account' => 'finance.account.index',
+            'extra' => 'master.extra.index',
+            'extra-group' => 'master.extra_group.index',
+            'variable-cost-default' => 'master.variable_cost_default.index',
+        ];
+
+        return $map[$entity] ?? null;
+    }
+
+    private function requireMasterPermission(string $entity, string $action): void
+    {
+        $pageCode = $this->masterPageCode($entity);
+        if ($pageCode === null) {
+            show_error('Entity master tidak diizinkan.', 403, 'Forbidden');
+            return;
+        }
+
+        $this->require_permission($pageCode, $action);
+    }
+
+    private function masterMutationCsrf(): string
+    {
+        $token = (string)$this->session->userdata(self::MASTER_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::MASTER_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function requireMasterMutationRequest(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->rejectMasterMutationRequest(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = trim((string)$this->input->post(self::MASTER_MUTATION_CSRF_FORM_FIELD, false));
+        if ($providedToken === '') {
+            // CI normalizes CGI/FastCGI header names to title case (...-Csrf).
+            $providedToken = trim((string)$this->input->get_request_header(self::MASTER_MUTATION_CSRF_CI_HEADER, true));
+        }
+        $sessionToken = (string)$this->session->userdata(self::MASTER_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->rejectMasterMutationRequest(403, 'Permintaan perubahan master tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function rejectMasterMutationRequest(int $statusCode, string $message): void
+    {
+        if (method_exists($this->input, 'is_ajax_request') && $this->input->is_ajax_request()) {
+            $this->output
+                ->set_status_header($statusCode)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => $message], JSON_INVALID_UTF8_SUBSTITUTE));
+            return;
+        }
+
+        show_error(
+            $message,
+            $statusCode,
+            $statusCode === 405 ? 'Method Not Allowed' : 'Forbidden'
+        );
     }
 
     private function redirect_contract_operational_if_needed(string $entity, string $action = 'index', int $id = 0): bool
@@ -59,6 +173,8 @@ class Master extends MY_Controller
         }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
+        $this->requireMasterPermission($entity, 'view');
+        $masterMutationCsrfToken = $this->masterMutationCsrf();
 
         $q = trim((string)$this->input->get('q', true));
         $status = strtolower(trim((string)$this->input->get('status', true)));
@@ -141,6 +257,7 @@ class Master extends MY_Controller
             'list_filter_definitions' => $listFilters['definitions'],
             'list_filter_options' => $listFilters['options'],
             'list_filter_values' => $listFilters['values'],
+            'master_mutation_csrf_token' => $masterMutationCsrfToken,
         ];
 
         if ($entity === 'material') {
@@ -184,6 +301,7 @@ class Master extends MY_Controller
     public function material_usage(int $id = 0)
     {
         $id = max(0, $id);
+        $this->requireMasterPermission('material', 'view');
         $material = $id > 0 ? $this->db->where('id', $id)->get('mst_material')->row_array() : null;
         if (!$material) show_404();
 
@@ -501,6 +619,8 @@ class Master extends MY_Controller
         }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
+        $this->requireMasterPermission($entity, 'create');
+        $masterMutationCsrfToken = $this->masterMutationCsrf();
 
         $vcDefaults = $this->variableCostDefaultsForEntity($entity);
 
@@ -516,6 +636,7 @@ class Master extends MY_Controller
             'form_action' => 'master/' . $entity . '/store',
             'is_edit' => false,
             'variable_cost_defaults' => $vcDefaults,
+            'master_mutation_csrf_token' => $masterMutationCsrfToken,
         ];
         if ($entity === 'org-employee') {
             $data = array_merge($data, $this->employeeAccessFormData());
@@ -530,6 +651,7 @@ class Master extends MY_Controller
             show_404();
             return;
         }
+        $this->requireMasterPermission($entity, 'view');
 
         $fieldConfig = null;
         foreach ((array)($cfg['fields'] ?? []) as $field) {
@@ -706,6 +828,10 @@ class Master extends MY_Controller
         }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
+        $this->requireMasterPermission($entity, 'create');
+        if (!$this->requireMasterMutationRequest()) {
+            return;
+        }
 
         $this->autofillCodeFromName($cfg, 0);
         $this->autofillOrgEmployeeCodeAndNip($cfg, 0);
@@ -756,6 +882,8 @@ class Master extends MY_Controller
         }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
+        $this->requireMasterPermission($entity, 'edit');
+        $masterMutationCsrfToken = $this->masterMutationCsrf();
 
         $row = $this->Master_model->get_by_id($cfg['table'], $id);
         if (!$row) show_404();
@@ -774,6 +902,7 @@ class Master extends MY_Controller
             'form_action' => 'master/' . $entity . '/update/' . $id,
             'is_edit' => true,
             'variable_cost_defaults' => $vcDefaults,
+            'master_mutation_csrf_token' => $masterMutationCsrfToken,
         ];
         if ($entity === 'org-employee') {
             $data = array_merge($data, $this->employeeAccessFormData($row));
@@ -788,6 +917,7 @@ class Master extends MY_Controller
         }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
+        $this->requireMasterPermission($entity, 'view');
 
         if ($entity === 'product') {
             $row = $this->db->select('p.*, pd.name AS product_division_name, pc.name AS classification_name, cat.name AS category_name, u.name AS uom_name, od.name AS operational_division_name', false)
@@ -901,6 +1031,10 @@ class Master extends MY_Controller
         }
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
+        $this->requireMasterPermission($entity, 'edit');
+        if (!$this->requireMasterMutationRequest()) {
+            return;
+        }
 
         $row = $this->Master_model->get_by_id($cfg['table'], $id);
         if (!$row) show_404();
@@ -955,6 +1089,10 @@ class Master extends MY_Controller
         $cfg = $this->entityConfig($entity);
         if (!$cfg) show_404();
         if (empty($cfg['toggle'])) show_404();
+        $this->requireMasterPermission($entity, 'edit');
+        if (!$this->requireMasterMutationRequest()) {
+            return;
+        }
 
         $row = $this->Master_model->get_by_id($cfg['table'], $id);
         if (!$row) show_404();
@@ -978,7 +1116,15 @@ class Master extends MY_Controller
     public function stock_mode(string $entity, int $id)
     {
         $cfg = $this->entityConfig($entity);
-        if (!$cfg || $entity !== 'product' || ($cfg['table'] ?? '') !== 'mst_product' || !$this->db->field_exists('stock_mode', 'mst_product')) {
+        if (!$cfg || $entity !== 'product' || ($cfg['table'] ?? '') !== 'mst_product') {
+            show_404();
+            return;
+        }
+        $this->requireMasterPermission($entity, 'edit');
+        if (!$this->requireMasterMutationRequest()) {
+            return;
+        }
+        if (!$this->db->field_exists('stock_mode', 'mst_product')) {
             show_404();
             return;
         }
@@ -1023,8 +1169,8 @@ class Master extends MY_Controller
     public function att_holiday_generate_year()
     {
         $this->require_permission('attendance.holiday.index', 'create');
-        if ($this->input->method() !== 'post') {
-            show_404();
+        if (!$this->requireMasterMutationRequest()) {
+            return;
         }
 
         $year = (int)$this->input->post('year', true);
@@ -3710,13 +3856,22 @@ class Master extends MY_Controller
 
     public function reorder(string $entity)
     {
+        $cfg = $this->entityConfig($entity);
+        if (!$cfg || empty($cfg['reorderable']) || empty($cfg['table'])) {
+            $this->output->set_status_header(400)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => 'Entity tidak mendukung drag & drop urutan.']));
+            return;
+        }
+        $this->requireMasterPermission($entity, 'edit');
+        if (!$this->requireMasterMutationRequest()) {
+            return;
+        }
         if (!$this->input->is_ajax_request()) {
             show_404();
             return;
         }
-
-        $cfg = $this->entityConfig($entity);
-        if (!$cfg || empty($cfg['reorderable']) || empty($cfg['table']) || !$this->db->field_exists('sort_order', (string)$cfg['table'])) {
+        if (!$this->db->field_exists('sort_order', (string)$cfg['table'])) {
             $this->output->set_status_header(400)
                 ->set_content_type('application/json')
                 ->set_output(json_encode(['ok' => false, 'message' => 'Entity tidak mendukung drag & drop urutan.']));

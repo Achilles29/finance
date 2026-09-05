@@ -652,16 +652,60 @@ class Purchase_model extends CI_Model
             ];
         }
 
+        if ($mutationDate > date('Y-m-d')) {
+            return [
+                'ok' => false,
+                'message' => 'mutation_date tidak boleh melewati tanggal hari ini.',
+            ];
+        }
+
         $mutationIds = [];
         $mutationNos = [];
 
+        if ($this->db->trans_begin() === false) {
+            return [
+                'ok' => false,
+                'message' => 'Gagal memulai transaksi mutasi rekening.',
+            ];
+        }
+
+        $rollback = function (string $message): array {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'message' => $message,
+            ];
+        };
+
+        if ($this->db->table_exists('fin_period_close')) {
+            $periodQuery = $this->db->query(
+                "SELECT id, status
+                 FROM fin_period_close
+                 WHERE period_start <= ?
+                   AND period_end >= ?
+                 ORDER BY id ASC
+                 FOR UPDATE",
+                [$mutationDate, $mutationDate]
+            );
+            if ($periodQuery === false) {
+                return $rollback('Gagal memeriksa status tutup periode keuangan.');
+            }
+            foreach ($periodQuery->result_array() as $periodRow) {
+                if (strtoupper(trim((string)($periodRow['status'] ?? ''))) === 'CLOSED') {
+                    return $rollback('Mutasi rekening ditolak karena mutation_date berada pada periode keuangan CLOSED.');
+                }
+            }
+        }
+
         if ($mutationType === 'TRANSFER') {
-            $lockRows = $this->db
-                ->query(
-                    'SELECT * FROM fin_company_account WHERE id IN (?, ?) AND is_active = 1 ORDER BY id ASC FOR UPDATE',
-                    [$accountId, $toAccountId]
-                )
-                ->result_array();
+            $lockQuery = $this->db->query(
+                'SELECT * FROM fin_company_account WHERE id IN (?, ?) AND is_active = 1 ORDER BY id ASC FOR UPDATE',
+                [$accountId, $toAccountId]
+            );
+            if ($lockQuery === false) {
+                return $rollback('Gagal mengunci rekening sumber/tujuan.');
+            }
+            $lockRows = $lockQuery->result_array();
             $accountsById = [];
             foreach ($lockRows as $row) {
                 $accountsById[(int)($row['id'] ?? 0)] = $row;
@@ -669,11 +713,7 @@ class Purchase_model extends CI_Model
             $source = $accountsById[$accountId] ?? null;
             $target = $accountsById[$toAccountId] ?? null;
             if (!$source || !$target) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => 'Rekening sumber/tujuan tidak ditemukan atau tidak aktif.',
-                ];
+                return $rollback('Rekening sumber/tujuan tidak ditemukan atau tidak aktif.');
             }
 
             $sourceBefore = (float)($source['current_balance'] ?? 0);
@@ -682,19 +722,18 @@ class Purchase_model extends CI_Model
             $targetAfter = round($targetBefore + $amount, 2);
 
             if ($sourceAfter < 0) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => 'Saldo rekening sumber tidak cukup untuk transfer.',
-                ];
+                return $rollback('Saldo rekening sumber tidak cukup untuk transfer.');
             }
 
-            $this->db->where('id', $accountId)->update('fin_company_account', [
+            $sourceUpdated = $this->db->where('id', $accountId)->update('fin_company_account', [
                 'current_balance' => $sourceAfter,
             ]);
-            $this->db->where('id', $toAccountId)->update('fin_company_account', [
+            $targetUpdated = $this->db->where('id', $toAccountId)->update('fin_company_account', [
                 'current_balance' => $targetAfter,
             ]);
+            if ($sourceUpdated === false || $targetUpdated === false || $this->db->trans_status() === false) {
+                return $rollback('Gagal memperbarui saldo rekening transfer.');
+            }
 
             $transferRef = $referenceNo;
             if ($transferRef === null || $transferRef === '') {
@@ -708,7 +747,10 @@ class Purchase_model extends CI_Model
                 : 'Transfer dari ' . (string)($source['account_code'] ?? ('#' . $accountId));
 
             $mutationNoOut = $this->generateAccountMutationNo($mutationDate);
-            $this->db->insert('fin_account_mutation_log', [
+            if ($this->db->trans_status() === false) {
+                return $rollback('Gagal membuat nomor mutasi rekening sumber.');
+            }
+            $mutationOutInserted = $this->db->insert('fin_account_mutation_log', [
                 'mutation_no' => $mutationNoOut,
                 'mutation_date' => $mutationDate,
                 'account_id' => $accountId,
@@ -723,11 +765,18 @@ class Purchase_model extends CI_Model
                 'notes' => $notesOut,
                 'created_by' => $userId > 0 ? $userId : null,
             ]);
-            $mutationIds[] = (int)$this->db->insert_id();
+            $mutationIdOut = (int)$this->db->insert_id();
+            if ($mutationOutInserted === false || $mutationIdOut <= 0 || $this->db->trans_status() === false) {
+                return $rollback('Gagal menyimpan mutasi rekening sumber.');
+            }
+            $mutationIds[] = $mutationIdOut;
             $mutationNos[] = $mutationNoOut;
 
             $mutationNoIn = $this->generateAccountMutationNo($mutationDate);
-            $this->db->insert('fin_account_mutation_log', [
+            if ($this->db->trans_status() === false) {
+                return $rollback('Gagal membuat nomor mutasi rekening tujuan.');
+            }
+            $mutationInInserted = $this->db->insert('fin_account_mutation_log', [
                 'mutation_no' => $mutationNoIn,
                 'mutation_date' => $mutationDate,
                 'account_id' => $toAccountId,
@@ -742,11 +791,15 @@ class Purchase_model extends CI_Model
                 'notes' => $notesIn,
                 'created_by' => $userId > 0 ? $userId : null,
             ]);
-            $mutationIds[] = (int)$this->db->insert_id();
+            $mutationIdIn = (int)$this->db->insert_id();
+            if ($mutationInInserted === false || $mutationIdIn <= 0 || $this->db->trans_status() === false) {
+                return $rollback('Gagal menyimpan mutasi rekening tujuan.');
+            }
+            $mutationIds[] = $mutationIdIn;
             $mutationNos[] = $mutationNoIn;
 
             if ($this->db->table_exists('aud_transaction_log')) {
-                $this->db->insert('aud_transaction_log', [
+                $auditInserted = $this->db->insert('aud_transaction_log', [
                     'module_code' => 'FINANCE',
                     'action_code' => 'ACCOUNT_TRANSFER',
                     'entity_table' => 'fin_account_mutation_log',
@@ -768,18 +821,22 @@ class Purchase_model extends CI_Model
                     ]),
                     'notes' => 'Mutasi antar rekening manual',
                 ]);
+                if ($auditInserted === false || $this->db->trans_status() === false) {
+                    return $rollback('Gagal mencatat audit mutasi antar rekening.');
+                }
             }
         } else {
-            $account = $this->db
-                ->query('SELECT * FROM fin_company_account WHERE id = ? AND is_active = 1 LIMIT 1 FOR UPDATE', [$accountId])
-                ->row_array();
+            $accountQuery = $this->db->query(
+                'SELECT * FROM fin_company_account WHERE id = ? AND is_active = 1 LIMIT 1 FOR UPDATE',
+                [$accountId]
+            );
+            if ($accountQuery === false) {
+                return $rollback('Gagal mengunci rekening.');
+            }
+            $account = $accountQuery->row_array();
 
             if (!$account) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => 'Akun rekening tidak ditemukan atau tidak aktif.',
-                ];
+                return $rollback('Akun rekening tidak ditemukan atau tidak aktif.');
             }
 
             $balanceBefore = (float)($account['current_balance'] ?? 0);
@@ -788,19 +845,21 @@ class Purchase_model extends CI_Model
                 : round($balanceBefore - $amount, 2);
 
             if ($balanceAfter < 0) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => 'Saldo rekening tidak cukup untuk mutasi OUT.',
-                ];
+                return $rollback('Saldo rekening tidak cukup untuk mutasi OUT.');
             }
 
-            $this->db->where('id', $accountId)->update('fin_company_account', [
+            $accountUpdated = $this->db->where('id', $accountId)->update('fin_company_account', [
                 'current_balance' => $balanceAfter,
             ]);
+            if ($accountUpdated === false || $this->db->trans_status() === false) {
+                return $rollback('Gagal memperbarui saldo rekening.');
+            }
 
             $mutationNo = $this->generateAccountMutationNo($mutationDate);
-            $this->db->insert('fin_account_mutation_log', [
+            if ($this->db->trans_status() === false) {
+                return $rollback('Gagal membuat nomor mutasi rekening.');
+            }
+            $mutationInserted = $this->db->insert('fin_account_mutation_log', [
                 'mutation_no' => $mutationNo,
                 'mutation_date' => $mutationDate,
                 'account_id' => $accountId,
@@ -816,11 +875,14 @@ class Purchase_model extends CI_Model
                 'created_by' => $userId > 0 ? $userId : null,
             ]);
             $mutationId = (int)$this->db->insert_id();
+            if ($mutationInserted === false || $mutationId <= 0 || $this->db->trans_status() === false) {
+                return $rollback('Gagal menyimpan mutasi rekening.');
+            }
             $mutationIds[] = $mutationId;
             $mutationNos[] = $mutationNo;
 
             if ($this->db->table_exists('aud_transaction_log')) {
-                $this->db->insert('aud_transaction_log', [
+                $auditInserted = $this->db->insert('aud_transaction_log', [
                     'module_code' => 'FINANCE',
                     'action_code' => 'ACCOUNT_MUTATION',
                     'entity_table' => 'fin_account_mutation_log',
@@ -838,18 +900,23 @@ class Purchase_model extends CI_Model
                     ]),
                     'notes' => 'Mutasi rekening manual',
                 ]);
+                if ($auditInserted === false || $this->db->trans_status() === false) {
+                    return $rollback('Gagal mencatat audit mutasi rekening.');
+                }
             }
         }
 
         if ($this->db->trans_status() === false) {
+            return $rollback('Gagal menyimpan mutasi rekening.');
+        }
+
+        if ($this->db->trans_commit() === false) {
             $this->db->trans_rollback();
             return [
                 'ok' => false,
-                'message' => 'Gagal menyimpan mutasi rekening.',
+                'message' => 'Gagal menyelesaikan transaksi mutasi rekening.',
             ];
         }
-
-        $this->db->trans_commit();
 
         return [
             'ok' => true,
@@ -1814,6 +1881,7 @@ class Purchase_model extends CI_Model
                 $monthStart,
                 $monthEnd,
                 null,
+                false,
                 false
             );
         }
@@ -2152,7 +2220,8 @@ class Purchase_model extends CI_Model
                 $dateFrom,
                 $dateTo,
                 $destinationFilter,
-                true
+                true,
+                false
             );
             $movementRows = $this->normalizeDivisionProfileKeyRows($movementRows);
         }
@@ -2385,7 +2454,8 @@ class Purchase_model extends CI_Model
                 $dateFrom,
                 $dateTo,
                 $destinationFilter,
-                true
+                true,
+                false
             );
             $movementRows = $this->normalizeDivisionProfileKeyRows($movementRows);
         }
@@ -2819,12 +2889,18 @@ class Purchase_model extends CI_Model
         return [];
     }
 
-    private function fetchInventoryDailyMatrixSourceRowsFromMovement(string $stockScope, string $q, ?int $divisionId, string $dateFrom, string $dateTo, ?string $destinationFilter = null, bool $materialOnly = false): array
+    private function fetchInventoryDailyMatrixSourceRowsFromMovement(string $stockScope, string $q, ?int $divisionId, string $dateFrom, string $dateTo, ?string $destinationFilter = null, bool $materialOnly = false, bool $includePriorHistory = true): array
     {
         if (!$this->db->table_exists('inv_stock_movement_log')) {
             return [];
         }
 
+        // Monthly snapshots already provide the opening/closing state, so
+        // their daily source can be bounded to the requested window. The
+        // movement-only fallback still needs prior history to calculate an
+        // opening balance and therefore opts into the old dateTo-only mode.
+        $normalizedDateFrom = $this->normalizeDate($dateFrom);
+        $normalizedDateTo = $this->normalizeDate($dateTo);
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
         $hasMovementStockDomain = $this->db->field_exists('stock_domain', 'inv_stock_movement_log');
         $hasMovementDestination = $stockScope === 'DIVISION' && $this->db->field_exists('destination_type', 'inv_stock_movement_log');
@@ -2846,8 +2922,14 @@ class Purchase_model extends CI_Model
             ->from('inv_stock_movement_log l')
             ->join('mst_item i', 'i.id = l.item_id', 'left')
             ->join('mst_material m', 'm.id = COALESCE(l.material_id, i.material_id)', 'left')
-            ->where('l.movement_scope', $stockScope)
-            ->where('l.movement_date <=', $dateTo);
+            ->where('l.movement_scope', $stockScope);
+
+        if (!$includePriorHistory && $normalizedDateFrom !== null) {
+            $this->db->where('l.movement_date >=', $normalizedDateFrom);
+        }
+        if ($normalizedDateTo !== null) {
+            $this->db->where('l.movement_date <=', $normalizedDateTo);
+        }
 
         if ($hasMovementReversalLink) {
             $this->db
@@ -3350,13 +3432,16 @@ class Purchase_model extends CI_Model
         ]);
     }
 
-    public function list_division_material_stock_compare(string $asOfDate, string $q, ?int $divisionId, int $limit, ?string $destinationFilter = null): array
+    public function list_division_material_stock_compare(string $asOfDate, string $q, ?int $divisionId, int $limit, ?string $destinationFilter = null, bool $includeDetailedDiagnostics = true): array
     {
         $asOfDate = $this->normalizeDate($asOfDate) ?? date('Y-m-d');
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
         if ($limit <= 0 || $limit > 2000) {
             $limit = 300;
         }
+        // The dashboard only needs a compact reconcile snapshot. Bound each
+        // source query before it is materialized, not merely the final rows.
+        $sourceLimit = min(5000, max(1, $limit));
         $excludedDivisionIds = $this->listReconcileExcludedDivisionIds();
         if ($divisionId !== null && $divisionId > 0 && in_array((int)$divisionId, $excludedDivisionIds, true)) {
             return [
@@ -3370,9 +3455,14 @@ class Purchase_model extends CI_Model
             ];
         }
 
-        $balanceRows = $this->list_division_stock_monthly($q, 5000, $destinationFilter, '', $asOfDate, $divisionId, true);
-        $dailyRows = $this->list_division_daily_snapshot_latest_closing($asOfDate, $q, $divisionId, $destinationFilter);
-        $movementRows = $this->list_division_material_movement_closing($asOfDate, $q, $divisionId, $destinationFilter);
+        $balanceRows = $this->list_division_stock_monthly($q, $sourceLimit, $destinationFilter, '', $asOfDate, $divisionId, true);
+        // The dashboard summary reads the same authoritative monthly closing
+        // state, so it does not need to reconstruct every movement into a
+        // daily snapshot. Detailed reconcile pages keep the full analysis.
+        $dailyRows = $includeDetailedDiagnostics
+            ? $this->list_division_daily_snapshot_latest_closing($asOfDate, $q, $divisionId, $destinationFilter, $sourceLimit)
+            : $balanceRows;
+        $movementRows = $this->list_division_material_movement_closing($asOfDate, $q, $divisionId, $destinationFilter, $sourceLimit);
         if (!empty($excludedDivisionIds)) {
             $balanceRows = array_values(array_filter($balanceRows, static function (array $row) use ($excludedDivisionIds): bool {
                 return !in_array((int)($row['division_id'] ?? 0), $excludedDivisionIds, true);
@@ -3527,7 +3617,11 @@ class Purchase_model extends CI_Model
             return strcasecmp((string)($a['material_code'] ?? ''), (string)($b['material_code'] ?? ''));
         });
 
-        $this->attach_material_lot_totals($rows, $asOfDate);
+        if ($includeDetailedDiagnostics) {
+            $this->attach_material_lot_totals($rows, $asOfDate);
+        } else {
+            $this->attach_material_lot_totals_lightweight($rows, $preLotMap);
+        }
         $this->attach_material_daily_check($rows);
 
         $summary = [
@@ -4255,6 +4349,64 @@ class Purchase_model extends CI_Model
         unset($row);
     }
 
+    /**
+     * Dashboard only needs an aggregate lot-vs-ledger signal. Avoid loading
+     * every profile and its historical movement detail for the small summary.
+     */
+    private function attach_material_lot_totals_lightweight(array &$rows, array $preLotMap): void
+    {
+        $balanceByMaterial = [];
+        foreach ($rows as $row) {
+            $materialId = (int)($row['material_id'] ?? 0);
+            if ($materialId <= 0) {
+                continue;
+            }
+            $key = (int)($row['division_id'] ?? 0)
+                . '|' . strtoupper((string)($row['destination_group'] ?? 'REGULER'))
+                . '|M-' . $materialId;
+            $balanceByMaterial[$key] = round(
+                (float)($balanceByMaterial[$key] ?? 0) + (float)($row['balance_qty_content'] ?? 0),
+                4
+            );
+        }
+
+        foreach ($rows as &$row) {
+            $materialId = (int)($row['material_id'] ?? 0);
+            $key = (int)($row['division_id'] ?? 0)
+                . '|' . strtoupper((string)($row['destination_group'] ?? 'REGULER'))
+                . '|M-' . $materialId;
+            $materialBalance = (float)($balanceByMaterial[$key] ?? $row['balance_qty_content'] ?? 0);
+            $lotQty = $materialId > 0 && array_key_exists($key, $preLotMap)
+                ? (float)$preLotMap[$key]
+                : null;
+            $lotDelta = round($materialBalance - (float)($lotQty ?? 0), 4);
+
+            $row['lot_qty_content'] = $lotQty;
+            $row['lot_value_total'] = null;
+            $row['stock_value_total'] = null;
+            $row['lot_vs_balance_delta'] = $lotDelta;
+            $row['lot_vs_balance_value_delta'] = 0.0;
+            $row['has_lot_mismatch'] = abs($lotDelta) > 0.01 ? 1 : 0;
+            $row['has_lot_value_mismatch'] = 0;
+            $row['has_profile_lot_mismatch'] = 0;
+            $row['has_profile_lot_value_mismatch'] = 0;
+            $row['lot_profile_breakdown'] = [];
+            $row['lot_source_mode'] = 'DASHBOARD_AGGREGATE';
+
+            if (!empty($row['has_lot_mismatch'])) {
+                $row['is_match'] = 0;
+                if ($lotQty === null) {
+                    $row['suspect_table'] = 'LOT';
+                    $row['suspect_reason'] = 'Stok ledger ada, tetapi lot FIFO belum tersedia.';
+                } elseif (empty($row['suspect_table']) || $row['suspect_table'] === 'MATCH') {
+                    $row['suspect_table'] = 'LOT';
+                    $row['suspect_reason'] = 'Total lot FIFO tidak sesuai stok ledger.';
+                }
+            }
+        }
+        unset($row);
+    }
+
     private function attach_material_daily_check(array &$rows): void
     {
         foreach ($rows as &$row) {
@@ -4334,7 +4486,7 @@ class Purchase_model extends CI_Model
         unset($row);
     }
 
-    private function list_division_daily_snapshot_latest_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
+    private function list_division_daily_snapshot_latest_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null, int $limit = 5000): array
     {
         if ($this->db->table_exists('inv_division_monthly_stock')) {
             $monthStart = date('Y-m-01', strtotime($asOfDate));
@@ -4343,7 +4495,7 @@ class Purchase_model extends CI_Model
                 $divisionId,
                 $monthStart,
                 $asOfDate,
-                5000,
+                max(1, min(5000, $limit)),
                 $destinationFilter
             );
 
@@ -8433,12 +8585,12 @@ class Purchase_model extends CI_Model
         return $map;
     }
 
-    private function list_division_material_movement_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null): array
+    private function list_division_material_movement_closing(string $asOfDate, string $q, ?int $divisionId, ?string $destinationFilter = null, int $limit = 5000): array
     {
         // Setelah cutoff bulanan, monthly stock adalah closing state yang sah.
         // Kolom movement pada reconcile harus merepresentasikan state cutoff itu,
         // sedangkan kelengkapan histori movement tetap dicek lewat gap map.
-        $monthlyRows = $this->list_division_stock_monthly($q, 5000, $destinationFilter, '', $asOfDate, $divisionId, true);
+        $monthlyRows = $this->list_division_stock_monthly($q, max(1, min(5000, $limit)), $destinationFilter, '', $asOfDate, $divisionId, true);
         if (!empty($monthlyRows)) {
             $rows = [];
             foreach ($monthlyRows as $row) {
@@ -21748,31 +21900,90 @@ class Purchase_model extends CI_Model
             ];
         }
 
-        $order = $this->db->get_where('pur_purchase_order', ['id' => $purchaseOrderId])->row_array();
-        if (!$order) {
-            return [
-                'ok' => false,
-                'message' => 'Purchase order tidak ditemukan.',
-            ];
-        }
-
-        $poLines = $this->get_po_lines_for_receipt($purchaseOrderId);
-        $lineMap = [];
-        foreach ($poLines as $line) {
-            $lineMap[(int)$line['purchase_order_line_id']] = $line;
-        }
-
         $this->load->library('InventoryLedger');
         $this->load->library('MaterialFifoManager');
         $fifoReady = $this->materialfifomanager->ensureReady();
         if (!($fifoReady['ok'] ?? false)) {
             return $fifoReady;
         }
-        $this->db->trans_begin();
+        if ($this->db->trans_begin() === false) {
+            return [
+                'ok' => false,
+                'message' => 'Gagal memulai transaksi receipt purchase.',
+            ];
+        }
+
+        $rollback = function (string $message): array {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'message' => $message,
+            ];
+        };
+
+        $orderQuery = $this->db->query(
+            'SELECT * FROM pur_purchase_order WHERE id = ? LIMIT 1 FOR UPDATE',
+            [$purchaseOrderId]
+        );
+        if ($orderQuery === false) {
+            return $rollback('Gagal mengunci purchase order.');
+        }
+        $order = $orderQuery->row_array();
+        if (!$order) {
+            return $rollback('Purchase order tidak ditemukan.');
+        }
+
+        $statusBefore = strtoupper((string)($order['status'] ?? 'DRAFT'));
+        if (in_array($statusBefore, ['REJECTED', 'CLOSED', 'VOID'], true)) {
+            return $rollback('Receipt tidak dapat diposting untuk purchase order berstatus ' . $statusBefore . '.');
+        }
+
+        $typeRule = $this->getPurchaseTypeRule((int)($order['purchase_type_id'] ?? 0));
+        if ($this->db->trans_status() === false) {
+            return $rollback('Gagal membaca aturan purchase type.');
+        }
+        $destinationBehavior = strtoupper(trim((string)($typeRule['destination_behavior'] ?? 'NONE')));
+        $isStockPurchase = $typeRule !== null
+            && (int)($typeRule['affects_inventory'] ?? 0) === 1
+            && $destinationBehavior !== 'NONE';
+        if (!$isStockPurchase) {
+            return $rollback('Purchase order non-stock tidak dapat diposting melalui receipt stok.');
+        }
+
+        $poLineLockQuery = $this->db->query(
+            'SELECT id FROM pur_purchase_order_line WHERE purchase_order_id = ? ORDER BY id ASC FOR UPDATE',
+            [$purchaseOrderId]
+        );
+        if ($poLineLockQuery === false) {
+            return $rollback('Gagal mengunci baris purchase order.');
+        }
+
+        $poLines = $this->get_po_lines_for_receipt($purchaseOrderId);
+        if ($this->db->trans_status() === false) {
+            return $rollback('Gagal membaca akumulasi receipt purchase order.');
+        }
+
+        $lineMap = [];
+        $currentReceiptQtyByPoLine = [];
+        $eligiblePositiveQtyLineIds = [];
+        foreach ($poLines as $line) {
+            $poLineId = (int)($line['purchase_order_line_id'] ?? 0);
+            if ($poLineId <= 0) {
+                continue;
+            }
+            $lineMap[$poLineId] = $line;
+            $currentReceiptQtyByPoLine[$poLineId] = round((float)($line['qty_buy_received_total'] ?? 0), 4);
+            if (round((float)($line['qty_buy'] ?? 0), 4) > 0) {
+                $eligiblePositiveQtyLineIds[] = $poLineId;
+            }
+        }
 
         $receiptNo = trim((string)($header['receipt_no'] ?? ''));
         if ($receiptNo === '') {
             $receiptNo = $this->generateReceiptNo($receiptDate);
+            if ($this->db->trans_status() === false) {
+                return $rollback('Gagal membuat nomor receipt purchase.');
+            }
         }
 
         $receiptData = [
@@ -21786,14 +21997,10 @@ class Purchase_model extends CI_Model
             'created_by' => $userId > 0 ? $userId : null,
         ];
 
-        $this->db->insert('pur_purchase_receipt', $receiptData);
+        $receiptInserted = $this->db->insert('pur_purchase_receipt', $receiptData);
         $receiptId = (int)$this->db->insert_id();
-        if ($receiptId <= 0) {
-            $this->db->trans_rollback();
-            return [
-                'ok' => false,
-                'message' => 'Gagal membuat header receipt.',
-            ];
+        if ($receiptInserted === false || $receiptId <= 0 || $this->db->trans_status() === false) {
+            return $rollback('Gagal membuat header receipt.');
         }
 
         $lineCount = 0;
@@ -21806,24 +22013,19 @@ class Purchase_model extends CI_Model
             }
 
             if (!isset($lineMap[$poLineId])) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => 'Baris PO tidak ditemukan: ' . $poLineId,
-                ];
+                return $rollback('Baris PO tidak ditemukan: ' . $poLineId);
             }
 
             $poLine = $lineMap[$poLineId];
-            $orderedQtyBuy = (float)($poLine['qty_buy'] ?? 0);
-            $alreadyReceived = (float)($poLine['qty_buy_received_total'] ?? 0);
+            $orderedQtyBuy = round((float)($poLine['qty_buy'] ?? 0), 4);
+            if ($orderedQtyBuy <= 0) {
+                return $rollback('Baris PO dengan qty nol tidak eligible untuk receipt: line #' . (int)($poLine['line_no'] ?? 0));
+            }
+
+            $alreadyReceived = round((float)($currentReceiptQtyByPoLine[$poLineId] ?? 0), 4);
             $remainingQtyBuy = round(max(0, $orderedQtyBuy - $alreadyReceived), 4);
-            $allowOver = !empty($line['allow_over_receive']);
-            if (!$allowOver && $qtyBuyReceived > $remainingQtyBuy + 0.0001) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => 'Qty diterima melebihi sisa untuk line #' . (int)($poLine['line_no'] ?? 0),
-                ];
+            if ($qtyBuyReceived > $remainingQtyBuy + 0.0001) {
+                return $rollback('Qty diterima melebihi sisa terkini untuk line #' . (int)($poLine['line_no'] ?? 0));
             }
 
             $factor = $this->canonicalConversionFactor(
@@ -21839,11 +22041,7 @@ class Purchase_model extends CI_Model
             $stockMaterialId = $this->nullableInt($stockWriteCtx['material_id'] ?? null);
             $movementScope = $destinationType === 'GUDANG' ? 'WAREHOUSE' : 'DIVISION';
             if ($movementScope === 'DIVISION' && $stockMaterialId === null) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => 'Receipt ke stok divisi wajib punya material_id canonical. Pilih profile bahan baku yang terhubung ke material sebelum terima barang.',
-                ];
+                return $rollback('Receipt ke stok divisi wajib punya material_id canonical. Pilih profile bahan baku yang terhubung ke material sebelum terima barang.');
             }
 
             $receiptLineData = [
@@ -21898,14 +22096,10 @@ class Purchase_model extends CI_Model
             // Override profile_key in receipt line with canonical key before insert
             $receiptLineData['profile_key'] = $effectiveProfileKey;
 
-            $this->db->insert('pur_purchase_receipt_line', $receiptLineData);
+            $receiptLineInserted = $this->db->insert('pur_purchase_receipt_line', $receiptLineData);
             $receiptLineId = (int)$this->db->insert_id();
-            if ($receiptLineId <= 0) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => 'Gagal menyimpan receipt line.',
-                ];
+            if ($receiptLineInserted === false || $receiptLineId <= 0 || $this->db->trans_status() === false) {
+                return $rollback('Gagal menyimpan receipt line.');
             }
 
             $unitPrice = (float)($poLine['unit_price'] ?? 0);
@@ -21935,11 +22129,7 @@ class Purchase_model extends CI_Model
                     'created_by' => $userId > 0 ? $userId : null,
                 ]);
                 if (!($lotResult['ok'] ?? false)) {
-                    $this->db->trans_rollback();
-                    return [
-                        'ok' => false,
-                        'message' => (string)($lotResult['message'] ?? 'Gagal membuat lot FIFO inbound untuk receipt.'),
-                    ];
+                    return $rollback((string)($lotResult['message'] ?? 'Gagal membuat lot FIFO inbound untuk receipt.'));
                 }
 
                 $lotId = (int)($lotResult['data']['lot_id'] ?? 0);
@@ -21953,7 +22143,10 @@ class Purchase_model extends CI_Model
                         $receiptLineUpdate['lot_no'] = $lotNo;
                     }
                     if (!empty($receiptLineUpdate)) {
-                        $this->db->where('id', $receiptLineId)->update('pur_purchase_receipt_line', $receiptLineUpdate);
+                        $receiptLineUpdated = $this->db->where('id', $receiptLineId)->update('pur_purchase_receipt_line', $receiptLineUpdate);
+                        if ($receiptLineUpdated === false || $this->db->trans_status() === false) {
+                            return $rollback('Gagal menautkan lot FIFO ke receipt line.');
+                        }
                     }
                 }
             }
@@ -21989,32 +22182,57 @@ class Purchase_model extends CI_Model
             ]);
 
             if (!($ledger['ok'] ?? false)) {
-                $this->db->trans_rollback();
-                return [
-                    'ok' => false,
-                    'message' => (string)($ledger['message'] ?? 'Gagal posting inventory ledger.'),
-                ];
+                return $rollback((string)($ledger['message'] ?? 'Gagal posting inventory ledger.'));
             }
 
+            $currentReceiptQtyByPoLine[$poLineId] = round($alreadyReceived + $qtyBuyReceived, 4);
             $lineCount++;
         }
 
         if ($lineCount <= 0) {
-            $this->db->trans_rollback();
-            return [
-                'ok' => false,
-                'message' => 'Tidak ada line receipt yang valid untuk disimpan.',
-            ];
+            return $rollback('Tidak ada line receipt yang valid untuk disimpan.');
         }
 
-        $this->db->where('id', $receiptId)->update('pur_purchase_receipt', [
+        if (empty($eligiblePositiveQtyLineIds)) {
+            return $rollback('Purchase order tidak memiliki baris qty positif yang eligible untuk receipt.');
+        }
+
+        $allEligibleReceived = true;
+        foreach ($eligiblePositiveQtyLineIds as $eligiblePoLineId) {
+            $orderedQty = round((float)($lineMap[$eligiblePoLineId]['qty_buy'] ?? 0), 4);
+            $cumulativeReceivedQty = round((float)($currentReceiptQtyByPoLine[$eligiblePoLineId] ?? 0), 4);
+            if ($cumulativeReceivedQty + 0.0001 < $orderedQty) {
+                $allEligibleReceived = false;
+                break;
+            }
+        }
+
+        $derivedReceiptStatus = $allEligibleReceived ? 'RECEIVED' : 'PARTIAL_RECEIVED';
+        $terminalStatuses = ['PAID'];
+        $statusAfter = in_array($statusBefore, $terminalStatuses, true)
+            ? $statusBefore
+            : $derivedReceiptStatus;
+
+        if ($statusAfter !== $statusBefore) {
+            $orderUpdated = $this->db->where('id', $purchaseOrderId)->update('pur_purchase_order', [
+                'status' => $statusAfter,
+            ]);
+            if ($orderUpdated === false || $this->db->trans_status() === false) {
+                return $rollback('Gagal memperbarui status kumulatif purchase order.');
+            }
+        }
+
+        $receiptPosted = $this->db->where('id', $receiptId)->update('pur_purchase_receipt', [
             'status' => 'POSTED',
             'posted_by' => $userId > 0 ? $userId : null,
             'posted_at' => date('Y-m-d H:i:s'),
         ]);
+        if ($receiptPosted === false || $this->db->trans_status() === false) {
+            return $rollback('Gagal memfinalisasi receipt purchase.');
+        }
 
         if ($this->db->table_exists('aud_transaction_log')) {
-            $this->db->insert('aud_transaction_log', [
+            $auditInserted = $this->db->insert('aud_transaction_log', [
                 'module_code' => 'PURCHASE',
                 'action_code' => 'RECEIPT_POST',
                 'entity_table' => 'pur_purchase_receipt',
@@ -22029,17 +22247,22 @@ class Purchase_model extends CI_Model
                     'destination_type' => $destinationType,
                     'destination_division_id' => $destinationDivisionId,
                     'line_count' => $lineCount,
+                    'status_before' => $statusBefore,
+                    'status_after' => $statusAfter,
                 ]),
                 'notes' => 'Auto log posting receipt purchase',
             ]);
+            if ($auditInserted === false || $this->db->trans_status() === false) {
+                return $rollback('Gagal mencatat audit posting receipt purchase.');
+            }
         }
 
         $txnLog = $this->writePurchaseTxnLog([
             'purchase_order_id' => $purchaseOrderId,
             'purchase_receipt_id' => $receiptId,
             'action_code' => 'RECEIPT_POST',
-            'status_before' => strtoupper((string)($order['status'] ?? '')),
-            'status_after' => strtoupper((string)($order['status'] ?? '')),
+            'status_before' => $statusBefore,
+            'status_after' => $statusAfter,
             'transaction_no' => (string)($receiptData['receipt_no'] ?? ''),
             'ref_table' => 'pur_purchase_receipt',
             'ref_id' => $receiptId,
@@ -22047,27 +22270,27 @@ class Purchase_model extends CI_Model
                 'destination_type' => $destinationType,
                 'destination_division_id' => $destinationDivisionId,
                 'line_count' => $lineCount,
+                'status_before' => $statusBefore,
+                'status_after' => $statusAfter,
             ],
             'notes' => 'Posting receipt purchase',
             'created_by' => $userId,
         ]);
         if (!($txnLog['ok'] ?? false)) {
-            $this->db->trans_rollback();
-            return [
-                'ok' => false,
-                'message' => (string)($txnLog['message'] ?? 'Gagal mencatat log transaksi purchase.'),
-            ];
+            return $rollback((string)($txnLog['message'] ?? 'Gagal mencatat log transaksi purchase.'));
         }
 
         if ($this->db->trans_status() === false) {
+            return $rollback('Gagal menyimpan receipt purchase.');
+        }
+
+        if ($this->db->trans_commit() === false) {
             $this->db->trans_rollback();
             return [
                 'ok' => false,
-                'message' => 'Gagal menyimpan receipt purchase.',
+                'message' => 'Gagal menyelesaikan transaksi receipt purchase.',
             ];
         }
-
-        $this->db->trans_commit();
 
         return [
             'ok' => true,
@@ -22077,6 +22300,8 @@ class Purchase_model extends CI_Model
                 'receipt_no' => $receiptData['receipt_no'],
                 'purchase_order_id' => $purchaseOrderId,
                 'line_count' => $lineCount,
+                'status_before' => $statusBefore,
+                'status_after' => $statusAfter,
             ],
         ];
     }

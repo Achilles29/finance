@@ -6454,6 +6454,14 @@ class Pos_model extends CI_Model
                 $db->where_in('o.status', ['PAID', 'PAID_PARTIAL', 'READY', 'SERVED', 'REFUND_PARTIAL', 'REFUND_FULL', 'REFUNDED_FULL']);
             } else {
                 $db->where_in('o.status', ['DRAFT', 'PENDING', 'CONFIRMED', 'PAID_PARTIAL', 'IN_KITCHEN', 'READY', 'SERVED']);
+                if ($this->db->field_exists('paid_at', 'pos_order') && $this->db->field_exists('paid_total', 'pos_order')) {
+                    $db->group_start()
+                        ->where('o.paid_at IS NULL', null, false)
+                        ->where('COALESCE(o.paid_total, 0) < COALESCE(o.grand_total, 0)', null, false)
+                        ->group_end();
+                } elseif ($this->db->field_exists('paid_at', 'pos_order')) {
+                    $db->where('o.paid_at IS NULL', null, false);
+                }
             }
         }
         if ($cashierRecent) {
@@ -7099,7 +7107,7 @@ class Pos_model extends CI_Model
         return $map[$productId] ?? [];
     }
 
-    public function save_order_draft(array $payload, int $actorEmployeeId): array
+    public function save_order_draft(array $payload, int $actorEmployeeId, bool $allowMobileBackup = false): array
     {
         if ($actorEmployeeId <= 0) {
             return ['ok' => false, 'message' => 'User login belum terhubung ke data employee. Order draft POS belum bisa dibuat.'];
@@ -7163,7 +7171,12 @@ class Pos_model extends CI_Model
             if ((int)($activeSession['outlet_id'] ?? 0) !== $outletId) {
                 return ['ok' => false, 'message' => 'Outlet transaksi harus sama dengan outlet sesi kasir yang sedang aktif.'];
             }
-            if ($terminalId !== null && (int)($activeSession['terminal_id'] ?? 0) !== $terminalId) {
+            $mobileBackupMode = $allowMobileBackup && !empty($payload['mobile_backup_mode']);
+            if (
+                $terminalId !== null
+                && (int)($activeSession['terminal_id'] ?? 0) !== $terminalId
+                && !$mobileBackupMode
+            ) {
                 return ['ok' => false, 'message' => 'Device transaksi harus sama dengan device sesi kasir yang sedang aktif.'];
             }
             $terminalId = (int)($activeSession['terminal_id'] ?? $terminalId);
@@ -7832,9 +7845,6 @@ class Pos_model extends CI_Model
                 $selectedPrinterId
             );
             if (!empty($prebillRoutes)) {
-                if ($this->order_remaining_due_amount((array)($order['header'] ?? [])) <= 0.009) {
-                    return ['ok' => false, 'message' => 'Order ini sudah lunas. Bill sementara hanya dapat dicetak untuk order yang belum terbayar.'];
-                }
                 return ['ok' => true, 'targets' => $this->configured_prebill_targets($order, $prebillRoutes, 'REPRINT')];
             }
             return ['ok' => false, 'message' => 'Koneksi printer tujuan tidak memiliki aturan cetak aktif untuk order ini.'];
@@ -8133,6 +8143,55 @@ class Pos_model extends CI_Model
         return $this->direct_print_targets_for_reversal_document('REFUND_SLIP', $refundId);
     }
 
+    public function find_mobile_print_document_context(string $documentType, int $documentId): ?array
+    {
+        $documentType = strtoupper(trim($documentType));
+        $documents = [
+            'VOID' => ['table' => 'pos_void', 'alias' => 'v'],
+            'REFUND' => ['table' => 'pos_refund', 'alias' => 'r'],
+            'PAYMENT' => ['table' => 'pos_payment', 'alias' => 'p'],
+        ];
+        if ($documentId <= 0 || !isset($documents[$documentType])) {
+            return null;
+        }
+
+        $previousDbDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $document = $documents[$documentType];
+            if (!$this->db->table_exists($document['table']) || !$this->db->table_exists('pos_order')) {
+                return null;
+            }
+
+            $alias = $document['alias'];
+            $query = $this->db
+                ->select($alias . '.id AS document_id, o.id AS order_id, o.outlet_id, o.terminal_id')
+                ->from($document['table'] . ' ' . $alias)
+                ->join('pos_order o', 'o.id = ' . $alias . '.order_id', 'inner')
+                ->where($alias . '.id', $documentId)
+                ->limit(1)
+                ->get();
+            if (!$query) {
+                return null;
+            }
+            $row = $query->row_array();
+        } catch (Throwable $e) {
+            return null;
+        } finally {
+            $this->db->db_debug = $previousDbDebug;
+        }
+        if (!$row) {
+            return null;
+        }
+
+        return [
+            'document_id' => (int)($row['document_id'] ?? 0),
+            'order_id' => (int)($row['order_id'] ?? 0),
+            'outlet_id' => (int)($row['outlet_id'] ?? 0),
+            'terminal_id' => (int)($row['terminal_id'] ?? 0),
+        ];
+    }
+
     public function direct_print_targets_for_shift_close(int $shiftId, array $report = []): array
     {
         if ($shiftId <= 0) {
@@ -8356,19 +8415,27 @@ class Pos_model extends CI_Model
                 throw new RuntimeException('Gagal menyimpan void POS.');
             }
             $this->db->trans_commit();
-
-            return [
-                'ok' => true,
-                'id' => $voidId,
-                'void_no' => (string)$voidPayload['void_no'],
-                'order_status' => $newOrderStatus,
-                'adjustment_doc_count' => (int)($reverse['adjustment_doc_count'] ?? 0),
-                'runtime_job_cancelled_count' => $runtimeCancelledCount,
-            ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
         }
+
+        $availabilityRebuild = $this->refresh_pos_reversal_availability_after_commit(
+            $order,
+            $actorEmployeeId,
+            'ORDER_VOID',
+            $voidId
+        );
+        return [
+            'ok' => true,
+            'id' => $voidId,
+            'void_no' => (string)$voidPayload['void_no'],
+            'order_status' => $newOrderStatus,
+            'adjustment_doc_count' => (int)($reverse['adjustment_doc_count'] ?? 0),
+            'runtime_job_cancelled_count' => $runtimeCancelledCount,
+            'availability_rebuild' => $availabilityRebuild,
+            'warning' => $availabilityRebuild['warning'],
+        ];
     }
 
     public function save_order_refund(array $payload, int $actorEmployeeId): array
@@ -8562,19 +8629,83 @@ class Pos_model extends CI_Model
                 throw new RuntimeException('Gagal menyimpan refund POS.');
             }
             $this->db->trans_commit();
-
-            return [
-                'ok' => true,
-                'id' => $refundId,
-                'refund_no' => (string)$refundPayload['refund_no'],
-                'order_status' => $newOrderStatus,
-                'adjustment_doc_count' => (int)($reverse['adjustment_doc_count'] ?? 0),
-                'runtime_job_cancelled_count' => $runtimeCancelledCount,
-            ];
         } catch (Throwable $e) {
             $this->db->trans_rollback();
             return ['ok' => false, 'message' => $e->getMessage()];
         }
+
+        $availabilityRebuild = $this->refresh_pos_reversal_availability_after_commit(
+            $order,
+            $actorEmployeeId,
+            'ORDER_REFUND',
+            $refundId
+        );
+        return [
+            'ok' => true,
+            'id' => $refundId,
+            'refund_no' => (string)$refundPayload['refund_no'],
+            'order_status' => $newOrderStatus,
+            'adjustment_doc_count' => (int)($reverse['adjustment_doc_count'] ?? 0),
+            'runtime_job_cancelled_count' => $runtimeCancelledCount,
+            'availability_rebuild' => $availabilityRebuild,
+            'warning' => $availabilityRebuild['warning'],
+        ];
+    }
+
+    private function refresh_pos_reversal_availability_after_commit(array $order, int $actorEmployeeId, string $eventSource, int $eventId): array
+    {
+        $header = (array)($order['header'] ?? []);
+        $outletId = max(0, (int)($header['outlet_id'] ?? 0));
+        $productIds = [];
+        foreach ((array)($order['lines'] ?? []) as $line) {
+            $productId = (int)($line['product_id'] ?? 0);
+            if ($productId > 0) {
+                $productIds[$productId] = $productId;
+            }
+        }
+        $productIds = array_values($productIds);
+        $metadata = [
+            'ok' => false,
+            'success_count' => 0,
+            'failed_count' => 0,
+            'marked_product_count' => count($productIds),
+            'dirty' => null,
+            'warning' => null,
+        ];
+
+        if ($outletId <= 0 || empty($productIds)) {
+            $metadata['warning'] = 'Reversal POS sudah tersimpan, tetapi refresh availability dilewati karena outlet atau produk order tidak lengkap.';
+            return $metadata;
+        }
+
+        try {
+            $this->load->library('PosAvailabilityRebuildService');
+            $context = [
+                'trigger_context' => 'POS_ORDER_REVERSAL',
+                'event_source' => $eventSource,
+                'event_table' => 'pos_order',
+                'event_id' => $eventId,
+                'actor_employee_id' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
+            ];
+            $metadata['dirty'] = $this->posavailabilityrebuildservice->mark_dirty($outletId, $productIds, $context);
+            $rebuild = $this->posavailabilityrebuildservice->rebuild_products($outletId, $productIds, $context);
+            $metadata = $rebuild + $metadata;
+            if (!($rebuild['ok'] ?? false)) {
+                $metadata['warning'] = 'Reversal POS sudah tersimpan, tetapi refresh availability gagal: '
+                    . (string)($rebuild['message'] ?? 'hasil rebuild tidak berhasil.');
+            }
+        } catch (Throwable $e) {
+            $metadata['warning'] = 'Reversal POS sudah tersimpan, tetapi refresh availability gagal: ' . $e->getMessage();
+        }
+
+        if ($metadata['warning'] !== null) {
+            try {
+                log_message('error', 'POS reversal availability refresh failed [' . $eventSource . ' #' . $eventId . ']: ' . $metadata['warning']);
+            } catch (Throwable $ignored) {
+                // Best-effort logging must not alter an already committed reversal.
+            }
+        }
+        return $metadata;
     }
 
     /**
@@ -10514,7 +10645,7 @@ class Pos_model extends CI_Model
         foreach ($chunks as $chunk) {
             foreach (preg_split('/\r?\n/', (string)$chunk) ?: [] as $line) {
                 $line = rtrim((string)$line);
-                if ($line === '' || preg_match('/^\[\[(?:LOGO_URL|QRCODE|BARCODE):/', $line)) {
+                if ($line === '' || preg_match('/^\[\[(?:LOGO_URL|LOGO_BASE64|QRCODE|BARCODE):/', $line)) {
                     $lines[] = $line;
                     continue;
                 }

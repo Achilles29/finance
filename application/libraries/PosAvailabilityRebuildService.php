@@ -201,6 +201,23 @@ class PosAvailabilityRebuildService
         ]);
     }
 
+    /**
+     * Item identity is used by newer material stock rows that do not have a
+     * legacy material_id. Resolve every dependency first so one inventory
+     * event produces only one queue/rebuild operation.
+     */
+    public function handle_item_change(int $itemId, array $context = []): array
+    {
+        $productIds = $this->resolve_affected_products_from_item($itemId);
+        if (empty($productIds)) {
+            return ['ok' => true, 'product_ids' => [], 'outlet_count' => 0, 'success_count' => 0, 'failed_count' => 0];
+        }
+
+        return $this->queue_or_rebuild_products_for_all_outlets($productIds, $context + [
+            'event_source' => (string)($context['event_source'] ?? 'ITEM_CHANGE'),
+        ]);
+    }
+
     public function handle_component_change(int $componentId, array $context = []): array
     {
         $productIds = $this->resolve_affected_products_from_component($componentId);
@@ -408,6 +425,62 @@ class PosAvailabilityRebuildService
             }
             foreach ($db->get()->result_array() as $row) {
                 $componentIds[(int)$row['component_id']] = (int)$row['component_id'];
+            }
+        }
+
+        return $this->resolve_affected_products_from_component_ids(array_values($componentIds), array_values($productIds));
+    }
+
+    public function resolve_affected_products_from_item(int $itemId): array
+    {
+        $itemId = (int)$itemId;
+        if ($itemId <= 0) {
+            return [];
+        }
+
+        $productIds = [];
+        if ($this->ci->db->table_exists('mst_product_recipe')) {
+            $rows = $this->ci->db->select('DISTINCT r.product_id', false)
+                ->from('mst_product_recipe r')
+                ->where('r.material_item_id', $itemId)
+                ->get()
+                ->result_array();
+            foreach ($rows as $row) {
+                $productId = (int)($row['product_id'] ?? 0);
+                if ($productId > 0) {
+                    $productIds[$productId] = $productId;
+                }
+            }
+        }
+
+        $componentIds = [];
+        if ($this->ci->db->table_exists('mst_component_formula')) {
+            $rows = $this->ci->db->select('DISTINCT f.component_id', false)
+                ->from('mst_component_formula f')
+                ->where('f.material_item_id', $itemId)
+                ->get()
+                ->result_array();
+            foreach ($rows as $row) {
+                $componentId = (int)($row['component_id'] ?? 0);
+                if ($componentId > 0) {
+                    $componentIds[$componentId] = $componentId;
+                }
+            }
+        }
+
+        if ($this->ci->db->table_exists('mst_item')
+            && $this->ci->db->field_exists('material_id', 'mst_item')) {
+            $item = $this->ci->db->select('material_id')
+                ->from('mst_item')
+                ->where('id', $itemId)
+                ->limit(1)
+                ->get()
+                ->row_array() ?: [];
+            $legacyMaterialId = (int)($item['material_id'] ?? 0);
+            if ($legacyMaterialId > 0) {
+                foreach ($this->resolve_affected_products_from_material($legacyMaterialId) as $productId) {
+                    $productIds[(int)$productId] = (int)$productId;
+                }
             }
         }
 

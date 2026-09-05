@@ -15,6 +15,7 @@ $divisionFilter = (int)($division_filter_value ?? 0);
 $sortBy        = (string)($sort_by_value ?? 'cat_id');
 $totalPages    = (int)($total_pages ?? 1);
 $total         = (int)($total ?? 0);
+$masterMutationCsrfToken = (string)($master_mutation_csrf_token ?? '');
 
 $queryBase = ['q' => $qParam, 'status' => $statusParam, 'per_page' => $perPageParam, 'sort_by' => $sortBy];
 if ($catFilterId > 0)    $queryBase['item_category_id'] = $catFilterId;
@@ -287,14 +288,16 @@ $matRp = static function(float $v): string {
                    data-bs-toggle="tooltip" title="Edit" aria-label="Edit">
                   <i class="ri ri-edit-line"></i>
                 </a>
-                <a href="<?php echo site_url('master/material/toggle/' . $rId); ?>"
-                   class="btn btn-sm btn-outline-warning action-icon-btn"
-                   data-bs-toggle="tooltip"
-                   title="<?php echo $isActive ? 'Nonaktifkan' : 'Aktifkan'; ?>"
-                   aria-label="Toggle Status"
-                   onclick="return confirm('Ubah status bahan baku ini?')">
-                  <i class="ri ri-refresh-line"></i>
-                </a>
+                <form method="post" action="<?php echo site_url('master/material/toggle/' . $rId); ?>" class="d-inline" onsubmit="return confirm('Ubah status bahan baku ini?')">
+                  <input type="hidden" name="master_mutation_csrf" value="<?php echo html_escape($masterMutationCsrfToken); ?>">
+                  <button type="submit"
+                          class="btn btn-sm btn-outline-warning action-icon-btn"
+                          data-bs-toggle="tooltip"
+                          title="<?php echo $isActive ? 'Nonaktifkan' : 'Aktifkan'; ?>"
+                          aria-label="Toggle Status">
+                    <i class="ri ri-refresh-line"></i>
+                  </button>
+                </form>
               </div>
             </td>
           </tr>

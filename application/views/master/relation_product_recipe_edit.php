@@ -182,6 +182,7 @@ foreach ($rows as $row) {
   <div class="card border-0 shadow-sm">
     <div class="card-body">
       <form method="post" action="<?php echo $saveUrl; ?>" id="productRecipeBulkForm">
+        <input type="hidden" name="master_relation_product_recipe_mutation_csrf" value="<?php echo html_escape((string)($master_relation_product_recipe_mutation_csrf ?? '')); ?>">
         <input type="hidden" name="lines_json" id="lines_json" value="">
 
         <div class="row g-2 mb-3">

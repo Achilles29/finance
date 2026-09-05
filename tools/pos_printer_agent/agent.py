@@ -18,10 +18,9 @@ import urllib.request
 import urllib.error
 import ssl
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+from flask import Flask, jsonify, make_response, request
 
 try:
     import serial
@@ -66,6 +65,119 @@ def setup_logging(config: Dict[str, Any], verbose: bool = False) -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=handlers,
     )
+
+
+def _origin_from_url(value: Any, allow_path: bool = False) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw or raw.lower() == "null" or "*" in raw:
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in ("http", "https") or not hostname:
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    if not allow_path and (parsed.path not in ("", "/") or parsed.query or parsed.fragment):
+        return None
+    normalized_host = hostname.lower()
+    if ":" in normalized_host and not normalized_host.startswith("["):
+        normalized_host = "[" + normalized_host + "]"
+    default_port = 80 if parsed.scheme.lower() == "http" else 443
+    port_suffix = "" if port in (None, default_port) else ":" + str(port)
+    return parsed.scheme.lower() + "://" + normalized_host + port_suffix
+
+
+def allowed_browser_origins(config: Optional[Dict[str, Any]]) -> frozenset[str]:
+    config = config if isinstance(config, dict) else {}
+    api = config.get("api") if isinstance(config.get("api"), dict) else {}
+    origins = set()
+    base_origin = _origin_from_url(api.get("base_url"), allow_path=True)
+    if base_origin:
+        origins.add(base_origin)
+
+    configured = api.get("allowed_origins") or []
+    if isinstance(configured, str):
+        configured = [configured]
+    if isinstance(configured, (list, tuple, set)):
+        for candidate in configured:
+            origin = _origin_from_url(candidate)
+            if origin:
+                origins.add(origin)
+    return frozenset(origins)
+
+
+def create_printer_app(
+    printer: Dict[str, Any],
+    safe_print: Callable[..., None],
+    config: Optional[Dict[str, Any]] = None,
+) -> Flask:
+    """Build one local printer app without constructing PrinterService or using a DB."""
+    allowed_origins = allowed_browser_origins(config)
+    location = str(printer.get("lokasi") or printer.get("printer_code") or "POS-PRINTER")
+    printer_code = str(printer.get("printer_code") or location)
+    printer_mac = str(printer.get("mac") or printer.get("mac_address") or "")
+    printer_port = int(printer.get("python_port") or 0)
+    default_paper = int(printer.get("paper_width_mm") or 80)
+    app = Flask("pos_printer_agent_" + location)
+
+    def request_origin() -> Optional[str]:
+        raw_origin = request.headers.get("Origin")
+        if raw_origin is None or raw_origin.strip() == "" or raw_origin.strip().lower() == "null":
+            return None
+        origin = _origin_from_url(raw_origin)
+        return origin if origin in allowed_origins else None
+
+    def with_cors(response: Any, origin: str) -> Any:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+        return response
+
+    @app.get("/health")
+    def health():
+        return jsonify({
+            "status": "success",
+            "data": {
+                "lokasi": location,
+                "printer_code": printer_code,
+                "python_port": printer_port,
+                "mac_address": printer_mac,
+            }
+        })
+
+    @app.route("/cetak", methods=["POST", "OPTIONS"], provide_automatic_options=False)
+    def cetak():
+        origin = request_origin()
+        if origin is None:
+            return jsonify({"status": "error", "message": "Origin tidak diizinkan."}), 403
+
+        if request.method == "OPTIONS":
+            response = make_response("", 204)
+            response.headers["Access-Control-Allow-Methods"] = "POST"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            return with_cors(response, origin)
+
+        payload = request.get_json(force=True, silent=True) or {}
+        text = str(payload.get("text") or "")
+        if text.strip() == "":
+            return with_cors(jsonify({"status": "error", "message": "Struk kosong."}), origin), 400
+        paper = 58 if int(payload.get("paper_width_mm") or default_paper or 80) == 58 else 80
+        copies = max(1, min(10, int(payload.get("copies") or 1)))
+        cut_mode = str(payload.get("cut_mode") or "PARTIAL").strip().upper()
+        if cut_mode not in ("NONE", "PARTIAL", "FULL"):
+            cut_mode = "PARTIAL"
+        open_drawer = str(payload.get("open_drawer") or "").strip().lower() in ("1", "true", "yes", "on")
+        try:
+            safe_print(printer_mac, text, paper, copies, open_drawer, cut_mode)
+            return with_cors(jsonify({"status": "success", "message": f"Berhasil dicetak ({copies} salinan)."}), origin)
+        except Exception as exc:
+            logging.exception("Gagal cetak %s: %s", location, exc)
+            return with_cors(jsonify({"status": "error", "message": str(exc)}), origin), 500
+
+    return app
 
 
 class PrinterService:
@@ -171,11 +283,8 @@ class PrinterService:
         alt_endpoint = endpoint if "/index.php/" in endpoint else "/index.php" + endpoint
         agent_param = str(self.api.get("agent_name_param") or "agent_name").strip()
         api_key = str(self.api.get("key") or "").strip()
-        key_query_param = str(self.api.get("key_query_param") or "key").strip()
         timeout = int(self.api.get("timeout_seconds") or 8)
         params = {agent_param: self.hostname}
-        if api_key and key_query_param:
-            params[key_query_param] = api_key
         attempts = []
         for candidate in [endpoint, alt_endpoint]:
             url = base_url.rstrip("/") + candidate
@@ -282,39 +391,7 @@ class PrinterService:
             logging.warning("Gagal menulis ulang config lokal: %s", exc)
 
     def start_flask_server(self, printer: Dict[str, Any]) -> None:
-        app = Flask(printer["lokasi"])
-        CORS(app)
-
-        @app.get("/health")
-        def health():
-            return jsonify({
-                "status": "success",
-                "data": {
-                    "lokasi": printer["lokasi"],
-                    "printer_code": printer["printer_code"],
-                    "python_port": printer["python_port"],
-                    "mac_address": printer["mac"],
-                }
-            })
-
-        @app.post("/cetak")
-        def cetak():
-            payload = request.get_json(force=True, silent=True) or {}
-            text = str(payload.get("text") or "")
-            if text.strip() == "":
-                return jsonify({"status": "error", "message": "Struk kosong."}), 400
-            paper = 58 if int(payload.get("paper_width_mm") or printer["paper_width_mm"] or 80) == 58 else 80
-            copies = max(1, min(10, int(payload.get("copies") or 1)))
-            cut_mode = str(payload.get("cut_mode") or "PARTIAL").strip().upper()
-            if cut_mode not in ("NONE", "PARTIAL", "FULL"):
-                cut_mode = "PARTIAL"
-            open_drawer = str(payload.get("open_drawer") or "").strip().lower() in ("1", "true", "yes", "on")
-            try:
-                self.safe_print(printer["mac"], text, paper, copies, open_drawer, cut_mode)
-                return jsonify({"status": "success", "message": f"Berhasil dicetak ({copies} salinan)."})
-            except Exception as exc:
-                logging.exception("Gagal cetak %s: %s", printer["lokasi"], exc)
-                return jsonify({"status": "error", "message": str(exc)}), 500
+        app = create_printer_app(printer, self.safe_print, self.config)
 
         app.run(host="127.0.0.1", port=int(printer["python_port"]), debug=False, use_reloader=False)
 
@@ -571,7 +648,9 @@ class PrinterService:
         headers_map = {k: v for k, v in req.header_items()}
         header_parts = []
         for key, value in headers_map.items():
-            header_parts.append(f"'{str(key).replace("'", "''")}'='{str(value).replace("'", "''")}'")
+            safe_key = str(key).replace("'", "''")
+            safe_value = str(value).replace("'", "''")
+            header_parts.append("'{}'='{}'".format(safe_key, safe_value))
         header_ps = "@{" + "; ".join(header_parts) + "}"
         script = [
             "$ProgressPreference='SilentlyContinue'",

@@ -1,6 +1,10 @@
 <?php
 $recentLogs = (array)($recent_logs ?? []);
 $canCreate  = (bool)($can_create ?? false);
+$canRetryManual = (bool)($can_retry_manual ?? false);
+$retryCsrf = (string)($wa_log_retry_csrf ?? '');
+$mutationCsrf = (string)($wa_broadcast_mutation_csrf ?? '');
+$singleSendCsrf = (string)($wa_manual_single_send_csrf ?? '');
 $activeTab  = in_array((string)($active_tab ?? ''), ['single', 'bulk'], true) ? (string)$active_tab : 'single';
 $bulkQueue  = (array)($bulk_queue ?? []);
 $bulkLines  = (array)($bulk_lines ?? []);
@@ -132,6 +136,7 @@ foreach ($bulkLines as $bulkLineForRetry) {
           <h5 class="mb-0">Form Pesan Cepat</h5>
         </div>
         <form method="post" enctype="multipart/form-data" action="<?= site_url('wa/manual') ?>" id="waManualForm">
+          <input type="hidden" name="wa_manual_single_send_csrf" value="<?= html_escape($singleSendCsrf) ?>">
           <input type="hidden" name="selected_member_ids" id="selectedMemberIds" value="">
           <div class="card-body">
             <div class="mb-3">
@@ -218,7 +223,7 @@ foreach ($bulkLines as $bulkLineForRetry) {
                     <?php endif; ?>
                   </td>
                   <td class="text-center">
-                    <?php if (($log['status'] ?? '') === 'FAILED'): ?>
+                    <?php if (($log['status'] ?? '') === 'FAILED' && $canRetryManual): ?>
                       <button type="button" class="btn btn-outline-danger btn-sm" data-retry-log="<?= (int)$log['id'] ?>">
                         Retry
                       </button>
@@ -245,6 +250,7 @@ foreach ($bulkLines as $bulkLineForRetry) {
     <div class="col-xl-8">
       <form method="post" enctype="multipart/form-data" action="<?= site_url('wa/manual') ?>" id="waBulkForm">
         <input type="hidden" name="delivery_mode" value="bulk">
+        <input type="hidden" name="wa_broadcast_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>">
         <input type="hidden" name="selected_member_ids" id="bulkSelectedMemberIds" value="">
         <div class="card border-0 shadow-sm">
           <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -562,7 +568,12 @@ foreach ($bulkLines as $bulkLineForRetry) {
     btn.textContent = 'Mengirim...';
 
     fetch('<?= site_url('wa/api/log-retry/') ?>' + btn.getAttribute('data-retry-log'), {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Wa-Log-Retry-CSRF': <?= json_encode($retryCsrf) ?>
+      }
     })
       .then(r => r.json())
       .then(data => {
@@ -758,7 +769,13 @@ foreach ($bulkLines as $bulkLineForRetry) {
       const isRetry = retryMode && retryLineIds.length > 0;
       const retryLast = isRetry && retryIndex === retryLineIds.length - 1;
       const query = isRetry ? `?retry=1&line_id=${encodeURIComponent(retryLineIds[retryIndex])}&retry_last=${retryLast ? '1' : '0'}` : '';
-      fetch('<?= site_url('wa/api/broadcast-start/' . $bulkQueueId) ?>' + query, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      fetch('<?= site_url('wa/api/broadcast-start/' . $bulkQueueId) ?>' + query, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-Wa-Broadcast-CSRF': <?= json_encode($mutationCsrf) ?>
+        }
+      })
         .then(async response => {
           const body = await response.text();
           try { return JSON.parse(body); }

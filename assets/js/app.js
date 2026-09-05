@@ -844,6 +844,101 @@ $(function () {
     // ---------------------------------------------------------------
     // Toggle favorit sidebar via AJAX (persist per user)
     // ---------------------------------------------------------------
+    function sidebarFavoriteRequest(endpoint, data) {
+        return $.ajax({
+            url: BASE_URL + endpoint,
+            method: 'POST',
+            dataType: 'json',
+            data: data,
+            headers: {
+                'X-Sidebar-Favorite-CSRF': String(window.FINANCE_SIDEBAR_FAVORITE_CSRF || '')
+            }
+        });
+    }
+
+    function sidebarFavoriteError(xhr) {
+        var message = xhr && xhr.responseJSON && xhr.responseJSON.message
+            ? xhr.responseJSON.message
+            : 'Gagal memperbarui favorit sidebar.';
+        window.alert(message);
+    }
+
+    function setSidebarFavoriteButtons(menuId, pinned) {
+        document.querySelectorAll('.sidebar-pin-toggle[data-menu-id="' + menuId + '"]').forEach(function (button) {
+            var label = pinned ? 'Hapus dari favorit' : 'Tambah ke favorit';
+            button.setAttribute('data-pinned', pinned ? '1' : '0');
+            button.classList.toggle('is-pinned', pinned);
+            button.setAttribute('title', label);
+            button.setAttribute('aria-label', label);
+            button.disabled = false;
+            var icon = button.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('ri-star-fill', pinned);
+                icon.classList.toggle('ri-star-line', !pinned);
+            }
+        });
+    }
+
+    function updateSidebarFavoriteChrome() {
+        var hasFavorites = !!document.querySelector('li[data-fav-id]');
+        var header = document.querySelector('[data-sidebar-favorites-header]');
+        var divider = document.querySelector('[data-sidebar-favorites-divider]');
+        if (header) header.hidden = !hasFavorites;
+        if (divider) divider.hidden = !hasFavorites;
+    }
+
+    function appendSidebarFavorite(menuId, clickedButton) {
+        if (document.querySelector('li[data-fav-id="' + menuId + '"]')) return;
+        var sourceLink = clickedButton ? clickedButton.closest('a.menu-link') : null;
+        var divider = document.querySelector('[data-sidebar-favorites-divider]');
+        if (!sourceLink || !divider || !divider.parentNode) return;
+
+        var href = sourceLink.getAttribute('data-sidebar-favorite-url') || sourceLink.getAttribute('href') || '';
+        if (!href || href === '#' || href.toLowerCase().indexOf('javascript:') === 0) return;
+
+        var row = document.createElement('li');
+        row.className = 'menu-item';
+        row.setAttribute('data-fav-id', String(menuId));
+        var link = document.createElement('a');
+        link.className = 'menu-link d-flex align-items-center';
+        link.setAttribute('href', href);
+        var icon = document.createElement('i');
+        var sourceIcon = sourceLink.querySelector('.menu-icon');
+        icon.className = sourceIcon ? sourceIcon.className : 'menu-icon tf-icons ri ri-star-line';
+        var label = document.createElement('div');
+        label.className = 'flex-grow-1';
+        var sourceLabel = sourceLink.querySelector('.flex-grow-1');
+        label.textContent = sourceLabel ? sourceLabel.textContent.trim() : 'Favorit';
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn p-0 border-0 bg-transparent sidebar-pin-toggle is-pinned';
+        button.setAttribute('data-menu-id', String(menuId));
+        button.setAttribute('data-pinned', '1');
+        button.setAttribute('title', 'Hapus dari favorit');
+        button.setAttribute('aria-label', 'Hapus dari favorit');
+        var star = document.createElement('i');
+        star.className = 'ri ri-star-fill';
+        button.appendChild(star);
+        link.appendChild(icon);
+        link.appendChild(label);
+        link.appendChild(button);
+        row.appendChild(link);
+        divider.parentNode.insertBefore(row, divider);
+    }
+
+    function removeSidebarFavorite(menuId) {
+        document.querySelectorAll('li[data-fav-id="' + menuId + '"]').forEach(function (row) {
+            row.remove();
+        });
+    }
+
+    window.FinanceSidebarFavorites = {
+        reorder: function (menuIds) {
+            return sidebarFavoriteRequest('sidebar/reorder', { ids: menuIds || [] })
+                .fail(sidebarFavoriteError);
+        }
+    };
+
     $(document).on('click', '.sidebar-pin-toggle', function (e) {
         e.preventDefault();
         e.stopPropagation();
@@ -851,12 +946,30 @@ $(function () {
         var menuId = Number($btn.data('menu-id') || 0);
         if (!menuId) return;
 
-        var pinned = String($btn.data('pinned') || '0') === '1';
+        var pinned = String($btn.attr('data-pinned') || '0') === '1';
         var endpoint = pinned ? 'sidebar/unpin' : 'sidebar/pin';
 
-        $.post(BASE_URL + endpoint, { menu_id: menuId }, function () {
-            location.reload();
-        });
+        $btn.prop('disabled', true);
+        sidebarFavoriteRequest(endpoint, { menu_id: menuId })
+            .done(function (payload) {
+                if (!payload || payload.ok !== true) {
+                    window.alert((payload && payload.message) || 'Gagal memperbarui favorit sidebar.');
+                    $btn.prop('disabled', false);
+                    return;
+                }
+                if (pinned) {
+                    removeSidebarFavorite(menuId);
+                    setSidebarFavoriteButtons(menuId, false);
+                } else {
+                    appendSidebarFavorite(menuId, $btn[0]);
+                    setSidebarFavoriteButtons(menuId, true);
+                }
+                updateSidebarFavoriteChrome();
+            })
+            .fail(function (xhr) {
+                $btn.prop('disabled', false);
+                sidebarFavoriteError(xhr);
+            });
     });
 
     // ---------------------------------------------------------------

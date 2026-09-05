@@ -7,6 +7,7 @@ $editability = (array)($editability ?? []);
 $editabilityData = (array)($editability['data'] ?? []);
 $editModeType = (string)($editabilityData['mode'] ?? ($editMode ? 'full' : 'create'));
 $isPaymentOnlyEdit = $editMode && $editModeType === 'payment_only';
+$purchaseMutationCsrfToken = (string)($purchase_mutation_csrf_token ?? '');
 
 if (!function_exists('finance_po_usage_purpose_from_notes')) {
   function finance_po_usage_purpose_from_notes($notes)
@@ -1572,7 +1573,7 @@ foreach ($detailLines as $ln) {
     btnSave.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Menyimpan...';
     fetch(storeUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Purchase-Mutation-CSRF': <?php echo json_encode($purchaseMutationCsrfToken); ?> },
       body: JSON.stringify({ header: header, lines: submitLines })
     })
     .then(parseJsonResponse)

@@ -1,0 +1,96 @@
+{
+  "format": "finance-clean-install-baseline-policy",
+  "version": 1,
+  "cutoff": "2026-09-05",
+  "schema": {
+    "path": "sql/baseline/2026-09-05_clean_install_schema.sql",
+    "sha256": "dcea97a6cbaba13e404aab88122d41bfb79321ca788045f1c5e6f2401d843a0c",
+    "table_count": 282,
+    "required_tables": [
+      "auth_user",
+      "auth_role",
+      "auth_role_permission",
+      "auth_user_role",
+      "ci_sessions",
+      "sys_page",
+      "sys_menu",
+      "sys_schema_migration",
+      "mst_material",
+      "mst_item",
+      "mst_component",
+      "mst_product",
+      "pos_outlet",
+      "pos_order",
+      "pos_payment",
+      "inv_material_fifo_lot",
+      "inv_component_lot",
+      "pur_purchase_order",
+      "pur_store_request",
+      "fin_company_account",
+      "att_presence",
+      "pay_payroll_period",
+      "asset_item",
+      "wa_report_schedule",
+      "tg_target"
+    ],
+    "forbidden_table_patterns": [
+      "^backup_",
+      "^stg_",
+      "^tmp_",
+      "^zz_bak_",
+      "_backup_"
+    ]
+  },
+  "seed": {
+    "status": "approved_minimal",
+    "path": "sql/2026-09-05d_a5_clean_install_reference_seed.sql",
+    "sha256": "ef33bfbc5fac1c151c98854f401d2310caf4f90f4ff2bac0643c7da9efbe2a61",
+    "execution_policy": "clean_install_only",
+    "allowed_source_tables": [
+      "sys_matrix_group",
+      "sys_page",
+      "sys_menu",
+      "sys_page_alias",
+      "auth_role"
+    ],
+    "artifact_rows": {
+      "sys_matrix_group": 20,
+      "sys_page": 201,
+      "sys_menu": 235,
+      "sys_page_alias": 10,
+      "auth_role": 1
+    },
+    "post_apply_counts": {
+      "sys_matrix_group": 20,
+      "sys_page": 206,
+      "sys_menu": 241,
+      "sys_page_alias": 10,
+      "auth_role": 1,
+      "auth_role_permission": 206,
+      "auth_user": 0,
+      "auth_user_role": 0
+    },
+    "transformations": [
+      "exclude_telegram_rows_managed_by_prior_migrations",
+      "normalize_menu_book_customer_identity",
+      "seed_only_global_superadmin_role",
+      "derive_full_superadmin_permission_for_all_pages"
+    ],
+    "forbidden_domains": [
+      "users_and_sessions",
+      "credentials_and_secrets",
+      "transactions_and_ledgers",
+      "customers_members_and_employees",
+      "inventory_balances_lots_and_history",
+      "runtime_logs_queues_and_backups"
+    ]
+  },
+  "post_baseline_migrations": [
+    "2026-09-04c-a5-schema-migration-registry-foundation",
+    "2026-09-05d-a5-clean-install-reference-seed",
+    "2026-09-05e-whatsapp-safe-reference-seed",
+    "2026-09-05a-telegram-bot-foundation",
+    "2026-09-05b-telegram-setup-guide",
+    "2026-09-05c-telegram-safe-activation-default"
+  ]
+}

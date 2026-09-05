@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM backup_full.bat — Full DB dump + push ke GitHub (Windows)
+REM backup_full.bat — Full local DB dump (Windows)
 REM
 REM Untuk penjadwalan otomatis pakai Windows Task Scheduler:
 REM   Trigger   : Every 30 minutes
@@ -33,9 +33,6 @@ if not defined DB_PORT set DB_PORT=3306
 if not defined DB_USER set DB_USER=root
 if not defined DB_PASS set DB_PASS=
 if not defined DB_NAME set DB_NAME=db_finance
-if not defined RETENTION_DAYS set RETENTION_DAYS=3
-if not defined BACKUP_REPO_REMOTE set BACKUP_REPO_REMOTE=origin
-if not defined BACKUP_REPO_BRANCH set BACKUP_REPO_BRANCH=main
 
 REM ── Timestamp ────────────────────────────────────────────
 for /f "tokens=1-6 delims=/: " %%a in ('echo %date% %time%') do (
@@ -56,6 +53,8 @@ set LOGFILE=%LOG_DIR%\backup_%TIMESTAMP%.log
 
 echo [%date% %time%] ====== Backup START: %TIMESTAMP% ====== >> "%LOGFILE%"
 echo [%date% %time%] Database: %DB_NAME%@%DB_HOST%:%DB_PORT% >> "%LOGFILE%"
+echo [%date% %time%] Storage: LOCAL-ONLY on this host >> "%LOGFILE%"
+echo [%date% %time%] Off-site: SEPARATE encrypted backup must be configured independently >> "%LOGFILE%"
 
 REM ── Mysqldump ────────────────────────────────────────────
 set MYSQLDUMP_PATH=C:\xampp\mysql\bin\mysqldump.exe
@@ -73,21 +72,15 @@ if errorlevel 1 (
 )
 echo [%date% %time%] Dump OK: %DUMPFILE% >> "%LOGFILE%"
 
-REM ── Cleanup file lama (> RETENTION_DAYS hari) ─────────────
-forfiles /p "%BACKUP_DIR%" /m "backup_*.sql" /d -%RETENTION_DAYS% /c "cmd /c del @path" 2>nul
-echo [%date% %time%] Cleanup: file lama > %RETENTION_DAYS% hari dihapus >> "%LOGFILE%"
-
-REM ── Git push ─────────────────────────────────────────────
-cd /d "%FINANCE_ROOT%"
-git add backup\dumps\ backup\logs\ 2>nul
-git diff --cached --quiet
-if errorlevel 1 (
-    git commit -m "backup: %DB_NAME% %TIMESTAMP%" --quiet
-    git push %BACKUP_REPO_REMOTE% %BACKUP_REPO_BRANCH% --quiet
-    echo [%date% %time%] Git push OK >> "%LOGFILE%"
-) else (
-    echo [%date% %time%] Git push: tidak ada perubahan, skip. >> "%LOGFILE%"
+REM ── Integrity dan retention aman ─────────────────────────
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath '%DUMPFILE%').Hash.ToLowerInvariant()"`) do set DUMP_HASH=%%H
+if not defined DUMP_HASH (
+    echo [%date% %time%] [ERROR] SHA-256 gagal dibuat! >> "%LOGFILE%"
+    exit /b 1
 )
+echo !DUMP_HASH!  backup_%DB_NAME%_%TIMESTAMP%.sql> "%DUMPFILE%.sha256"
+echo [%date% %time%] SHA-256: !DUMP_HASH! >> "%LOGFILE%"
+echo [%date% %time%] Retention: tidak ada penghapusan otomatis; review dan quarantine wajib >> "%LOGFILE%"
 
 echo [%date% %time%] ====== Backup SELESAI ====== >> "%LOGFILE%"
 echo.

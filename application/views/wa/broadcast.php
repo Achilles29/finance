@@ -13,6 +13,7 @@ $statusCounts = (array)($status_counts ?? []);
 $canCreate    = (bool)($can_create ?? false);
 $canEdit      = (bool)($can_edit ?? false);
 $canDelete    = (bool)($can_delete ?? false);
+$mutationCsrf = (string)($wa_broadcast_mutation_csrf ?? '');
 $personalOutboundEnabled = (bool)($personal_outbound_enabled ?? false);
 $personalOutboundLockMessage = (string)($personal_outbound_lock_message ?? 'Pengiriman WhatsApp personal sedang dikunci sementara.');
 
@@ -239,17 +240,19 @@ $toRow = $totalRows > 0 ? min($totalRows, $page * $perPage) : 0;
                 <?php endif; ?>
                 <?php if ($canDeactivate): ?>
                 <form method="post" action="<?= site_url('wa/broadcast/deactivate/' . (int)$bc['id']) ?>" class="d-inline" onsubmit="return confirm('Nonaktifkan broadcast ini? Broadcast tidak akan dikirim lagi.');">
+                  <input type="hidden" name="wa_broadcast_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>">
                   <button type="submit" class="btn btn-sm btn-outline-warning" title="Nonaktifkan">
                     <i class="ri ri-pause-circle-line"></i>
                   </button>
                 </form>
                 <?php endif; ?>
                 <?php if ($canDelete && in_array($bcStatus, ['DRAFT','FAILED','CANCELLED'], true)): ?>
-                <a href="<?= site_url('wa/broadcast/delete/' . (int)$bc['id']) ?>"
-                   class="btn btn-sm btn-outline-danger"
-                   onclick="return confirm('Hapus broadcast ini?')" title="Hapus">
-                  <i class="ri ri-delete-bin-line"></i>
-                </a>
+                <form method="post" action="<?= site_url('wa/broadcast/delete/' . (int)$bc['id']) ?>" class="d-inline" onsubmit="return confirm('Hapus broadcast ini?');">
+                  <input type="hidden" name="wa_broadcast_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>">
+                  <button type="submit" class="btn btn-sm btn-outline-danger" title="Hapus">
+                    <i class="ri ri-delete-bin-line"></i>
+                  </button>
+                </form>
                 <?php endif; ?>
               </div>
             </td>

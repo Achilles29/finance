@@ -3,6 +3,7 @@ $broadcast  = (array)($broadcast ?? []);
 $lines      = (array)($lines ?? []);
 $canEdit    = (bool)($can_edit ?? false);
 $canDelete  = (bool)($can_delete ?? false);
+$mutationCsrf = (string)($wa_broadcast_mutation_csrf ?? '');
 $personalOutboundEnabled = (bool)($personal_outbound_enabled ?? false);
 $personalOutboundLockMessage = (string)($personal_outbound_lock_message ?? 'Pengiriman WhatsApp personal sedang dikunci sementara.');
 
@@ -112,11 +113,12 @@ foreach ($lines as $lineForRetry) {
           </button>
           <?php endif; ?>
           <?php if ($canDelete && in_array($currentStatus, ['DRAFT','FAILED','CANCELLED'], true)): ?>
-          <a href="<?= site_url('wa/broadcast/delete/' . $bcId) ?>"
-             class="btn btn-outline-danger btn-sm"
-             onclick="return confirm('Hapus broadcast ini?')">
-            <i class="ri ri-delete-bin-line"></i>
-          </a>
+          <form method="post" action="<?= site_url('wa/broadcast/delete/' . $bcId) ?>" class="d-inline" onsubmit="return confirm('Hapus broadcast ini?');">
+            <input type="hidden" name="wa_broadcast_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>">
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+              <i class="ri ri-delete-bin-line"></i>
+            </button>
+          </form>
           <?php endif; ?>
         </div>
         <?php endif; ?>
@@ -212,7 +214,11 @@ document.getElementById('btn-start')?.addEventListener('click', function () {
       ? `?retry=1&line_id=${encodeURIComponent(retryLineIds[retryIndex])}&retry_last=${retryLast ? '1' : '0'}`
       : '';
     fetch('<?= site_url('wa/api/broadcast-start/' . $bcId) ?>' + query, {
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      method: 'POST',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Wa-Broadcast-CSRF': <?= json_encode($mutationCsrf) ?>
+      }
     })
       .then(async r => {
         const body = await r.text();

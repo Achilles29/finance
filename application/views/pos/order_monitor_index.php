@@ -7,6 +7,7 @@ $completedOrders = (array)($payload['completed_orders'] ?? []);
 $stationOptions = (array)($station_options ?? []);
 $outletOptions = (array)($outlet_options ?? []);
 $pollMs = max(5000, (int)($poll_ms ?? 12000));
+$orderMonitorCsrfToken = (string)($order_monitor_csrf_token ?? '');
 ?>
 <div class="container-fluid py-4 pos-monitor-page">
   <style>
@@ -187,6 +188,7 @@ $pollMs = max(5000, (int)($poll_ms ?? 12000));
   const toastBodyEl = document.getElementById('monitorToastBody');
   const bsToast = toastEl && window.bootstrap ? new bootstrap.Toast(toastEl, {delay: 2200}) : null;
   const notificationAudioUrl = <?= json_encode(base_url('assets/sounds/notifikasi.mp3')) ?>;
+  const orderMonitorCsrfToken = <?= json_encode($orderMonitorCsrfToken, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
   const endpoint = {
     data: <?= json_encode(base_url('pos/order-monitor/data')) ?>,
     ackTask: <?= json_encode(base_url('pos/order-monitor/ack-task')) ?>,
@@ -234,6 +236,29 @@ $pollMs = max(5000, (int)($poll_ms ?? 12000));
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify(payload || {})
+    });
+    const text = await response.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch (error) {
+      const snippet = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220);
+      throw new Error(snippet ? 'Response save backend tidak valid: ' + snippet : 'Response save backend tidak valid dan bukan JSON.');
+    }
+    if (!response.ok || !json.ok) {
+      throw new Error(json.message || 'Gagal memproses aksi monitor.');
+    }
+    return json;
+  }
+
+  async function postOrderMonitorTaskJson(url, payload){
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Pos-Order-Monitor-CSRF': orderMonitorCsrfToken
+      },
       body: JSON.stringify(payload || {})
     });
     const text = await response.text();
@@ -601,31 +626,38 @@ $pollMs = max(5000, (int)($poll_ms ?? 12000));
     const action = String(button.getAttribute('data-monitor-action') || '');
     let url = '';
     let payload = {};
+    let requestJson = postJson;
     if (action === 'ack-task') {
       url = endpoint.ackTask;
       payload = { task_id: Number(button.getAttribute('data-task-id') || 0) };
+      requestJson = postOrderMonitorTaskJson;
     } else if (action === 'ready-task') {
       url = endpoint.readyTask;
       payload = { task_id: Number(button.getAttribute('data-task-id') || 0) };
+      requestJson = postOrderMonitorTaskJson;
     } else if (action === 'checker-task') {
       url = endpoint.checkerTask;
       payload = { task_id: Number(button.getAttribute('data-task-id') || 0) };
+      requestJson = postOrderMonitorTaskJson;
     } else if (action === 'ack-order') {
       url = endpoint.ackOrder;
       payload = { order_id: Number(button.getAttribute('data-order-id') || 0), station_role: String(button.getAttribute('data-station-role') || '') };
+      requestJson = postOrderMonitorTaskJson;
     } else if (action === 'ready-order') {
       url = endpoint.readyOrder;
       payload = { order_id: Number(button.getAttribute('data-order-id') || 0), station_role: String(button.getAttribute('data-station-role') || '') };
+      requestJson = postOrderMonitorTaskJson;
     } else if (action === 'checker-order') {
       url = endpoint.checkerOrder;
       payload = { order_id: Number(button.getAttribute('data-order-id') || 0) };
+      requestJson = postOrderMonitorTaskJson;
     }
     if (!url) return;
     const originalHtml = button.innerHTML;
     button.disabled = true;
     button.innerHTML = 'Memproses...';
     try {
-      await postJson(url, payload);
+      await requestJson(url, payload);
       await loadBoard('Status task monitor diperbarui.', false);
     } catch (error) {
       showToast(error.message || 'Aksi monitor gagal diproses.');

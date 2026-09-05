@@ -1,6 +1,7 @@
 <?php
 $poLinesUrl = site_url('purchase/receipt/po-lines');
 $storeUrl = site_url('purchase/receipt/store');
+$purchaseMutationCsrfToken = (string)($purchase_mutation_csrf_token ?? '');
 ?>
 
 <div class="mb-2">
@@ -244,7 +245,8 @@ $storeUrl = site_url('purchase/receipt/store');
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'X-Purchase-Mutation-CSRF': <?php echo json_encode($purchaseMutationCsrfToken); ?>
       },
       body: JSON.stringify(payload)
     })

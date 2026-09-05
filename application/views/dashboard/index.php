@@ -126,6 +126,7 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
   .fd-recon-title { margin:.18rem 0 0; font-size:1.08rem; line-height:1.2; font-weight:900; color:#6f2119; }
   .fd-recon-count { min-width:82px; text-align:right; font-size:2.1rem; line-height:1; font-weight:900; color:#c62828; }
   .fd-recon-count small { display:block; margin-top:.22rem; color:#8b7772; font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+  .fd-recon-breakdown { margin-top:.35rem; color:#8b7772; font-size:.7rem; font-weight:800; white-space:nowrap; }
   .fd-recon-locs { position:relative; z-index:1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.5rem; margin-bottom:.85rem; }
   .fd-recon-loc { display:flex; align-items:center; justify-content:space-between; gap:.55rem; padding:.55rem .65rem; border-radius:14px; background:#fff; border:1px solid rgba(170,95,78,.15); color:inherit; text-decoration:none; }
   .fd-recon-loc:hover { border-color:rgba(168,35,44,.36); box-shadow:0 8px 16px rgba(109,47,30,.08); }
@@ -609,6 +610,11 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
       $locations = is_array($block['locations'] ?? null) ? $block['locations'] : [];
       $rows = is_array($block['rows'] ?? null) ? $block['rows'] : [];
       $mainUrl = (string)($block['url'] ?? '#');
+      $qtyMismatchCount = (int)($block['qty_mismatch_count'] ?? 0);
+      $valueMismatchCount = (int)($block['value_mismatch_count'] ?? 0);
+      $isClear = $card['key'] === 'component'
+          ? $qtyMismatchCount <= 0 && $valueMismatchCount <= 0
+          : $total <= 0;
       ?>
       <article class="fd-card fd-recon-card">
         <div class="fd-recon-head">
@@ -620,6 +626,9 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
           <div class="fd-recon-count">
             <?= number_format($total, 0, ',', '.') ?>
             <small>Mismatch</small>
+            <?php if ($card['key'] === 'component'): ?>
+              <div class="fd-recon-breakdown">Qty <?= number_format($qtyMismatchCount, 0, ',', '.') ?> &middot; Nilai FIFO <?= number_format($valueMismatchCount, 0, ',', '.') ?></div>
+            <?php endif; ?>
           </div>
         </div>
 
@@ -627,7 +636,7 @@ $criticalLocations = array_keys(array_diff_key($criticalByDivision, ['ALL' => tr
           <div class="fd-empty" style="position:relative;z-index:1;text-align:left;color:#c62828;background:#fff5f5;border:1px solid rgba(198,40,40,.18);border-radius:14px;">
             <?= htmlspecialchars((string)$block['error']) ?>
           </div>
-        <?php elseif ($total <= 0): ?>
+        <?php elseif ($isClear): ?>
           <div class="fd-item" style="position:relative;z-index:1;background:#f4fff6;border-color:rgba(46,125,50,.18);">
             <div>
               <div class="fd-item-title" style="color:#2e7d32;">Clear</div>

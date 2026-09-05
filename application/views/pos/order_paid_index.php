@@ -417,6 +417,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const initialFilters       = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const refundPaymentMethods = <?php echo json_encode($refundPaymentMethods, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const reversalReasonOptions = <?php echo json_encode($reversalReasonOptions, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+  const posTransactionCsrfToken = <?php echo json_encode((string)($pos_transaction_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
   const paymentMethodOptions = <?php echo json_encode(array_values($paymentMethodOptions), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const canEditPaymentMethod = <?php echo $canEditPaymentMethod ? 'true' : 'false'; ?>;
   const paymentMethodMap = Object.fromEntries(paymentMethodOptions.map((row) => [String(row.id || ''), row]));
@@ -526,10 +527,14 @@ document.addEventListener('DOMContentLoaded', function () {
     return json;
   }
 
-  async function postJson(url, payload) {
+  async function postJson(url, payload, scopedOptions) {
+    const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+    if (scopedOptions && scopedOptions.headers && typeof scopedOptions.headers === 'object') {
+      Object.assign(headers, scopedOptions.headers);
+    }
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      headers,
       body: JSON.stringify(payload)
     });
     const text = await response.text();
@@ -537,6 +542,12 @@ document.addEventListener('DOMContentLoaded', function () {
     try { json = JSON.parse(text); } catch (e) { throw new Error('Response save bukan JSON. ' + String(text || '').replace(/\s+/g, ' ').trim().slice(0, 240)); }
     if (!response.ok || !json.ok) throw new Error(json.message || 'Gagal menyimpan data');
     return json;
+  }
+
+  function postPosTransactionJson(url, payload) {
+    return postJson(url, payload, {
+      headers: { 'X-Pos-Transaction-CSRF': posTransactionCsrfToken }
+    });
   }
 
   async function postForm(url, params) {
@@ -1178,7 +1189,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const payload = buildRefundPayload();
     try {
       if (!payload.lines.length) throw new Error('Tidak ada line yang bisa diproses untuk refund.');
-      const json = await postJson('<?php echo site_url('pos/orders/refund/save'); ?>', payload);
+      const json = await postPosTransactionJson('<?php echo site_url('pos/orders/refund/save'); ?>', payload);
       if (refundModal) refundModal.hide();
       let printFailures = [];
       try { printFailures = await triggerRefundDirectPrint(Number(json.id || 0)); }

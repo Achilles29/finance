@@ -2192,6 +2192,8 @@ class Dashboard extends MY_Controller
             ],
             'component' => [
                 'total' => 0,
+                'qty_mismatch_count' => 0,
+                'value_mismatch_count' => 0,
                 'locations' => [],
                 'rows' => [],
                 'url' => site_url('production/component-reconcile') . '?' . http_build_query([
@@ -2227,7 +2229,7 @@ class Dashboard extends MY_Controller
         }
 
         $this->load->model('Purchase_model');
-        $compare = $this->Purchase_model->list_division_material_stock_compare($asOfDate, '', null, 2000, 'ALL');
+        $compare = $this->Purchase_model->list_division_material_stock_compare($asOfDate, '', null, 2000, 'ALL', true);
         $rows = is_array($compare['rows'] ?? null) ? $compare['rows'] : [];
         $locations = [];
         $topRows = [];
@@ -2319,25 +2321,29 @@ class Dashboard extends MY_Controller
         $rows = is_array($compare['rows'] ?? null) ? $compare['rows'] : [];
         $locations = [];
         $topRows = [];
+        $totalMismatchRows = 0;
+        $qtyMismatchCount = 0;
+        $valueMismatchCount = 0;
 
         foreach ($rows as $row) {
-            // Gunakan monthly_qty (closing_qty dari inv_component_monthly_stock) sebagai acuan,
-            // konsisten dengan logika reconcile page yang juga pakai monthly_qty sebagai otoritas.
-            // balance_qty (proyeksi harian) bisa menunjukkan 0 untuk item carry-forward tanpa
-            // movement log Agustus, menyebabkan false positive jika dipakai sebagai acuan.
-            $monthlyQty  = (float)($row['monthly_qty']  ?? 0);
-            $movementQty = (float)($row['movement_qty'] ?? 0);
-            $lotQty      = (float)($row['lot_qty']      ?? $monthlyQty);
-
-            $lotMismatch      = abs($monthlyQty - $lotQty)      > 0.01;
-            $movementMismatch = abs($monthlyQty - $movementQty) > 0.01;
-            if (!$lotMismatch && !$movementMismatch) {
+            // Verdict dan nominal berasal dari Production_model agar dashboard dan
+            // halaman reconcile memakai toleransi FIFO yang sama.
+            if (!empty($row['is_match'])) {
                 continue;
             }
 
-            $gap = round($monthlyQty - $movementQty, 4);
-            if (abs($monthlyQty - $lotQty) > abs($gap)) {
-                $gap = round($monthlyQty - $lotQty, 4);
+            $qtyIsMatch = !empty($row['qty_is_match']);
+            $hasValueMismatch = !empty($row['has_lot_value_mismatch']);
+            $valueGap = (float)($row['monthly_lot_value_gap'] ?? 0);
+            $isValueOnly = $qtyIsMatch && $hasValueMismatch;
+            $gap = $this->dashboard_component_reconcile_gap($row);
+
+            $totalMismatchRows++;
+            if (!$qtyIsMatch) {
+                $qtyMismatchCount++;
+            }
+            if ($hasValueMismatch) {
+                $valueMismatchCount++;
             }
 
             $divisionId = (int)($row['division_id'] ?? 0);
@@ -2374,6 +2380,12 @@ class Dashboard extends MY_Controller
                 'code' => (string)($row['component_code'] ?? ''),
                 'location' => $locationLabel,
                 'gap' => $gap,
+                'gap_value' => $valueGap,
+                'gap_type' => $isValueOnly ? 'currency' : 'qty',
+                'sort_gap' => $isValueOnly ? abs($valueGap) : abs($gap),
+                'reason' => $isValueOnly
+                    ? 'Qty sama, nilai FIFO berbeda'
+                    : trim((string)($row['suspect_reason'] ?? '')),
                 'url' => site_url('production/component-reconcile') . '?' . http_build_query([
                     'as_of_date' => $asOfDate,
                     'date_from' => $monthStart,
@@ -2389,9 +2401,11 @@ class Dashboard extends MY_Controller
         uasort($locations, static function ($a, $b) {
             return ((int)$b['total'] <=> (int)$a['total']) ?: strcmp((string)$a['label'], (string)$b['label']);
         });
-        usort($topRows, static fn($a, $b) => abs((float)$b['gap']) <=> abs((float)$a['gap']));
+        usort($topRows, static fn($a, $b) => (float)($b['sort_gap'] ?? 0) <=> (float)($a['sort_gap'] ?? 0));
 
-        $bucket['total'] = count($topRows);
+        $bucket['total'] = $totalMismatchRows;
+        $bucket['qty_mismatch_count'] = $qtyMismatchCount;
+        $bucket['value_mismatch_count'] = $valueMismatchCount;
         $bucket['locations'] = array_slice(array_values($locations), 0, 6);
         $bucket['rows'] = array_slice($topRows, 0, 6);
         return $bucket;

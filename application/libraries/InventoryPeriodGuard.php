@@ -4,8 +4,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 /**
  * Central period gate for inventory writers.
  *
- * The guard is intentionally permissive until the foundation migration exists,
- * so a rolling deployment cannot stop POS or adjustment requests mid-release.
+ * Inventory writes fail closed until the foundation migration is available.
  */
 class InventoryPeriodGuard
 {
@@ -45,15 +44,26 @@ class InventoryPeriodGuard
 
         if (!$this->isReady()) {
             return [
-                'ok' => true,
+                'ok' => false,
+                'code' => 'INVENTORY_PERIOD_SCHEMA_NOT_READY',
                 'guard_active' => false,
-                'message' => 'Period guard belum aktif karena migration inventory belum dijalankan.',
+                'message' => 'Period guard belum siap karena migration inventory belum dijalankan.',
             ];
         }
 
         $cacheKey = $this->cacheKey($stockDomain, $periodMonth);
-        if (array_key_exists($cacheKey, $this->periodCache)) {
+        $transactionActive = $this->transactionActive();
+        if (!$transactionActive && array_key_exists($cacheKey, $this->periodCache)) {
             $row = $this->periodCache[$cacheKey];
+        } elseif ($transactionActive) {
+            $query = $this->ci->db->query(
+                'SELECT id, status, period_month FROM inv_stock_period WHERE stock_domain = ? AND period_month = ? LIMIT 1 FOR UPDATE',
+                [$stockDomain, $periodMonth]
+            );
+            if (!$query) {
+                return ['ok' => false, 'code' => 'INVENTORY_PERIOD_LOCK_FAILED', 'message' => 'Periode stok gagal dikunci.'];
+            }
+            $row = $query->row_array();
         } else {
             $row = $this->ci->db
                 ->select('id, status, period_month')
@@ -99,46 +109,129 @@ class InventoryPeriodGuard
 
     public function ensureOpen(string $stockDomain, string $eventDate, ?int $actorUserId = null, string $note = ''): array
     {
-        $check = $this->assertOpen($stockDomain, $eventDate, 'transaksi');
-        if (!($check['ok'] ?? false) || !$this->isReady()) {
-            return $check;
-        }
-        if (!empty($check['period_id'])) {
-            return $check;
+        $db = $this->ci->db;
+        $transactionActive = $this->transactionActive();
+        if (!$transactionActive) {
+            $check = $this->assertOpen($stockDomain, $eventDate, 'transaksi');
+            if (!($check['ok'] ?? false) || !$this->isReady()) {
+                return $check;
+            }
+            if (!empty($check['period_id'])) {
+                return $check;
+            }
+            $periodMonth = (string)$check['period_month'];
+        } else {
+            $stockDomain = strtoupper(trim($stockDomain));
+            if (!in_array($stockDomain, ['MATERIAL', 'COMPONENT'], true)) {
+                return ['ok' => false, 'message' => 'Domain stok tidak valid untuk period guard.'];
+            }
+            $periodMonth = $this->normalizeMonth($eventDate);
+            if ($periodMonth === null) {
+                return ['ok' => false, 'message' => 'Tanggal transaksi tidak valid.'];
+            }
+            if (!$this->isReady()) {
+                return [
+                    'ok' => false,
+                    'code' => 'INVENTORY_PERIOD_SCHEMA_NOT_READY',
+                    'guard_active' => false,
+                    'message' => 'Period guard belum siap karena migration inventory belum dijalankan.',
+                ];
+            }
         }
 
-        $periodMonth = (string)$check['period_month'];
-        // Two writers can start at the same time (for example POS background
-        // jobs). Duplicate-key failure is safe here: re-read the period below.
-        $db = $this->ci->db;
+        $ownsTransaction = !$transactionActive;
+        if ($ownsTransaction) {
+            $started = $db->trans_begin();
+            if (!$started || !$db->trans_status()) {
+                $db->trans_rollback();
+                return ['ok' => false, 'code' => 'INVENTORY_PERIOD_LOCK_FAILED', 'message' => 'Transaksi periode stok gagal dimulai.'];
+            }
+        }
+
+        // This single write either creates the unique (domain, month) row or
+        // locks the concurrent/existing row without changing its lifecycle.
+        // It also waits behind a historical writer's newer-period range lock.
         $previousDbDebug = isset($db->db_debug) ? (bool)$db->db_debug : false;
         $db->db_debug = false;
-        $inserted = $db->insert('inv_stock_period', [
-            'stock_domain' => strtoupper(trim($stockDomain)),
-            'period_month' => $periodMonth,
-            'status' => 'OPEN',
-            'close_mode' => 'MONTHLY_OPNAME',
-            'notes' => $note !== '' ? substr($note, 0, 255) : null,
-            'created_by' => $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,
-        ]);
-        $insertId = (int)$db->insert_id();
+        $upserted = $db->query(
+            'INSERT INTO inv_stock_period '
+            . '(stock_domain, period_month, status, close_mode, notes, created_by) '
+            . "VALUES (?, ?, 'OPEN', 'MONTHLY_OPNAME', ?, ?) "
+            . 'ON DUPLICATE KEY UPDATE id = id',
+            [
+                strtoupper(trim($stockDomain)),
+                $periodMonth,
+                $note !== '' ? substr($note, 0, 255) : null,
+                $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,
+            ]
+        );
         $db->db_debug = $previousDbDebug;
-        $this->forgetPeriod($stockDomain, $periodMonth);
-
-        if (!$inserted || $insertId <= 0) {
-            $retry = $this->assertOpen($stockDomain, $eventDate, 'transaksi');
-            // A duplicate insert from another concurrent writer is safe only
-            // when the re-read finds the period that writer just created.
-            if (($retry['ok'] ?? false) && !empty($retry['period_id'])) {
-                return $retry;
+        if (!$upserted || !$db->trans_status()) {
+            if ($ownsTransaction) {
+                $db->trans_rollback();
             }
-            if (!($retry['ok'] ?? false)) {
-                return $retry;
-            }
-            return ['ok' => false, 'message' => 'Gagal menyiapkan periode stok aktif.'];
+            return ['ok' => false, 'code' => 'INVENTORY_PERIOD_LOCK_FAILED', 'message' => 'Periode stok aktif gagal dibuat atau dikunci.'];
         }
 
-        return $this->assertOpen($stockDomain, $eventDate, 'transaksi');
+        $this->forgetPeriod($stockDomain, $periodMonth);
+        $result = $this->assertOpen($stockDomain, $eventDate, 'transaksi');
+        if (!($result['ok'] ?? false) || empty($result['period_id']) || !$db->trans_status()) {
+            if ($ownsTransaction) {
+                $db->trans_rollback();
+            }
+            if (!$db->trans_status()) {
+                return ['ok' => false, 'code' => 'INVENTORY_PERIOD_LOCK_FAILED', 'message' => 'Transaksi periode stok gagal setelah pembacaan ulang.'];
+            }
+            return ($result['ok'] ?? false)
+                ? ['ok' => false, 'code' => 'INVENTORY_PERIOD_LOCK_FAILED', 'message' => 'Periode stok aktif gagal dibaca ulang.']
+                : $result;
+        }
+        if ($ownsTransaction) {
+            $committed = $db->trans_commit();
+            if (!$committed || !$db->trans_status()) {
+                $db->trans_rollback();
+                return ['ok' => false, 'code' => 'INVENTORY_PERIOD_LOCK_FAILED', 'message' => 'Transaksi periode stok gagal diselesaikan.'];
+            }
+        }
+        return $result;
+    }
+
+    public function lockActivePeriodsForWrite(array $pairs): array
+    {
+        if (!$this->transactionActive()) {
+            return ['ok' => false, 'code' => 'INVENTORY_TRANSACTION_REQUIRED', 'message' => 'Transaksi database aktif wajib tersedia sebelum mengunci periode stok.'];
+        }
+
+        $normalized = [];
+        foreach ($pairs as $pair) {
+            if (!is_array($pair)) {
+                return ['ok' => false, 'message' => 'Pasangan domain/tanggal periode stok tidak valid.'];
+            }
+            $domain = strtoupper(trim((string)($pair['stock_domain'] ?? $pair['domain'] ?? ($pair[0] ?? ''))));
+            $date = (string)($pair['event_date'] ?? $pair['period_month'] ?? $pair['date'] ?? ($pair[1] ?? ''));
+            $month = $this->normalizeMonth($date);
+            if (!in_array($domain, ['COMPONENT', 'MATERIAL'], true) || $month === null) {
+                return ['ok' => false, 'message' => 'Pasangan domain/tanggal periode stok tidak valid.'];
+            }
+            $normalized[$this->cacheKey($domain, $month)] = ['stock_domain' => $domain, 'period_month' => $month];
+        }
+        usort($normalized, static function (array $left, array $right): int {
+            $rank = ['COMPONENT' => 0, 'MATERIAL' => 1];
+            $domainOrder = $rank[$left['stock_domain']] <=> $rank[$right['stock_domain']];
+            return $domainOrder !== 0 ? $domainOrder : strcmp($left['period_month'], $right['period_month']);
+        });
+
+        $locked = [];
+        foreach ($normalized as $pair) {
+            $result = $this->ensureActiveMonthOpen($pair['stock_domain'], $pair['period_month']);
+            if (!($result['ok'] ?? false) || empty($result['period_id'])) {
+                return ($result['ok'] ?? false)
+                    ? ['ok' => false, 'code' => 'INVENTORY_PERIOD_LOCK_FAILED', 'message' => 'Periode stok aktif tidak ditemukan setelah penguncian.']
+                    : $result;
+            }
+            $locked[] = $result;
+        }
+        return ['ok' => true, 'periods' => $locked];
     }
 
     /**
@@ -148,13 +241,24 @@ class InventoryPeriodGuard
      */
     public function ensureActiveMonthOpen(string $stockDomain, string $eventDate, ?int $actorUserId = null, string $note = ''): array
     {
-        $check = $this->assertOpen($stockDomain, $eventDate, 'transaksi');
-        if (!($check['ok'] ?? false) || !$this->isReady()) {
-            return $check;
+        $stockDomain = strtoupper(trim($stockDomain));
+        if (!in_array($stockDomain, ['MATERIAL', 'COMPONENT'], true)) {
+            return ['ok' => false, 'message' => 'Domain stok tidak valid untuk period guard.'];
+        }
+        $periodMonth = $this->normalizeMonth($eventDate);
+        if ($periodMonth === null) {
+            return ['ok' => false, 'message' => 'Tanggal transaksi tidak valid.'];
+        }
+        if (!$this->isReady()) {
+            return [
+                'ok' => false,
+                'code' => 'INVENTORY_PERIOD_SCHEMA_NOT_READY',
+                'guard_active' => false,
+                'message' => 'Period guard belum siap karena migration inventory belum dijalankan.',
+            ];
         }
 
         $activeMonth = date('Y-m-01');
-        $periodMonth = (string)($check['period_month'] ?? '');
         if ($periodMonth > $activeMonth) {
             return [
                 'ok' => false,
@@ -165,20 +269,52 @@ class InventoryPeriodGuard
             ];
         }
 
+        // Current-month creation must enter ensureOpen() without a missing-key
+        // locking read; its atomic upsert is the first locking DML.
+        if ($periodMonth === $activeMonth) {
+            return $this->ensureOpen($stockDomain, $eventDate, $actorUserId, $note);
+        }
+
+        $check = $this->assertOpen($stockDomain, $eventDate, 'transaksi');
+        if (!($check['ok'] ?? false)) {
+            return $check;
+        }
+
         if ($periodMonth < $activeMonth) {
             if (!empty($check['cutoff_context'])) {
                 return $check;
             }
 
-            $newerPeriod = $this->ci->db
-                ->select('id, period_month, status')
-                ->from('inv_stock_period')
-                ->where('stock_domain', strtoupper(trim($stockDomain)))
-                ->where('period_month >', $periodMonth)
-                ->order_by('period_month', 'ASC')
-                ->limit(1)
-                ->get()
-                ->row_array();
+            $normalizedDomain = strtoupper(trim($stockDomain));
+            if ($this->transactionActive()) {
+                // assertOpen() has already locked the exact historical key.
+                // This next-key/range lock on the same unique index prevents a
+                // concurrent rollover INSERT until the inventory write commits.
+                $query = $this->ci->db->query(
+                    'SELECT id, period_month, status FROM inv_stock_period '
+                    . 'WHERE stock_domain = ? AND period_month > ? '
+                    . 'ORDER BY period_month ASC LIMIT 1 FOR UPDATE',
+                    [$normalizedDomain, $periodMonth]
+                );
+                if (!$query) {
+                    return [
+                        'ok' => false,
+                        'code' => 'INVENTORY_PERIOD_LOCK_FAILED',
+                        'message' => 'Rentang periode stok yang lebih baru gagal dikunci.',
+                    ];
+                }
+                $newerPeriod = $query->row_array();
+            } else {
+                $newerPeriod = $this->ci->db
+                    ->select('id, period_month, status')
+                    ->from('inv_stock_period')
+                    ->where('stock_domain', $normalizedDomain)
+                    ->where('period_month >', $periodMonth)
+                    ->order_by('period_month', 'ASC')
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+            }
             if (!empty($newerPeriod)) {
                 return [
                     'ok' => false,
@@ -209,27 +345,40 @@ class InventoryPeriodGuard
             return $check;
         }
 
-        if (!empty($check['period_id'])) {
-            return $check;
-        }
-
-        return $this->ensureOpen($stockDomain, $eventDate, $actorUserId, $note);
+        return $check;
     }
 
     public function closePeriod(string $stockDomain, string $eventDate, ?int $actorUserId = null, string $note = ''): array
     {
+        $db = $this->ci->db;
+        $ownsTransaction = !$this->transactionActive();
+        if ($ownsTransaction) {
+            $db->trans_begin();
+        }
         $open = $this->ensureOpen($stockDomain, $eventDate, $actorUserId, $note);
         if (!($open['ok'] ?? false) || !$this->isReady()) {
+            if ($ownsTransaction) {
+                $db->trans_rollback();
+            }
             return $open;
         }
 
-        $this->ci->db->where('id', (int)($open['period_id'] ?? 0))->update('inv_stock_period', [
+        $db->where('id', (int)($open['period_id'] ?? 0))->where('status', 'CLOSING')->update('inv_stock_period', [
             'status' => 'CLOSED',
             'close_mode' => 'MONTHLY_OPNAME',
             'closed_by' => $actorUserId !== null && $actorUserId > 0 ? $actorUserId : null,
             'closed_at' => date('Y-m-d H:i:s'),
             'notes' => $note !== '' ? substr($note, 0, 255) : null,
         ]);
+        if ($db->affected_rows() !== 1 || !$db->trans_status()) {
+            if ($ownsTransaction) {
+                $db->trans_rollback();
+            }
+            return ['ok' => false, 'message' => 'Periode stok berubah oleh proses lain sebelum penutupan selesai.'];
+        }
+        if ($ownsTransaction) {
+            $db->trans_commit();
+        }
         $this->forgetPeriod($stockDomain, (string)($open['period_month'] ?? ''));
         return [
             'ok' => true,
@@ -246,13 +395,24 @@ class InventoryPeriodGuard
      */
     public function beginClosingPeriod(string $stockDomain, string $eventDate, ?int $actorUserId = null, string $note = ''): array
     {
+        $db = $this->ci->db;
+        $ownsTransaction = !$this->transactionActive();
+        if ($ownsTransaction) {
+            $db->trans_begin();
+        }
         $open = $this->ensureOpen($stockDomain, $eventDate, $actorUserId, $note);
         if (!($open['ok'] ?? false) || !$this->isReady()) {
+            if ($ownsTransaction) {
+                $db->trans_rollback();
+            }
             return $open;
         }
 
         $status = strtoupper(trim((string)($open['status'] ?? 'OPEN')));
         if (!in_array($status, ['OPEN', 'REOPENED'], true)) {
+            if ($ownsTransaction) {
+                $db->trans_rollback();
+            }
             return [
                 'ok' => false,
                 'message' => 'Periode stok tidak dapat mulai ditutup dari status ' . ($status ?: '-') . '.',
@@ -263,6 +423,9 @@ class InventoryPeriodGuard
 
         $periodId = (int)($open['period_id'] ?? 0);
         if ($periodId <= 0) {
+            if ($ownsTransaction) {
+                $db->trans_rollback();
+            }
             return ['ok' => false, 'message' => 'ID periode stok tidak ditemukan saat memulai cut-off.'];
         }
 
@@ -276,12 +439,25 @@ class InventoryPeriodGuard
             ]);
 
         if ($this->ci->db->affected_rows() !== 1) {
+            if ($ownsTransaction) {
+                $db->trans_rollback();
+            }
             $this->forgetPeriod($stockDomain, (string)($open['period_month'] ?? ''));
             return [
                 'ok' => false,
                 'message' => 'Periode stok berubah oleh proses lain. Muat ulang halaman sebelum mencoba cut-off lagi.',
                 'period_id' => $periodId,
             ];
+        }
+
+        if (!$db->trans_status()) {
+            if ($ownsTransaction) {
+                $db->trans_rollback();
+            }
+            return ['ok' => false, 'message' => 'Transaksi perubahan status periode stok gagal.'];
+        }
+        if ($ownsTransaction) {
+            $db->trans_commit();
         }
 
         $this->forgetPeriod($stockDomain, (string)($open['period_month'] ?? ''));
@@ -302,7 +478,12 @@ class InventoryPeriodGuard
     ): array
     {
         if (!$this->isReady()) {
-            return ['ok' => false, 'message' => 'Period guard belum aktif. Jalankan migration inventory terlebih dahulu.'];
+            return [
+                'ok' => false,
+                'code' => 'INVENTORY_PERIOD_SCHEMA_NOT_READY',
+                'guard_active' => false,
+                'message' => 'Period guard belum siap. Jalankan migration inventory terlebih dahulu.',
+            ];
         }
         $periodMonth = $this->normalizeMonth($eventDate);
         if ($periodMonth === null) {
@@ -392,12 +573,20 @@ class InventoryPeriodGuard
         return !empty($this->cutoffWriteContexts[$this->cacheKey($stockDomain, $periodMonth)]);
     }
 
+    private function transactionActive(): bool
+    {
+        return method_exists($this->ci->db, 'trans_active') && $this->ci->db->trans_active();
+    }
+
     private function normalizeMonth(string $date): ?string
     {
-        $timestamp = strtotime($date);
-        if ($timestamp === false) {
+        $date = trim($date);
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $date, $matches)) {
             return null;
         }
-        return date('Y-m-01', $timestamp);
+        if (!checkdate((int)$matches[2], (int)$matches[3], (int)$matches[1])) {
+            return null;
+        }
+        return $matches[1] . '-' . $matches[2] . '-01';
     }
 }

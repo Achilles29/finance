@@ -7,6 +7,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
  */
 class Inventory_control extends MY_Controller
 {
+    private const INVENTORY_CONTROL_MUTATION_CSRF_NAME = 'inventory_control_mutation_csrf';
     private const PAGE_DEFICIT = 'inventory.stock.deficit.index';
     private const PAGE_PERIOD = 'inventory.stock.period.index';
     private const PAGE_HEALTH = 'inventory.stock.health.index';
@@ -17,6 +18,7 @@ class Inventory_control extends MY_Controller
     {
         parent::__construct();
         $this->load->model('Inventory_control_model');
+        $this->load->model('Production_model');
     }
 
     public function deficits()
@@ -68,6 +70,7 @@ class Inventory_control extends MY_Controller
         $canInlineRecon = $isComponent
             ? ($hasDivision && $reconPermissions['component'])
             : ($hasDivision ? $reconPermissions['material'] : ($isWarehouseMaterial && $reconPermissions['warehouse']));
+        $mutationCsrf = $this->inventory_control_mutation_csrf();
 
         $this->render('inventory/stock_deficit_detail', [
             'page_title' => 'Rincian Defisit Stok',
@@ -76,6 +79,8 @@ class Inventory_control extends MY_Controller
             'can_inline_recon' => $canInlineRecon,
             'can_write_off' => $this->is_superadmin(),
             'write_off_schema_ready' => $this->Inventory_control_model->deficit_write_off_schema_ready(),
+            'inventory_control_mutation_csrf_name' => $mutationCsrf['name'],
+            'inventory_control_mutation_csrf_value' => $mutationCsrf['value'],
         ]);
     }
 
@@ -90,6 +95,9 @@ class Inventory_control extends MY_Controller
         $this->require_permission(self::PAGE_DEFICIT, 'view');
         if (!$this->is_superadmin()) {
             show_error('Hanya Superadmin yang dapat menutup administratif defisit stok.', 403, 'Akses Ditolak');
+            return;
+        }
+        if (!$this->require_inventory_control_mutation_csrf()) {
             return;
         }
 
@@ -152,6 +160,7 @@ class Inventory_control extends MY_Controller
         $total = $this->Inventory_control_model->count_periods($filters);
         $totalPages = max(1, (int)ceil($total / $perPage));
         $page = min($page, $totalPages);
+        $mutationCsrf = $this->inventory_control_mutation_csrf();
 
         $this->render('inventory/stock_period_index', [
             'page_title' => 'Tutup Periode Stok',
@@ -162,6 +171,8 @@ class Inventory_control extends MY_Controller
             'current_health' => $this->Inventory_control_model->inventory_health_summary((string)($filters['month_to'] ?? date('Y-m-01'))),
             'can_create' => $this->can(self::PAGE_PERIOD, 'create'),
             'can_edit' => $this->can(self::PAGE_PERIOD, 'edit'),
+            'inventory_control_mutation_csrf_name' => $mutationCsrf['name'],
+            'inventory_control_mutation_csrf_value' => $mutationCsrf['value'],
             'pg' => [
                 'page' => $page,
                 'per_page' => $perPage,
@@ -281,17 +292,32 @@ class Inventory_control extends MY_Controller
                     && (int)($row['monthly_stock_id'] ?? 0) > 0;
             }));
         }
+        $hppSuggestions = [];
+        if (!empty($context['ok']) && strtoupper((string)($contextInput['stock_domain'] ?? '')) === 'COMPONENT') {
+            $hppSuggestions = $this->Production_model->component_hpp_suggestions([
+                'component_id' => (int)($contextInput['component_id'] ?? 0),
+                'uom_id' => (int)($contextInput['uom_id'] ?? 0),
+                'location_type' => (string)($contextInput['location_type'] ?? ''),
+                'division_id' => (int)($contextInput['division_id'] ?? 0),
+                'stock' => is_array($context['stock'] ?? null) ? $context['stock'] : [],
+                'lots' => is_array($context['lots'] ?? null) ? $context['lots'] : [],
+            ]);
+        }
+        $mutationCsrf = $this->inventory_control_mutation_csrf();
 
         $this->render('inventory/stock_value_reconciliation_index', [
             'page_title' => 'Koreksi Nilai Stok',
             'active_menu' => 'inventory.stock.value_reconciliation',
             'context_input' => $contextInput,
             'context' => $context,
+            'hpp_suggestions' => $hppSuggestions,
             'records' => $this->inventoryvaluereconciliationservice->listRecords($month),
             'value_candidates' => $valueCandidates,
             'candidate_filters' => $candidateFilters,
             'schema_ready' => $this->inventoryvaluereconciliationservice->isReady(),
             'can_post' => $this->is_superadmin(),
+            'inventory_control_mutation_csrf_name' => $mutationCsrf['name'],
+            'inventory_control_mutation_csrf_value' => $mutationCsrf['value'],
             'health_url' => site_url('inventory/stock/health') . '?' . http_build_query([
                 'month' => substr($month, 0, 7),
             ]),
@@ -305,10 +331,13 @@ class Inventory_control extends MY_Controller
             show_error('Hanya Superadmin yang dapat memposting koreksi nilai stok.', 403, 'Akses Ditolak');
             return;
         }
+        if (!$this->require_inventory_control_mutation_csrf()) {
+            return;
+        }
 
         $this->load->library('InventoryValueReconciliationService');
         $payload = $this->value_reconciliation_context_input('post');
-        foreach (['resolution_mode', 'reason', 'notes', 'confirmation', 'manual_total_value'] as $field) {
+        foreach (['resolution_mode', 'reason', 'notes', 'confirmation', 'manual_total_value', 'manual_unit_cost'] as $field) {
             $payload[$field] = $this->input->post($field, true);
         }
         $result = $this->inventoryvaluereconciliationservice->post(
@@ -325,6 +354,36 @@ class Inventory_control extends MY_Controller
         redirect('inventory/stock/value-reconciliation?' . http_build_query($this->value_reconciliation_redirect_query($payload)));
     }
 
+    public function value_reconciliation_void()
+    {
+        $this->require_permission(self::PAGE_VALUE_RECON, 'view');
+        if (!$this->is_superadmin()) {
+            show_error('Hanya Superadmin yang dapat membatalkan koreksi nilai stok.', 403, 'Akses Ditolak');
+            return;
+        }
+        if (!$this->require_inventory_control_mutation_csrf()) {
+            return;
+        }
+
+        $this->load->library('InventoryValueReconciliationService');
+        $revaluationId = (int)$this->input->post('revaluation_id', true);
+        $voidNotes = trim((string)$this->input->post('void_notes', true));
+        $result = $this->inventoryvaluereconciliationservice->voidRecord(
+            $revaluationId,
+            (int)($this->current_user['id'] ?? 0),
+            $voidNotes
+        );
+        $this->session->set_flashdata(
+            !empty($result['ok']) ? 'success' : 'error',
+            !empty($result['ok'])
+                ? 'Koreksi nilai ' . (string)($result['revaluation_no'] ?? '') . ' berhasil di-VOID. Nilai sebelum dokumen dipulihkan dan jumlah stok tidak berubah.'
+                : (string)($result['message'] ?? 'VOID koreksi nilai gagal.')
+        );
+
+        $month = $this->normalize_month((string)$this->input->post('month', true)) ?? date('Y-m-01');
+        redirect('inventory/stock/value-reconciliation?month=' . rawurlencode($month));
+    }
+
     public function period_detail($id)
     {
         $this->require_permission(self::PAGE_PERIOD, 'view');
@@ -335,6 +394,7 @@ class Inventory_control extends MY_Controller
         }
         $this->load->library('InventoryCutoffService');
         $cutoffPosting = $this->inventorycutoffservice->preflight($period);
+        $mutationCsrf = $this->inventory_control_mutation_csrf();
 
         $this->render('inventory/stock_period_detail', [
             'page_title' => 'Rincian Tutup Periode Stok',
@@ -353,6 +413,8 @@ class Inventory_control extends MY_Controller
             'cutoff_runs' => $this->Inventory_control_model->list_cutoff_runs((int)($period['id'] ?? 0)),
             'can_edit' => $this->can(self::PAGE_PERIOD, 'edit'),
             'can_post_cutoff' => $this->is_superadmin(),
+            'inventory_control_mutation_csrf_name' => $mutationCsrf['name'],
+            'inventory_control_mutation_csrf_value' => $mutationCsrf['value'],
             'health_url' => site_url('inventory/stock/health') . '?' . http_build_query([
                 'month' => substr((string)($period['period_month'] ?? ''), 0, 7),
                 'stock_domain' => strtoupper((string)($period['stock_domain'] ?? '')),
@@ -363,6 +425,9 @@ class Inventory_control extends MY_Controller
     public function period_open()
     {
         $this->require_permission(self::PAGE_PERIOD, 'create');
+        if (!$this->require_inventory_control_mutation_csrf()) {
+            return;
+        }
         $month = $this->normalize_month((string)$this->input->post('period_month', true));
         $domain = strtoupper(trim((string)$this->input->post('stock_domain', true)));
         $notes = trim((string)$this->input->post('notes', true));
@@ -412,6 +477,9 @@ class Inventory_control extends MY_Controller
             show_error('Hanya Superadmin yang dapat memposting cut-off stok resmi.', 403, 'Akses Ditolak');
             return;
         }
+        if (!$this->require_inventory_control_mutation_csrf()) {
+            return;
+        }
 
         $period = $this->Inventory_control_model->get_period((int)$id);
         if ($period === null) {
@@ -445,6 +513,9 @@ class Inventory_control extends MY_Controller
     public function period_reopen($id)
     {
         $this->require_permission(self::PAGE_PERIOD, 'edit');
+        if (!$this->require_inventory_control_mutation_csrf()) {
+            return;
+        }
         $period = $this->Inventory_control_model->get_period((int)$id);
         if ($period === null) {
             show_error('Periode stok tidak ditemukan.', 404, 'Periode Stok Tidak Ditemukan');
@@ -467,6 +538,66 @@ class Inventory_control extends MY_Controller
         );
         $this->session->set_flashdata(($result['ok'] ?? false) ? 'success' : 'error', (string)($result['message'] ?? (($result['ok'] ?? false) ? 'Periode stok dibuka kembali.' : 'Gagal membuka kembali periode stok.')));
         redirect('inventory/stock/periods/detail/' . (int)$id);
+    }
+
+    private function inventory_control_mutation_csrf(): array
+    {
+        $name = self::INVENTORY_CONTROL_MUTATION_CSRF_NAME;
+        $token = (string)$this->session->userdata($name);
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata($name, $token);
+        }
+
+        return [
+            'name' => $name,
+            'value' => $token,
+        ];
+    }
+
+    private function require_inventory_control_mutation_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_inventory_control_mutation(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        $providedToken = (string)$this->input->post(self::INVENTORY_CONTROL_MUTATION_CSRF_NAME, true);
+        $sessionToken = (string)$this->session->userdata(self::INVENTORY_CONTROL_MUTATION_CSRF_NAME);
+        if (
+            preg_match('/\A[0-9a-fA-F]{64}\z/D', $sessionToken) !== 1
+            || preg_match('/\A[0-9a-fA-F]{64}\z/D', $providedToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_inventory_control_mutation(403, 'Permintaan mutasi inventory tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_inventory_control_mutation(int $statusCode, string $message): void
+    {
+        if ($this->input->is_ajax_request()) {
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+            $this->output
+                ->set_status_header($statusCode)
+                ->set_content_type('application/json')
+                ->set_output(json_encode([
+                    'ok' => false,
+                    'message' => $message,
+                ], JSON_INVALID_UTF8_SUBSTITUTE));
+            $this->output->_display();
+            exit;
+        }
+
+        show_error(
+            $message,
+            $statusCode,
+            $statusCode === 405 ? 'Metode Tidak Diizinkan' : 'Akses Ditolak'
+        );
     }
 
     private function deficit_filters(): array

@@ -19,6 +19,7 @@ $isProductHierarchyMaster = in_array($entity, ['product-division', 'product-clas
 $isReorderableMaster = !empty($cfg['reorderable']);
 $canDragReorder = $isReorderableMaster && $q === '' && (int)$total > 1 && (int)$total <= (int)$per_page;
 $resetStatus = (string)($cfg['default_status'] ?? (!empty($has_active_flag) ? 'active' : 'all'));
+$masterMutationCsrfToken = (string)($master_mutation_csrf_token ?? '');
 
 $buildPageItems = static function (int $page, int $totalPages): array {
     if ($totalPages <= 7) {
@@ -273,7 +274,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 </style>
 <?php endif; ?>
 
-<div data-master-root data-master-entity="<?php echo html_escape($entity); ?>" data-master-reorder-url="<?php echo html_escape(site_url('master/' . $entity . '/reorder')); ?>" class="master-index <?php echo $isPayrollMaster ? 'master-index--payroll' : ''; ?> <?php echo $useLargeActionIcons ? 'master-index--action-upgrade' : ''; ?> <?php echo $isProductHierarchyMaster ? 'master-index--product-hierarchy' : ''; ?> <?php echo $entity === 'product' ? 'master-index--product-scroll' : ''; ?>">
+<div data-master-root data-master-entity="<?php echo html_escape($entity); ?>" data-master-reorder-url="<?php echo html_escape(site_url('master/' . $entity . '/reorder')); ?>" data-master-mutation-csrf="<?php echo html_escape($masterMutationCsrfToken); ?>" class="master-index <?php echo $isPayrollMaster ? 'master-index--payroll' : ''; ?> <?php echo $useLargeActionIcons ? 'master-index--action-upgrade' : ''; ?> <?php echo $isProductHierarchyMaster ? 'master-index--product-hierarchy' : ''; ?> <?php echo $entity === 'product' ? 'master-index--product-scroll' : ''; ?>">
 <?php if ($entity === 'extra' || $entity === 'extra-group'): ?>
   <?php $extraTabActive = $entity === 'extra' ? 'master-extra' : 'extra-group'; ?>
   <?php $this->load->view('master/_extra_tabs', compact('extraTabActive')); ?>
@@ -314,6 +315,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
     <?php endif; ?>
     <?php if ($entity === 'att-holiday'): ?>
       <form method="post" action="<?php echo site_url('master/att-holiday/generate-year'); ?>" class="d-flex align-items-center gap-2">
+        <input type="hidden" name="master_mutation_csrf" value="<?php echo html_escape($masterMutationCsrfToken); ?>">
         <input
           type="number"
           name="year"
@@ -601,7 +603,10 @@ $buildPageItems = static function (int $page, int $totalPages): array {
                     <a class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Hubungkan ke Group" aria-label="Hubungkan ke Group" href="<?php echo site_url('master/relation/extra-item-group/' . (int)$r['id']); ?>"><i class="ri ri-links-line"></i></a>
                   <?php endif; ?>
                   <?php if (!empty($cfg['toggle']) && $entity !== 'product'): ?>
-                    <a class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Toggle Status" aria-label="Toggle Status" href="<?php echo site_url('master/' . $entity . '/toggle/' . (int)$r['id']); ?>" onclick="return confirm('Ubah status data ini?')"><i class="ri ri-refresh-line"></i></a>
+                    <form method="post" action="<?php echo site_url('master/' . $entity . '/toggle/' . (int)$r['id']); ?>" class="d-inline" onsubmit="return confirm('Ubah status data ini?')">
+                      <input type="hidden" name="master_mutation_csrf" value="<?php echo html_escape($masterMutationCsrfToken); ?>">
+                      <button type="submit" class="btn btn-sm btn-outline-warning action-icon-btn" data-bs-toggle="tooltip" title="Toggle Status" aria-label="Toggle Status"><i class="ri ri-refresh-line"></i></button>
+                    </form>
                   <?php endif; ?>
                 </div>
                 <?php endif; ?>
@@ -749,7 +754,14 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       groupName: '',
       q: '',
       selectedIds: new Set(),
+      mutationCsrf: '',
+      mappingRevision: '',
       seedLoaded: false,
+      modalEpoch: 0,
+      requestSequence: 0,
+      latestRequestSequence: 0,
+      querySequence: 0,
+      pendingRows: null,
       timer: null
     };
 
@@ -774,17 +786,19 @@ $buildPageItems = static function (int $page, int $totalPages): array {
               throw new Error(plain || 'Respons backend bukan JSON yang valid.');
             }
             if (!response.ok) {
-              throw new Error((payload && payload.message) || ('HTTP ' + response.status));
+              var requestError = new Error((payload && payload.message) || ('HTTP ' + response.status));
+              requestError.status = response.status;
+              throw requestError;
             }
             return payload;
           });
         });
     }
 
-    function endpointBase() {
-      return state.kind === 'extra'
-        ? '<?php echo site_url('master/relation/extra-group'); ?>/' + state.groupId + '/extras'
-        : '<?php echo site_url('master/relation/extra-group'); ?>/' + state.groupId + '/products';
+    function endpointBase(kind, groupId) {
+      return kind === 'extra'
+        ? '<?php echo site_url('master/relation/extra-group'); ?>/' + groupId + '/extras'
+        : '<?php echo site_url('master/relation/extra-group'); ?>/' + groupId + '/products';
     }
 
     function saveEndpoint() {
@@ -799,6 +813,16 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 
     function updateSelectedCounter() {
       selectedCountEl.textContent = state.selectedIds.size + ' item';
+    }
+
+    function isValidRevision(value) {
+      return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+    }
+
+    function updateSaveAvailability() {
+      var hasMutationCsrf = isValidRevision(state.mutationCsrf);
+      var hasMappingRevision = state.kind !== 'product' || isValidRevision(state.mappingRevision);
+      saveBtn.disabled = !hasMutationCsrf || !hasMappingRevision;
     }
 
     function attachRowHandlers() {
@@ -856,39 +880,108 @@ $buildPageItems = static function (int $page, int $totalPages): array {
       attachRowHandlers();
     }
 
-    function fetchRows() {
+    function isCurrentModalContext(context) {
+      return context.epoch === state.modalEpoch
+        && context.kind === state.kind
+        && context.groupId === state.groupId;
+    }
+
+    function isLatestQueryResponse(context, requestSequence) {
+      return isCurrentModalContext(context)
+        && requestSequence === state.latestRequestSequence
+        && context.querySequence === state.querySequence;
+    }
+
+    function renderPendingRows() {
+      var pending = state.pendingRows;
+      if (!pending || !isLatestQueryResponse(pending.context, pending.requestSequence)) {
+        return false;
+      }
+      state.pendingRows = null;
+      renderRows(pending.rows);
+      return true;
+    }
+
+    function fetchRows(initialFetch) {
       if (state.groupId <= 0 || !state.kind) {
         return;
       }
+      var requestContext = {
+        epoch: state.modalEpoch,
+        kind: state.kind,
+        groupId: state.groupId,
+        querySequence: state.querySequence
+      };
+      var requestSequence = ++state.requestSequence;
+      var requestQuery = initialFetch ? '' : state.q;
+      state.latestRequestSequence = requestSequence;
       tableWrap.innerHTML = '<div class="p-4 text-center text-muted">Memuat data...</div>';
-      requestJson(endpointBase() + '?q=' + encodeURIComponent(state.q || ''), {
+      requestJson(endpointBase(requestContext.kind, requestContext.groupId) + '?q=' + encodeURIComponent(requestQuery || ''), {
         headers: {
           'Accept': 'application/json',
           'X-Requested-With': 'XMLHttpRequest'
         }
       })
       .then(function (payload) {
+        if (!isCurrentModalContext(requestContext)) {
+          return;
+        }
         if (!payload || payload.ok !== true) {
           throw new Error((payload && payload.message) || 'Gagal memuat data relasi.');
         }
-        if (!state.seedLoaded) {
+        if (initialFetch && !state.seedLoaded) {
           state.selectedIds = new Set((payload.selected_ids || []).map(function (value) { return Number(value); }).filter(function (value) { return value > 0; }));
+          state.mappingRevision = requestContext.kind === 'product' && isValidRevision(payload.mapping_revision)
+            ? payload.mapping_revision
+            : '';
+          state.mutationCsrf = typeof payload.mutation_csrf === 'string' ? payload.mutation_csrf : '';
           state.seedLoaded = true;
+          updateSelectedCounter();
+          updateSaveAvailability();
+          if (renderPendingRows()) {
+            return;
+          }
         }
+        if (!isLatestQueryResponse(requestContext, requestSequence)) {
+          return;
+        }
+        if (!state.seedLoaded) {
+          state.pendingRows = {
+            context: requestContext,
+            requestSequence: requestSequence,
+            rows: payload.rows || []
+          };
+          return;
+        }
+        state.pendingRows = null;
         renderRows(payload.rows || []);
       })
       .catch(function (error) {
+        if (!isLatestQueryResponse(requestContext, requestSequence)) {
+          return;
+        }
+        state.pendingRows = null;
         tableWrap.innerHTML = '<div class="p-4 text-center text-danger">' + escapeHtml(error && error.message ? error.message : 'Gagal memuat data.') + '</div>';
       });
     }
 
     function openModal(kind, groupId, groupName) {
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = null;
+      }
+      state.modalEpoch += 1;
+      state.querySequence += 1;
       state.kind = kind;
       state.groupId = Number(groupId || 0);
       state.groupName = groupName || '';
       state.q = '';
       state.selectedIds = new Set();
+      state.mutationCsrf = '';
+      state.mappingRevision = '';
       state.seedLoaded = false;
+      state.pendingRows = null;
+      saveBtn.disabled = true;
       searchInput.value = '';
       titleEl.textContent = kind === 'extra' ? 'Hubungkan Master Extra ke Group' : 'Hubungkan Produk ke Group';
       subtitleEl.textContent = 'Group: ' + state.groupName;
@@ -897,7 +990,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
         ? 'Cari kode / nama master extra...'
         : 'Cari kode / nama produk...';
       updateSelectedCounter();
-      fetchRows();
+      fetchRows(true);
     }
 
     window.openExtraGroupRelationModal = function (kind, groupId, groupName) {
@@ -936,24 +1029,37 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 
     searchInput.addEventListener('input', function () {
       state.q = searchInput.value || '';
+      state.querySequence += 1;
       if (state.timer) {
         clearTimeout(state.timer);
       }
-      state.timer = setTimeout(fetchRows, 250);
+      state.timer = setTimeout(function () { fetchRows(false); }, 250);
     });
 
     saveBtn.addEventListener('click', function () {
+      if (!isValidRevision(state.mutationCsrf)) {
+        window.alert('Anda tidak memiliki izin untuk menyimpan relasi group extra.');
+        return;
+      }
+      if (state.kind === 'product' && !isValidRevision(state.mappingRevision)) {
+        window.alert('Snapshot mapping produk tidak tersedia. Muat ulang halaman sebelum menyimpan.');
+        return;
+      }
       var fieldName = state.kind === 'extra' ? 'extra_ids[]' : 'product_ids[]';
       var formData = new FormData();
       selectedArray().forEach(function (id) {
         formData.append(fieldName, String(id));
       });
+      if (state.kind === 'product') {
+        formData.append('mapping_revision', state.mappingRevision);
+      }
       saveBtn.disabled = true;
       requestJson(saveEndpoint(), {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-Master-Extra-Group-Csrf': state.mutationCsrf
         },
         body: formData
       })
@@ -966,10 +1072,15 @@ $buildPageItems = static function (int $page, int $totalPages): array {
         window.location.reload();
       })
       .catch(function (error) {
+        if (error && error.status === 409) {
+          state.mappingRevision = '';
+          window.alert('Mapping produk telah berubah. Muat ulang halaman sebelum menyimpan kembali.');
+          return;
+        }
         window.alert(error && error.message ? error.message : 'Gagal menyimpan relasi.');
       })
       .finally(function () {
-        saveBtn.disabled = false;
+        updateSaveAvailability();
       });
     });
   }
@@ -977,6 +1088,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   function initMasterAjax() {
     var root = document.querySelector(rootSelector);
     if (!root) return;
+    var masterMutationCsrf = root.getAttribute('data-master-mutation-csrf') || '';
     applyUiEnhancements(root);
     initExtraGroupRelationModal(root);
 
@@ -1012,7 +1124,8 @@ $buildPageItems = static function (int $page, int $totalPages): array {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-Master-Mutation-CSRF': masterMutationCsrf
         }
       })
       .then(function (res) { return res.json(); })
@@ -1067,7 +1180,8 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-Master-Mutation-CSRF': masterMutationCsrf
           },
           body: JSON.stringify({ ids: ids })
         })

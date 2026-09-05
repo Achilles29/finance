@@ -8,6 +8,7 @@ $pg = (array)($pg ?? ['page' => 1, 'per_page' => 25, 'total' => count($schedules
 $canCreate = (bool)($can_create ?? false);
 $canEdit = (bool)($can_edit ?? false);
 $canDelete = (bool)($can_delete ?? false);
+$mutationCsrf = (string)($wa_report_schedule_mutation_csrf ?? '');
 $buildScheduleUrl = static function (array $overrides = []) use ($filters, $pg) {
   $query = array_merge([
     'q' => $filters['q'] ?? '',
@@ -126,7 +127,7 @@ $buildScheduleUrl = static function (array $overrides = []) use ($filters, $pg) 
   <div class="alert alert-info small">
     <strong>Placeholder template:</strong>
     <code>{{report_title}}</code>, <code>{{report_body}}</code>, <code>{{tanggal}}</code>, <code>{{generated_at}}</code>, <code>{{nama_grup}}</code>.
-    Endpoint cron: <code><?= html_escape(site_url('wa/api/schedule-run?token=TOKEN_WA_BOT')) ?></code>
+    Perintah cron lokal dari root aplikasi: <code>php index.php whatsapp api_schedule_run</code>.
   </div>
 
   <ul class="nav nav-pills gap-2 mb-3" role="tablist">
@@ -276,11 +277,13 @@ $buildScheduleUrl = static function (array $overrides = []) use ($filters, $pg) 
                 <form method="post" action="<?= site_url('wa/template/schedules') ?>" class="d-inline">
                   <input type="hidden" name="action" value="send_now">
                   <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                  <?php if ($mutationCsrf !== ''): ?><input type="hidden" name="wa_report_schedule_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>"><?php endif; ?>
                   <button type="submit" class="btn btn-xs btn-outline-primary js-schedule-submit" data-confirm="Kirim laporan ini sekarang?">Kirim</button>
                 </form>
                 <form method="post" action="<?= site_url('wa/template/schedules') ?>" class="d-inline">
                   <input type="hidden" name="action" value="toggle_schedule">
                   <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                  <?php if ($mutationCsrf !== ''): ?><input type="hidden" name="wa_report_schedule_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>"><?php endif; ?>
                   <button type="submit" class="btn btn-xs <?= $isActive ? 'btn-outline-warning' : 'btn-outline-success' ?>"><?= $isActive ? 'Off' : 'On' ?></button>
                 </form>
                 <?php endif; ?>
@@ -288,6 +291,7 @@ $buildScheduleUrl = static function (array $overrides = []) use ($filters, $pg) 
                 <form method="post" action="<?= site_url('wa/template/schedules') ?>" class="d-inline">
                   <input type="hidden" name="action" value="delete_schedule">
                   <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                  <?php if ($mutationCsrf !== ''): ?><input type="hidden" name="wa_report_schedule_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>"><?php endif; ?>
                   <button type="submit" class="btn btn-xs btn-outline-danger" onclick="return confirm('Hapus jadwal ini?')"><i class="ri ri-delete-bin-line"></i></button>
                 </form>
                 <?php endif; ?>
@@ -441,23 +445,6 @@ $buildScheduleUrl = static function (array $overrides = []) use ($filters, $pg) 
             <code>batch gagal</code>
             <code>queue pos</code>
           </div>
-          <div class="wa-command-card">
-            <h6 class="fw-bold mb-1">Input Mutasi Masuk/Keluar</h6>
-            <p class="small text-muted mb-2">Format ringkas. Nama rekening harus sesuai rekening aktif.</p>
-            <code>mutasi in TUNAI 50000 setoran owner</code>
-            <code>mutasi out TUNAI 25000 beli bensin</code>
-            <code>mutasi out TUNAI 25000 beli bensin 2026-08-16</code>
-          </div>
-          <div class="wa-command-card">
-            <h6 class="fw-bold mb-1">Transfer Antar Rekening</h6>
-            <p class="small text-muted mb-2">Urutan: rekening sumber, rekening tujuan, nominal, catatan, tanggal opsional.</p>
-            <code>mutasi transfer TUNAI MANDIRI 100000 setor bank</code>
-            <code>mutasi transfer TUNAI MANDIRI 100000 setor bank 2026-08-16</code>
-          </div>
-        </div>
-
-        <div class="alert alert-warning small mt-3 mb-0">
-          Input mutasi via WA langsung memposting transaksi rekening. Catatan wajib diisi untuk audit.
         </div>
       </div>
     </div>
@@ -477,6 +464,7 @@ $buildScheduleUrl = static function (array $overrides = []) use ($filters, $pg) 
       <form method="post" action="<?= site_url('wa/template/schedules') ?>">
         <input type="hidden" name="action" value="save_schedule">
         <input type="hidden" name="id" id="schedule-id" value="0">
+        <?php if ($mutationCsrf !== ''): ?><input type="hidden" name="wa_report_schedule_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>"><?php endif; ?>
         <div class="modal-body">
           <div class="row g-3">
             <div class="col-md-6">

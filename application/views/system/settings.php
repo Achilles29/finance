@@ -97,19 +97,14 @@ function cfgVal(array $cfg, string $key, string $default = ''): string {
               <input type="number" id="cfg_backup_retention_days" class="form-control" min="1" max="30"
                      value="<?php echo cfgVal($cfg, 'backup.retention_days', '3'); ?>">
             </div>
-            <div class="col-md-4">
-              <label class="form-label small mb-1">Git Remote</label>
-              <input type="text" id="cfg_backup_repo_remote" class="form-control" value="<?php echo cfgVal($cfg, 'backup.repo_remote', 'origin'); ?>">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label small mb-1">Git Branch</label>
-              <input type="text" id="cfg_backup_repo_branch" class="form-control" value="<?php echo cfgVal($cfg, 'backup.repo_branch', 'main'); ?>">
-            </div>
             <div class="col-12">
               <label class="form-label small mb-1">Tabel dikecualikan <small class="text-muted">(pisah koma)</small></label>
               <input type="text" id="cfg_backup_exclude_tables" class="form-control"
                      placeholder="misal: sys_audit_log,att_presence"
                      value="<?php echo cfgVal($cfg, 'backup.exclude_tables', ''); ?>">
+            </div>
+            <div class="col-12">
+              <div class="alert alert-info border-0 small mb-0">Runner backup hanya membuat dump dan log lokal di host ini. Backup off-site terenkripsi harus dikonfigurasi secara terpisah.</div>
             </div>
           </div>
         </div>
@@ -374,6 +369,7 @@ function cfgVal(array $cfg, string $key, string $default = ''): string {
 <script>
 (function () {
   const BASE = '<?php echo site_url(); ?>';
+  const systemToolsMutationCsrfToken = <?php echo json_encode((string)($system_tools_mutation_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
   function esc(v) { const d = document.createElement('div'); d.textContent = String(v??''); return d.innerHTML; }
   function showAlert(type, msg) {
     const el = document.getElementById('dbt-alert');
@@ -404,7 +400,7 @@ function cfgVal(array $cfg, string $key, string $default = ''): string {
   async function apiPost(url, payload) {
     const res = await fetch(BASE + url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-System-Tools-CSRF': systemToolsMutationCsrfToken },
       body: JSON.stringify(payload)
     });
     const text = await res.text();
@@ -429,8 +425,6 @@ function cfgVal(array $cfg, string $key, string $default = ''): string {
       'backup.db_pass':         document.getElementById('cfg_backup_db_pass').value,
       'backup.db_name':         document.getElementById('cfg_backup_db_name').value.trim(),
       'backup.retention_days':  document.getElementById('cfg_backup_retention_days').value.trim(),
-      'backup.repo_remote':     document.getElementById('cfg_backup_repo_remote').value.trim(),
-      'backup.repo_branch':     document.getElementById('cfg_backup_repo_branch').value.trim(),
       'backup.exclude_tables':  document.getElementById('cfg_backup_exclude_tables').value.trim(),
     };
   }
@@ -488,14 +482,13 @@ function cfgVal(array $cfg, string $key, string $default = ''): string {
     const result = document.getElementById('db-test-result');
     result.textContent = '';
     try {
-      const q = new URLSearchParams({
+      const json = await apiPost('dbtools/action/test-db', {
         host: document.getElementById('cfg_backup_db_host').value,
         port: document.getElementById('cfg_backup_db_port').value,
         user: document.getElementById('cfg_backup_db_user').value,
         pass: document.getElementById('cfg_backup_db_pass').value,
         name: document.getElementById('cfg_backup_db_name').value,
       });
-      const json = await apiGet('dbtools/action/test-db?' + q);
       result.innerHTML = '<span class="text-success fw-semibold"><i class="ri ri-checkbox-circle-line me-1"></i>' + esc(json.message) + '</span>';
     } catch(e) {
       result.innerHTML = '<span class="text-danger"><i class="ri ri-close-circle-line me-1"></i>' + esc(e.message) + '</span>';

@@ -407,6 +407,7 @@ $isPaidWorkspace = $workspaceMode === 'PAID';
 document.addEventListener('DOMContentLoaded', function () {
   const workspaceMode = <?php echo json_encode($workspaceMode, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const isPaidWorkspace = workspaceMode === 'PAID';
+  const posTransactionCsrfToken = <?php echo json_encode((string)($pos_transaction_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
   const reversalReasonOptions = <?php echo json_encode($reversalReasonOptions, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const initialFilters = <?php echo json_encode($filters, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const recentState = {
@@ -465,13 +466,23 @@ document.addEventListener('DOMContentLoaded', function () {
     return j;
   }
 
-  async function postJson(url, payload) {
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(payload) });
+  async function postJson(url, payload, scopedOptions) {
+    const headers = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+    if (scopedOptions && scopedOptions.headers && typeof scopedOptions.headers === 'object') {
+      Object.assign(headers, scopedOptions.headers);
+    }
+    const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
     const t = await r.text();
     let j = null;
     try { j = JSON.parse(t); } catch (e) { throw new Error('Response save bukan JSON. Kemungkinan ada warning / error PHP di backend.'); }
     if (!r.ok || !j.ok) throw new Error(j.message || 'Gagal menyimpan data');
     return j;
+  }
+
+  function postPosTransactionJson(url, payload) {
+    return postJson(url, payload, {
+      headers: { 'X-Pos-Transaction-CSRF': posTransactionCsrfToken }
+    });
   }
 
   function syncHeaderToOrder() {
@@ -897,7 +908,7 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     window.setTimeout(() => {
-      postJson(`<?php echo site_url('pos/orders/runtime-jobs/trigger'); ?>/${safeOrderId}`, {
+      postPosTransactionJson(`<?php echo site_url('pos/orders/runtime-jobs/trigger'); ?>/${safeOrderId}`, {
         job_id: safeJobId,
         limit: 1
       }).then(() => {
@@ -1019,7 +1030,7 @@ document.addEventListener('DOMContentLoaded', function () {
         notes: line.notes || ''
       }))
     };
-    const json = await postJson('<?php echo site_url('pos/orders/draft/save'); ?>', payload);
+    const json = await postPosTransactionJson('<?php echo site_url('pos/orders/draft/save'); ?>', payload);
     order.id = Number(json.id || 0) || order.id;
     order.order_no = json.order_no || order.order_no;
     syncOrderToHeader();
@@ -1035,7 +1046,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!window.confirm(`Hapus draft ${order.order_no || 'transaksi ini'}?`)) {
       return;
     }
-    await postJson(`<?php echo site_url('pos/orders/draft/delete'); ?>/${Number(order.id || 0)}`, {});
+    await postPosTransactionJson(`<?php echo site_url('pos/orders/draft/delete'); ?>/${Number(order.id || 0)}`, {});
     resetDraft();
     await loadRecents();
     alert('Draft order berhasil dihapus.');
@@ -1047,7 +1058,7 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
     await saveDraft(true);
-    const json = await postJson('<?php echo site_url('pos/orders/draft/confirm'); ?>/' + order.id, {});
+    const json = await postPosTransactionJson('<?php echo site_url('pos/orders/draft/confirm'); ?>/' + order.id, {});
     kickoffRuntimeJobSync(order.id, Number(json.runtime_job_id || 0));
     const warningMessage = String(json.warning_message || '').trim();
     const stockCommitStatus = String(json.stock_commit_status || '').toUpperCase();
@@ -1321,18 +1332,17 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   async function submitReversal(kind) {
+    if (kind !== 'VOID') {
+      throw new Error('Workspace draft hanya mendukung void.');
+    }
     const payload = buildReversalPayload(kind);
     if (!payload.lines.length) {
       throw new Error('Tidak ada line yang bisa diproses untuk ' + kind.toLowerCase() + '.');
     }
-    const endpoint = kind === 'VOID'
-      ? '<?php echo site_url('pos/orders/void/save'); ?>'
-      : '<?php echo site_url('pos/orders/refund/save'); ?>';
-    const json = await postJson(endpoint, payload);
+    const endpoint = '<?php echo site_url('pos/orders/void/save'); ?>';
+    const json = await postPosTransactionJson(endpoint, payload);
     if (reversalModal) reversalModal.hide();
-    let message = kind === 'VOID'
-      ? `Void berhasil disimpan.\nNo Void: ${json.void_no || '-'}`
-      : `Refund berhasil disimpan.\nNo Refund: ${json.refund_no || '-'}`;
+    let message = `Void berhasil disimpan.\nNo Void: ${json.void_no || '-'}`;
     if (Number(json.adjustment_doc_count || 0) > 0) {
       message += `\nAdjustment terposting: ${Number(json.adjustment_doc_count || 0)}`;
     }

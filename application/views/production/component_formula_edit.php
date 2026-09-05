@@ -6,6 +6,7 @@ $lines = is_array($detail['lines'] ?? null) ? $detail['lines'] : [];
 $materials = is_array($materials ?? null) ? $materials : [];
 $components = is_array($components ?? null) ? $components : [];
 $source_divisions = is_array($source_divisions ?? null) ? $source_divisions : [];
+$production_component_formula_mutation_csrf = (string)($production_component_formula_mutation_csrf ?? '');
 ?>
 <div class="container-xxl py-3">
   <div class="fin-page-header mb-3">
@@ -82,6 +83,7 @@ $source_divisions = is_array($source_divisions ?? null) ? $source_divisions : []
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const componentId = <?php echo (int)($component['id'] ?? 0); ?>;
+  const componentFormulaMutationCsrf = <?php echo json_encode($production_component_formula_mutation_csrf); ?>;
   const seedLines = <?php echo json_encode($lines, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
   const sourceDivisions = <?php echo json_encode(array_values($source_divisions), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
 
@@ -241,7 +243,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   async function postJson(url, payload) {
-    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}, body: JSON.stringify(payload) });
+    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest','X-Production-Component-Formula-Csrf':componentFormulaMutationCsrf}, body: JSON.stringify(payload) });
     const t = await r.text();
     let j; try { j = JSON.parse(t); } catch (e) { throw new Error('Response bukan JSON'); }
     if (!r.ok || !j.ok) throw new Error(j.message || 'Request gagal');

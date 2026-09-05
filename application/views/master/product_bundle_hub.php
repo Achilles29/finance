@@ -184,7 +184,10 @@ $productDivisionOptions = is_array($product_division_options ?? null) ? $product
                     <div class="d-inline-flex gap-1">
                       <a class="btn btn-sm btn-outline-info action-icon-btn" href="<?php echo site_url('master/relation/product-bundle/' . (int)$row['id']); ?>" title="Detail"><i class="ri ri-eye-line"></i></a>
                       <a class="btn btn-sm btn-outline-primary action-icon-btn" href="<?php echo site_url('master/relation/product-bundle/edit/' . (int)$row['id']); ?>" title="Edit"><i class="ri ri-edit-box-line"></i></a>
-                      <a class="btn btn-sm <?php echo $active ? 'btn-outline-danger' : 'btn-outline-success'; ?> action-icon-btn" href="<?php echo site_url('master/relation/product-bundle/toggle/' . (int)$row['id']); ?>" onclick="return confirm('Ubah status bundle ini?')" title="<?php echo $active ? 'Nonaktifkan' : 'Aktifkan'; ?>"><i class="ri <?php echo $active ? 'ri-toggle-line' : 'ri-checkbox-circle-line'; ?>"></i></a>
+                      <form method="post" action="<?php echo site_url('master/relation/product-bundle/toggle/' . (int)$row['id']); ?>" class="d-inline" onsubmit="return confirm('Ubah status bundle ini?')">
+                        <input type="hidden" name="master_relation_product_bundle_mutation_csrf" value="<?php echo html_escape((string)($master_relation_product_bundle_mutation_csrf ?? '')); ?>">
+                        <button type="submit" class="btn btn-sm <?php echo $active ? 'btn-outline-danger' : 'btn-outline-success'; ?> action-icon-btn" title="<?php echo $active ? 'Nonaktifkan' : 'Aktifkan'; ?>"><i class="ri <?php echo $active ? 'ri-toggle-line' : 'ri-checkbox-circle-line'; ?>"></i></button>
+                      </form>
                     </div>
                   </td>
                 </tr>

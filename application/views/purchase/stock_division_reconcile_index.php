@@ -362,6 +362,7 @@ $renderSelisih = static function (string $text): string {
   <div class="text-muted small align-self-center">Acuan: <strong><?php echo html_escape($asOfDate); ?></strong></div>
 </div>
 
+
 <div class="d-flex flex-wrap gap-1 align-items-center mb-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'compare']); ?>
 </div>
@@ -1126,6 +1127,8 @@ $ringFill    = $healthPct >= 90 ? '#69db7c' : ($healthPct >= 70 ? '#fbbf24' : '#
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  const inventoryDivisionReconcileCsrfToken = <?php echo json_encode((string)($inventory_division_reconcile_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+  const posTransactionCsrfToken = <?php echo json_encode((string)($pos_transaction_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
   // -- POS accordion ----------------------------------------------------------
   var posToggle  = document.getElementById('rec-pos-toggle');
   var posBody    = document.getElementById('rec-pos-body');
@@ -1243,6 +1246,16 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   async function postJson(url,payload) {
     var r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify(payload||{})});
+    var t = await r.text(); var j=null; try{j=JSON.parse(t);}catch(e){throw new Error('Response tidak valid: '+String(t||'').slice(0,180));}
+    if(!r.ok||(!j.ok && !j.needs_choice)) throw new Error(j.message||'Gagal memproses.'); return j;
+  }
+  async function postPosTransactionJson(url,payload) {
+    var r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest','X-Pos-Transaction-CSRF':posTransactionCsrfToken},body:JSON.stringify(payload||{})});
+    var t = await r.text(); var j=null; try{j=JSON.parse(t);}catch(e){throw new Error('Response tidak valid: '+String(t||'').slice(0,180));}
+    if(!r.ok||!j.ok) throw new Error(j.message||'Gagal memproses.'); return j;
+  }
+  async function postInventoryReconcileJson(url,payload) {
+    var r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest','X-Inventory-Reconcile-CSRF':inventoryDivisionReconcileCsrfToken},body:JSON.stringify(payload||{})});
     var t = await r.text(); var j=null; try{j=JSON.parse(t);}catch(e){throw new Error('Response tidak valid: '+String(t||'').slice(0,180));}
     if(!r.ok||(!j.ok && !j.needs_choice)) throw new Error(j.message||'Gagal memproses.'); return j;
   }
@@ -1504,7 +1517,7 @@ document.addEventListener('DOMContentLoaded', function () {
       var orig = repairMatIdBtn.innerHTML;
       repairMatIdBtn.disabled = true; repairMatIdBtn.textContent = 'Memproses...';
       try {
-        var json = await postJson('<?php echo $repairMaterialIdUrl; ?>', {
+        var json = await postInventoryReconcileJson('<?php echo $repairMaterialIdUrl; ?>', {
           division_id: <?php echo (int)($selDivId ?? 0); ?>
         });
         await showAlert(
@@ -1539,7 +1552,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var retryBtn=ev.target.closest('.src-pos-job-retry'); if(!retryBtn)return;
     var ok=await askConfirm('Retry job stock commit POS ini?',{title:'Retry Stock Commit POS',confirmText:'Retry',cancelText:'Batal'}); if(!ok)return;
     var orig=retryBtn.innerHTML; retryBtn.disabled=true; retryBtn.textContent='Retry...';
-    try{await postJson('<?php echo site_url('pos/orders/runtime-jobs/retry'); ?>/'+encodeURIComponent(retryBtn.dataset.jobId||'0'),{});await loadFailedJobs();}catch(e){await showAlert(e.message,'Retry Stock Commit POS');}finally{retryBtn.disabled=false;retryBtn.innerHTML=orig;}
+    try{await postPosTransactionJson('<?php echo site_url('pos/orders/runtime-jobs/retry'); ?>/'+encodeURIComponent(retryBtn.dataset.jobId||'0'),{});await loadFailedJobs();}catch(e){await showAlert(e.message,'Retry Stock Commit POS');}finally{retryBtn.disabled=false;retryBtn.innerHTML=orig;}
   });}
   if(repairCurBtn){repairCurBtn.addEventListener('click',function(){if(!currentMaterialIdentity)return;runMaterialRepair(currentMaterialIdentity,repairCurBtn).catch(function(e){clearButtonLoading(repairCurBtn);setAuditState(e.message,false);});});}
   document.addEventListener('click',function(ev){
@@ -1681,7 +1694,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     setButtonLoading(actionBtn, 'Repair...');
     try {
-      var json = await postJson(profileRepairUrl, {
+      var json = await postInventoryReconcileJson(profileRepairUrl, {
         division_id: divisionId,
         material_id: materialId,
         destination: destination,
@@ -1791,7 +1804,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var submitBtn = document.getElementById('pmSubmitBtn');
     setButtonLoading(submitBtn, 'Join...');
     try {
-      var json = await postJson(profileMergeUrl, {
+      var json = await postInventoryReconcileJson(profileMergeUrl, {
         division_id: Number(pmModal.dataset.divisionId || 0),
         material_id: Number(pmModal.dataset.materialId || 0),
         destination: String(pmModal.dataset.destination || 'ALL'),
@@ -2300,4 +2313,3 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
   </div>
 </div>
-

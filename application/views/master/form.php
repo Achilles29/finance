@@ -276,6 +276,7 @@ $renderReadonlyValue = static function ($value, string $type): string {
       </div>
     <?php endif; ?>
     <form method="post" action="<?php echo site_url($form_action); ?>" <?php echo $hasFileField ? 'enctype="multipart/form-data"' : ''; ?>>
+      <input type="hidden" name="master_mutation_csrf" value="<?php echo html_escape((string)($master_mutation_csrf_token ?? '')); ?>">
       <div class="row">
         <?php foreach ($cfg['fields'] as $f): ?>
           <?php

@@ -93,6 +93,27 @@ switch (ENVIRONMENT)
 
 /*
  *---------------------------------------------------------------
+ * PRODUCTION DEPLOYMENT PREFLIGHT
+ *---------------------------------------------------------------
+ *
+ * Validate required process configuration before CodeIgniter starts. The
+ * response is intentionally generic so missing configuration is never
+ * disclosed to a caller.
+ */
+if (ENVIRONMENT === 'production')
+{
+		require_once dirname(__FILE__).'/application/libraries/DeploymentConfig.php';
+		$deployment_config = new DeploymentConfig();
+		if (!$deployment_config->validateProductionSecretContract())
+		{
+			header('HTTP/1.1 503 Service Unavailable.', TRUE, 503);
+			echo 'Service temporarily unavailable.';
+			exit(1); // EXIT_ERROR
+		}
+}
+
+/*
+ *---------------------------------------------------------------
  * SYSTEM DIRECTORY NAME
  *---------------------------------------------------------------
  *

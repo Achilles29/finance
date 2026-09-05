@@ -79,6 +79,7 @@ $ingredientRoleOptions = is_array($options['ingredient_roles'] ?? null) ? $optio
       </div>
 
       <form method="post" action="<?php echo site_url($form_action); ?>" id="productRecipeForm">
+        <input type="hidden" name="master_relation_product_recipe_mutation_csrf" value="<?php echo html_escape((string)($master_relation_product_recipe_mutation_csrf ?? '')); ?>">
         <input type="hidden" name="source_division_id" id="source_division_id" value="<?php echo html_escape((string)$current('source_division_id', (string)$defaultSourceDivisionId)); ?>">
         <input type="hidden" name="uom_id" id="uom_id" value="<?php echo html_escape((string)$current('uom_id', '')); ?>">
 
@@ -259,6 +260,11 @@ $ingredientRoleOptions = is_array($options['ingredient_roles'] ?? null) ? $optio
 <div class="card">
   <div class="card-body">
     <form method="post" action="<?php echo site_url($form_action); ?>">
+      <?php if ($isComponentFormula): ?>
+        <input type="hidden" name="master_relation_component_formula_mutation_csrf" value="<?php echo html_escape((string)($master_relation_component_formula_mutation_csrf ?? '')); ?>">
+      <?php elseif ($isProductExtra): ?>
+        <input type="hidden" name="master_relation_product_extra_mutation_csrf" value="<?php echo html_escape((string)($master_relation_product_extra_mutation_csrf ?? '')); ?>">
+      <?php endif; ?>
       <?php if ($isProductRecipe || $isComponentFormula): ?>
         <div class="row">
           <div class="col-md-3 mb-3">

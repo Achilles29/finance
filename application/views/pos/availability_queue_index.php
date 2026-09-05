@@ -7,6 +7,7 @@ $outlets = is_array($outlets ?? null) ? $outlets : [];
 $queueReady = !empty($queue_ready);
 $canProcessQueue = !empty($can_process_queue);
 $cronCommand = trim((string)($cron_command ?? ''));
+$availabilityQueueCsrfToken = (string)($pos_availability_queue_csrf_token ?? '');
 $baseUrl = site_url('pos/availability-queue');
 $csrfEnabled = (bool)$this->config->item('csrf_protection');
 $csrfName = $this->security->get_csrf_token_name();
@@ -167,6 +168,7 @@ $returnInputs = static function () use ($filters): string {
           <div class="small text-muted">Untuk mengecek hasil tanpa menunggu menit berikutnya. Tombol ini memakai antrean yang sama dengan cron dan dibatasi maksimal 100 job.</div>
           <?php if ($canProcessQueue): ?>
             <form method="post" action="<?php echo site_url('pos/availability-queue/process'); ?>" class="pos-availability-process-form">
+              <input type="hidden" name="pos_availability_queue_csrf" value="<?php echo html_escape($availabilityQueueCsrfToken); ?>">
               <?php if ($csrfEnabled): ?><input type="hidden" name="<?php echo html_escape($csrfName); ?>" value="<?php echo html_escape($csrfHash); ?>"><?php endif; ?>
               <?php echo $returnInputs(); ?>
               <div><label for="availabilityProcessLimit">Jumlah job</label><select id="availabilityProcessLimit" name="limit" class="form-select"><option value="10">10 job</option><option value="25" selected>25 job</option><option value="50">50 job</option><option value="100">100 job</option></select></div>
@@ -235,7 +237,7 @@ $returnInputs = static function () use ($filters): string {
                         <span class="pos-availability-muted">Belum ada hasil cache yang tersimpan.</span>
                       <?php endif; ?>
                     </td>
-                    <td class="text-end"><div class="pos-availability-action"><a class="btn btn-sm btn-outline-secondary" href="<?php echo html_escape($stockLiveUrl); ?>">Stock Live</a><?php if ($canProcessQueue && $jobStatus === 'FAILED'): ?><form method="post" action="<?php echo site_url('pos/availability-queue/retry/' . $jobId); ?>"><?php if ($csrfEnabled): ?><input type="hidden" name="<?php echo html_escape($csrfName); ?>" value="<?php echo html_escape($csrfHash); ?>"><?php endif; ?><?php echo $returnInputs(); ?><button type="submit" class="btn btn-sm btn-outline-danger w-100">Ulangi Job</button></form><?php endif; ?></div></td>
+                    <td class="text-end"><div class="pos-availability-action"><a class="btn btn-sm btn-outline-secondary" href="<?php echo html_escape($stockLiveUrl); ?>">Stock Live</a><?php if ($canProcessQueue && $jobStatus === 'FAILED'): ?><form method="post" action="<?php echo site_url('pos/availability-queue/retry/' . $jobId); ?>"><input type="hidden" name="pos_availability_queue_csrf" value="<?php echo html_escape($availabilityQueueCsrfToken); ?>"><?php if ($csrfEnabled): ?><input type="hidden" name="<?php echo html_escape($csrfName); ?>" value="<?php echo html_escape($csrfHash); ?>"><?php endif; ?><?php echo $returnInputs(); ?><button type="submit" class="btn btn-sm btn-outline-danger w-100">Ulangi Job</button></form><?php endif; ?></div></td>
                   </tr>
                 <?php endforeach; ?>
               <?php endif; ?>

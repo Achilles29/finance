@@ -1164,6 +1164,7 @@ class Production_model extends CI_Model
             foreach ($liveRows as $row) {
                 $key = $this->component_identity_key((string)($row['location_type'] ?? ''), $row['division_id'] ?? null, (int)($row['component_id'] ?? 0), (int)($row['uom_id'] ?? 0));
                 $liveMap[$key] = [
+                    'monthly_stock_id' => (int)($row['id'] ?? 0),
                     'location_type' => (string)($row['location_type'] ?? ''),
                     'division_id' => $row['division_id'] !== null ? (int)$row['division_id'] : null,
                     'division_name' => (string)($row['division_name'] ?? '-'),
@@ -1226,8 +1227,14 @@ class Production_model extends CI_Model
                 continue;
             }
             $liveMap[$key]['balance_qty'] = round((float)($dailyMap[$key]['daily_qty'] ?? 0), 4);
-            $liveMap[$key]['balance_avg_cost'] = round((float)($dailyMap[$key]['daily_avg_cost'] ?? 0), 6);
-            $liveMap[$key]['balance_total_value'] = round((float)($dailyMap[$key]['daily_total_value'] ?? 0), 2);
+            // For today's active-month workspace, value reconciliation writes the
+            // authoritative total/avg into the monthly ledger. Do not overwrite
+            // that corrected value with the old movement-only projection. Older
+            // as-of dates remain a historical daily projection and are read-only.
+            if ($asOfDate !== date('Y-m-d')) {
+                $liveMap[$key]['balance_avg_cost'] = round((float)($dailyMap[$key]['daily_avg_cost'] ?? 0), 6);
+                $liveMap[$key]['balance_total_value'] = round((float)($dailyMap[$key]['daily_total_value'] ?? 0), 2);
+            }
             $liveMap[$key]['balance_last_txn_at'] = (string)($dailyMap[$key]['daily_date'] ?? '');
         }
 
@@ -1349,6 +1356,7 @@ class Production_model extends CI_Model
                 'component_type' => (string)($base['component_type'] ?? ''),
                 'uom_id' => (int)($base['uom_id'] ?? 0),
                 'uom_code' => (string)($base['uom_code'] ?? ''),
+                'monthly_stock_id' => (int)($liveMap[$key]['monthly_stock_id'] ?? 0),
                 'balance_qty' => $balanceQty,
                 'monthly_qty' => round((float)($liveMap[$key]['monthly_closing_qty'] ?? $balanceQty), 4),
                 'daily_qty' => $dailyQty,
@@ -7658,7 +7666,159 @@ class Production_model extends CI_Model
         ];
     }
 
-    public function component_formula_detail(int $componentId): array
+    /**
+     * Read-only HPP suggestions for a component value reconciliation.
+     * The suggestions are guidance only; posting is still performed by the
+     * dedicated InventoryValueReconciliationService and never changes qty.
+     */
+    public function component_hpp_suggestions(array $context): array
+    {
+        $componentId = (int)($context['component_id'] ?? 0);
+        $contextDivisionId = (int)($context['division_id'] ?? 0);
+        $contextLocationType = strtoupper(trim((string)($context['location_type'] ?? '')));
+        $contextUomId = (int)($context['uom_id'] ?? 0);
+        $stock = is_array($context['stock'] ?? null) ? $context['stock'] : [];
+        $lots = is_array($context['lots'] ?? null) ? $context['lots'] : [];
+        $stockQty = round((float)($stock['stock_qty'] ?? $stock['closing_qty'] ?? 0), 4);
+        $stockHpp = round((float)($stock['stock_avg_cost'] ?? $stock['avg_cost'] ?? 0), 6);
+
+        $lotQty = 0.0;
+        $lotValue = 0.0;
+        foreach ($lots as $lot) {
+            $qty = max(0.0, (float)($lot['qty_balance'] ?? 0));
+            $lotQty += $qty;
+            $lotValue += $qty * (float)($lot['unit_cost'] ?? 0);
+        }
+        $lotQty = round($lotQty, 4);
+        $lotValue = round($lotValue, 2);
+        $lotHpp = $lotQty > 0.0001 ? round($lotValue / $lotQty, 6) : 0.0;
+
+        $formulaHppLive = 0.0;
+        $formulaHppStandard = 0.0;
+        $formulaOutputQty = 0.0;
+        $formulaReady = false;
+        $formulaIdentityCompatible = true;
+        $formulaLiveCompatible = true;
+        $formulaScopeWarnings = [];
+        $formula = $componentId > 0 ? $this->component_formula_detail($componentId, true) : ['ok' => false];
+        if (!empty($formula['ok'])) {
+            $summary = is_array($formula['summary'] ?? null) ? $formula['summary'] : [];
+            $formulaComponent = is_array($formula['component'] ?? null) ? $formula['component'] : [];
+            $recipeDivisionId = (int)($formulaComponent['operational_division_id'] ?? 0);
+            $recipeUomId = (int)($formulaComponent['uom_id'] ?? 0);
+            if ($contextDivisionId !== $recipeDivisionId && ($contextDivisionId > 0 || $recipeDivisionId > 0)) {
+                $formulaIdentityCompatible = false;
+                $formulaScopeWarnings[] = 'Scope divisi resep (' . ($recipeDivisionId > 0 ? $recipeDivisionId : 'pusat') . ') berbeda dari saldo (' . ($contextDivisionId > 0 ? $contextDivisionId : 'pusat') . ').';
+            }
+            if ($contextUomId > 0 && $recipeUomId > 0 && $contextUomId !== $recipeUomId) {
+                $formulaIdentityCompatible = false;
+                $formulaScopeWarnings[] = 'UOM resep berbeda dari UOM saldo yang direkonsiliasi.';
+            }
+            $recipeLocation = $recipeDivisionId > 0 ? $this->regular_component_location_for_division($recipeDivisionId) : null;
+            if ($contextLocationType !== '' && $recipeLocation !== null && strtoupper($recipeLocation) !== $contextLocationType) {
+                $formulaLiveCompatible = false;
+                $formulaScopeWarnings[] = 'Lokasi live resep memakai ' . strtoupper($recipeLocation) . ', bukan ' . $contextLocationType . '.';
+            }
+
+            $configuredOutput = null;
+            if (array_key_exists('std_batch_qty', $formulaComponent)) {
+                $configuredOutput = (float)$formulaComponent['std_batch_qty'];
+            } elseif (array_key_exists('yield_qty', $formulaComponent)) {
+                $configuredOutput = (float)$formulaComponent['yield_qty'];
+            }
+            $formulaOutputQty = $configuredOutput === null || $configuredOutput > 0.0001
+                ? round((float)($summary['output_qty'] ?? 0), 4)
+                : 0.0;
+            if ($formulaOutputQty > 0.0001 && $formulaIdentityCompatible) {
+                $formulaHppLive = round((float)($summary['total_cogs_live'] ?? 0) / $formulaOutputQty, 6);
+                $formulaHppStandard = round((float)($summary['total_cogs_std'] ?? 0) / $formulaOutputQty, 6);
+                $formulaReady = ($formulaHppLive > 0.000001 || $formulaHppStandard > 0.000001);
+            }
+            if ($configuredOutput !== null && $configuredOutput <= 0.0001) {
+                $formulaScopeWarnings[] = 'Output/batch resep belum valid (harus lebih besar dari nol).';
+            }
+        }
+
+        $masterStandard = 0.0;
+        if (!empty($formula['ok']) && isset($formula['summary']['hpp_master_standard'])) {
+            $masterStandard = round((float)$formula['summary']['hpp_master_standard'], 6);
+        } elseif ($componentId > 0 && $this->db->table_exists('mst_component')) {
+            $master = $this->db->select('hpp_standard')
+                ->from('mst_component')
+                ->where('id', $componentId)
+                ->limit(1)
+                ->get()
+                ->row_array();
+            $masterStandard = round((float)($master['hpp_standard'] ?? 0), 6);
+        }
+
+        $sources = [
+            [
+                'key' => 'lot_live',
+                'label' => 'HPP live lot OPEN (rata-rata tertimbang)',
+                'value' => $lotHpp,
+                'usable' => $lotHpp > 0.000001,
+                'resolution_mode' => 'LOT_TO_STOCK',
+                'note' => $lotQty > 0.0001 ? ($lotQty . ' unit saldo lot OPEN') : 'Tidak ada saldo lot OPEN',
+            ],
+            [
+                'key' => 'recipe_live',
+                'label' => 'HPP live resep/formula',
+                'value' => $formulaHppLive,
+                'usable' => $formulaLiveCompatible && $formulaHppLive > 0.000001,
+                'resolution_mode' => 'MANUAL_TOTAL_VALUE',
+                'note' => $formulaOutputQty > 0.0001 ? 'Berdasarkan biaya bahan live tertimbang dan output resep' : 'Resep atau output belum tersedia',
+            ],
+            [
+                'key' => 'recipe_standard',
+                'label' => 'HPP normal resep/formula',
+                'value' => $formulaHppStandard,
+                'usable' => $formulaIdentityCompatible && $formulaHppStandard > 0.000001,
+                'resolution_mode' => 'MANUAL_TOTAL_VALUE',
+                'note' => $formulaOutputQty > 0.0001 ? 'Fallback dari biaya standar resep dan output normal' : 'Resep atau output belum tersedia',
+            ],
+            [
+                'key' => 'master_standard',
+                'label' => 'HPP standar master component',
+                'value' => $masterStandard,
+                'usable' => $formulaIdentityCompatible && $masterStandard > 0.000001,
+                'resolution_mode' => 'MANUAL_TOTAL_VALUE',
+                'note' => 'Fallback terakhir dari master component',
+            ],
+        ];
+
+        $recommendedHpp = 0.0;
+        $recommendedSource = '';
+        foreach ($sources as $source) {
+            if (!empty($source['usable'])) {
+                $recommendedHpp = (float)$source['value'];
+                $recommendedSource = (string)$source['label'];
+                break;
+            }
+        }
+
+        return [
+            'ok' => $componentId > 0,
+            'stock_qty' => $stockQty,
+            'stock_hpp' => $stockHpp,
+            'lot_qty' => $lotQty,
+            'lot_value' => $lotValue,
+            'formula_output_qty' => $formulaOutputQty,
+            'recommended_hpp' => round($recommendedHpp, 6),
+            'recommended_source' => $recommendedSource,
+            'warning' => implode(' ', array_filter(array_merge(
+                $stockQty > 0.0001 && $stockHpp <= 0.000001
+                    ? ['HPP stok bulanan saat ini nol/negatif. Jangan jadikan angka itu sebagai target; verifikasi lot atau gunakan saran resep/standar.']
+                    : [],
+                $formulaScopeWarnings
+            ))),
+            'formula_identity_compatible' => $formulaIdentityCompatible,
+            'formula_live_compatible' => $formulaLiveCompatible,
+            'sources' => $sources,
+        ];
+    }
+
+    public function component_formula_detail(int $componentId, bool $weightedLiveLots = false): array
     {
         $componentSelect = 'c.id, c.component_code, c.component_name, c.component_type, c.operational_division_id, c.hpp_standard, c.variable_cost_mode, c.variable_cost_percent, c.uom_id, u.code AS uom_code';
         if ($this->db->field_exists('std_batch_qty', 'mst_component')) {
@@ -7689,7 +7849,7 @@ class Production_model extends CI_Model
         $potencyMin = null;
         $potencyBottleneck = null;
         foreach ($lines as $line) {
-            $cost = $this->resolve_formula_line_cost($line, (int)$component['operational_division_id']);
+            $cost = $this->resolve_formula_line_cost($line, (int)$component['operational_division_id'], $weightedLiveLots);
             $lineQty = round((float)($line['qty'] ?? 0), 4);
             if (strtoupper((string)($line['line_type'] ?? '')) === 'MATERIAL') {
                 $materialCount++;
@@ -8294,7 +8454,7 @@ class Production_model extends CI_Model
         return $summary;
     }
 
-    private function resolve_formula_line_cost(array $line, int $divisionId): array
+    private function resolve_formula_line_cost(array $line, int $divisionId, bool $weightedLiveLots = false): array
     {
         $lineDivisionId = !empty($line['source_division_id']) ? (int)$line['source_division_id'] : 0;
         if ($lineDivisionId > 0) {
@@ -8312,7 +8472,7 @@ class Production_model extends CI_Model
                 $legacy = $this->itemMaterialCache[$itemId];
                 $materialId = (int)($legacy['material_id'] ?? 0);
             }
-            $cacheKey = 'M|' . $divisionId . '|' . $materialId;
+            $cacheKey = 'M|' . $divisionId . '|' . $materialId . ($weightedLiveLots ? '|W' : '');
             if (isset($this->formulaLineCostCache[$cacheKey])) {
                 return $this->formulaLineCostCache[$cacheKey];
             }
@@ -8328,17 +8488,17 @@ class Production_model extends CI_Model
             $standard = (float)($material['hpp_standard'] ?? 0);
             $live = 0.0;
             $hasStockLiveCost = false;
-            $lotLive = $this->resolve_formula_material_lot_cost($materialId, $divisionId);
+            $balanceKey = $divisionId . '|' . $materialId . ($weightedLiveLots ? '|W' : '');
+            $lotLive = $this->resolve_formula_material_lot_cost($materialId, $divisionId, $weightedLiveLots);
             if (($lotLive['unit_cost'] ?? 0) > 0) {
                 $live = (float)($lotLive['unit_cost'] ?? 0);
                 $hasStockLiveCost = true;
-                $this->materialBalanceCache[$divisionId . '|' . $materialId] = [
+                $this->materialBalanceCache[$balanceKey] = [
                     'avg_cost_per_content' => $live,
                     'qty_balance' => (float)($lotLive['qty_balance'] ?? 0),
                 ];
             }
             if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
-                $balanceKey = $divisionId . '|' . $materialId;
                 if (!array_key_exists($balanceKey, $this->materialBalanceCache)) {
                     $targetMonth = date('Y-m-01');
                     $latestMonthSubquery = $this->db
@@ -8374,7 +8534,7 @@ class Production_model extends CI_Model
             }
             $availableQty = 0.0;
             if ($divisionId > 0 && $this->db->table_exists('inv_division_monthly_stock')) {
-                $availableQty = (float)($this->materialBalanceCache[$divisionId . '|' . $materialId]['qty_balance'] ?? 0);
+                $availableQty = (float)($this->materialBalanceCache[$balanceKey]['qty_balance'] ?? 0);
             }
             $result = [
                 'standard_unit_cost' => round($standard, 6),
@@ -8389,7 +8549,7 @@ class Production_model extends CI_Model
         }
 
         $subComponentId = (int)($line['sub_component_id'] ?? 0);
-        $cacheKey = 'C|' . $divisionId . '|' . $subComponentId;
+        $cacheKey = 'C|' . $divisionId . '|' . $subComponentId . ($weightedLiveLots ? '|W' : '');
         if (isset($this->formulaLineCostCache[$cacheKey])) {
             return $this->formulaLineCostCache[$cacheKey];
         }
@@ -8405,17 +8565,17 @@ class Production_model extends CI_Model
         $standard = (float)($sub['hpp_standard'] ?? 0);
         $live = 0.0;
         $hasStockLiveCost = false;
-        $lotLive = $this->resolve_formula_component_lot_cost($subComponentId, $divisionId);
+        $balanceKey = $divisionId . '|' . $subComponentId . ($weightedLiveLots ? '|W' : '');
+        $lotLive = $this->resolve_formula_component_lot_cost($subComponentId, $divisionId, $weightedLiveLots);
         if (($lotLive['unit_cost'] ?? 0) > 0) {
             $live = (float)($lotLive['unit_cost'] ?? 0);
             $hasStockLiveCost = true;
-            $this->componentBalanceCache[$divisionId . '|' . $subComponentId] = [
+            $this->componentBalanceCache[$balanceKey] = [
                 'avg_cost' => $live,
                 'qty_balance' => (float)($lotLive['qty_balance'] ?? 0),
             ];
         }
         if ($this->db->table_exists('inv_component_monthly_stock')) {
-            $balanceKey = $divisionId . '|' . $subComponentId;
             if (!array_key_exists($balanceKey, $this->componentBalanceCache)) {
                 $targetMonth = date('Y-m-01');
                 $latestMonthSubquery = $this->db
@@ -8453,7 +8613,7 @@ class Production_model extends CI_Model
         }
         $availableQty = 0.0;
         if ($this->db->table_exists('inv_component_monthly_stock')) {
-            $availableQty = (float)($this->componentBalanceCache[$divisionId . '|' . $subComponentId]['qty_balance'] ?? 0);
+            $availableQty = (float)($this->componentBalanceCache[$balanceKey]['qty_balance'] ?? 0);
         }
         $liveSource = $hasStockLiveCost ? 'STOCK_COMPONENT' : 'FALLBACK_STANDARD';
         $result = [
@@ -8468,7 +8628,7 @@ class Production_model extends CI_Model
         return $result;
     }
 
-    private function resolve_formula_material_lot_cost(int $materialId, int $divisionId): array
+    private function resolve_formula_material_lot_cost(int $materialId, int $divisionId, bool $weighted = false): array
     {
         if ($materialId <= 0 || $divisionId <= 0 || !$this->db->table_exists('inv_material_fifo_lot')) {
             return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
@@ -8476,6 +8636,26 @@ class Production_model extends CI_Model
 
         $preferredDestination = $this->regular_material_destination_for_division($divisionId);
         if ($preferredDestination !== null) {
+            if ($weighted) {
+                $weightedPreferred = $this->db->query(
+                    "SELECT ROUND(COALESCE(SUM(qty_balance * unit_cost) / NULLIF(SUM(qty_balance), 0), 0), 6) AS unit_cost,
+                            ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                     FROM inv_material_fifo_lot
+                     WHERE location_scope = 'DIVISION'
+                       AND division_id = ?
+                       AND destination_type = ?
+                       AND COALESCE(material_id, 0) = ?
+                       AND UPPER(COALESCE(status, 'OPEN')) = 'OPEN'
+                       AND qty_balance > 0",
+                    [$divisionId, $preferredDestination, $materialId]
+                )->row_array();
+                if ((float)($weightedPreferred['qty_balance'] ?? 0) > 0.0001) {
+                    return [
+                        'unit_cost' => (float)($weightedPreferred['unit_cost'] ?? 0),
+                        'qty_balance' => (float)($weightedPreferred['qty_balance'] ?? 0),
+                    ];
+                }
+            }
             $frontPreferred = $this->db->query(
                 "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
                  FROM inv_material_fifo_lot
@@ -8502,6 +8682,26 @@ class Production_model extends CI_Model
                 return [
                     'unit_cost' => (float)($frontPreferred['unit_cost'] ?? 0),
                     'qty_balance' => (float)($qtyPreferred['qty_balance'] ?? 0),
+                ];
+            }
+        }
+
+        if ($weighted) {
+            $weightedAll = $this->db->query(
+                "SELECT ROUND(COALESCE(SUM(qty_balance * unit_cost) / NULLIF(SUM(qty_balance), 0), 0), 6) AS unit_cost,
+                        ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                 FROM inv_material_fifo_lot
+                 WHERE location_scope = 'DIVISION'
+                   AND division_id = ?
+                   AND COALESCE(material_id, 0) = ?
+                   AND UPPER(COALESCE(status, 'OPEN')) = 'OPEN'
+                   AND qty_balance > 0",
+                [$divisionId, $materialId]
+            )->row_array();
+            if ((float)($weightedAll['qty_balance'] ?? 0) > 0.0001) {
+                return [
+                    'unit_cost' => (float)($weightedAll['unit_cost'] ?? 0),
+                    'qty_balance' => (float)($weightedAll['qty_balance'] ?? 0),
                 ];
             }
         }
@@ -8535,7 +8735,7 @@ class Production_model extends CI_Model
         ];
     }
 
-    private function resolve_formula_component_lot_cost(int $componentId, int $divisionId): array
+    private function resolve_formula_component_lot_cost(int $componentId, int $divisionId, bool $weighted = false): array
     {
         if ($componentId <= 0 || !$this->db->table_exists('inv_component_lot')) {
             return ['unit_cost' => 0.0, 'qty_balance' => 0.0];
@@ -8543,6 +8743,25 @@ class Production_model extends CI_Model
 
         $preferredLocation = $this->regular_component_location_for_division($divisionId);
         if ($preferredLocation !== null) {
+            if ($weighted) {
+                $weightedPreferred = $this->db->query(
+                    "SELECT ROUND(COALESCE(SUM(qty_balance * unit_cost) / NULLIF(SUM(qty_balance), 0), 0), 6) AS unit_cost,
+                            ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                     FROM inv_component_lot
+                     WHERE component_id = ?
+                       AND division_id = ?
+                       AND location_type = ?
+                       AND UPPER(COALESCE(status, 'OPEN')) = 'OPEN'
+                       AND qty_balance > 0",
+                    [$componentId, $divisionId, $preferredLocation]
+                )->row_array();
+                if ((float)($weightedPreferred['qty_balance'] ?? 0) > 0.0001) {
+                    return [
+                        'unit_cost' => (float)($weightedPreferred['unit_cost'] ?? 0),
+                        'qty_balance' => (float)($weightedPreferred['qty_balance'] ?? 0),
+                    ];
+                }
+            }
             $frontPreferred = $this->db->query(
                 "SELECT ROUND(COALESCE(unit_cost, 0), 6) AS unit_cost
                  FROM inv_component_lot
@@ -8567,6 +8786,25 @@ class Production_model extends CI_Model
                 return [
                     'unit_cost' => (float)($frontPreferred['unit_cost'] ?? 0),
                     'qty_balance' => (float)($qtyPreferred['qty_balance'] ?? 0),
+                ];
+            }
+        }
+
+        if ($weighted) {
+            $weightedAll = $this->db->query(
+                "SELECT ROUND(COALESCE(SUM(qty_balance * unit_cost) / NULLIF(SUM(qty_balance), 0), 0), 6) AS unit_cost,
+                        ROUND(COALESCE(SUM(qty_balance), 0), 4) AS qty_balance
+                 FROM inv_component_lot
+                 WHERE component_id = ?
+                   AND division_id = ?
+                   AND UPPER(COALESCE(status, 'OPEN')) = 'OPEN'
+                   AND qty_balance > 0",
+                [$componentId, $divisionId]
+            )->row_array();
+            if ((float)($weightedAll['qty_balance'] ?? 0) > 0.0001) {
+                return [
+                    'unit_cost' => (float)($weightedAll['unit_cost'] ?? 0),
+                    'qty_balance' => (float)($weightedAll['qty_balance'] ?? 0),
                 ];
             }
         }

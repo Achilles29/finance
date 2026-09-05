@@ -1,5 +1,6 @@
 <?php
 $downloadFiles = is_array($download_files ?? null) ? $download_files : [];
+$canAgentProvision = !empty($can_agent_provision);
 ?>
 
 <style>
@@ -131,7 +132,7 @@ $downloadFiles = is_array($download_files ?? null) ? $download_files : [];
           </div>
         </div>
         <div class="d-grid gap-2 printer-guide-downloads" style="min-width:260px;">
-          <a class="btn btn-primary" href="<?= site_url('pos/printers/download/config_json') ?>"><i class="ri-download-2-line"></i>Download config.json</a>
+          <?php if ($canAgentProvision): ?><a class="btn btn-primary" href="<?= site_url('pos/printers/download/config_json') ?>"><i class="ri-download-2-line"></i>Download config.json</a><?php endif; ?>
           <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/agent_py') ?>"><i class="ri-file-code-line"></i>Download agent.py</a>
           <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/check_saved_printers') ?>"><i class="ri-file-search-line"></i>Download check_saved_printers.py</a>
           <a class="btn btn-outline-secondary" href="<?= site_url('pos/printers/download/detect_windows') ?>"><i class="ri-terminal-box-line"></i>Download detect_windows.bat</a>
@@ -247,7 +248,7 @@ python agent.py --config config.json</div>
             <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/detect_windows') ?>"><i class="ri-terminal-box-line"></i>detect_windows.bat</a>
             <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/run_windows') ?>"><i class="ri-play-circle-line"></i>run_windows.bat</a>
             <a class="btn btn-outline-primary" href="<?= site_url('pos/printers/download/config_example') ?>"><i class="ri-file-settings-line"></i>config.example.json</a>
-            <a class="btn btn-primary" href="<?= site_url('pos/printers/download/config_json') ?>"><i class="ri-download-2-line"></i>config.json dari Finance</a>
+            <?php if ($canAgentProvision): ?><a class="btn btn-primary" href="<?= site_url('pos/printers/download/config_json') ?>"><i class="ri-download-2-line"></i>config.json dari Finance</a><?php endif; ?>
           </div>
         </div>
       </div>
@@ -264,7 +265,7 @@ python agent.py --config config.json</div>
         </div>
         <div class="col-lg-4">
           <div class="printer-guide-chip mb-2"><i class="ri-shield-keyhole-line"></i>Key Bootstrap</div>
-          <div class="small text-muted">Jika environment <code>POS_PRINTER_BOOTSTRAP_KEY</code> diisi, agent akan memakai key itu saat memanggil endpoint bootstrap finance.</div>
+          <div class="small text-muted">Environment <code>POS_PRINTER_BOOTSTRAP_KEY</code> di PHP-FPM wajib berisi key bootstrap; agent mengirimkannya hanya melalui header <code>X-Printer-Key</code>. Endpoint fail-closed bila environment kosong atau header tidak valid.</div>
         </div>
         <div class="col-lg-4">
           <div class="printer-guide-chip mb-2"><i class="ri-smartphone-line"></i>Mobile Nanti Terpisah</div>

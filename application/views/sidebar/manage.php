@@ -9,6 +9,20 @@ $treeEditor = $sidebar_tree_preview ?? [];
 $flatMenus = $sidebar_flat_raw ?? [];
 $editMenu = $edit_menu ?? null;
 $parentCandidates = $parent_candidates ?? [];
+$structureCsrfToken = (string)($sidebar_structure_csrf_token ?? '');
+$registryValidation = isset($registry_validation) && is_array($registry_validation) ? $registry_validation : [];
+$registryIssueCounts = isset($registryValidation['issue_counts']) && is_array($registryValidation['issue_counts']) ? $registryValidation['issue_counts'] : [];
+$registryDetails = isset($registryValidation['details']) && is_array($registryValidation['details']) ? $registryValidation['details'] : [];
+$registryTotalIssues = max(0, (int)($registryValidation['total_issues'] ?? 0));
+$registryIssueLabels = [
+  'missing_page' => 'Page tidak valid',
+  'missing_icon' => 'Icon kosong',
+  'duplicate_url' => 'URL duplikat',
+  'duplicate_code' => 'Kode duplikat',
+  'sort_collision' => 'Urutan bentrok',
+  'invalid_favorite' => 'Favorite tidak valid',
+  'invalid_group_url' => 'Grup memakai URL',
+];
 $isEdit = !empty($editMenu);
 $submitUrl = $isEdit ? site_url('sidebar/manage/menu/update/' . (int)$editMenu['id']) : $storeUrl;
 $activeTab = (string)($this->input->get('tab', true) ?? '');
@@ -19,25 +33,25 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
 ?>
 
 <?php if ($savedStructure): ?>
-  <div class="alert alert-success py-2 mb-3" role="alert">
+  <div class="alert alert-success py-2 mb-3" role="status" aria-live="polite">
     Struktur sidebar berhasil disimpan.
   </div>
 <?php endif; ?>
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+<header class="finance-page-header mb-3">
   <div>
     <h4 class="mb-1"><i class="ri ri-node-tree page-title-icon"></i><?php echo html_escape($title); ?></h4>
     <small class="text-muted">Atur urutan menu, naik-turun, dan parent submenu dengan drag & drop. Simpan untuk menerapkan.</small>
   </div>
-  <div class="d-flex gap-2">
-    <a href="<?php echo $manageBase . '?type=MAIN'; ?>" class="btn <?php echo $type === 'MAIN' ? 'btn-primary' : 'btn-outline-primary'; ?> btn-sm">Sidebar MAIN</a>
-    <a href="<?php echo $manageBase . '?type=MY'; ?>" class="btn <?php echo $type === 'MY' ? 'btn-primary' : 'btn-outline-primary'; ?> btn-sm">Sidebar MY</a>
+  <div class="finance-action-bar" aria-label="Pilih tipe sidebar">
+    <a href="<?php echo html_escape($manageBase . '?type=MAIN'); ?>" class="btn <?php echo $type === 'MAIN' ? 'btn-primary' : 'btn-outline-primary'; ?> btn-sm"<?php echo $type === 'MAIN' ? ' aria-current="page"' : ''; ?>>Sidebar MAIN</a>
+    <a href="<?php echo html_escape($manageBase . '?type=MY'); ?>" class="btn <?php echo $type === 'MY' ? 'btn-primary' : 'btn-outline-primary'; ?> btn-sm"<?php echo $type === 'MY' ? ' aria-current="page"' : ''; ?>>Sidebar MY</a>
   </div>
-</div>
+</header>
 
 <div class="row g-3 mb-3">
   <div class="col-md-3 col-6">
-    <div class="card h-100">
+    <div class="card finance-card h-100">
       <div class="card-body py-3">
         <small class="text-muted d-block">Total Pin</small>
         <div class="fs-4 fw-bold"><?php echo (int)$summary['total_rows']; ?></div>
@@ -45,7 +59,7 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     </div>
   </div>
   <div class="col-md-3 col-6">
-    <div class="card h-100">
+    <div class="card finance-card h-100">
       <div class="card-body py-3">
         <small class="text-muted d-block">User Aktif Pin</small>
         <div class="fs-4 fw-bold"><?php echo (int)$summary['active_users']; ?></div>
@@ -53,11 +67,11 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     </div>
   </div>
   <div class="col-md-3 col-12">
-    <div class="card h-100">
+    <div class="card finance-card h-100">
       <div class="card-body py-3">
         <small class="text-muted d-block mb-2">Top Menu Dipin</small>
         <?php if (empty($summary['top_menus'])): ?>
-          <div class="text-muted small">Belum ada data.</div>
+          <div class="finance-empty-state finance-empty-state-compact">Belum ada data.</div>
         <?php else: ?>
           <?php foreach ($summary['top_menus'] as $m): ?>
             <div class="small d-flex justify-content-between"><span><?php echo html_escape((string)$m['menu_label']); ?></span><strong><?php echo (int)$m['total_pin']; ?></strong></div>
@@ -67,11 +81,11 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     </div>
   </div>
   <div class="col-md-3 col-12">
-    <div class="card h-100">
+    <div class="card finance-card h-100">
       <div class="card-body py-3">
         <small class="text-muted d-block mb-2">Top User Pin</small>
         <?php if (empty($summary['top_users'])): ?>
-          <div class="text-muted small">Belum ada data.</div>
+          <div class="finance-empty-state finance-empty-state-compact">Belum ada data.</div>
         <?php else: ?>
           <?php foreach ($summary['top_users'] as $u): ?>
             <div class="small d-flex justify-content-between"><span><?php echo html_escape((string)($u['username'] ?? 'Unknown')); ?></span><strong><?php echo (int)$u['total_pin']; ?></strong></div>
@@ -81,6 +95,53 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     </div>
   </div>
 </div>
+
+<?php if ($registryValidation !== []): ?>
+<section class="card finance-card finance-registry-health mb-3" aria-labelledby="registry-health-title">
+  <div class="card-body py-3">
+    <div class="finance-page-header finance-page-header-compact mb-2">
+      <div>
+        <h5 class="mb-0" id="registry-health-title">Kesehatan Page Registry</h5>
+        <small class="text-muted">Ringkasan sinkronisasi menu, page, favorite, dan urutan.</small>
+      </div>
+      <span class="badge <?php echo $registryTotalIssues > 0 ? 'bg-warning-subtle text-warning border' : 'bg-success-subtle text-success border border-success-subtle'; ?>">
+        <?php echo $registryTotalIssues > 0 ? html_escape((string)$registryTotalIssues) . ' isu' : 'Sehat'; ?>
+      </span>
+    </div>
+    <div class="finance-registry-metrics" aria-label="Jumlah validasi registry">
+      <?php foreach ($registryIssueLabels as $issueKey => $issueLabel): ?>
+        <span><strong><?php echo max(0, (int)($registryIssueCounts[$issueKey] ?? 0)); ?></strong> <?php echo html_escape($issueLabel); ?></span>
+      <?php endforeach; ?>
+    </div>
+    <?php foreach ($registryIssueLabels as $detailKey => $detailLabel): ?>
+      <?php $detailRows = isset($registryDetails[$detailKey]) && is_array($registryDetails[$detailKey]) ? $registryDetails[$detailKey] : []; ?>
+      <?php if ($detailRows !== []): ?>
+        <details class="finance-registry-detail">
+          <summary><?php echo html_escape($detailLabel); ?> (<?php echo count($detailRows); ?>)</summary>
+          <ul class="mb-0 mt-2">
+            <?php foreach (array_slice($detailRows, 0, 8) as $detailRow): ?>
+              <?php
+                $detailParts = [];
+                if (is_array($detailRow)) {
+                  foreach ($detailRow as $detailField => $detailValue) {
+                    if (is_scalar($detailValue) && trim((string)$detailValue) !== '') {
+                      $detailParts[] = str_replace('_', ' ', (string)$detailField) . ': ' . trim((string)$detailValue);
+                    }
+                  }
+                } elseif (is_scalar($detailRow)) {
+                  $detailParts[] = (string)$detailRow;
+                }
+                $detailText = $detailParts !== [] ? implode(' — ', array_values(array_unique($detailParts))) : 'Detail tidak tersedia';
+              ?>
+              <li><?php echo html_escape($detailText); ?></li>
+            <?php endforeach; ?>
+          </ul>
+        </details>
+      <?php endif; ?>
+    <?php endforeach; ?>
+  </div>
+</section>
+<?php endif; ?>
 
 <ul class="nav nav-tabs mb-3" role="tablist">
   <li class="nav-item" role="presentation">
@@ -93,21 +154,25 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
 
 <div class="tab-content">
   <div class="tab-pane fade <?php echo $activeTab === 'structure' ? 'show active' : ''; ?>" id="tab-structure" role="tabpanel" aria-labelledby="tab-structure-btn" tabindex="0">
-    <div class="card">
-      <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="card finance-card">
+      <div class="card-header finance-card-header">
         <div>
           <strong>Struktur Aktual Sidebar <?php echo html_escape($type); ?></strong>
           <div class="text-muted small">Drag-drop langsung di sini untuk atur urutan/parent menu.</div>
         </div>
-        <div class="d-flex gap-2">
+        <div class="finance-action-bar">
           <button type="button" id="btn_expand_all_sidebar" class="btn btn-outline-secondary btn-sm">Expand All</button>
           <button type="button" id="btn_collapse_all_sidebar" class="btn btn-outline-secondary btn-sm">Collapse All</button>
           <button type="button" id="btn_save_sidebar_structure" class="btn btn-primary btn-sm" data-loading-label="Menyimpan...">Simpan Struktur</button>
         </div>
       </div>
-      <div class="card-body" style="max-height:640px; overflow-y:auto; overflow-x:hidden; padding-right:4px;">
-        <div id="sidebar-tree-root"></div>
-        <div id="sidebar-save-alert" class="mt-3"></div>
+      <div class="card-body finance-scroll-panel finance-scroll-panel-lg">
+        <div id="sidebar-tree-root">
+          <?php if ($treeEditor === []): ?>
+            <div class="finance-empty-state">Belum ada struktur sidebar untuk tipe ini.</div>
+          <?php endif; ?>
+        </div>
+        <div id="sidebar-save-alert" class="mt-3" role="status" aria-live="polite"></div>
       </div>
     </div>
   </div>
@@ -127,15 +192,16 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
 
       <!-- ── FORM PANEL ──────────────────────────────────────────── -->
       <div class="col-lg-5">
-        <div class="card">
-          <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card finance-card">
+          <div class="card-header finance-card-header">
             <strong><?php echo $isEdit ? '<i class="ri ri-edit-line me-1"></i>Edit Menu Sidebar' : '<i class="ri ri-add-circle-line me-1"></i>Tambah Menu Sidebar'; ?></strong>
             <?php if ($isEdit): ?>
-              <a href="<?php echo $manageBase . '?type=' . urlencode($type) . '&tab=menu-data'; ?>" class="btn btn-outline-secondary btn-xs px-2 py-1" style="font-size:.75rem;">Batal</a>
+              <a href="<?php echo html_escape($manageBase . '?type=' . urlencode($type) . '&tab=menu-data'); ?>" class="btn btn-outline-secondary btn-xs px-2 py-1">Batal</a>
             <?php endif; ?>
           </div>
           <div class="card-body">
             <form method="post" action="<?php echo $submitUrl; ?>" class="row g-2" id="sidebar-menu-form">
+              <input type="hidden" name="sidebar_structure_csrf" value="<?php echo html_escape($structureCsrfToken); ?>">
               <input type="hidden" name="sidebar_type" value="<?php echo html_escape($type); ?>">
 
               <div class="col-12">
@@ -229,17 +295,17 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
 
       <!-- ── TABLE PANEL ─────────────────────────────────────────── -->
       <div class="col-lg-7">
-        <div class="card">
-          <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <div class="card finance-card">
+          <div class="card-header finance-card-header">
             <strong>Daftar Menu Sidebar <?php echo html_escape($type); ?></strong>
-            <div class="input-group input-group-sm" style="max-width:220px;">
+            <div class="input-group input-group-sm finance-filter-control">
               <span class="input-group-text"><i class="ri ri-search-line"></i></span>
               <input type="text" id="menu-list-search" class="form-control form-control-sm" placeholder="Cari nama / kode / URL…">
             </div>
           </div>
 
-          <div style="max-height:520px; overflow-y:auto;">
-            <table class="table table-hover table-sm align-middle mb-0" id="menu-list-table">
+          <div class="finance-table-region finance-scroll-panel">
+            <table class="table table-hover table-sm align-middle mb-0 finance-table" id="menu-list-table">
               <thead class="table-light sticky-top" style="z-index:1;">
                 <tr>
                   <th style="width:36px;" class="text-center">#</th>
@@ -251,7 +317,7 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
               </thead>
               <tbody id="menu-list-tbody">
                 <?php if (empty($flatMenus)): ?>
-                  <tr><td colspan="5" class="text-center text-muted py-4">Belum ada menu.</td></tr>
+                  <tr><td colspan="5"><div class="finance-empty-state">Belum ada menu.</div></td></tr>
                 <?php else: ?>
                   <?php foreach ($flatMenus as $m):
                     $linkedPage = !empty($m['page_id']) ? ($pageRegistryById[(int)$m['page_id']] ?? null) : null;
@@ -290,12 +356,13 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
                       <td class="text-center">
                         <div class="d-flex gap-1 justify-content-center">
                           <a href="<?php echo $manageBase . '?type=' . urlencode($type) . '&tab=menu-data&edit_id=' . (int)$m['id']; ?>"
-                             class="btn btn-xs btn-outline-primary p-1" style="line-height:1;" title="Edit">
+                             class="btn btn-xs btn-outline-primary p-1 finance-icon-action" title="Edit" aria-label="Edit menu <?php echo html_escape((string)$m['menu_label']); ?>">
                             <i class="ri ri-edit-line"></i>
                           </a>
                           <button type="button"
-                                  class="btn btn-xs menu-toggle-btn p-1 <?php echo $isActive ? 'btn-outline-warning' : 'btn-outline-success'; ?>"
-                                  style="line-height:1;" title="<?php echo $isActive ? 'Nonaktifkan' : 'Aktifkan'; ?>"
+                                  class="btn btn-xs menu-toggle-btn p-1 finance-icon-action <?php echo $isActive ? 'btn-outline-warning' : 'btn-outline-success'; ?>"
+                                  title="<?php echo $isActive ? 'Nonaktifkan' : 'Aktifkan'; ?>"
+                                  aria-label="<?php echo $isActive ? 'Nonaktifkan' : 'Aktifkan'; ?> menu <?php echo html_escape((string)$m['menu_label']); ?>"
                                   data-id="<?php echo (int)$m['id']; ?>"
                                   data-active="<?php echo $isActive ? '1' : '0'; ?>">
                             <i class="ri <?php echo $isActive ? 'ri-toggle-line' : 'ri-toggle-fill'; ?>"></i>
@@ -331,6 +398,7 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
   var saveUrl = <?php echo json_encode($saveUrl); ?>;
   var manageBase = <?php echo json_encode($manageBase); ?>;
   var sidebarType = <?php echo json_encode($type); ?>;
+  var structureCsrfToken = <?php echo json_encode($structureCsrfToken); ?>;
   var treeData = <?php echo json_encode($treeEditor, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
 
   var dragState = {
@@ -353,9 +421,10 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
 
     var expander = document.createElement('button');
     expander.type = 'button';
-    expander.className = 'btn btn-xs btn-outline-secondary sidebar-node-expander';
+    expander.className = 'btn btn-xs btn-outline-secondary sidebar-node-expander finance-icon-action';
     expander.innerHTML = '<i class="ri ri-arrow-down-s-line"></i>';
     expander.title = 'Expand / Collapse';
+    expander.setAttribute('aria-label', 'Expand atau collapse submenu');
     expander.dataset.collapsed = '0';
     expander.style.visibility = hasChild ? 'visible' : 'hidden';
     left.appendChild(expander);
@@ -426,17 +495,17 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
 
       var editLink = document.createElement('a');
       editLink.href = manageBase + '?type=' + encodeURIComponent(sidebarType) + '&tab=menu-data&edit_id=' + item.id;
-      editLink.className = 'btn btn-xs btn-outline-primary p-1';
-      editLink.style.lineHeight = '1';
+      editLink.className = 'btn btn-xs btn-outline-primary p-1 finance-icon-action';
       editLink.title = 'Edit';
+      editLink.setAttribute('aria-label', 'Edit menu ' + item.menu_label);
       editLink.innerHTML = '<i class="ri ri-edit-line"></i>';
       actDiv.appendChild(editLink);
 
       var togBtn = document.createElement('button');
       togBtn.type = 'button';
-      togBtn.className = 'btn btn-xs p-1 node-toggle-btn ' + (isActive ? 'btn-outline-warning' : 'btn-outline-success');
-      togBtn.style.lineHeight = '1';
+      togBtn.className = 'btn btn-xs p-1 node-toggle-btn finance-icon-action ' + (isActive ? 'btn-outline-warning' : 'btn-outline-success');
       togBtn.title = isActive ? 'Nonaktifkan' : 'Aktifkan';
+      togBtn.setAttribute('aria-label', (isActive ? 'Nonaktifkan' : 'Aktifkan') + ' menu ' + item.menu_label);
       togBtn.dataset.id     = String(item.id);
       togBtn.dataset.active = isActive ? '1' : '0';
       togBtn.innerHTML = '<i class="ri ' + (isActive ? 'ri-toggle-line' : 'ri-toggle-fill') + '"></i>';
@@ -596,7 +665,10 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
   }
 
   function showAlert(type, text) {
-    alertBox.innerHTML = '<div class="alert alert-' + type + ' py-2 mb-0">' + text + '</div>';
+    var alert = document.createElement('div');
+    alert.className = 'alert alert-' + (type === 'danger' ? 'danger' : 'success') + ' py-2 mb-0';
+    alert.textContent = String(text || '');
+    alertBox.replaceChildren(alert);
   }
 
   if (!Array.isArray(treeData)) {
@@ -605,6 +677,7 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
   }
 
   function renderEditor() {
+    if (treeData.length === 0) return;
     rootEl.innerHTML = '';
     var rootList = buildList(treeData, 0);
     rootEl.appendChild(rootList);
@@ -707,9 +780,17 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
       saveBtn.classList.add('is-loading');
       saveBtn.innerHTML = '<span class=\"spinner-border spinner-border-sm me-1\" role=\"status\" aria-hidden=\"true\"></span>Menyimpan...';
 
-      $.post(saveUrl, {
-        sidebar_type: sidebarType,
-        tree_json: JSON.stringify(payload)
+      $.ajax({
+        url: saveUrl,
+        type: 'POST',
+        dataType: 'json',
+        headers: {
+          'X-Sidebar-Structure-CSRF': structureCsrfToken
+        },
+        data: {
+          sidebar_type: sidebarType,
+          tree_json: JSON.stringify(payload)
+        }
       }).done(function (resp) {
         if (resp && resp.ok) {
           window.location.href = manageBase + '?type=' + encodeURIComponent(sidebarType) + '&tab=structure&saved=1';
@@ -743,7 +824,12 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     var origHtml = btn.innerHTML;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.75rem;height:.75rem;"></span>';
 
-    $.ajax({ url: TREE_TOGGLE_URL + id, type: 'POST', dataType: 'json' })
+    $.ajax({
+      url: TREE_TOGGLE_URL + id,
+      type: 'POST',
+      dataType: 'json',
+      headers: { 'X-Sidebar-Structure-CSRF': structureCsrfToken }
+    })
       .done(function (resp) {
         if (!resp || !resp.ok) {
           alert(resp && resp.message ? resp.message : 'Gagal mengubah status.');
@@ -754,7 +840,7 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
 
         var nowActive = resp.is_active === 1;
         btn.dataset.active = nowActive ? '1' : '0';
-        btn.className      = 'btn btn-xs p-1 node-toggle-btn ' + (nowActive ? 'btn-outline-warning' : 'btn-outline-success');
+        btn.className      = 'btn btn-xs p-1 node-toggle-btn finance-icon-action ' + (nowActive ? 'btn-outline-warning' : 'btn-outline-success');
         btn.title          = nowActive ? 'Nonaktifkan' : 'Aktifkan';
         btn.innerHTML      = '<i class="ri ' + (nowActive ? 'ri-toggle-line' : 'ri-toggle-fill') + '"></i>';
         btn.disabled       = false;
@@ -801,79 +887,13 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
 })();
 </script>
 
-<style>
-  #sidebar-tree-root .sidebar-sortable-list {
-    padding-left: 1rem;
-    border-left: 1px dashed rgba(84, 59, 59, 0.23);
-    min-height: 8px;
-  }
-  #sidebar-tree-root .sidebar-list-root {
-    border-left: none;
-    padding-left: 0;
-  }
-  #sidebar-tree-root .sidebar-sort-item {
-    padding: 0.5rem 0.6rem;
-    border: 1px solid rgba(0,0,0,0.08);
-    border-radius: 10px;
-    background: #fff;
-    border-left: 4px solid transparent;
-    cursor: grab;
-    transition: box-shadow 0.15s ease, transform 0.12s ease;
-  }
-  #sidebar-tree-root .sidebar-sort-item.is-inactive,
-  #sidebar-tree-root .sidebar-sort-item[data-depth].is-inactive {
-    background: #fff2f2;
-    border-color: rgba(192, 57, 43, 0.45);
-    border-left-color: #c0392b;
-  }
-  #sidebar-tree-root li.is-dragging > .sidebar-sort-item {
-    opacity: 0.72;
-    transform: scale(0.992);
-    box-shadow: 0 10px 20px rgba(29, 12, 12, 0.16);
-  }
-  #sidebar-tree-root li.drop-before > .sidebar-sort-item {
-    box-shadow: inset 0 3px 0 #198754;
-  }
-  #sidebar-tree-root li.drop-after > .sidebar-sort-item {
-    box-shadow: inset 0 -3px 0 #198754;
-  }
-  #sidebar-tree-root li.drop-inside > .sidebar-sort-item {
-    box-shadow: 0 0 0 2px rgba(25, 135, 84, 0.36);
-  }
-  #sidebar-tree-root .sidebar-drag-handle {
-    font-size: 1rem;
-    opacity: 0.72;
-  }
-  #sidebar-tree-root .sidebar-node-expander {
-    min-width: 24px;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  #sidebar-tree-root li.is-collapsed > ul.sidebar-sortable-list {
-    display: none;
-  }
-  #sidebar-tree-root .sidebar-sort-item[data-depth=\"0\"] {
-    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
-  }
-  #sidebar-tree-root .sidebar-sort-item[data-depth=\"1\"] {
-    background: #fafcff;
-  }
-  #sidebar-tree-root .sidebar-sort-item[data-depth=\"2\"],
-  #sidebar-tree-root .sidebar-sort-item[data-depth=\"3\"] {
-    background: #fcfcff;
-  }
-</style>
-
 <script>
 // ── CRUD Tab: search, pagination, AJAX toggle, icon preview ───────────
 (function () {
   'use strict';
 
   var TOGGLE_URL = <?php echo json_encode(site_url('sidebar/manage/menu/toggle/')); ?>;
+  var structureCsrfToken = <?php echo json_encode($structureCsrfToken); ?>;
   var PAGE_SIZE  = 25;
   var currentPage = 1;
 
@@ -978,7 +998,8 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
     $.ajax({
       url:  TOGGLE_URL + id,
       type: 'POST',
-      dataType: 'json'
+      dataType: 'json',
+      headers: { 'X-Sidebar-Structure-CSRF': structureCsrfToken }
     }).done(function (resp) {
       if (!resp || !resp.ok) {
         alert(resp && resp.message ? resp.message : 'Gagal mengubah status menu.');
@@ -991,7 +1012,7 @@ $savedStructure = ((int)$this->input->get('saved', true) === 1);
       btn.dataset.active = nowActive ? '1' : '0';
 
       // Update button style & icon
-      btn.className = 'btn btn-xs p-1 ' + (nowActive ? 'btn-outline-warning' : 'btn-outline-success');
+      btn.className = 'btn btn-xs p-1 menu-toggle-btn finance-icon-action ' + (nowActive ? 'btn-outline-warning' : 'btn-outline-success');
       btn.title     = nowActive ? 'Nonaktifkan' : 'Aktifkan';
       btn.innerHTML = '<i class="ri ' + (nowActive ? 'ri-toggle-line' : 'ri-toggle-fill') + '"></i>';
       btn.disabled  = false;

@@ -3,6 +3,7 @@ $mode      = (string)($mode ?? 'create');
 $broadcast = (array)($broadcast ?? []);
 $templates = (array)($templates ?? []);
 $groups    = (array)($groups ?? []);
+$mutationCsrf = (string)($wa_broadcast_mutation_csrf ?? '');
 $selectedMembers = (array)($selected_members ?? []);
 $delayPattern = (array)($broadcast['delay_pattern'] ?? [1=>2,2=>2,3=>2,4=>2,5=>2,6=>2,7=>2,8=>2,9=>2,10=>2]);
 $formAction = $mode === 'edit' && !empty($broadcast['id'])
@@ -74,6 +75,7 @@ $formAction = $mode === 'edit' && !empty($broadcast['id'])
   <?php endif; ?>
 
   <form method="post" enctype="multipart/form-data" action="<?= $formAction ?>" id="waBroadcastForm">
+    <input type="hidden" name="wa_broadcast_mutation_csrf" value="<?= html_escape($mutationCsrf) ?>">
     <input type="hidden" name="selected_member_ids" id="selectedMemberIds" value="">
     <div class="row g-3">
       <div class="col-md-8">

@@ -3,6 +3,12 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class System_tools extends MY_Controller
 {
+    private const PAGE_CODE = 'system.dbtools.settings';
+    private const SENSITIVE_READ_ACTION = 'export';
+    private const SYSTEM_TOOLS_MUTATION_CSRF_SESSION_KEY = 'system_tools_mutation_csrf';
+    private const SYSTEM_TOOLS_MUTATION_CSRF_HEADER = 'X-System-Tools-CSRF';
+    private const SYSTEM_TOOLS_MUTATION_CSRF_CI_HEADER = 'X-System-Tools-Csrf';
+
     public function __construct()
     {
         parent::__construct();
@@ -12,7 +18,12 @@ class System_tools extends MY_Controller
     // ── Halaman Utama — semua tab digabung ────────────────────────
     public function index()
     {
-        $this->require_permission('system.dbtools.settings', 'view');
+        $this->require_permission(self::PAGE_CODE, 'view');
+        if (!$this->can(self::PAGE_CODE, self::SENSITIVE_READ_ACTION)) {
+            $this->render_limited_page();
+            return;
+        }
+        $systemToolsMutationCsrfToken = $this->system_tools_mutation_csrf();
         $financeRoot  = FCPATH;
         $dumpDir      = $financeRoot . 'backup/dumps/';
         $envFile      = $financeRoot . 'scripts/backup/.env';
@@ -23,13 +34,9 @@ class System_tools extends MY_Controller
         $recentDumps  = array_merge($recentDumps, $this->_listRecentFiles($dumpDir, '*.sql', 5));
         usort($recentDumps, fn($a, $b) => $b['mtime'] - $a['mtime']);
 
-        $rows = $this->db->table_exists('sys_app_config') ? $this->db->get('sys_app_config')->result_array() : [];
-        $cfg  = [];
-        foreach ($rows as $r) {
-            $cfg[$r['config_key']] = (string)($r['config_value'] ?? '');
-        }
+        $cfg = $this->visible_config();
 
-        $replStatus     = file_exists($statusFile) ? (json_decode(file_get_contents($statusFile), true) ?: []) : [];
+        $replStatus     = $this->visible_replication_status($statusFile);
         $failoverActive = file_exists($failoverFile);
 
         $this->render('system/dbtools', [
@@ -43,13 +50,15 @@ class System_tools extends MY_Controller
             'failover_time'   => $failoverActive ? trim(file_get_contents($failoverFile)) : null,
             'finance_root'    => $financeRoot,
             'is_windows'      => strtoupper(substr(PHP_OS, 0, 3)) === 'WIN',
+            'system_tools_mutation_csrf_token' => $systemToolsMutationCsrfToken,
         ]);
     }
 
     // ── Halaman Panduan Backup ─────────────────────────────────────
     public function backup_guide()
     {
-        $this->require_permission('system.dbtools.settings', 'view');
+        $this->require_permission(self::PAGE_CODE, 'view');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
         $financeRoot = FCPATH;
         $backupDir   = $financeRoot . 'backup/dumps/';
 
@@ -71,12 +80,13 @@ class System_tools extends MY_Controller
     // ── Halaman Panduan Replication ────────────────────────────────
     public function replication_guide()
     {
-        $this->require_permission('system.dbtools.settings', 'view');
+        $this->require_permission(self::PAGE_CODE, 'view');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
         $financeRoot  = FCPATH;
         $statusFile   = $financeRoot . 'backup/logs/replication_status.json';
         $failoverFile = $financeRoot . 'backup/logs/failover_time.txt';
 
-        $replStatus     = file_exists($statusFile) ? (json_decode(file_get_contents($statusFile), true) ?: []) : [];
+        $replStatus     = $this->visible_replication_status($statusFile);
         $failoverActive = file_exists($failoverFile);
 
         $this->render('system/replication_guide', [
@@ -92,18 +102,19 @@ class System_tools extends MY_Controller
     // ── Settings page ──────────────────────────────────────────────
     public function settings()
     {
-        $this->require_permission('system.dbtools.settings', 'view');
+        $this->require_permission(self::PAGE_CODE, 'view');
+        if (!$this->can(self::PAGE_CODE, self::SENSITIVE_READ_ACTION)) {
+            $this->render_limited_page();
+            return;
+        }
+        $systemToolsMutationCsrfToken = $this->system_tools_mutation_csrf();
 
         $financeRoot = FCPATH;
         $envFile     = $financeRoot . 'scripts/backup/.env';
         $envExists   = file_exists($envFile);
 
-        // Load semua config dari DB
-        $rows = $this->db->get('sys_app_config')->result_array();
-        $cfg  = [];
-        foreach ($rows as $r) {
-            $cfg[$r['config_key']] = (string)($r['config_value'] ?? '');
-        }
+        // Hanya field operasional yang dikenal. Password tidak pernah dikirim ke view.
+        $cfg = $this->visible_config();
 
         // Status file
         $statusFile   = $financeRoot . 'backup/logs/replication_status.json';
@@ -113,7 +124,7 @@ class System_tools extends MY_Controller
         $recentDumps  = array_merge($recentDumps, $this->_listRecentFiles($dumpDir, '*.sql', 5));
         usort($recentDumps, fn($a, $b) => $b['mtime'] - $a['mtime']);
 
-        $replStatus   = file_exists($statusFile) ? (json_decode(file_get_contents($statusFile), true) ?: []) : [];
+        $replStatus   = $this->visible_replication_status($statusFile);
         $failoverActive = file_exists($failoverFile);
 
         $this->render('system/settings', [
@@ -127,19 +138,23 @@ class System_tools extends MY_Controller
             'failover_time'   => $failoverActive ? trim(file_get_contents($failoverFile)) : null,
             'finance_root'    => $financeRoot,
             'is_windows'      => strtoupper(substr(PHP_OS, 0, 3)) === 'WIN',
+            'system_tools_mutation_csrf_token' => $systemToolsMutationCsrfToken,
         ]);
     }
 
     // ── Save settings ──────────────────────────────────────────────
     public function settings_save()
     {
-        $this->require_permission('system.dbtools.settings', 'edit');
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
+        if (!$this->require_system_tools_mutation_csrf()) {
+            return;
+        }
         $payload = $this->request_payload();
 
         $allowed = [
             'backup.db_host', 'backup.db_port', 'backup.db_user', 'backup.db_pass',
-            'backup.db_name', 'backup.retention_days', 'backup.repo_remote',
-            'backup.repo_branch', 'backup.exclude_tables',
+            'backup.db_name', 'backup.retention_days', 'backup.exclude_tables',
             'repl.server_role', 'repl.master_host', 'repl.master_port',
             'repl.repl_user', 'repl.repl_pass',
             'tunnel.enabled', 'tunnel.ssh_host', 'tunnel.ssh_port', 'tunnel.ssh_user',
@@ -182,7 +197,8 @@ class System_tools extends MY_Controller
     // ── Aksi: List Tables ─────────────────────────────────────────
     public function action_list_tables()
     {
-        $this->require_permission('system.dbtools.settings', 'view');
+        $this->require_permission(self::PAGE_CODE, 'view');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
 
         // Coba gunakan DB dari config yang tersimpan (bisa beda dari DB app)
         $host = $this->_cfg('backup.db_host', 'localhost');
@@ -218,14 +234,19 @@ class System_tools extends MY_Controller
 
             $this->json_ok(['tables' => $result, 'db' => $name]);
         } catch (Exception $e) {
-            $this->json_error('Gagal memuat tabel: ' . $e->getMessage(), 422);
+            log_message('error', 'System Tools table inspection failed.');
+            $this->json_error('Gagal memuat daftar tabel. Periksa konfigurasi server.', 422);
         }
     }
 
     // ── Aksi: Run Backup Now ───────────────────────────────────────
     public function action_run_backup()
     {
-        $this->require_permission('system.dbtools.settings', 'edit');
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
+        if (!$this->require_system_tools_mutation_csrf()) {
+            return;
+        }
         $result = $this->_runScript('backup', 'backup_full');
         if ($result['ok']) {
             $this->json_ok(['output' => $result['output'], 'message' => 'Backup berhasil dijalankan.']);
@@ -237,12 +258,24 @@ class System_tools extends MY_Controller
     // ── Aksi: Test DB Connection ───────────────────────────────────
     public function action_test_db()
     {
-        $this->require_permission('system.dbtools.settings', 'view');
-        $host = (string)$this->input->get('host', true) ?: $this->_cfg('backup.db_host', 'localhost');
-        $port = (int)($this->input->get('port', true) ?: $this->_cfg('backup.db_port', '3306'));
-        $user = (string)$this->input->get('user', true) ?: $this->_cfg('backup.db_user', 'root');
-        $pass = (string)$this->input->get('pass', true) ?: $this->_cfg('backup.db_pass', '');
-        $name = (string)$this->input->get('name', true) ?: $this->_cfg('backup.db_name', 'db_finance');
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
+        if (!$this->require_system_tools_mutation_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $host = trim((string)($payload['host'] ?? '')) ?: $this->_cfg('backup.db_host', 'localhost');
+        $port = (int)($payload['port'] ?? $this->_cfg('backup.db_port', '3306'));
+        $user = trim((string)($payload['user'] ?? '')) ?: $this->_cfg('backup.db_user', 'root');
+        $pass = (string)($payload['pass'] ?? '');
+        if ($pass === '') $pass = $this->_cfg('backup.db_pass', '');
+        $name = trim((string)($payload['name'] ?? '')) ?: $this->_cfg('backup.db_name', 'db_finance');
+        if (strlen($host) > 255 || preg_match('/[;\x00-\x20\x7F]/', $host) === 1
+            || $port < 1 || $port > 65535 || strlen($user) > 128
+            || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $name) !== 1) {
+            $this->json_error('Parameter koneksi database tidak valid.', 422);
+            return;
+        }
 
         try {
             $dsn = "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4";
@@ -250,14 +283,19 @@ class System_tools extends MY_Controller
             $ver = $pdo->query('SELECT VERSION()')->fetchColumn();
             $this->json_ok(['message' => "Koneksi berhasil! MySQL versi: {$ver}"]);
         } catch (Exception $e) {
-            $this->json_error('Koneksi gagal: ' . $e->getMessage(), 422);
+            log_message('error', 'System Tools database connection test failed.');
+            $this->json_error('Koneksi gagal. Periksa host, port, nama database, dan credential.', 422);
         }
     }
 
     // ── Aksi: Terapkan konfigurasi MySQL (SET GLOBAL + conf.d) ──
     public function action_apply_mysql_config()
     {
-        $this->require_permission('system.dbtools.settings', 'edit');
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
+        if (!$this->require_system_tools_mutation_csrf()) {
+            return;
+        }
         $payload  = $this->request_payload();
         $role     = strtoupper(trim((string)($payload['role'] ?? 'MASTER')));
         $serverId = (int)($payload['server_id'] ?? ($role === 'MASTER' ? 1 : 2));
@@ -356,7 +394,11 @@ class System_tools extends MY_Controller
     // ── Aksi: Setup Master (buat replication user) ───────────────
     public function action_setup_master()
     {
-        $this->require_permission('system.dbtools.settings', 'edit');
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
+        if (!$this->require_system_tools_mutation_csrf()) {
+            return;
+        }
         $payload  = $this->request_payload();
         $replUser = trim((string)($payload['repl_user'] ?? $this->_cfg('repl.repl_user', 'repl_user')));
         $replPass = (string)($payload['repl_pass'] ?? $this->_cfg('repl.repl_pass', ''));
@@ -386,7 +428,8 @@ class System_tools extends MY_Controller
     // ── Aksi: Check Replication Status ────────────────────────────
     public function action_check_replication()
     {
-        $this->require_permission('system.dbtools.settings', 'view');
+        $this->require_permission(self::PAGE_CODE, 'view');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
         $role = strtoupper($this->_cfg('repl.server_role', 'STANDALONE'));
 
         $data = ['role' => $role, 'timestamp' => date('Y-m-d H:i:s')];
@@ -438,8 +481,12 @@ class System_tools extends MY_Controller
     // ── Aksi: Sinkronisasi Data Awal (slave ← master) ────────────
     public function action_initial_sync()
     {
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
+        if (!$this->require_system_tools_mutation_csrf()) {
+            return;
+        }
         @set_time_limit(300);
-        $this->require_permission('system.dbtools.settings', 'edit');
 
         $tunnelOn   = $this->_cfg('tunnel.enabled', '0') === '1';
         $masterHost = $tunnelOn ? '127.0.0.1' : $this->_cfg('repl.master_host', '');
@@ -695,8 +742,9 @@ class System_tools extends MY_Controller
     // ── Aksi: Bandingkan data master vs slave ────────────────────
     public function action_compare_data()
     {
+        $this->require_permission(self::PAGE_CODE, 'view');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
         @set_time_limit(120);
-        $this->require_permission('system.dbtools.settings', 'view');
 
         $tunnelOn   = $this->_cfg('tunnel.enabled', '0') === '1';
         $masterHost = $tunnelOn ? '127.0.0.1' : $this->_cfg('repl.master_host', '');
@@ -751,7 +799,11 @@ class System_tools extends MY_Controller
     // ── Aksi: Failover ────────────────────────────────────────────
     public function action_failover()
     {
-        $this->require_permission('system.dbtools.settings', 'edit');
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
+        if (!$this->require_system_tools_mutation_csrf()) {
+            return;
+        }
         $confirm = (string)($this->request_payload()['confirm'] ?? '');
         if ($confirm !== 'YES_FAILOVER') {
             $this->json_error('Konfirmasi tidak valid.', 422);
@@ -783,7 +835,11 @@ class System_tools extends MY_Controller
     // ── Aksi: Restart Replication ─────────────────────────────────
     public function action_restart_replication()
     {
-        $this->require_permission('system.dbtools.settings', 'edit');
+        $this->require_permission(self::PAGE_CODE, 'edit');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
+        if (!$this->require_system_tools_mutation_csrf()) {
+            return;
+        }
         $payload     = $this->request_payload();
         $masterHost  = (string)($payload['master_host']  ?? $this->_cfg('repl.master_host', ''));
         $masterPort  = (int)($payload['master_port']     ?? $this->_cfg('repl.master_port', '3306'));
@@ -841,7 +897,8 @@ class System_tools extends MY_Controller
     // ── AJAX: replication status ───────────────────────────────────
     public function backup_status()
     {
-        $this->require_permission('system.dbtools.settings', 'view');
+        $this->require_permission(self::PAGE_CODE, 'view');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
         $dumpDir = FCPATH . 'backup/dumps/';
         $logFile = FCPATH . 'backup/logs/cron.log';
         $dumps   = $this->_listRecentFiles($dumpDir, 'backup_*.sql*', 20);
@@ -856,16 +913,57 @@ class System_tools extends MY_Controller
 
     public function replication_status()
     {
-        $this->require_permission('system.dbtools.settings', 'view');
+        $this->require_permission(self::PAGE_CODE, 'view');
+        $this->require_permission(self::PAGE_CODE, self::SENSITIVE_READ_ACTION);
         $statusFile   = FCPATH . 'backup/logs/replication_status.json';
         $failoverFile = FCPATH . 'backup/logs/failover_time.txt';
-        $status = file_exists($statusFile) ? (json_decode(file_get_contents($statusFile), true) ?: []) : [];
+        $status = $this->visible_replication_status($statusFile);
         $status['failover_active'] = file_exists($failoverFile);
         $status['failover_time']   = $status['failover_active'] ? trim(file_get_contents($failoverFile)) : null;
         $this->json_ok($status);
     }
 
     // ── Helpers ────────────────────────────────────────────────────
+    private function render_limited_page(): void
+    {
+        $dumpDir = FCPATH . 'backup/dumps/';
+        $this->render('system/dbtools_limited', [
+            'title' => 'Perlindungan Database',
+            'active_menu' => self::PAGE_CODE,
+            'backup_configured' => is_file(FCPATH . 'scripts/backup/.env'),
+            'has_recent_backup' => !empty(glob($dumpDir . '*.sql*')),
+            'failover_active' => is_file(FCPATH . 'backup/logs/failover_time.txt'),
+        ]);
+    }
+
+    private function visible_config(): array
+    {
+        if (!$this->db->table_exists('sys_app_config')) return [];
+        $allowed = [
+            'backup.db_host', 'backup.db_port', 'backup.db_user', 'backup.db_name',
+            'backup.retention_days', 'backup.exclude_tables', 'repl.server_role',
+            'repl.master_host', 'repl.master_port', 'repl.repl_user',
+            'tunnel.enabled', 'tunnel.ssh_host', 'tunnel.ssh_port', 'tunnel.ssh_user',
+            'tunnel.local_port', 'tunnel.remote_port',
+        ];
+        $rows = $this->db->select('config_key, config_value')->from('sys_app_config')
+            ->where_in('config_key', $allowed)->get()->result_array();
+        $config = [];
+        foreach ($rows as $row) {
+            $key = (string)($row['config_key'] ?? '');
+            if (in_array($key, $allowed, true)) $config[$key] = (string)($row['config_value'] ?? '');
+        }
+        return $config;
+    }
+
+    private function visible_replication_status(string $statusFile): array
+    {
+        $raw = is_file($statusFile) ? json_decode((string)file_get_contents($statusFile), true) : [];
+        if (!is_array($raw)) return [];
+        $allowed = ['role','timestamp','status','io_running','sql_running','lag_seconds','master_host','last_error','last_io_error','error','binlog','position'];
+        return array_intersect_key($raw, array_flip($allowed));
+    }
+
     private function _cfg(string $key, string $default = ''): string
     {
         if (!$this->db->table_exists('sys_app_config')) return $default;
@@ -898,8 +996,6 @@ class System_tools extends MY_Controller
             "BACKUP_DIR=backup/dumps",
             "LOG_DIR=backup/logs",
             "RETENTION_DAYS=" . $q($this->_cfg('backup.retention_days', '3')),
-            "BACKUP_REPO_REMOTE=" . $q($this->_cfg('backup.repo_remote', 'origin')),
-            "BACKUP_REPO_BRANCH=" . $q($this->_cfg('backup.repo_branch', 'main')),
             "EXCLUDE_TABLES=" . $q($this->_cfg('backup.exclude_tables', '')),
             "",
             "# Replication",
@@ -918,6 +1014,38 @@ class System_tools extends MY_Controller
             "TUNNEL_REMOTE_PORT=" . $q($this->_cfg('tunnel.remote_port', '3306')),
         ];
         @file_put_contents($envPath, implode("\n", $lines) . "\n");
+    }
+
+    private function system_tools_mutation_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::SYSTEM_TOOLS_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-fA-F]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::SYSTEM_TOOLS_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+        return $token;
+    }
+
+    private function require_system_tools_mutation_csrf(): bool
+    {
+        if (strtoupper((string)$this->input->method(true)) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            $this->json_error('Permintaan System Tools tidak valid.', 405);
+            return false;
+        }
+
+        $provided = trim((string)$this->input->get_request_header(self::SYSTEM_TOOLS_MUTATION_CSRF_CI_HEADER, true));
+        $expected = (string)$this->session->userdata(self::SYSTEM_TOOLS_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-fA-F]{64}\z/D', $provided) !== 1
+            || preg_match('/\A[0-9a-fA-F]{64}\z/D', $expected) !== 1
+            || !hash_equals($expected, $provided)
+        ) {
+            $this->json_error('Permintaan System Tools tidak valid.', 403);
+            return false;
+        }
+
+        return true;
     }
 
     private function _runScript(string $folder, string $name): array

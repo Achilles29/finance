@@ -52,7 +52,7 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
 <div class="fin-page-header mb-3">
   <div>
     <h4 class="fin-page-title"><i class="ri ri-shield-check-line me-1 text-primary"></i>Perlindungan Database</h4>
-    <p class="fin-page-subtitle mb-0">Backup otomatis ke GitHub &amp; server cadangan untuk jaga-jaga mati listrik atau gangguan server.</p>
+    <p class="fin-page-subtitle mb-0">Backup otomatis lokal &amp; server cadangan untuk jaga-jaga mati listrik atau gangguan server.</p>
   </div>
 </div>
 
@@ -145,10 +145,6 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
             </div>
             <div class="form-text">File lama otomatis dihapus.</div>
           </div>
-          <div class="col-md-4"><label class="form-label small mb-1">GitHub Remote</label>
-            <input type="text" id="b_remote" class="form-control" value="<?php echo $cfgGet($cfg,'backup.repo_remote','origin'); ?>"></div>
-          <div class="col-md-4"><label class="form-label small mb-1">Branch GitHub</label>
-            <input type="text" id="b_branch" class="form-control" value="<?php echo $cfgGet($cfg,'backup.repo_branch','main'); ?>"></div>
           <div class="col-12">
             <label class="form-label small mb-1">Tabel yang tidak perlu dibackup</label>
             <input type="hidden" id="b_exclude" value="<?php echo $cfgGet($cfg,'backup.exclude_tables',''); ?>">
@@ -160,6 +156,9 @@ $lastDump   = !empty($recentDumps) ? $recentDumps[0] : null;
             </div>
             <div id="b_exclude_chips" class="d-flex flex-wrap gap-1"></div>
             <div class="form-text">Tabel log besar yang tidak dibutuhkan untuk restore. Kecuali tabel ini = tetap dibackup semua.</div>
+          </div>
+          <div class="col-12">
+            <div class="alert alert-info border-0 small mb-0">Runner backup hanya membuat dump dan log lokal di host ini. Backup off-site terenkripsi harus dikonfigurasi secara terpisah.</div>
           </div>
         </div>
       </div>
@@ -549,12 +548,6 @@ $root  = rtrim(FCPATH, '/\\');
     <p class="small text-muted mb-3">Pastikan semua ini sudah siap sebelum mengkonfigurasi backup atau server cadangan.</p>
     <ul class="guide-checklist">
       <li>Database berjalan normal dan bisa diakses dari aplikasi ini</li>
-      <li>Akun GitHub sudah punya <strong>repository private</strong> khusus untuk backup (pisah dari repo kode)</li>
-      <li>Di server, sudah ada SSH key yang terhubung ke GitHub (tes: <code>git push origin main</code> dari folder finance)</li>
-      <li>Git sudah dikonfigurasi di server:
-        <div class="dbt-code mt-1">git config --global user.email "email@kamu.com"
-git config --global user.name "Finance Backup"</div>
-      </li>
       <?php if (!$isWin): ?>
       <li>Script backup sudah bisa dieksekusi:
         <div class="dbt-code mt-1">chmod +x <?php echo $root; ?>/scripts/backup/backup_full.sh
@@ -562,21 +555,19 @@ chmod +x <?php echo $root; ?>/scripts/replication/*.sh</div>
       </li>
       <?php endif; ?>
       <li>mysqldump tersedia di server (cek: <code>mysqldump --version</code>)</li>
+      <li>Jika membutuhkan salinan di luar host, siapkan layanan backup off-site terenkripsi secara terpisah dari runner ini</li>
     </ul>
-    <div class="guide-note mt-3">
-      <strong>Kalau git push gagal:</strong> Pastikan SSH key server sudah ditambahkan di GitHub → Settings → SSH and GPG keys. Generate key dengan <code>ssh-keygen -t ed25519</code>, lalu tambahkan isi <code>~/.ssh/id_ed25519.pub</code> ke GitHub.
-    </div>
   </div>
 </div>
 
 <!-- BAB 2 -->
 <div class="guide-chapter">
   <div class="guide-chapter-header" onclick="toggleChap(this)">
-    <div class="chap-title"><span class="chap-num">2</span>Setup Backup Otomatis ke GitHub</div>
+    <div class="chap-title"><span class="chap-num">2</span>Setup Backup Otomatis Lokal</div>
     <i class="ri ri-arrow-down-s-line guide-toggle-icon"></i>
   </div>
   <div class="guide-chapter-body">
-    <p class="small text-muted mb-3">Backup berjalan otomatis setiap 30 menit. File disimpan lokal 3 hari, lalu dikirim ke GitHub sebagai arsip jangka panjang.</p>
+    <p class="small text-muted mb-3">Backup berjalan otomatis setiap 30 menit dan menyimpan file di host ini sesuai masa retensi. Backup off-site terenkripsi harus dikonfigurasi secara terpisah.</p>
     <ol class="guide-step-list">
       <li>
         <div class="snum">1</div>
@@ -586,22 +577,14 @@ chmod +x <?php echo $root; ?>/scripts/replication/*.sh</div>
         </div>
       </li>
       <li>
-        <div class="snum">2</div>
-        <div class="sbody">
-          <div class="stitle">Isi GitHub Remote dan Branch</div>
-          <div class="sdesc">Remote biasanya <code>origin</code>, branch <code>main</code>. Pastikan remote sudah mengarah ke repo backup, bukan repo kode aplikasi.</div>
-          <div class="guide-note">Cek remote aktif: <code>git remote -v</code> dari folder finance. Kalau masih ke repo kode, tambahkan remote baru: <code>git remote add backup git@github.com:username/finance-backup.git</code> lalu isi field Remote dengan <code>backup</code>.</div>
-        </div>
-      </li>
-      <li>
-        <div class="snum">3</div>
+          <div class="snum">2</div>
         <div class="sbody">
           <div class="stitle">Klik "Simpan Pengaturan"</div>
           <div class="sdesc">File <code>.env</code> dibuat otomatis di <code>scripts/backup/.env</code>. Tidak perlu edit manual.</div>
         </div>
       </li>
       <li>
-        <div class="snum">4</div>
+        <div class="snum">3</div>
         <div class="sbody">
           <div class="stitle">Uji coba manual di terminal server</div>
           <?php if ($isWin): ?>
@@ -611,11 +594,11 @@ chmod +x <?php echo $root; ?>/scripts/replication/*.sh</div>
           <div class="sdesc">Di server Linux:</div>
           <div class="dbt-code"><?php echo $root; ?>/scripts/backup/backup_full.sh</div>
           <?php endif; ?>
-          <div class="sdesc mt-1">Harusnya muncul file <code>.sql.gz</code> di <code>backup/dumps/</code> dan push ke GitHub berhasil.</div>
+          <div class="sdesc mt-1">Harusnya muncul file <code>.sql.gz</code> di <code>backup/dumps/</code> pada host ini. Runner tidak mengirim dump ke layanan eksternal.</div>
         </div>
       </li>
       <li>
-        <div class="snum">5</div>
+        <div class="snum">4</div>
         <div class="sbody">
           <div class="stitle">Jadwalkan agar berjalan otomatis</div>
           <?php if ($isWin): ?>
@@ -624,7 +607,7 @@ chmod +x <?php echo $root; ?>/scripts/replication/*.sh</div>
           <div class="sdesc">Jalankan <code>crontab -e</code> dan tambahkan baris ini:</div>
           <div class="dbt-code">*/30 * * * * <?php echo $root; ?>/scripts/backup/backup_full.sh</div>
           <?php endif; ?>
-          <div class="guide-ok mt-1">✓ Setelah ini backup berjalan sendiri. Kamu bisa lihat hasilnya di tab "Status & Jalankan" atau langsung di repository GitHub.</div>
+          <div class="guide-ok mt-1">✓ Setelah ini backup berjalan sendiri. Lihat hasilnya di tab "Status & Jalankan". Konfigurasikan salinan off-site terenkripsi secara terpisah bila diperlukan.</div>
         </div>
       </li>
     </ol>
@@ -821,7 +804,7 @@ autossh -M 0 -fN -L 3307:127.0.0.1:3306 user@IP_SERVER_UTAMA</div>
         <div class="guide-scenario">
           <div class="guide-scenario-title">📦 Restore dari Backup</div>
           <div class="sdesc small">
-            Jika perlu restore: ambil file <code>.sql.gz</code> dari GitHub atau folder <code>backup/dumps/</code>.
+            Jika perlu restore: ambil file <code>.sql.gz</code> dari penyimpanan off-site terpisah setelah didekripsi, atau dari folder <code>backup/dumps/</code>.
             <div class="mt-2"><strong>Untuk Windows / localhost:</strong></div>
             <div class="mt-1">Opsi 1, ekstrak dulu dengan 7-Zip atau WinRAR sampai menjadi file <code>.sql</code>, lalu import:</div>
             <div class="dbt-code mt-1">C:\xampp\mysql\bin\mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS db_finance CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
@@ -877,7 +860,7 @@ mysql -u root -p db_finance < backup.sql</div>
       </li>
     </ol>
 
-    <div class="guide-note">Selama mode darurat aktif, backup otomatis tetap berjalan di server cadangan dan push ke GitHub seperti biasa.</div>
+    <div class="guide-note">Selama mode darurat aktif, backup otomatis tetap berjalan di server cadangan dan tersimpan lokal di sana. Backup off-site terenkripsi tetap merupakan konfigurasi terpisah.</div>
   </div>
 </div>
 
@@ -952,8 +935,8 @@ mysql -u root -p db_finance < backup.sql</div>
   </div>
   <div class="guide-chapter-body">
     <div class="guide-scenario">
-      <div class="guide-scenario-title">❓ Backup gagal push ke GitHub</div>
-      <div class="sdesc small">Kemungkinan: SSH key belum dikonfigurasi, atau repo sudah terlalu besar. Cek log di <code>backup/logs/</code>. Solusi: cek <code>git push origin main</code> manual di terminal server.</div>
+      <div class="guide-scenario-title">❓ Bagaimana menyiapkan backup off-site?</div>
+      <div class="sdesc small">Runner ini hanya menyimpan dump dan log di host lokal. Pilih layanan penyimpanan terpisah, enkripsi dump sebelum dikirim, lalu jadwalkan mekanisme off-site tersebut di luar runner ini.</div>
     </div>
     <div class="guide-scenario">
       <div class="guide-scenario-title">❓ "Tes Koneksi" gagal tapi database jelas jalan</div>
@@ -972,8 +955,8 @@ mysql -u root -p db_finance < backup.sql</div>
       <div class="sdesc small">Tergantung berapa lama mode darurat berlangsung dan berapa banyak transaksi. Untuk pemadaman 1-2 jam dengan ratusan transaksi, proses pemulihan biasanya 5-15 menit.</div>
     </div>
     <div class="guide-scenario">
-      <div class="guide-scenario-title">❓ Apakah backup GitHub aman? Tidak bocor?</div>
-      <div class="sdesc small">Selama repository <strong>private</strong>, aman. Pastikan tidak menggunakan public repo. Untuk keamanan ekstra, pertimbangkan encrypt dump sebelum push (tambahan konfigurasi di <code>backup_full.sh</code>).</div>
+      <div class="guide-scenario-title">❓ Apakah dump lokal sudah terenkripsi?</div>
+      <div class="sdesc small">Runner menyimpan dump lokal apa adanya. Jika membutuhkan perlindungan off-site, gunakan mekanisme terpisah yang mengenkripsi dump sebelum dipindahkan dan batasi akses ke folder <code>backup/</code>.</div>
     </div>
   </div>
 </div>
@@ -1305,6 +1288,7 @@ function toggleChap(header) {
 <script>
 (function () {
   const BASE = '<?php echo site_url(); ?>';
+  const systemToolsMutationCsrfToken = <?php echo json_encode((string)($system_tools_mutation_csrf_token ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
   // ── Tabs ──────────────────────────────────────────────────────
   document.querySelectorAll('.dbt-tab-btn').forEach(btn => {
@@ -1335,7 +1319,7 @@ function toggleChap(header) {
     else { btn.disabled = false; btn.innerHTML = btn._html || btn.innerHTML; }
   }
   async function post(url, data) {
-    const r = await fetch(BASE + url, { method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}, body:JSON.stringify(data) });
+    const r = await fetch(BASE + url, { method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest','X-System-Tools-CSRF':systemToolsMutationCsrfToken}, body:JSON.stringify(data) });
     const t = await r.text();
     let j; try { j = JSON.parse(t); } catch(e) { throw new Error('Response error. Cek permission.'); }
     if (!j.ok) throw new Error(j.message || 'Gagal');
@@ -1369,7 +1353,6 @@ function toggleChap(header) {
     return { 'backup.db_host': getVal('b_db_host'), 'backup.db_port': getVal('b_db_port'),
              'backup.db_user': getVal('b_db_user'), 'backup.db_pass': document.getElementById('b_db_pass')?.value || '',
              'backup.db_name': getVal('b_db_name'), 'backup.retention_days': getVal('b_retention'),
-             'backup.repo_remote': getVal('b_remote'), 'backup.repo_branch': getVal('b_branch'),
              'backup.exclude_tables': getVal('b_exclude') };
   }
   function replPayload() {
@@ -1401,8 +1384,7 @@ function toggleChap(header) {
     setLoading(this, true);
     const res = document.getElementById('db-test-result');
     try {
-      const q = new URLSearchParams({ host:getVal('b_db_host'), port:getVal('b_db_port'), user:getVal('b_db_user'), pass:document.getElementById('b_db_pass')?.value||'', name:getVal('b_db_name') });
-      const j = await get('dbtools/action/test-db?' + q);
+      const j = await post('dbtools/action/test-db', { host:getVal('b_db_host'), port:getVal('b_db_port'), user:getVal('b_db_user'), pass:document.getElementById('b_db_pass')?.value||'', name:getVal('b_db_name') });
       res.innerHTML = '<span class="text-success fw-semibold">✓ ' + esc(j.message) + '</span>';
     } catch(e) { res.innerHTML = '<span class="text-danger">✗ ' + esc(e.message) + '</span>'; }
     finally { setLoading(this, false); }

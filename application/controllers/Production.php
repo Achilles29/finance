@@ -3,6 +3,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Production extends MY_Controller
 {
+    private const COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY = 'production_component_formula_mutation_csrf';
+    private const COMPONENT_FORMULA_MUTATION_CSRF_CI_HEADER = 'X-Production-Component-Formula-Csrf';
+
     public function __construct()
     {
         parent::__construct();
@@ -119,6 +122,7 @@ class Production extends MY_Controller
             'as_of_date' => $compare['as_of_date'] ?? ($filters['as_of_date'] ?? date('Y-m-d')),
             'location_options' => $this->location_options(),
             'divisions' => $this->active_divisions(),
+            'can_value_reconciliation' => $this->can('inventory.stock.value_reconciliation.index', 'view'),
         ]);
     }
 
@@ -993,11 +997,6 @@ class Production extends MY_Controller
         if (!($post['ok'] ?? false)) {
             return $post;
         }
-        $this->db->where('id', $id)->update('inv_component_adjustment', [
-            'status' => 'POSTED',
-            'posted_at' => date('Y-m-d H:i:s'),
-            'posted_by' => $actorEmployeeId > 0 ? $actorEmployeeId : null,
-        ]);
         return ['ok' => true, 'id' => $id, 'data' => $post];
     }
 
@@ -1556,7 +1555,7 @@ class Production extends MY_Controller
 
     public function component_formula_edit($componentId)
     {
-        $this->require_permission('production.component.formula.index', 'view');
+        $this->require_permission('production.component.formula.index', 'edit');
         $componentId = (int)$componentId;
         if ($componentId <= 0) {
             show_error('Component tidak valid.', 422, 'Invalid Request');
@@ -1582,11 +1581,17 @@ class Production extends MY_Controller
             'materials' => $this->active_materials(),
             'components' => $this->active_components(),
             'source_divisions' => $sourceDivisions,
+            'production_component_formula_mutation_csrf' => $this->component_formula_mutation_csrf(),
         ]);
     }
 
     public function component_formula_save()
     {
+        $this->require_component_formula_save_access();
+        if (!$this->require_component_formula_mutation_csrf()) {
+            return;
+        }
+
         $payload = $this->request_payload();
         $id = (int)($payload['id'] ?? 0);
         $this->require_permission('production.component.formula.index', $id > 0 ? 'edit' : 'create');
@@ -1601,6 +1606,10 @@ class Production extends MY_Controller
     public function component_formula_save_bulk()
     {
         $this->require_permission('production.component.formula.index', 'edit');
+        if (!$this->require_component_formula_mutation_csrf()) {
+            return;
+        }
+
         $payload = $this->request_payload();
         $componentId = (int)($payload['component_id'] ?? 0);
         $lines = isset($payload['lines']) && is_array($payload['lines']) ? $payload['lines'] : [];
@@ -1615,6 +1624,10 @@ class Production extends MY_Controller
     public function component_formula_delete($id)
     {
         $this->require_permission('production.component.formula.index', 'delete');
+        if (!$this->require_component_formula_mutation_csrf()) {
+            return;
+        }
+
         $result = $this->Production_model->delete_component_formula((int)$id);
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal hapus formula.'), 422);
@@ -3240,6 +3253,72 @@ class Production extends MY_Controller
         }
         $post = $this->input->post(null, true);
         return is_array($post) ? $post : [];
+    }
+
+    private function require_component_formula_save_access(): void
+    {
+        $pageCode = 'production.component.formula.index';
+        if ($this->can($pageCode, 'create') || $this->can($pageCode, 'edit')) {
+            return;
+        }
+
+        // Do not inspect the request payload until an applicable writer permission
+        // and the endpoint-specific POST/CSRF boundary have both been established.
+        $this->require_permission($pageCode, 'create');
+    }
+
+    private function component_formula_mutation_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_component_formula_mutation_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->reject_component_formula_mutation_csrf(405, 'Metode request tidak diizinkan.');
+            return false;
+        }
+
+        // CI normalizes CGI/FastCGI header names to title case (...-Csrf).
+        // This scoped token is header-only: query, form, JSON, and raw-body
+        // token fields are deliberately not accepted as fallbacks.
+        $providedToken = (string)$this->input->get_request_header(
+            self::COMPONENT_FORMULA_MUTATION_CSRF_CI_HEADER,
+            true
+        );
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1) {
+            $this->reject_component_formula_mutation_csrf(403, 'Permintaan perubahan formula component tidak valid.');
+            return false;
+        }
+
+        $sessionToken = (string)$this->session->userdata(self::COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            $this->reject_component_formula_mutation_csrf(403, 'Permintaan perubahan formula component tidak valid.');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function reject_component_formula_mutation_csrf(int $statusCode, string $message): void
+    {
+        $this->clear_output_buffers();
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode([
+                'ok' => false,
+                'message' => $message,
+            ], JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     private function normalize_lines(array $lines, string $mode): array

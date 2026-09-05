@@ -1,0 +1,112 @@
+{
+  "catalog_version": 1,
+  "tool_version": "1.0.0",
+  "sql_directory": "sql",
+  "catalog_policy": {
+    "active_sql_completeness": "managed_or_explicit_legacy",
+    "scan_scope": "top_level_sql_files_only",
+    "unknown_sql": "reject"
+  },
+  "classification_schema": {
+    "schema": "deployable",
+    "data": "deployable",
+    "seed": "deployable",
+    "support-repair": "manual-only"
+  },
+  "supported_policies": [
+    "clean_install",
+    "upgrade"
+  ],
+  "legacy_unmanaged_sql": [
+    "sql/2026-08-15b_wa_report_schedule.sql",
+    "sql/2026-08-17e_pos_whatsapp_runtime_schema_preflight.sql",
+    "sql/2026-09-02a_wa_report_schedule_claim_lease.sql",
+    "sql/2026-09-03a_auth_login_throttle_foundation.sql",
+    "sql/2026-09-03b_auth_session_log_login_at_microsecond_compatibility.sql",
+    "sql/2026-09-04a_a3_navigation_registry_canonicalization.sql",
+    "sql/2026-09-04b_a3_page_alias_registry.sql"
+  ],
+  "migrations": [
+    {
+      "id": "2026-09-04c-a5-schema-migration-registry-foundation",
+      "order": 2026090403,
+      "path": "sql/2026-09-04c_a5_schema_migration_registry_foundation.sql",
+      "sha256": "39dd6eff006f75a73f229a60ae2a73615d6c9e67d82f4720632431979645163e",
+      "dependencies": [],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    },
+    {
+      "id": "2026-09-05a-telegram-bot-foundation",
+      "order": 2026090501,
+      "path": "sql/2026-09-05a_telegram_bot_foundation.sql",
+      "sha256": "afc6494465d1f141955b23809aac91d864f12ffba35a9637703b9633fa89ae0c",
+      "dependencies": [
+        "2026-09-04c-a5-schema-migration-registry-foundation"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    },
+    {
+      "id": "2026-09-05b-telegram-setup-guide",
+      "order": 2026090502,
+      "path": "sql/2026-09-05b_telegram_setup_guide.sql",
+      "sha256": "360347133206045a98a61220b6cf6064c1dc7eb63bb72c7ee9c5bcb002984d6f",
+      "dependencies": [
+        "2026-09-05a-telegram-bot-foundation"
+      ],
+      "classification": "seed",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    },
+    {
+      "id": "2026-09-05c-telegram-safe-activation-default",
+      "order": 2026090503,
+      "path": "sql/2026-09-05c_telegram_safe_activation_default.sql",
+      "sha256": "9f112092e5d78cfa0c0ad08a6b6db6c53f66149b0b65980d39d875ac7a39e3b0",
+      "dependencies": [
+        "2026-09-05b-telegram-setup-guide"
+      ],
+      "classification": "seed",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    },
+    {
+      "id": "2026-09-05d-a5-clean-install-reference-seed",
+      "order": 2026090404,
+      "path": "sql/2026-09-05d_a5_clean_install_reference_seed.sql",
+      "sha256": "ef33bfbc5fac1c151c98854f401d2310caf4f90f4ff2bac0643c7da9efbe2a61",
+      "dependencies": [
+        "2026-09-04c-a5-schema-migration-registry-foundation"
+      ],
+      "classification": "seed",
+      "policies": [
+        "clean_install"
+      ]
+    },
+    {
+      "id": "2026-09-05e-whatsapp-safe-reference-seed",
+      "order": 2026090405,
+      "path": "sql/2026-09-05e_whatsapp_safe_reference_seed.sql",
+      "sha256": "35181edd33a89add9d99a39d3ef0e801fa92393e687928dddd3e7331ec54ab78",
+      "dependencies": [
+        "2026-09-04c-a5-schema-migration-registry-foundation"
+      ],
+      "classification": "seed",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    }
+  ]
+}
