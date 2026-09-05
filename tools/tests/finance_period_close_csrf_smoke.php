@@ -72,7 +72,22 @@ function periodCloseFixture($expected): Finance_reports
             throw new RuntimeException('Unexpected model call ' . $method);
         }
     };
-    $c->load = new class { public function view($view, $data = []): void {} };
+    $c->sensitiveactionstepup = new class {
+        public array $issueCalls = [], $consumeCalls = [];
+        public bool $allowConsume = true;
+        public function issue($userId, $action, $targetId, $password): array {
+            $this->issueCalls[] = [$userId, $action, $targetId, $password];
+            if ($password !== 'period-password') return ['ok' => false, 'status' => 403, 'message' => 'Verifikasi ulang tidak berhasil.'];
+            return ['ok' => true, 'proof' => str_repeat('c', 64)];
+        }
+        public function consume($userId, $action, $targetId, $proof): array {
+            $this->consumeCalls[] = [$userId, $action, $targetId, $proof];
+            return $this->allowConsume && $userId === 7 && $action === 'PERIOD_REOPEN' && $targetId === 12 && $proof === str_repeat('c', 64)
+                ? ['ok' => true]
+                : ['ok' => false, 'status' => 428, 'message' => 'Verifikasi ulang diperlukan.'];
+        }
+    };
+    $c->load = new class { public array $libraries = []; public function view($view, $data = []): void {} public function library($name, $params = null, $objectName = null): void { $this->libraries[] = [$name, $objectName]; } };
     return $c;
 }
 $checks = 0;
@@ -101,6 +116,7 @@ foreach ($writers as $method => [$writer, $permission]) {
             $c->input->verb = $verb;
             $c->input->ajax = $ajax;
             $c->input->values = [$key => $provided, 'notes' => 'Fixture note'];
+            if ($method === 'period_close_reopen') $c->input->values['step_up_password'] = 'period-password';
             [$actual, $body] = $invoke($c, $method);
             $check($actual === $status, "$method $verb status $status ajax=" . (int)$ajax);
             $check($c->permissions === [['finance.period_close.index', $permission]], 'existing permission is required');
@@ -113,8 +129,12 @@ foreach ($writers as $method => [$writer, $permission]) {
                 if ($status === 405) $check(in_array('Allow: POST', $c->output->headers, true), 'method guard advertises POST');
             } else {
                 $args = $writer === 'save_period_close' ? [['notes' => 'Fixture note'], 7] : [12, 7];
-                $check($c->Finance_report_model->calls === [[$writer, $args]], 'one correct writer with session actor and no CSRF in business data');
+                $check($c->Finance_report_model->calls === [[$writer, $args]], 'one correct writer with session actor and no CSRF or password in business data');
                 $check($c->session->flash === ['success' => 'Fixture result'], 'success message preserved');
+                if ($method === 'period_close_reopen') {
+                    $check($c->sensitiveactionstepup->issueCalls === [[7, 'PERIOD_REOPEN', 12, 'period-password']]
+                        && $c->sensitiveactionstepup->consumeCalls === [[7, 'PERIOD_REOPEN', 12, str_repeat('c', 64)]], 'reopen performs scoped issue and one-use consume before its writer');
+                }
             }
         }
     }
@@ -125,9 +145,17 @@ foreach ($writers as $method => [$writer, $permission]) {
     $check($invoke($c, $method)[0] === 403 && $c->input->reads === [] && $c->Finance_report_model->calls === [], 'RBAC denies before token/payload/model');
     $c = periodCloseFixture($token);
     $c->input->values = [$key => $token];
+    if ($method === 'period_close_reopen') $c->input->values['step_up_password'] = 'period-password';
     $c->Finance_report_model->ok = false;
     $check($invoke($c, $method)[0] === 303 && $c->session->flash === ['error' => 'Fixture result'], 'business failure stays error with local redirect');
 }
+$c = periodCloseFixture($token);
+$c->input->values = [$key => $token];
+$check($invoke($c, 'period_close_reopen')[0] === 303 && $c->Finance_report_model->calls === [] && $c->session->flash === ['error' => 'Verifikasi ulang tidak berhasil.'], 'reopen without password never reaches its writer');
+$c = periodCloseFixture($token);
+$c->input->values = [$key => $token, 'step_up_password' => 'period-password'];
+$c->sensitiveactionstepup->allowConsume = false;
+$check($invoke($c, 'period_close_reopen')[0] === 303 && $c->Finance_report_model->calls === [] && $c->session->flash === ['error' => 'Verifikasi ulang diperlukan.'], 'reopen consume failure never reaches its writer');
 foreach (['https://outside.example/path', '//outside.example', "https://outside.example\r\nX-Test: yes", ['nested'], 'finance-reports/period-close/detail/99'] as $url) {
     $c = periodCloseFixture($token);
     $c->input->values = [$key => $token, 'redirect_to' => $url, 'actor_user_id' => 999];
@@ -191,9 +219,20 @@ foreach (['period_close', 'period_close_detail'] as $page) {
                 $action = $form->getAttribute('action');
                 $check(preg_match('~^https://finance\.example\.test/finance-reports/period-close/(store|process/12|reopen/12)$~D', $action) === 1, 'form submits to fixed local route');
                 $method = str_ends_with($action, '/store') ? 'period_close_store' : (str_contains($action, '/process/') ? 'period_close_process' : 'period_close_reopen');
+                $stepUpFields = $xpath->query('.//input[@name="step_up_password"]', $form);
+                $check(
+                    $method !== 'period_close_reopen'
+                        ? $stepUpFields->length === 0
+                        : $stepUpFields->length === 1
+                            && $stepUpFields->item(0)->getAttribute('type') === 'password'
+                            && $stepUpFields->item(0)->getAttribute('autocomplete') === 'current-password'
+                            && $stepUpFields->item(0)->hasAttribute('required'),
+                    'only reopen form has the required masked reauthentication field'
+                );
                 $submit = periodCloseFixture($token);
                 $submit->allowed = $c->allowed;
                 $submit->input->values = [$key => $fields->item(0)->getAttribute('value')];
+                if ($method === 'period_close_reopen') $submit->input->values['step_up_password'] = 'period-password';
                 $check($invoke($submit, $method)[0] === 303, 'rendered form token accepted by its writer');
                 $formCount++;
             }

@@ -5264,3 +5264,58 @@
   APK ditata sebagai batch sendiri agar tidak mengganggu aplikasi mobile.
 - Penyerahan: commit lokal sesudah `91e14ec`, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
+
+## Batch 157 — Reauth Reopen Periode Keuangan web
+
+- Waktu/tanggal: 2026-09-05, validasi akhir 21:52 WIB.
+- Prioritas: P0 / `AUD-A1-STEP-01` dan `AUD-A1-FIN-01`. Reopen periode yang
+  sudah ditutup memengaruhi audit/snapshot finance sehingga tidak cukup
+  mengandalkan sesi browser yang dibiarkan terbuka.
+- Diskusi/arah: fixer tunggal. Form finance adalah POST server-side, bukan
+  kontrak JSON POS; batch ini memakai service proof yang sama tetapi proof
+  diterbitkan dan langsung dikonsumsi di controller setelah CSRF+RBAC lulus.
+  Dengan itu password tidak pernah menjadi data model, flash message, atau
+  payload periode. POS Mobile/APK tidak disentuh.
+- File berubah:
+  - `application/libraries/SensitiveActionStepUp.php`.
+  - `application/controllers/Finance_reports.php`.
+  - `application/views/finance/period_close_detail.php`.
+  - `tools/tests/finance_period_close_csrf_smoke.php` dan
+    `tools/tests/pos_reversal_step_up_smoke.php`.
+  - Roadmap induk `_30`, `_28`, serta execution log ini.
+- Perubahan utama:
+  - Hanya form Reopen pada periode berstatus `CLOSED` kini memiliki field
+    password masked, required, dan `autocomplete=current-password`; form draft
+    dan close biasa tidak berubah.
+  - Setelah guard permission edit dan CSRF form yang sudah ada, controller
+    memverifikasi password aktif untuk action `PERIOD_REOPEN`, menerbitkan dan
+    langsung mengonsumsi proof yang terikat user/action/id periode sebelum
+    `Finance_report_model::reopen_period()` dipanggil.
+  - Password salah, proof gagal, atau request tanpa password berhenti dengan
+    redirect lokal+flash error; tidak memanggil writer. Limiter sesi 5 gagal/10
+    menit dan proof hash-only 180 detik berasal dari service Batch 156.
+- SQL/runtime: **tidak ada SQL baru**, migration, perubahan schema/data,
+  credential, permission/sidebar, atau query tulis staging. Composer tidak
+  berubah sehingga `composer validate` tidak relevan.
+- Validasi:
+  - `php -l` lima file aplikasi/test berubah lulus; `git diff --check` lulus.
+  - Smoke step-up 43 pemeriksaan lulus, termasuk `PERIOD_REOPEN` proof satu
+    kali. Smoke finance CSRF 707 pemeriksaan lulus: RBAC/verb/token, password
+    hilang, issue/consume gagal, writer/model tidak terjangkau, form DOM nyata,
+    dan pelestarian actor/redirect.
+  - Regresi POS CSRF 1.692, reopen atomik 55, dan kontrak finance 21 lulus.
+  - Quality gate `parallel`: required 57/57, development 4/4, release 1/1,
+    preflight 1/1 lulus. Runtime/security/static/staging tier dan UAT browser
+    nyata tetap bukan klaim profil ini.
+- Review akhir fixer tunggal: layak dalam scope. Reopen tetap memakai izin edit
+  yang ada dan transaksi/row lock Batch 155; reauth hanya menambah bukti
+  identitas sebelum writer. Tidak ada password diteruskan ke model atau POS
+  Mobile yang berubah.
+- Risiko sisa: step-up adjustment/reprint, API/APK, dan MFA belum ada. UAT
+  finance dengan akun edit nyata, APK/device/printer, serta baseline izin owner
+  masih wajib sebelum menutup A1.
+- Batch berikutnya: pilih satu writer adjustment atau reprint setelah memetakan
+  seluruh entry web-nya; kontrak APK tetap batch terpisah agar tidak memutus
+  aplikasi mobile.
+- Penyerahan: commit lokal sesudah `abc3d9b`, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.

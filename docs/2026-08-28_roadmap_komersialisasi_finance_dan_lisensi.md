@@ -19,10 +19,10 @@ berada di P2-06 `_30`;
 ini perbaikan fondasi, bukan modul lisensi atau kenaikan status siap jual.
 
 Batch 154–155 mengamankan mutasi Tutup Periode Keuangan dari request palsu,
-redirect kiriman pengguna, serta reopen ganda/gagal commit. Batch 156 menambah
-reauth proof satu-kali untuk Void dan Refund web POS. Acceptance finance,
-step-up aksi lain, dan APK tetap berada di `_30`; status komersialisasi tidak
-berubah.
+redirect kiriman pengguna, serta reopen ganda/gagal commit. Batch 156–157
+menambah reauth proof satu-kali untuk Void/Refund POS web serta Reopen periode
+web. Acceptance finance, step-up aksi lain, dan APK tetap berada di `_30`;
+status komersialisasi tidak berubah.
 
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.

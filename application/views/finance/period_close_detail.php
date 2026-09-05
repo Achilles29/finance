@@ -72,8 +72,10 @@ $canEdit = !empty($can_edit);
           <button type="submit" class="btn btn-primary">Proses Close</button>
         </form>
       <?php elseif ($canEdit && $status === 'CLOSED'): ?>
-        <form method="post" action="<?php echo site_url('finance-reports/period-close/reopen/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('Buka ulang period ini? Setelah itu Anda bisa close ulang untuk rebuild snapshot.');">
+        <form method="post" class="d-flex flex-wrap gap-2 align-items-center" action="<?php echo site_url('finance-reports/period-close/reopen/' . (int)($row['id'] ?? 0)); ?>" onsubmit="return confirm('Buka ulang period ini? Setelah itu Anda bisa close ulang untuk rebuild snapshot.');">
           <input type="hidden" name="<?php echo html_escape((string)($csrf['name'] ?? '')); ?>" value="<?php echo html_escape((string)($csrf['value'] ?? '')); ?>">
+          <label class="visually-hidden" for="period_reopen_step_up_password">Konfirmasi password</label>
+          <input type="password" class="form-control" style="max-width:220px" id="period_reopen_step_up_password" name="step_up_password" autocomplete="current-password" maxlength="72" required placeholder="Konfirmasi password">
           <button type="submit" class="btn btn-warning">Reopen</button>
         </form>
       <?php endif; ?>

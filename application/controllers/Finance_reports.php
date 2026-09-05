@@ -470,10 +470,42 @@ class Finance_reports extends MY_Controller
         if (!$this->require_period_close_csrf()) {
             return;
         }
+        if (!$this->require_period_reopen_step_up((int)$id)) {
+            redirect('finance-reports/period-close/detail/' . (int)$id);
+            return;
+        }
 
         $result = $this->Finance_report_model->reopen_period((int)$id, $this->actor_user_id());
         $this->session->set_flashdata(!empty($result['ok']) ? 'success' : 'error', (string)($result['message'] ?? 'Gagal membuka ulang period close.'));
         redirect('finance-reports/period-close/detail/' . (int)$id);
+    }
+
+    private function require_period_reopen_step_up(int $periodCloseId): bool
+    {
+        $password = $this->input->post('step_up_password', false);
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $issued = $this->sensitiveactionstepup->issue(
+            $this->actor_user_id(),
+            'PERIOD_REOPEN',
+            $periodCloseId,
+            $password
+        );
+        if (empty($issued['ok'])) {
+            $this->session->set_flashdata('error', (string)($issued['message'] ?? 'Verifikasi ulang tidak berhasil.'));
+            return false;
+        }
+
+        $consumed = $this->sensitiveactionstepup->consume(
+            $this->actor_user_id(),
+            'PERIOD_REOPEN',
+            $periodCloseId,
+            $issued['proof'] ?? null
+        );
+        if (empty($consumed['ok'])) {
+            $this->session->set_flashdata('error', (string)($consumed['message'] ?? 'Verifikasi ulang diperlukan.'));
+            return false;
+        }
+        return true;
     }
 
     private function period_close_csrf(): array

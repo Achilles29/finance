@@ -76,6 +76,10 @@ $issued = $service->issue(7, 'REFUND', 33, 'correct horse battery staple');
 $now += 181;
 $check($service->consume(7, 'REFUND', 33, $issued['proof'])['ok'] === false, 'expired proof is denied');
 
+$now = 1700000900;
+$issued = $service->issue(7, 'PERIOD_REOPEN', 44, 'correct horse battery staple');
+$check($issued['ok'] === true && $service->consume(7, 'PERIOD_REOPEN', 44, $issued['proof'])['ok'] === true, 'period reopen can use the same scoped one-use proof contract');
+
 $now = 1700001000;
 [$service, $ci] = posStepUpFixture(['id' => 7, 'password_hash' => $hash], $now);
 for ($i = 0; $i < 5; $i++) $service->issue(7, 'VOID', 12, 'wrong password');
