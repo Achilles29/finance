@@ -4805,3 +4805,39 @@
 - Batch berikutnya: audit trail perubahan Master memakai
   `aud_transaction_log`, dengan before/after teredaksi dan transaksi atomik;
   tetap tanpa perubahan kontrak POS Mobile/APK.
+
+## Batch 149 — GAP-02 audit trail atomik perubahan Master
+
+- Waktu: 2026-09-05 WIB.
+- Prioritas: menutup kekurangan audit trail P0-01 setelah endpoint dan registry
+  Master dibuktikan pada Batch 148.
+- Implementasi: enam jalur mutasi generik—create, update, toggle aktif, perubahan
+  stock mode produk, generate kalender libur, dan reorder—sekarang memulai
+  transaksi hanya setelah permission serta scoped CSRF lulus, lalu menulis
+  `aud_transaction_log` sebelum commit. Gagal schema, insert, status transaksi,
+  audit, atau commit menyebabkan perubahan ditolak/rollback.
+- Isi audit: module/action, tabel dan ID entity, actor user, source IP, before,
+  after, catatan aksi, dan timestamp. Key bertipe password, token, secret,
+  credential, authorization, cookie, atau session disaring rekursif; payload
+  bersarang dibatasi kedalamannya.
+- Generate holiday mencatat snapshot tahun sebelum/sesudah beserta jumlah
+  sumber/diproses. Reorder mencatat urutan ID dan sort order sebelum/sesudah.
+- Schema: tabel `aud_transaction_log` dan kolom yang diperlukan sudah terbukti
+  ada pada database staging serta baseline clean-install. Tidak ada SQL baru dan
+  tidak ada mutasi data staging pada batch ini.
+- File berubah: `application/controllers/Master.php`, smoke audit trail dan
+  penyesuaian smoke inline, quality gate/contract, roadmap `_30`, dan execution
+  log.
+- Validasi: PHP lint, 22 contract audit trail, CSRF form 18, inline 15, holiday
+  9, endpoint registry 47, quality-gate contract 27, serta quality gate
+  `parallel` lulus: required 50/50, development 4/4, release 1/1, dan preflight
+  1/1 tanpa temuan.
+- Status: P0-01 menjadi `CODE_PASS + STAGING_PASS`; release tetap diblokir
+  sampai negative role UAT. Tidak ada file POS Mobile/APK yang disentuh.
+- Risiko sisa: alasan operator masih berupa catatan aksi sistem, bukan field
+  alasan wajib pada setiap master; perubahan akun/role pegawai mempunyai jalur
+  audit domain auth tersendiri yang masih perlu ditinjau pada baseline
+  role/scope.
+- Batch berikutnya: inventaris dan negative matrix baseline multi-role serta
+  scope outlet/divisi pada database staging, tanpa mengubah definisi izin
+  bisnis milik owner.

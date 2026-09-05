@@ -20,6 +20,7 @@ $check = static function (bool $condition, string $message) use (&$checks, &$fai
 $expectedRequired = [
     'a1-required',
     'a1-master-endpoint-registry',
+    'a1-master-audit-trail',
     'a2-matrix',
     'a3-finance-ui-shell',
     'a3-navigation-registry',
@@ -104,7 +105,7 @@ $check(
     'Printer Agent runtime is pinned to the A4 venv Python executable'
 );
 $check(
-    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 61,
+    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 62,
     'all automated manifest IDs are unique'
 );
 $check(

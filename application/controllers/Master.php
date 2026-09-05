@@ -129,6 +129,128 @@ class Master extends MY_Controller
         );
     }
 
+    private function beginMasterAuditTransaction(): bool
+    {
+        $requiredColumns = [
+            'module_code',
+            'action_code',
+            'entity_table',
+            'entity_id',
+            'actor_user_id',
+            'source_ip',
+            'before_payload',
+            'after_payload',
+            'notes',
+            'created_at',
+        ];
+        if (!$this->db->table_exists('aud_transaction_log')) {
+            log_message('error', 'Master mutation blocked: aud_transaction_log is unavailable.');
+            show_error('Pencatatan audit belum siap. Perubahan tidak dijalankan.', 503, 'Service Unavailable');
+            return false;
+        }
+        foreach ($requiredColumns as $column) {
+            if (!$this->db->field_exists($column, 'aud_transaction_log')) {
+                log_message('error', 'Master mutation blocked: aud_transaction_log.' . $column . ' is unavailable.');
+                show_error('Pencatatan audit belum siap. Perubahan tidak dijalankan.', 503, 'Service Unavailable');
+                return false;
+            }
+        }
+
+        if ($this->db->trans_begin() === false) {
+            show_error('Transaksi perubahan master tidak dapat dimulai.', 503, 'Service Unavailable');
+            return false;
+        }
+        return true;
+    }
+
+    private function finishMasterAuditTransaction(bool $auditWritten): bool
+    {
+        if (!$auditWritten || $this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+            return false;
+        }
+        if ($this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
+            return false;
+        }
+        return true;
+    }
+
+    private function writeMasterAudit(
+        string $action,
+        string $table,
+        ?int $entityId,
+        $before,
+        $after,
+        string $notes
+    ): bool {
+        $beforeJson = $before === null ? null : json_encode(
+            $this->sanitizeMasterAuditPayload($before),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+        $afterJson = $after === null ? null : json_encode(
+            $this->sanitizeMasterAuditPayload($after),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+        );
+        if (($before !== null && !is_string($beforeJson)) || ($after !== null && !is_string($afterJson))) {
+            return false;
+        }
+
+        $sourceIp = method_exists($this->input, 'ip_address')
+            ? trim((string)$this->input->ip_address())
+            : '';
+        return $this->db->insert('aud_transaction_log', [
+            'module_code' => 'MASTER',
+            'action_code' => substr(strtoupper(trim($action)), 0, 40),
+            'entity_table' => substr(trim($table), 0, 80),
+            'entity_id' => $entityId !== null && $entityId > 0 ? $entityId : null,
+            'transaction_no' => null,
+            'ref_table' => null,
+            'ref_id' => null,
+            'actor_user_id' => !empty($this->current_user['id']) ? (int)$this->current_user['id'] : null,
+            'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
+            'before_payload' => $beforeJson,
+            'after_payload' => $afterJson,
+            'notes' => substr(trim($notes), 0, 255),
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    private function sanitizeMasterAuditPayload($value, int $depth = 0)
+    {
+        if ($depth >= 8) {
+            return '[DEPTH_LIMIT]';
+        }
+        if (!is_array($value)) {
+            return is_object($value) ? '[OBJECT]' : $value;
+        }
+
+        $sanitized = [];
+        foreach ($value as $key => $item) {
+            $normalizedKey = strtolower((string)$key);
+            if (preg_match('/(?:password|passwd|password_hash|token|secret|credential|authorization|cookie|session)/i', $normalizedKey) === 1) {
+                $sanitized[$key] = '[REDACTED]';
+                continue;
+            }
+            $sanitized[$key] = $this->sanitizeMasterAuditPayload($item, $depth + 1);
+        }
+        return $sanitized;
+    }
+
+    private function failMasterAuditedMutation(string $redirectUrl, string $message): void
+    {
+        log_message('error', $message);
+        if ($this->input->is_ajax_request()) {
+            $this->output
+                ->set_status_header(500)
+                ->set_content_type('application/json')
+                ->set_output(json_encode(['ok' => false, 'message' => $message], JSON_INVALID_UTF8_SUBSTITUTE));
+            return;
+        }
+        $this->session->set_flashdata('error', $message);
+        redirect($redirectUrl);
+    }
+
     private function redirect_contract_operational_if_needed(string $entity, string $action = 'index', int $id = 0): bool
     {
         if ($entity === 'hr-contract-template') {
@@ -851,25 +973,44 @@ class Master extends MY_Controller
             return;
         }
 
-        if (($cfg['table'] ?? '') === 'att_location' && $this->db->field_exists('is_default', 'att_location')) {
-            if (!empty($payload['is_default']) && (int)$payload['is_default'] === 1) {
-                $this->db->set('is_default', 0)->update('att_location');
-            }
+        if (!$this->beginMasterAuditTransaction()) {
+            return;
         }
-
         if (($cfg['table'] ?? '') === 'mst_product') {
             $photoPayload = $this->handleProductPhotoUpload();
             if ($photoPayload === null) {
+                $this->db->trans_rollback();
                 redirect('master/' . $entity . '/create');
                 return;
             }
             $payload = array_merge($payload, $photoPayload);
         }
 
+        if (($cfg['table'] ?? '') === 'att_location' && $this->db->field_exists('is_default', 'att_location')) {
+            if (!empty($payload['is_default']) && (int)$payload['is_default'] === 1) {
+                $this->db->set('is_default', 0)->update('att_location');
+            }
+        }
         $insertId = $this->Master_model->insert($cfg['table'], $payload);
         if ($entity === 'org-employee') {
             $this->syncEmployeeLoginAccount($insertId, $payload);
             $this->syncEmployeeAccessRoles($insertId);
+        }
+        $after = $insertId > 0 ? $this->Master_model->get_by_id($cfg['table'], $insertId) : null;
+        $auditWritten = $insertId > 0 && $this->writeMasterAudit(
+            'CREATE',
+            (string)$cfg['table'],
+            $insertId,
+            null,
+            $after,
+            'Create master entity ' . $entity
+        );
+        if (!$this->finishMasterAuditTransaction($auditWritten)) {
+            $this->failMasterAuditedMutation(
+                'master/' . $entity . '/create',
+                'Data master gagal disimpan karena audit transaksi tidak lengkap.'
+            );
+            return;
         }
         $this->session->set_flashdata('success', $cfg['title'] . ' berhasil disimpan.');
         redirect('master/' . $entity);
@@ -1057,25 +1198,44 @@ class Master extends MY_Controller
             return;
         }
 
-        if (($cfg['table'] ?? '') === 'att_location' && $this->db->field_exists('is_default', 'att_location')) {
-            if (!empty($payload['is_default']) && (int)$payload['is_default'] === 1) {
-                $this->db->where('id !=', $id)->set('is_default', 0)->update('att_location');
-            }
+        if (!$this->beginMasterAuditTransaction()) {
+            return;
         }
-
         if (($cfg['table'] ?? '') === 'mst_product') {
             $photoPayload = $this->handleProductPhotoUpload($row);
             if ($photoPayload === null) {
+                $this->db->trans_rollback();
                 redirect('master/' . $entity . '/edit/' . $id);
                 return;
             }
             $payload = array_merge($payload, $photoPayload);
         }
 
-        $this->Master_model->update($cfg['table'], $id, $payload);
+        if (($cfg['table'] ?? '') === 'att_location' && $this->db->field_exists('is_default', 'att_location')) {
+            if (!empty($payload['is_default']) && (int)$payload['is_default'] === 1) {
+                $this->db->where('id !=', $id)->set('is_default', 0)->update('att_location');
+            }
+        }
+        $updated = $this->Master_model->update($cfg['table'], $id, $payload);
         if ($entity === 'org-employee') {
             $this->syncEmployeeLoginAccount($id, $payload);
             $this->syncEmployeeAccessRoles($id);
+        }
+        $after = $updated ? $this->Master_model->get_by_id($cfg['table'], $id) : null;
+        $auditWritten = $updated && $this->writeMasterAudit(
+            'UPDATE',
+            (string)$cfg['table'],
+            $id,
+            $row,
+            $after,
+            'Update master entity ' . $entity
+        );
+        if (!$this->finishMasterAuditTransaction($auditWritten)) {
+            $this->failMasterAuditedMutation(
+                'master/' . $entity . '/edit/' . $id,
+                'Data master gagal diperbarui karena audit transaksi tidak lengkap.'
+            );
+            return;
         }
         $this->session->set_flashdata('success', $cfg['title'] . ' berhasil diperbarui.');
         redirect('master/' . $entity);
@@ -1097,9 +1257,27 @@ class Master extends MY_Controller
         $row = $this->Master_model->get_by_id($cfg['table'], $id);
         if (!$row) show_404();
 
-        $this->Master_model->toggle_active($cfg['table'], $id);
+        if (!$this->beginMasterAuditTransaction()) {
+            return;
+        }
+        $toggleUpdated = $this->Master_model->toggle_active($cfg['table'], $id);
+        $updated = $toggleUpdated ? $this->Master_model->get_by_id($cfg['table'], $id) : null;
+        $auditWritten = $toggleUpdated && $this->writeMasterAudit(
+            'TOGGLE_ACTIVE',
+            (string)$cfg['table'],
+            $id,
+            $row,
+            $updated,
+            'Toggle master entity ' . $entity
+        );
+        if (!$this->finishMasterAuditTransaction($auditWritten)) {
+            $this->failMasterAuditedMutation(
+                'master/' . $entity,
+                'Status master gagal diubah karena audit transaksi tidak lengkap.'
+            );
+            return;
+        }
         if ($this->input->is_ajax_request()) {
-            $updated = $this->Master_model->get_by_id($cfg['table'], $id);
             $this->output
                 ->set_content_type('application/json')
                 ->set_output(json_encode([
@@ -1147,7 +1325,26 @@ class Master extends MY_Controller
         if ($this->db->field_exists('updated_at', 'mst_product')) {
             $payload['updated_at'] = date('Y-m-d H:i:s');
         }
-        $this->Master_model->update('mst_product', $id, $payload);
+        if (!$this->beginMasterAuditTransaction()) {
+            return;
+        }
+        $stockModeUpdated = $this->Master_model->update('mst_product', $id, $payload);
+        $updated = $stockModeUpdated ? $this->Master_model->get_by_id('mst_product', $id) : null;
+        $auditWritten = $stockModeUpdated && $this->writeMasterAudit(
+            'STOCK_MODE',
+            'mst_product',
+            $id,
+            $row,
+            $updated,
+            'Change product stock mode'
+        );
+        if (!$this->finishMasterAuditTransaction($auditWritten)) {
+            $this->failMasterAuditedMutation(
+                'master/' . $entity,
+                'Mode stok gagal diubah karena audit transaksi tidak lengkap.'
+            );
+            return;
+        }
 
         $meta = $this->productStockModeMeta($next);
         if ($this->input->is_ajax_request()) {
@@ -1205,6 +1402,18 @@ class Master extends MY_Controller
             return;
         }
 
+        if (!$this->beginMasterAuditTransaction()) {
+            return;
+        }
+        $beforeRows = $this->db
+            ->select('id, holiday_date, holiday_name, holiday_type, source_ref, is_active')
+            ->from('att_holiday_calendar')
+            ->where('holiday_date >=', $year . '-01-01')
+            ->where('holiday_date <=', $year . '-12-31')
+            ->order_by('holiday_date', 'ASC')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
         $processed = 0;
         foreach ($sourceRows as $row) {
             $holidayDate = trim((string)($row['holiday_date'] ?? ''));
@@ -1234,6 +1443,31 @@ class Master extends MY_Controller
                 . ' updated_at=VALUES(updated_at)';
             $this->db->query($sql);
             $processed++;
+        }
+
+        $afterRows = $this->db
+            ->select('id, holiday_date, holiday_name, holiday_type, source_ref, is_active')
+            ->from('att_holiday_calendar')
+            ->where('holiday_date >=', $year . '-01-01')
+            ->where('holiday_date <=', $year . '-12-31')
+            ->order_by('holiday_date', 'ASC')
+            ->order_by('id', 'ASC')
+            ->get()
+            ->result_array();
+        $auditWritten = $this->writeMasterAudit(
+            'HOLIDAY_GENERATE',
+            'att_holiday_calendar',
+            null,
+            ['year' => $year, 'rows' => $beforeRows],
+            ['year' => $year, 'source_rows' => count($sourceRows), 'processed' => $processed, 'rows' => $afterRows],
+            'Generate holiday calendar from core for year ' . $year
+        );
+        if (!$this->finishMasterAuditTransaction($auditWritten)) {
+            $this->failMasterAuditedMutation(
+                'master/att-holiday',
+                'Generate hari libur dibatalkan karena audit transaksi tidak lengkap.'
+            );
+            return;
         }
 
         $this->session->set_flashdata('success', 'Generate hari libur tahun ' . $year . ' selesai. Data diproses: ' . $processed . '.');
@@ -3899,36 +4133,49 @@ class Master extends MY_Controller
             return;
         }
 
-        $existingIds = $this->db->select('id')
+        $existingIds = $this->db->select('id, sort_order')
             ->from((string)$cfg['table'])
             ->where_in('id', $normalized)
             ->get()
             ->result_array();
         $existingMap = [];
         foreach ($existingIds as $row) {
-            $existingMap[(int)$row['id']] = true;
+            $existingMap[(int)$row['id']] = (int)($row['sort_order'] ?? 0);
         }
+        $beforeOrder = [];
         foreach ($normalized as $id) {
-            if (empty($existingMap[$id])) {
+            if (!array_key_exists($id, $existingMap)) {
                 $this->output->set_status_header(400)
                     ->set_content_type('application/json')
                     ->set_output(json_encode(['ok' => false, 'message' => 'Data urutan mengandung ID yang tidak valid.']));
                 return;
             }
+            $beforeOrder[] = ['id' => $id, 'sort_order' => $existingMap[$id]];
         }
 
-        $this->db->trans_start();
+        if (!$this->beginMasterAuditTransaction()) {
+            return;
+        }
         $sortOrder = 10;
+        $afterOrder = [];
         foreach ($normalized as $id) {
             $this->db->where('id', $id)->update((string)$cfg['table'], ['sort_order' => $sortOrder]);
+            $afterOrder[] = ['id' => $id, 'sort_order' => $sortOrder];
             $sortOrder += 10;
         }
-        $this->db->trans_complete();
-
-        if ($this->db->trans_status() === false) {
-            $this->output->set_status_header(500)
-                ->set_content_type('application/json')
-                ->set_output(json_encode(['ok' => false, 'message' => 'Gagal menyimpan urutan baru.']));
+        $auditWritten = $this->writeMasterAudit(
+            'REORDER',
+            (string)$cfg['table'],
+            null,
+            ['entity' => $entity, 'order' => $beforeOrder],
+            ['entity' => $entity, 'order' => $afterOrder],
+            'Reorder master entity ' . $entity
+        );
+        if (!$this->finishMasterAuditTransaction($auditWritten)) {
+            $this->failMasterAuditedMutation(
+                'master/' . $entity,
+                'Urutan master gagal disimpan karena audit transaksi tidak lengkap.'
+            );
             return;
         }
 

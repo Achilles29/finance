@@ -212,8 +212,8 @@ mi_check(
 
 $reorder = mi_method($source, 'reorder');
 mi_check(
-    mi_ordered($reorder, ['entityConfig(', 'requireMasterPermission(', 'requireMasterMutationRequest()', 'is_ajax_request()', "field_exists('sort_order'", "post('ids')", 'raw_input_stream', "select('id')", 'trans_start()', "update((string)\$cfg['table']", 'trans_complete()']),
-    'reorder guards POST/token before field check, JSON IDs, query, transaction, and writes'
+    mi_ordered($reorder, ['entityConfig(', 'requireMasterPermission(', 'requireMasterMutationRequest()', 'is_ajax_request()', "field_exists('sort_order'", "post('ids')", 'raw_input_stream', "select('id, sort_order')", 'beginMasterAuditTransaction()', "update((string)\$cfg['table']", 'writeMasterAudit(', 'finishMasterAuditTransaction(']),
+    'reorder guards POST/token before field check, JSON IDs, query, audited transaction, and writes'
 );
 mi_check(
     strpos($reorder, 'Entity tidak mendukung drag & drop urutan.') !== false

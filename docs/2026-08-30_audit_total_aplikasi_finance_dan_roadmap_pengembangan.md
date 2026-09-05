@@ -4,8 +4,9 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 148 mengunci inventaris
-endpoint Master generik dan Batch 147 menetapkan cutoff
+**Pembaruan status eksekusi:** 2026-09-05, setelah Batch 149 menambahkan audit
+trail atomik untuk mutasi Master, Batch 148 mengunci inventaris endpoint Master
+generik, dan Batch 147 menetapkan cutoff
 Git lokal bertag, memisahkan credential staging dan 1.367 file runtime dari
 source/index Git tanpa menghapus file fisik, serta membakukan matriks SQL
 server existing dan customer baru.
@@ -77,7 +78,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 
 | ID | Sumber | Prioritas/fase | Masalah | Solusi/acceptance | Implementasi | Validasi | Release/data | Bukti atau langkah berikutnya |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `AUD-A1-SEC-01` | P0-01 | P0 / A1 | Endpoint Master belum seluruhnya deny-by-default. | Semua writer/read sensitif memakai permission aksi, scope, method, CSRF, dan negative test. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 82, 84A–C, 91–92, 148: 12 endpoint publik dan 36 entity generik terkunci oleh inventaris otomatis; page code Component yang stale diperbaiki dan 35 page unik aktif terbukti di staging. Audit trail mutasi sensitif dan negative role UAT masih terbuka. |
+| `AUD-A1-SEC-01` | P0-01 | P0 / A1 | Endpoint Master belum seluruhnya deny-by-default. | Semua writer/read sensitif memakai permission aksi, scope, method, CSRF, dan negative test. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 82, 84A–C, 91–92, 148–149: 12 endpoint/36 entity terkunci; page Component kanonis dan 35 page unik aktif terbukti; enam writer memakai audit before/after atomik dan redaksi credential. Negative role UAT masih terbuka. |
 | `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 54–68; endpoint sisa dan versioning belum selesai. |
 | `AUD-A1-POS-01` | P0-03 | P0 / A1 | Surface POS Mobile/APK belum seluruhnya terikat terminal/outlet. | Semua endpoint memakai bearer context otoritatif, izin aksi, step-up, dan UAT perangkat. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 73–81, 89a–f, 93, 105–107; UAT APK dan surface tambahan terbuka. |
 | `AUD-A1-RBAC-01` | P0-04 | P0 / A1 | Multi-role dan scope operasional terlalu luas. | Baseline role, precedence multi-role, outlet/division scope, dan negative matrix nyata lulus. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Filter role nonaktif dan fail-closed dasar lulus; baseline/UAT belum. |
@@ -161,7 +162,7 @@ sudah berjalan. `DITUNDA` berarti keputusan penundaan memang disengaja.
 | ID | Klasifikasi | Pekerjaan yang belum tertutup | Alasan/status nyata | Rencana tindak lanjut |
 | --- | --- | --- | --- | --- |
 | `GAP-01` | `IN_PROGRESS` | Penutupan A0: credential produksi, rotasi secret, recovery Git, dan pemisahan runtime data customer. | Credential DB dan runtime index/package lulus Batch 146; cutoff commit/tag lokal dibuat Batch 147. Source masih shallow, cutoff belum dipush, secret lama belum dirotasi, dan off-site encryption belum aktif. | Verifikasi lalu push cutoff atas perintah owner, tetapkan strategi full-history, dan rotasi secret pada cutover terjadwal; jangan menghapus runtime staging. |
-| `GAP-02` | `IN_PROGRESS` | Sisa A1 non-mobile: audit trail Master, baseline role/scope nyata, public review anti-spam, step-up/MFA. | Batch 148 mengunci inventaris 12 endpoint publik/36 entity Master dan memperbaiki page code Component yang stale; writer prioritas lulus, tetapi acceptance fase belum lengkap. | Lanjutkan audit trail mutasi Master sebagai batch kecil, lalu baseline role/scope; surface mobile hanya dilanjutkan setelah build APK siap. |
+| `GAP-02` | `IN_PROGRESS` | Sisa A1 non-mobile: baseline role/scope nyata, public review anti-spam, step-up/MFA. | Batch 148–149 mengunci endpoint/registry dan audit trail atomik Master; writer prioritas lulus, tetapi acceptance fase belum lengkap. | Lanjutkan baseline role/scope dan negative matrix; surface mobile hanya dilanjutkan setelah build APK siap. |
 | `GAP-03` | `TERLEWAT` | P2 bisnis A2: uang makan slip payroll dan running balance rekening backdate. | Belum mendapat batch khusus walaupun pekerjaan bergerak ke A3–A5. | Audit aturan bisnis, buat fixture, lalu minta acceptance finance sebelum implementasi. |
 | `GAP-04` | `TERLEWAT` | A3.2 rollout UI 8.3 gelombang 2 dan 4–9 serta visual UAT. | Fondasi UI dan sidebar selesai, tetapi migrasi halaman tidak pernah ditutup per wave. | Kembali ke checklist UI 8.3 gelombang 01–09 setelah fondasi A5; satu rumpun per batch, bukan rewrite besar. |
 | `GAP-05` | `TERLEWAT_OPERASIONAL` | UAT browser role, APK/device, printer fisik, dan updater customer. | Automated tooling A4 lulus tetapi tidak menggantikan perangkat nyata. | Jalankan setelah kandidat build dan APK siap; bukti UAT harus terikat ke versi artefak. |
