@@ -66,6 +66,7 @@ $check(
         '2026-09-05a-telegram-bot-foundation',
         '2026-09-05b-telegram-setup-guide',
         '2026-09-05c-telegram-safe-activation-default',
+        '2026-09-06a-component-formula-version-history',
     ],
     'managed-v1 upgrade plan is exact, ordered, and excludes clean-install-only navigation seed'
 );
@@ -113,8 +114,8 @@ $validateJson = json_decode(trim($validateCli['out']), true);
 $planJson = json_decode(trim($planA['out']), true);
 $check(
     $validateCli['code'] === 0 && ($validateJson['legacy_records'] ?? null) === 7
-        && ($validateJson['managed_upgrade_migrations'] ?? null) === 5,
-    'DB-free validate reports seven retired legacy paths and five managed upgrade migrations'
+        && ($validateJson['managed_upgrade_migrations'] ?? null) === 6,
+    'DB-free validate reports seven retired legacy paths and six managed upgrade migrations'
 );
 $check(
     $planA['code'] === 0 && $planA['out'] === $planB['out']

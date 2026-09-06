@@ -9,9 +9,9 @@
   },
   "clean_install_coverage": {
     "policy_path": "tools/db/clean_install_baseline_policy.json",
-    "policy_sha256": "46f34152bc47bc6cf21c706258614bc08ea52f0d81a220969e3a23db424892eb",
+    "policy_sha256": "c4a6db6db706bed325c5c3bc02363645395f1ab17779a50f2a8bce223d65b9ef",
     "schema_path": "sql/baseline/2026-09-05_clean_install_schema.sql",
-    "schema_sha256": "dcea97a6cbaba13e404aab88122d41bfb79321ca788045f1c5e6f2401d843a0c",
+    "schema_sha256": "6d76a06e59a5e42d96146e5a783fe52bd1b46e4ce38377f1dab8a3adb3e85c40",
     "navigation_seed_path": "sql/2026-09-05d_a5_clean_install_reference_seed.sql",
     "navigation_seed_sha256": "ef33bfbc5fac1c151c98854f401d2310caf4f90f4ff2bac0643c7da9efbe2a61",
     "whatsapp_seed_path": "sql/2026-09-05e_whatsapp_safe_reference_seed.sql",

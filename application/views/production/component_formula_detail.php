@@ -3,6 +3,7 @@ $detail = is_array($detail ?? null) ? $detail : [];
 $component = is_array($detail['component'] ?? null) ? $detail['component'] : [];
 $summary = is_array($detail['summary'] ?? null) ? $detail['summary'] : [];
 $lines = is_array($detail['lines'] ?? null) ? $detail['lines'] : [];
+$versions = is_array($versions ?? null) ? $versions : [];
 
 $directStd = (float)($summary['direct_cost_standard'] ?? 0);
 $directLive = (float)($summary['direct_cost_live'] ?? 0);
@@ -124,6 +125,49 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
         <a class="btn btn-outline-primary action-icon-btn component-action-btn" href="<?php echo site_url('production/component-formulas/edit/' . (int)($component['id'] ?? 0)); ?>" title="Edit Formula" aria-label="Edit Formula"><i class="ri ri-edit-line"></i></a>
         <a class="btn btn-outline-secondary btn-sm" href="<?php echo site_url('production/component-formulas'); ?>">Kembali</a>
       </div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm mt-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+        <div>
+          <h6 class="mb-1">Riwayat versi formula</h6>
+          <p class="small text-muted mb-0">Snapshot tersimpan setiap formula diubah. Riwayat ini hanya untuk pelacakan; pemulihan versi lama belum dilakukan dari halaman ini.</p>
+        </div>
+        <span class="badge bg-light text-dark border"><?php echo (int)count($versions); ?> versi</span>
+      </div>
+      <?php if ($versions === []): ?>
+        <div class="small text-muted">Belum ada versi tersimpan. Versi pertama akan dibuat saat formula ini disimpan melalui editor ini.</div>
+      <?php else: ?>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Versi</th>
+                <th>Jenis snapshot</th>
+                <th>Baris</th>
+                <th>Diubah oleh</th>
+                <th>Waktu</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($versions as $version): ?>
+                <tr>
+                  <td class="fw-semibold">v<?php echo (int)($version['version_no'] ?? 0); ?></td>
+                  <td>
+                    <?php $isBaseline = (string)($version['change_action'] ?? '') === 'BASELINE'; ?>
+                    <span class="badge <?php echo $isBaseline ? 'bg-secondary' : 'bg-primary'; ?>"><?php echo $isBaseline ? 'Baseline awal' : 'Perubahan formula'; ?></span>
+                  </td>
+                  <td><?php echo (int)($version['line_count'] ?? 0); ?> baris</td>
+                  <td><?php echo html_escape((string)($version['actor_username'] ?? 'Sistem / histori lama')); ?></td>
+                  <td><?php echo html_escape((string)($version['created_at'] ?? '-')); ?></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
     </div>
   </div>
 </div>

@@ -54,7 +54,7 @@ $check($ordered($save, ['require_permission(', 'require_component_formula_mutati
 $check(strpos($save, "'actor_user_id'") !== false && strpos($save, "'source_ip'") !== false, 'bulk endpoint sends accountable actor context to the model');
 
 $bulk = $block($model, 'save_component_formula_bulk');
-$check($ordered($bulk, ['component_formula_audit_ready(', 'trans_begin(', 'lock_component_formula_parent(', 'component_formula_revision_rows(', 'hash_equals(', "delete('mst_component_formula')", 'write_component_formula_bulk_audit(', 'trans_commit(']), 'bulk replacement checks audit readiness, locks parent/rows, detects stale revisions, and audits before commit');
+$check($ordered($bulk, ['component_formula_audit_ready(', 'component_formula_versioning_ready(', 'trans_begin(', 'lock_component_formula_parent(', 'component_formula_revision_rows(', 'hash_equals(', 'ensure_component_formula_baseline_version(', "delete('mst_component_formula')", 'write_component_formula_version(', 'write_component_formula_bulk_audit(', 'trans_commit(']), 'bulk replacement checks audit/version readiness, locks parent/rows, detects stale revisions, snapshots immutable versions, and audits before commit');
 $check(strpos($bulk, 'telah berubah oleh pengguna lain') !== false && strpos($bulk, 'trans_rollback()') !== false, 'stale formula write rolls back with a reloadable conflict message');
 
 $revision = $block($model, 'canonical_component_formula_revision');
@@ -67,6 +67,8 @@ $auditReady = $block($model, 'component_formula_audit_ready');
 $check(strpos($auditReady, "table_exists('aud_transaction_log')") !== false && strpos($auditReady, "'before_payload'") !== false, 'replacement fails closed if audit schema is unavailable');
 $audit = $block($model, 'write_component_formula_bulk_audit');
 $check(strpos($audit, "'REPLACE_COMPONENT_FORMULA'") !== false && strpos($audit, "'before_payload'") !== false && strpos($audit, "'after_payload'") !== false, 'replacement records atomic before/after formula snapshots');
+$versionReady = $block($model, 'component_formula_versioning_ready');
+$check(strpos($versionReady, "mst_component_formula_version") !== false && strpos($versionReady, "mst_component_formula_version_line") !== false, 'replacement fails closed when immutable formula history schema is unavailable');
 $check(strpos($controller, 'Pos_mobile') === false && strpos($model, 'Pos_mobile') === false, 'formula hardening does not alter POS Mobile/APK contracts');
 
 echo 'PASS production-component-formula-revision-audit checks=' . $checks . PHP_EOL;

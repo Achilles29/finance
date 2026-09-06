@@ -8254,11 +8254,11 @@ class Production_model extends CI_Model
             ];
         }
 
-        if (!$this->component_formula_audit_ready()) {
+        if (!$this->component_formula_audit_ready() || !$this->component_formula_versioning_ready()) {
             return [
                 'ok' => false,
                 'status' => 503,
-                'message' => 'Pencatatan audit formula belum siap. Perubahan tidak dijalankan.',
+                'message' => 'Pencatatan audit dan riwayat versi formula belum siap. Perubahan tidak dijalankan.',
             ];
         }
         if ($this->db->trans_begin() === false) {
@@ -8285,11 +8285,18 @@ class Production_model extends CI_Model
                 'message' => 'Formula telah berubah oleh pengguna lain. Muat ulang halaman sebelum menyimpan kembali.',
             ];
         }
+        if (!$this->ensure_component_formula_baseline_version($componentId, $beforeRows, $auditContext)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'status' => 503, 'message' => 'Riwayat baseline formula tidak dapat dicatat. Perubahan dibatalkan.'];
+        }
         $this->db->where('component_id', $componentId)->delete('mst_component_formula');
         foreach ($normalized as $row) {
             $this->db->insert('mst_component_formula', $row);
         }
-        if (!$this->write_component_formula_bulk_audit($componentId, $beforeRows, $normalized, $auditContext)
+        $afterRows = $this->component_formula_revision_rows($componentId, true);
+        if ($afterRows === null
+            || !$this->write_component_formula_version($componentId, $afterRows, 'REPLACE', $auditContext)
+            || !$this->write_component_formula_bulk_audit($componentId, $beforeRows, $afterRows, $auditContext)
             || $this->db->trans_status() === false
             || $this->db->trans_commit() === false) {
             $this->db->trans_rollback();
@@ -8303,6 +8310,28 @@ class Production_model extends CI_Model
     {
         $rows = $this->component_formula_revision_rows($componentId, false);
         return $this->canonical_component_formula_revision($rows ?? []);
+    }
+
+    /**
+     * Read-only timeline for the canonical formula detail screen. Snapshot
+     * lines remain immutable; restoring an old version is intentionally a
+     * separate, explicitly authorised workflow.
+     */
+    public function component_formula_versions(int $componentId, int $limit = 20): array
+    {
+        if ($componentId <= 0 || !$this->component_formula_versioning_ready()) {
+            return [];
+        }
+        $limit = max(1, min($limit, 100));
+        return $this->db
+            ->select('v.id, v.version_no, v.change_action, v.formula_revision, v.line_count, v.source_ip, v.created_at, u.username AS actor_username')
+            ->from('mst_component_formula_version v')
+            ->join('auth_user u', 'u.id = v.actor_user_id', 'left')
+            ->where('v.component_id', $componentId)
+            ->order_by('v.version_no', 'DESC')
+            ->limit($limit)
+            ->get()
+            ->result_array();
     }
 
     private function component_formula_revision_rows(int $componentId, bool $forUpdate): ?array
@@ -8357,6 +8386,101 @@ class Production_model extends CI_Model
     {
         $query = $this->db->query('SELECT id FROM mst_component WHERE id = ? FOR UPDATE', [$componentId]);
         return $query !== false && !empty($query->row_array());
+    }
+
+    private function component_formula_versioning_ready(): bool
+    {
+        $tables = ['mst_component_formula_version', 'mst_component_formula_version_line'];
+        foreach ($tables as $table) {
+            if (!$this->db->table_exists($table)) {
+                return false;
+            }
+        }
+        $requiredHeader = ['id', 'component_id', 'version_no', 'change_action', 'formula_revision', 'line_count', 'actor_user_id', 'source_ip', 'created_at'];
+        foreach ($requiredHeader as $column) {
+            if (!$this->db->field_exists($column, 'mst_component_formula_version')) {
+                return false;
+            }
+        }
+        $requiredLine = ['formula_version_id', 'original_line_id', 'line_no', 'line_type', 'material_id', 'material_item_id', 'sub_component_id', 'source_division_id', 'uom_id', 'qty', 'notes', 'sort_order'];
+        foreach ($requiredLine as $column) {
+            if (!$this->db->field_exists($column, 'mst_component_formula_version_line')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function ensure_component_formula_baseline_version(int $componentId, array $beforeRows, array $context): bool
+    {
+        if ($beforeRows === []) {
+            return true;
+        }
+        $existing = $this->db
+            ->select('id')
+            ->from('mst_component_formula_version')
+            ->where('component_id', $componentId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if ($existing) {
+            return true;
+        }
+        return $this->write_component_formula_version($componentId, $beforeRows, 'BASELINE', $context);
+    }
+
+    private function write_component_formula_version(int $componentId, array $rows, string $action, array $context): bool
+    {
+        if (!in_array($action, ['BASELINE', 'REPLACE'], true)) {
+            return false;
+        }
+        $latest = $this->db
+            ->select_max('version_no')
+            ->from('mst_component_formula_version')
+            ->where('component_id', $componentId)
+            ->get()
+            ->row_array();
+        $actorUserId = (int)($context['actor_user_id'] ?? 0);
+        $sourceIp = trim((string)($context['source_ip'] ?? ''));
+        $header = [
+            'component_id' => $componentId,
+            'version_no' => (int)($latest['version_no'] ?? 0) + 1,
+            'change_action' => $action,
+            'formula_revision' => $this->canonical_component_formula_revision($rows),
+            'line_count' => count($rows),
+            'actor_user_id' => $actorUserId > 0 ? $actorUserId : null,
+            'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+        if (!$this->db->insert('mst_component_formula_version', $header)) {
+            return false;
+        }
+        $formulaVersionId = (int)$this->db->insert_id();
+        if ($formulaVersionId <= 0) {
+            return false;
+        }
+        foreach ($rows as $row) {
+            $line = [
+                'formula_version_id' => $formulaVersionId,
+                'original_line_id' => !empty($row['id']) ? (int)$row['id'] : null,
+                'line_no' => max(1, (int)($row['line_no'] ?? 0)),
+                'line_type' => strtoupper(trim((string)($row['line_type'] ?? ''))),
+                'material_id' => !empty($row['material_id']) ? (int)$row['material_id'] : null,
+                'material_item_id' => !empty($row['material_item_id']) ? (int)$row['material_item_id'] : null,
+                'sub_component_id' => !empty($row['sub_component_id']) ? (int)$row['sub_component_id'] : null,
+                'source_division_id' => !empty($row['source_division_id']) ? (int)$row['source_division_id'] : null,
+                'uom_id' => !empty($row['uom_id']) ? (int)$row['uom_id'] : null,
+                'qty' => round((float)($row['qty'] ?? 0), 4),
+                'notes' => $this->nullable_string($row['notes'] ?? null),
+                'sort_order' => (int)($row['sort_order'] ?? 0),
+            ];
+            if (!in_array($line['line_type'], ['MATERIAL', 'COMPONENT'], true)
+                || (float)$line['qty'] <= 0
+                || !$this->db->insert('mst_component_formula_version_line', $line)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function component_formula_audit_ready(): bool

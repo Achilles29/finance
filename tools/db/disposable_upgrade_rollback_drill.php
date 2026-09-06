@@ -111,10 +111,10 @@ function a513r_run(string $bundleDir, string $adminOption, string $evidenceDir, 
         $phases['restore_before'] = true;
 
         $upgrade = a513r_json_tool([PHP_BINARY,$release['root'].'/tools/db/migration_runner.php','apply','--policy=upgrade','--defaults-extra-file='.$targetOption,'--database-name-file='.$targetDatabaseNameFile], $timeout, $release['root']);
-        if (($upgrade['applied'] ?? null) !== 5 || ($upgrade['skipped'] ?? null) !== 0) a513r_fail('upgrade_apply', 'Disposable upgrade did not apply the exact release plan.');
+        if (($upgrade['applied'] ?? null) !== 6 || ($upgrade['skipped'] ?? null) !== 0) a513r_fail('upgrade_apply', 'Disposable upgrade did not apply the exact release plan.');
         $phases['upgrade'] = true;
         $health = a513_check_database($release, 'upgrade', $targetOption, $target);
-        if (($health['status'] ?? '') !== 'ok' || ($health['migration_ledger_rows'] ?? null) !== 5) a513r_fail('health_after_upgrade', 'Post-upgrade health check did not pass.');
+        if (($health['status'] ?? '') !== 'ok' || ($health['migration_ledger_rows'] ?? null) !== 6) a513r_fail('health_after_upgrade', 'Post-upgrade health check did not pass.');
         $phases['health_pass'] = true;
 
         a511_client($targetOption, "CREATE TABLE `a513_rollback_canary` (`id` INT NOT NULL PRIMARY KEY) ENGINE=InnoDB;INSERT INTO sys_schema_migration (migration_id,filename,checksum_sha256,catalog_version,tool_version,classification,policies,applied_by) VALUES ('a513-failed-upgrade-canary','sql/a513_failed_upgrade.sql',REPEAT('0',64),1,'fixture','schema','upgrade','rollback_drill')", $timeout, $target);

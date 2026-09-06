@@ -3689,6 +3689,49 @@ CREATE TABLE `mst_component_formula` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mst_component_formula_version` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `component_id` bigint(20) unsigned NOT NULL,
+  `version_no` int(10) unsigned NOT NULL,
+  `change_action` enum('BASELINE','REPLACE') NOT NULL,
+  `formula_revision` char(64) NOT NULL,
+  `line_count` int(10) unsigned NOT NULL DEFAULT 0,
+  `actor_user_id` bigint(20) unsigned DEFAULT NULL,
+  `source_ip` varchar(45) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_mcfv_component_version` (`component_id`,`version_no`) USING BTREE,
+  KEY `idx_mcfv_component_created` (`component_id`,`created_at`,`id`) USING BTREE,
+  KEY `idx_mcfv_actor` (`actor_user_id`) USING BTREE,
+  CONSTRAINT `fk_mcfv_actor` FOREIGN KEY (`actor_user_id`) REFERENCES `auth_user` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_mcfv_component` FOREIGN KEY (`component_id`) REFERENCES `mst_component` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `mst_component_formula_version_line` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `formula_version_id` bigint(20) unsigned NOT NULL,
+  `original_line_id` bigint(20) unsigned DEFAULT NULL,
+  `line_no` int(10) unsigned NOT NULL,
+  `line_type` enum('MATERIAL','COMPONENT') NOT NULL,
+  `material_id` bigint(20) unsigned DEFAULT NULL,
+  `material_item_id` bigint(20) unsigned DEFAULT NULL,
+  `sub_component_id` bigint(20) unsigned DEFAULT NULL,
+  `source_division_id` bigint(20) unsigned DEFAULT NULL,
+  `uom_id` bigint(20) unsigned DEFAULT NULL,
+  `qty` decimal(18,4) NOT NULL DEFAULT 0.0000,
+  `notes` varchar(255) DEFAULT NULL,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_mcfvl_version_line` (`formula_version_id`,`line_no`,`id`) USING BTREE,
+  KEY `idx_mcfvl_material` (`material_id`) USING BTREE,
+  KEY `idx_mcfvl_component` (`sub_component_id`) USING BTREE,
+  CONSTRAINT `fk_mcfvl_version` FOREIGN KEY (`formula_version_id`) REFERENCES `mst_component_formula_version` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
 CREATE TABLE `mst_extra` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `extra_code` varchar(40) NOT NULL,

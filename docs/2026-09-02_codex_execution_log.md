@@ -6021,3 +6021,43 @@
   mengubah kontrak POS Mobile/APK.
 - Penyerahan: commit lokal tanpa push setelah seluruh gate lulus; ringkasan
   dikirim ke Telegram Namua setelah commit.
+
+## Batch 173 — Riwayat versi Formula Component kanonis
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 08:36 WIB.
+- Prioritas: P0 / AUD-A1-SEC-02. Editor Formula Component kanonis sudah
+  menolak tab lama dan mengaudit before/after, tetapi belum menyimpan snapshot
+  yang dapat dibaca sebagai riwayat versi.
+- Diskusi/arah: fixer tunggal. Snapshot bersifat append-only; tidak
+  memodifikasi formula yang sudah dipakai batch produksi, stok, HPP, data
+  mismatch, POS Mobile/APK, atau hak akses. Formula lama pertama yang diubah
+  disimpan sebagai baseline, lalu hasil setiap simpan menjadi versi baru.
+- File berubah:
+  - Production controller/model dan detail Formula Component.
+  - Migration 2026-09-06a_component_formula_version_history.sql, baseline
+    clean-install, catalog, policy, dan kontrak migration/restore/health.
+  - Smoke formula history, quality gate, roadmap _30, _28, serta log ini.
+- Perubahan utama:
+  - Save bulk fail-closed jika tabel audit atau tabel history belum siap.
+  - Dalam satu transaksi berlock, baseline formula lama bila ada tersimpan
+    sekali, formula live diganti, snapshot REPLACE dan audit before/after
+    ditulis sebelum commit.
+  - Detail formula menampilkan timeline versi read-only beserta aktor dan
+    waktu; belum ada tombol restore agar pemulihan tidak dapat mengubah resep
+    tanpa desain reauth/audit khusus.
+- SQL/runtime:
+  - Staging: migration runner upgrade applied 1, skipped 5; replay applied 0,
+    skipped 6. Dua tabel history dibuat tanpa perubahan data formula/stok/HPP.
+  - Server utama: PENDING_OWNER; jalankan hanya catalog-managed migration
+    runner sesuai runbook deployment, bukan file SQL manual.
+- Validasi:
+  - PHP lint file berubah, migration runner validate/plan, smoke revision
+    formula, smoke history baru, baseline, catalog, restore/rollback, health,
+    schema fingerprint, legacy guard, dan Telegram lulus.
+  - Git diff --check dan quality gate parallel lulus: required 69/69,
+    development 4/4, release 1/1, preflight 1/1.
+- Review akhir fixer tunggal: fondasi history editor kanonis layak diuji.
+  Risiko sisa: writer Formula legacy masih dapat melewati history; restore
+  versi, UAT dua-tab, reauth APK/MFA, dan UAT role/perangkat tetap terbuka.
+- Batch berikutnya: alihkan jalur Formula legacy ke editor kanonis tanpa
+  mengubah kontrak POS Mobile/APK.

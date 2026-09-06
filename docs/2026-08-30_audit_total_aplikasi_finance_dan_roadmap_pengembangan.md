@@ -4,9 +4,13 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 172 menutup writer
-Bundle Produk dengan snapshot revision, lock header/line, dan audit atomik
-untuk tambah, ganti isi, serta ubah status. Batch 171 menambahkan audit
+**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 173 menambahkan
+riwayat versi formula append-only pada editor Formula Component kanonis.
+Snapshot baseline lama dan snapshot penggantian baru ditulis atomik bersama
+perubahan formula; migrasi sudah applied dan replay di staging. Pemulihan
+versi serta penghentian jalur Formula legacy masih backlog terarah. Batch 172
+menutup writer Bundle Produk dengan snapshot revision, lock header/line, dan
+audit atomik untuk tambah, ganti isi, serta ubah status. Batch 171 menambahkan audit
 before/after atomik pada tambah dan hapus mapping Product Extra di dalam
 transaksi prepared-statement yang sudah memakai lock. Batch 170 mengunci
 writer individual Resep Produk; Batch 169 mengunci editor massal Formula
@@ -112,7 +116,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | ID | Sumber | Prioritas/fase | Masalah | Solusi/acceptance | Implementasi | Validasi | Release/data | Bukti atau langkah berikutnya |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `AUD-A1-SEC-01` | P0-01 | P0 / A1 | Endpoint Master belum seluruhnya deny-by-default. | Semua writer/read sensitif memakai permission aksi, scope, method, CSRF, dan negative test. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 82, 84A–C, 91–92, 148–149: 12 endpoint/36 entity terkunci; page Component kanonis dan 35 page unik aktif terbukti; enam writer memakai audit before/after atomik dan redaksi credential. Negative role UAT masih terbuka. |
-| `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 54–68 sudah memberi guard dasar. Batch 168 menutup editor massal Resep Produk, Batch 169 editor massal Formula Component, Batch 170 writer Resep Produk individual, Batch 171 mapping Product Extra, dan Batch 172 Bundle Produk: lock/snapshot sesuai surface, rollback konflik, serta audit before/after atomik. Formula versioning masih terbuka. |
+| `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 54–68 memberi guard dasar; Batch 168–172 menutup snapshot konflik, lock, dan audit writer prioritas. Batch 173 menambah riwayat Formula Component append-only: formula lama pertama disimpan sebagai `BASELINE`, setiap simpan baru sebagai `REPLACE`, dan detail menampilkan timeline. Jalur Formula legacy masih harus dialihkan ke editor kanonis; restore versi dan UAT dua-tab tetap terbuka. |
 | `AUD-A1-POS-01` | P0-03 | P0 / A1 | Surface POS Mobile/APK belum seluruhnya terikat terminal/outlet. | Semua endpoint memakai bearer context otoritatif, izin aksi, step-up, dan UAT perangkat. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 73–81, 89a–f, 93, 105–107, 150: token kini memvalidasi ulang role/scope serta membawa konteks division/outlet/terminal. Batch 156 menutup step-up untuk Void/Refund **web saja**; kontrak step-up dan UAT APK masih terbuka. |
 | `AUD-A1-RBAC-01` | P0-04 | P0 / A1 | Multi-role dan scope operasional terlalu luas. | Baseline role, precedence multi-role, outlet/division scope, dan negative matrix nyata lulus. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 6/7/150: union izin dan scope fail-closed lulus. Batch 151: simulator role/user/scope dan report selisih izin tersedia; 22 akun staging cocok dengan resolver aktif. Isi baseline hak per jabatan menunggu owner; UAT tetap terbuka. |
 | `AUD-A1-RBAC-02` | P0-05 | P0 / A1 | Penghapusan role dahulu memakai kolom relasi salah. | Relasi benar, transaksi aman, dan regression test lulus. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 2A. |
@@ -180,10 +184,12 @@ tidak otomatis dijalankan.
 | `2026-09-05c_telegram_safe_activation_default.sql` | Managed seed | `STAGING_PASS` | Backup valid; runner applied 1/skipped 3 lalu replay skipped 4; setting untouched berubah OFF, ledger/checksum exact. | `PENDING_OWNER` | Wajib dijalankan tepat setelah `2026-09-05b`; jangan rollout aplikasi bila ledger `09-05c` belum tercatat. Nilai yang pernah diedit operator dipertahankan. |
 | `2026-09-05d_a5_clean_install_reference_seed.sql` | Managed clean-install seed | `STAGING_PASS_DISPOSABLE` | Runner memasang seed sebelum Telegram; hasil exact 20 group, 206 page, 241 menu, 10 alias, 1 SUPERADMIN, dan 206 permission. | `FRESH_INSTALL_ONLY` | Jangan dijalankan pada staging/server utama yang sudah berisi data; migration runner otomatis mengecualikannya dari policy upgrade. |
 | `2026-09-05e_whatsapp_safe_reference_seed.sql` | Managed repeat-safe seed | `STAGING_PASS` | Backup privat valid; runner applied 1/skipped 4 lalu replay applied 0/skipped 5; template, session, ledger, dan checksum exact. | `PENDING_OWNER` | Jalankan melalui migration runner policy `upgrade`; jangan menjalankan pengganti legacy secara manual di luar runner. |
-| `baseline/2026-09-05_clean_install_schema.sql` | Clean-install schema-only | `STAGING_PASS` | 282 tabel dan checksum terkunci; catalog clean-install berisi enam migration, sedangkan seed baru `09-05e` juga lulus staging/replay. | `NOT_FOR_UPGRADE` | Hanya titik awal database customer baru, dilanjutkan migration runner policy clean_install. |
+| `2026-09-06a_component_formula_version_history.sql` | Managed schema migration | `STAGING_PASS` | Runner staging applied 1/skipped 5 lalu replay applied 0/skipped 6. Menambah header dan line snapshot formula append-only; tidak mengubah stok, HPP, atau formula transaksi lama. | `PENDING_OWNER` | Jalankan hanya melalui migration runner policy `upgrade`; jangan menjalankan manual atau mengisi history dengan repair data. |
+| `baseline/2026-09-05_clean_install_schema.sql` | Clean-install schema-only | `STAGING_PASS` | 284 tabel dan checksum terkunci; catalog clean-install berisi tujuh migration termasuk formula history. | `NOT_FOR_UPGRADE` | Hanya titik awal database customer baru, dilanjutkan migration runner policy clean_install. |
 
-Migration runner kini mengelola enam file: `2026-09-04c`, clean-install-only
-`2026-09-05d`, repeat-safe `2026-09-05e`, dan `2026-09-05a`–`2026-09-05c`.
+Migration runner kini mengelola tujuh file: `2026-09-04c`, clean-install-only
+`2026-09-05d`, repeat-safe `2026-09-05e`, `2026-09-05a`–`2026-09-05c`, dan
+`2026-09-06a` formula history.
 Tujuh file lain tetap legacy/non-deployable, tetapi disposition-nya sudah final
 dan dijaga otomatis: 1 baseline, 4 enroll via fingerprint, 1 replace, dan
 1 retire. Jangan menjalankan seluruh folder `sql/` sekaligus.
@@ -197,7 +203,7 @@ sudah berjalan. `DITUNDA` berarti keputusan penundaan memang disengaja.
 | ID | Klasifikasi | Pekerjaan yang belum tertutup | Alasan/status nyata | Rencana tindak lanjut |
 | --- | --- | --- | --- | --- |
 | `GAP-01` | `IN_PROGRESS` | Penutupan A0: credential produksi, rotasi secret, recovery Git, dan pemisahan runtime data customer. | Credential DB dan runtime index/package lulus Batch 146; cutoff commit/tag lokal dibuat Batch 147. Source masih shallow, cutoff belum dipush, secret lama belum dirotasi, dan off-site encryption belum aktif. | Verifikasi lalu push cutoff atas perintah owner, tetapkan strategi full-history, dan rotasi secret pada cutover terjadwal; jangan menghapus runtime staging. |
-| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, writer produksi, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; formulir publik/CSRF admin lulus Batch 152–153; Batch 154–155 mengunci seluruh alur Tutup Periode Keuangan sampai reopen atomik. Batch 156–164 menutup reauth proof satu-kali pada Void/Refund/Reopen/Reprint, Post/VOID Adjustment Component, Adjustment Stok Gudang/Divisi, Component Batch Produksi, quick-adjust Daily Recon Component, dan Transfer Stok Divisi; draft/jalur Daily terkait memakai CSRF scoped. Batch 165–167 menutup seluruh writer Stock Opening dengan CSRF dan reauth. Batch 168–172 menutup lost-update/audit editor massal dan writer individual Resep Produk, Formula Component, Product Extra, serta Bundle Produk. APK atau seluruh tindakan sensitif belum tertutup. | Rancang formula versioning serta kontrak reauth APK terpisah. Owner meninjau baseline tanpa reset izin otomatis; UAT finance/admin/QR/proxy/APK tetap perlu. |
+| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, writer produksi, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Batch 151–167 menutup writer keuangan/stok prioritas. Batch 168–172 menutup lost-update/audit editor massal dan writer individual Resep Produk, Formula Component, Product Extra, serta Bundle Produk. Batch 173 menambah formula history append-only dan lulus staging migration replay; restore formula dan jalur Formula legacy belum ditutup. APK atau seluruh tindakan sensitif belum tertutup. | Alihkan Formula legacy ke editor kanonis, rancang restore versi dengan reauth/audit, lalu kontrak reauth APK terpisah. Owner meninjau baseline tanpa reset izin otomatis; UAT finance/admin/QR/proxy/APK tetap perlu. |
 | `GAP-03` | `TERLEWAT` | P2 bisnis A2: uang makan slip payroll dan running balance rekening backdate. | Belum mendapat batch khusus walaupun pekerjaan bergerak ke A3–A5. | Audit aturan bisnis, buat fixture, lalu minta acceptance finance sebelum implementasi. |
 | `GAP-04` | `TERLEWAT` | A3.2 rollout UI 8.3 gelombang 2 dan 4–9 serta visual UAT. | Fondasi UI dan sidebar selesai, tetapi migrasi halaman tidak pernah ditutup per wave. | Kembali ke checklist UI 8.3 gelombang 01–09 setelah fondasi A5; satu rumpun per batch, bukan rewrite besar. |
 | `GAP-05` | `TERLEWAT_OPERASIONAL` | UAT browser role, APK/device, printer fisik, dan updater customer. | Automated tooling A4 lulus tetapi tidak menggantikan perangkat nyata. | Jalankan setelah kandidat build dan APK siap; bukti UAT harus terikat ke versi artefak. |
@@ -220,7 +226,9 @@ control board 0.2–0.6, control board yang berlaku.
 - `[~]` P0-01 — guard endpoint Master: sebagian writer sudah diperketat;
   seluruh registry, direct URL, dan role negative test masih terbuka.
 - `[~]` P0-02 — recipe, formula, extra, dan bundle: writer prioritas sudah
-  diberi RBAC/CSRF/POST-only; seluruh endpoint dan versioning formula belum.
+  diberi RBAC/CSRF/POST-only, concurrency, dan audit; Formula Component
+  kanonis memiliki timeline snapshot, tetapi jalur legacy dan restore versi
+  belum ditutup.
 - `[~]` P0-03 — POS Mobile: authorization endpoint baca/tulis dan POST-only 11
   writer sudah ada. Audit ulang setelah Batch 88 menemukan implementasi binding
   outlet/terminal yang dicatat pada Batch 75–81 tidak lengkap pada source aktif;
@@ -1778,8 +1786,9 @@ setelah gerbang ini lulus, pekerjaan paket/lisensi dilanjutkan di `_28`.
 
 1. Tutup `GAP-01`: credential produksi, rotasi secret, recovery Git, dan
    pemisahan runtime data customer tanpa melonggarkan preflight fail-closed.
-2. Lanjutkan `AUD-A1-SEC-02` secara kecil: rancang formula versioning dan
-   kontrak reauth APK terpisah tanpa memakai password dalam writer.
+2. Lanjutkan `AUD-A1-SEC-02` secara kecil: alihkan jalur Formula legacy ke
+   editor kanonis, lalu rancang restore versi dengan reauth/audit dan kontrak
+   reauth APK terpisah tanpa memakai password dalam writer.
 3. Uji command inbound `/menu`, `/omzet`, dan `/belanja` dari grup Namua;
    sebelum grup tidak tepercaya dipakai, tambahkan allowlist identitas pengirim.
 4. Jalankan A3.2 rollout UI melalui `AUD-A3-UI-01`–`09` per rumpun; jangan

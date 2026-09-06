@@ -107,6 +107,20 @@
         "clean_install",
         "upgrade"
       ]
+    },
+    {
+      "id": "2026-09-06a-component-formula-version-history",
+      "order": 2026090601,
+      "path": "sql/2026-09-06a_component_formula_version_history.sql",
+      "sha256": "4a06fd36d3b432be6e683f6ba747754ecb31345a237d3f65109f4c87ca6623df",
+      "dependencies": [
+        "2026-09-04c-a5-schema-migration-registry-foundation"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
     }
   ]
 }

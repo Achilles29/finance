@@ -1708,6 +1708,7 @@ class Production extends MY_Controller
         $this->render('production/component_formula_detail', [
             'page_title' => 'Detail Formula Component',
             'detail' => $detail,
+            'versions' => $this->Production_model->component_formula_versions($componentId),
         ]);
     }
 

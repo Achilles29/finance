@@ -100,14 +100,14 @@ $upgradeJson = json_decode(trim($upgrade['out']), true);
 $check($validate['code'] === 0 && $planA['code'] === 0 && $upgrade['code'] === 0, 'repository catalog validates and both DB-free policies plan successfully');
 $check($planA['out'] === $planB['out'], 'plan output is byte-for-byte deterministic');
 $plannedIds = array_column($planJson['migrations'] ?? [], 'id');
-$check($plannedIds === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05d-a5-clean-install-reference-seed', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default'], 'clean-install plan places both canonical reference seeds before additive module migrations');
-$check(array_column($upgradeJson['migrations'] ?? [], 'id') === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default'], 'upgrade plan excludes only the clean-install-only navigation reference seed');
+$check($plannedIds === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05d-a5-clean-install-reference-seed', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history'], 'clean-install plan places both canonical reference seeds before additive module migrations and formula history');
+$check(array_column($upgradeJson['migrations'] ?? [], 'id') === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history'], 'upgrade plan excludes only the clean-install-only navigation reference seed');
 $check(
     count($catalog['legacy_unmanaged_sql'] ?? []) === 7
-        && count($catalog['migrations'] ?? []) === 6
+        && count($catalog['migrations'] ?? []) === 7
         && hash_file('sha256', $sqlPath) === ($catalog['migrations'][0]['sha256'] ?? '')
         && ($catalog['migrations'][0]['policies'] ?? []) === ['clean_install', 'upgrade'],
-    'catalog records six managed and seven explicit legacy SQL files plus exact foundation checksum and policies'
+    'catalog records seven managed and seven explicit legacy SQL files plus exact foundation checksum and policies'
 );
 $check(($catalog['migrations'][1]['dependencies'] ?? []) === [$catalog['migrations'][0]['id']], 'Telegram migration explicitly depends on the registry foundation');
 $check(($catalog['migrations'][2]['dependencies'] ?? []) === [$catalog['migrations'][1]['id']], 'Telegram guide migration explicitly depends on the Telegram foundation');
@@ -122,6 +122,12 @@ $check(
         && ($catalog['migrations'][5]['dependencies'] ?? []) === [$catalog['migrations'][0]['id']]
         && ($catalog['migrations'][5]['policies'] ?? []) === ['clean_install', 'upgrade'],
     'WhatsApp safe reference seed is managed for clean install and upgrade'
+);
+$check(
+    ($catalog['migrations'][6]['id'] ?? '') === '2026-09-06a-component-formula-version-history'
+        && ($catalog['migrations'][6]['dependencies'] ?? []) === [$catalog['migrations'][0]['id']]
+        && ($catalog['migrations'][6]['policies'] ?? []) === ['clean_install', 'upgrade'],
+    'formula version history is managed for clean install and upgrade'
 );
 $allPaths = array_merge($catalog['legacy_unmanaged_sql'] ?? [], array_column($catalog['migrations'] ?? [], 'path'));
 $check(count(array_filter($allPaths, static function ($path): bool { return strpos((string)$path, '/_old/') !== false; })) === 0, 'catalog does not enroll archived SQL');
