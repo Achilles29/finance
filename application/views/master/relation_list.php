@@ -246,11 +246,7 @@ if ($isProductRecipe) {
                     <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" data-bs-toggle="tooltip" title="Hapus" aria-label="Hapus"><i class="ri ri-delete-bin-line"></i></button>
                   </form>
                 <?php elseif ($isComponentFormula): ?>
-                  <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit" href="<?php echo site_url('master/relation/component-formula/edit/' . (int)$r['id']); ?>"><i class="ri ri-edit-line"></i></a>
-                  <form method="post" action="<?php echo site_url('master/relation/component-formula/delete/' . (int)$r['id']); ?>" class="d-inline" onsubmit="return confirm('Hapus relasi ini?')">
-                    <input type="hidden" name="master_relation_component_formula_mutation_csrf" value="<?php echo html_escape((string)($master_relation_component_formula_mutation_csrf ?? '')); ?>">
-                    <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" data-bs-toggle="tooltip" title="Hapus" aria-label="Hapus"><i class="ri ri-delete-bin-line"></i></button>
-                  </form>
+                  <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Buka Editor Formula" aria-label="Buka Editor Formula" href="<?php echo site_url('production/component-formulas/edit/' . (int)$parent['id']); ?>"><i class="ri ri-edit-line"></i></a>
                 <?php else: ?>
                   <form method="post" action="<?php echo site_url('master/relation/product-extra/delete/' . (int)$r['id']); ?>" class="d-inline" onsubmit="return confirm('Hapus mapping ini?')">
                     <input type="hidden" name="master_relation_product_extra_mutation_csrf" value="<?php echo html_escape((string)($master_relation_product_extra_mutation_csrf ?? '')); ?>">

@@ -579,11 +579,10 @@ mrpr_check(
     'recipe delete is a confirmed scoped POST form'
 );
 mrpr_check(
-    preg_match('/<form method="post" action="<\?php echo site_url\(\'master\/relation\/component-formula\/delete\//', $listViewSource) === 1
-        && strpos($listViewSource, 'name="master_relation_component_formula_mutation_csrf"') !== false
-        && strpos($listViewSource, "onsubmit=\"return confirm('Hapus relasi ini?')\"") !== false
-        && strpos($listViewSource, 'href="<?php echo site_url(\'master/relation/component-formula/delete/') === false,
-    'component-formula delete is a confirmed scoped POST form without a GET anchor'
+    strpos($listViewSource, 'master/relation/component-formula/delete/') === false
+        && strpos($listViewSource, 'master/relation/component-formula/edit/') === false
+        && strpos($listViewSource, 'production/component-formulas/edit/') !== false,
+    'retired component-formula list uses the canonical editor without a legacy writer'
 );
 mrpr_check(
     preg_match('/<form method="post" action="<\?php echo site_url\(\'master\/relation\/product-extra\/delete\//', $listViewSource) === 1

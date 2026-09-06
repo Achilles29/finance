@@ -18,7 +18,7 @@ $productVariableCost = is_array($product_variable_cost ?? null) ? $product_varia
 if ($isProductRecipe) {
     $backUrl = site_url('master/relation/product-recipe/' . (int)$parent['id']);
 } elseif ($isComponentFormula) {
-    $backUrl = site_url('master/relation/component-formula/' . (int)$parent['id']);
+    $backUrl = site_url('production/component-formulas/edit/' . (int)$parent['id']);
 } else {
     $backUrl = site_url('master/relation/product-extra/' . (int)$parent['id']);
 }
@@ -261,9 +261,7 @@ $ingredientRoleOptions = is_array($options['ingredient_roles'] ?? null) ? $optio
 <div class="card">
   <div class="card-body">
     <form method="post" action="<?php echo site_url($form_action); ?>">
-      <?php if ($isComponentFormula): ?>
-        <input type="hidden" name="master_relation_component_formula_mutation_csrf" value="<?php echo html_escape((string)($master_relation_component_formula_mutation_csrf ?? '')); ?>">
-      <?php elseif ($isProductExtra): ?>
+      <?php if ($isProductExtra): ?>
         <input type="hidden" name="master_relation_product_extra_mutation_csrf" value="<?php echo html_escape((string)($master_relation_product_extra_mutation_csrf ?? '')); ?>">
       <?php endif; ?>
       <?php if ($isProductRecipe || $isComponentFormula): ?>

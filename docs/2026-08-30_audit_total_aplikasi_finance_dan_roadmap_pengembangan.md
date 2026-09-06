@@ -4,11 +4,15 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 173 menambahkan
-riwayat versi formula append-only pada editor Formula Component kanonis.
-Snapshot baseline lama dan snapshot penggantian baru ditulis atomik bersama
-perubahan formula; migrasi sudah applied dan replay di staging. Pemulihan
-versi serta penghentian jalur Formula legacy masih backlog terarah. Batch 172
+**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 174 memensiunkan
+seluruh writer Formula Component per-baris (jalur Master legacy dan endpoint
+Production lama). Semua perubahan formula kini melalui editor bulk kanonis,
+yang memiliki revision lock, audit atomik, serta riwayat versi append-only.
+Bookmark lama tetap dialihkan dengan aman; endpoint API lama memberi respons
+`410 Gone` tanpa mutasi. Pemulihan versi masih backlog terarah. Batch 173
+menambahkan snapshot baseline lama dan snapshot penggantian baru yang ditulis
+atomik bersama perubahan formula; migrasi sudah applied dan replay di staging.
+Batch 172
 menutup writer Bundle Produk dengan snapshot revision, lock header/line, dan
 audit atomik untuk tambah, ganti isi, serta ubah status. Batch 171 menambahkan audit
 before/after atomik pada tambah dan hapus mapping Product Extra di dalam
@@ -116,7 +120,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | ID | Sumber | Prioritas/fase | Masalah | Solusi/acceptance | Implementasi | Validasi | Release/data | Bukti atau langkah berikutnya |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `AUD-A1-SEC-01` | P0-01 | P0 / A1 | Endpoint Master belum seluruhnya deny-by-default. | Semua writer/read sensitif memakai permission aksi, scope, method, CSRF, dan negative test. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 82, 84A–C, 91–92, 148–149: 12 endpoint/36 entity terkunci; page Component kanonis dan 35 page unik aktif terbukti; enam writer memakai audit before/after atomik dan redaksi credential. Negative role UAT masih terbuka. |
-| `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 54–68 memberi guard dasar; Batch 168–172 menutup snapshot konflik, lock, dan audit writer prioritas. Batch 173 menambah riwayat Formula Component append-only: formula lama pertama disimpan sebagai `BASELINE`, setiap simpan baru sebagai `REPLACE`, dan detail menampilkan timeline. Jalur Formula legacy masih harus dialihkan ke editor kanonis; restore versi dan UAT dua-tab tetap terbuka. |
+| `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 54–68 memberi guard dasar; Batch 168–172 menutup snapshot konflik, lock, dan audit writer prioritas. Batch 173 menambah riwayat Formula Component append-only: formula lama pertama disimpan sebagai `BASELINE`, setiap simpan baru sebagai `REPLACE`, dan detail menampilkan timeline. Batch 174 mengalihkan semua jalur Master legacy ke editor kanonis dan memensiunkan endpoint Production per-baris dengan `410` tanpa DML; writer aktif hanya `save-bulk`. Restore versi berotorisasi dan UAT dua-tab tetap terbuka. |
 | `AUD-A1-POS-01` | P0-03 | P0 / A1 | Surface POS Mobile/APK belum seluruhnya terikat terminal/outlet. | Semua endpoint memakai bearer context otoritatif, izin aksi, step-up, dan UAT perangkat. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 73–81, 89a–f, 93, 105–107, 150: token kini memvalidasi ulang role/scope serta membawa konteks division/outlet/terminal. Batch 156 menutup step-up untuk Void/Refund **web saja**; kontrak step-up dan UAT APK masih terbuka. |
 | `AUD-A1-RBAC-01` | P0-04 | P0 / A1 | Multi-role dan scope operasional terlalu luas. | Baseline role, precedence multi-role, outlet/division scope, dan negative matrix nyata lulus. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 6/7/150: union izin dan scope fail-closed lulus. Batch 151: simulator role/user/scope dan report selisih izin tersedia; 22 akun staging cocok dengan resolver aktif. Isi baseline hak per jabatan menunggu owner; UAT tetap terbuka. |
 | `AUD-A1-RBAC-02` | P0-05 | P0 / A1 | Penghapusan role dahulu memakai kolom relasi salah. | Relasi benar, transaksi aman, dan regression test lulus. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 2A. |
@@ -1786,9 +1790,9 @@ setelah gerbang ini lulus, pekerjaan paket/lisensi dilanjutkan di `_28`.
 
 1. Tutup `GAP-01`: credential produksi, rotasi secret, recovery Git, dan
    pemisahan runtime data customer tanpa melonggarkan preflight fail-closed.
-2. Lanjutkan `AUD-A1-SEC-02` secara kecil: alihkan jalur Formula legacy ke
-   editor kanonis, lalu rancang restore versi dengan reauth/audit dan kontrak
-   reauth APK terpisah tanpa memakai password dalam writer.
+2. Lanjutkan `AUD-A1-SEC-02` secara kecil: rancang restore versi Formula
+   Component dengan reauth/audit, preview snapshot, dan kontrak reauth APK
+   terpisah tanpa memakai password dalam writer.
 3. Uji command inbound `/menu`, `/omzet`, dan `/belanja` dari grup Namua;
    sebelum grup tidak tepercaya dipakai, tambahkan allowlist identitas pengirim.
 4. Jalankan A3.2 rollout UI melalui `AUD-A3-UI-01`–`09` per rumpun; jangan

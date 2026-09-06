@@ -401,6 +401,21 @@ function pcf_assert_rejection(array $fixture, int $status, string $label): void
     pcf_check($fixture['input']->rawReads === 0, $label . ' does not parse JSON/raw payload');
 }
 
+function pcf_assert_retired_writer(array $fixture, string $label): void
+{
+    $body = json_decode($fixture['output']->body, true);
+    pcf_check($fixture['output']->status === 410, $label . ' returns HTTP 410');
+    pcf_check(
+        $fixture['output']->contentType === 'application/json'
+            && is_array($body)
+            && ($body['ok'] ?? null) === false
+            && str_contains((string)($body['message'] ?? ''), 'sudah dipensiunkan'),
+        $label . ' explains that the one-line writer is retired'
+    );
+    pcf_check($fixture['model']->calls === [], $label . ' performs no model mutation');
+    pcf_check($fixture['db']->events === [], $label . ' performs no direct DB work');
+}
+
 $root = dirname(__DIR__, 2);
 $controllerSource = (string)file_get_contents($root . '/application/controllers/Production.php');
 $viewSource = (string)file_get_contents($root . '/application/views/production/component_formula_edit.php');
@@ -451,8 +466,9 @@ foreach ([$saveSource, $bulkSource, $deleteSource] as $index => $writerSource) {
 pcf_check(
     strpos($saveSource, 'require_component_formula_save_access()') < strpos($saveSource, 'require_component_formula_mutation_csrf()')
         && strpos($saveSource, 'require_component_formula_mutation_csrf()') < strpos($saveSource, 'request_payload()')
-        && strpos($saveSource, 'request_payload()') < strpos($saveSource, 'save_component_formula($payload)'),
-    'save orders RBAC, guard, payload parse, then model mutation'
+        && strpos($saveSource, 'request_payload()') < strpos($saveSource, 'json_error(')
+        && strpos($saveSource, '->save_component_formula(') === false,
+    'legacy save orders RBAC, guard, payload parse, then retires without model mutation'
 );
 pcf_check(
     strpos($bulkSource, "require_permission('" . PCF_PAGE . "', 'edit')") < strpos($bulkSource, 'require_component_formula_mutation_csrf()')
@@ -463,8 +479,9 @@ pcf_check(
 );
 pcf_check(
     strpos($deleteSource, "require_permission('" . PCF_PAGE . "', 'delete')") < strpos($deleteSource, 'require_component_formula_mutation_csrf()')
-        && strpos($deleteSource, 'require_component_formula_mutation_csrf()') < strpos($deleteSource, 'delete_component_formula('),
-    'delete orders delete RBAC, guard, then model mutation'
+        && strpos($deleteSource, 'require_component_formula_mutation_csrf()') < strpos($deleteSource, 'json_error(')
+        && strpos($deleteSource, '->delete_component_formula(') === false,
+    'legacy delete orders delete RBAC, guard, then retires without model mutation'
 );
 pcf_check(
     strpos($viewSource, "'X-Production-Component-Formula-Csrf':componentFormulaMutationCsrf") !== false
@@ -557,11 +574,11 @@ foreach (['save', 'bulk', 'delete'] as $endpoint) {
     pcf_check($fallback['input']->postReads === [] && $fallback['input']->getReads === [], $endpoint . ' does not inspect form/query fallback');
 }
 
-// Valid scoped headers reach only the expected model method after RBAC and guard.
+// Valid scoped headers retire old single-line writers, while bulk remains canonical.
 $validSaveCreate = pcf_fixture('save');
 pcf_invoke($validSaveCreate, 'save');
 $validSaveCreate['events'] = ProductionFormulaCsrfTrace::$events;
-pcf_check(($validSaveCreate['model']->calls[0][0] ?? '') === 'save', 'valid create save reaches save model');
+pcf_assert_retired_writer($validSaveCreate, 'valid create save');
 pcf_check(in_array([PCF_PAGE, 'create'], $validSaveCreate['controller']->permissionCalls, true), 'id=0 save enforces create action');
 
 $validSaveEdit = pcf_fixture(
@@ -575,7 +592,7 @@ $validSaveEdit = pcf_fixture(
 );
 pcf_invoke($validSaveEdit, 'save');
 $validSaveEdit['events'] = ProductionFormulaCsrfTrace::$events;
-pcf_check(($validSaveEdit['model']->calls[0][0] ?? '') === 'save', 'valid update save reaches save model');
+pcf_assert_retired_writer($validSaveEdit, 'valid update save');
 pcf_check(in_array([PCF_PAGE, 'edit'], $validSaveEdit['controller']->permissionCalls, true), 'id>0 save enforces edit action');
 
 $validBulk = pcf_fixture('bulk');
@@ -588,18 +605,18 @@ pcf_check(($validBulk['model']->calls[0][3] ?? '') === PCF_REVISION, 'valid bulk
 $validDelete = pcf_fixture('delete');
 pcf_invoke($validDelete, 'delete');
 $validDelete['events'] = ProductionFormulaCsrfTrace::$events;
-pcf_check($validDelete['model']->calls === [['delete', 43]], 'valid delete reaches delete model with route id');
+pcf_assert_retired_writer($validDelete, 'valid delete');
 
 foreach ([$validSaveCreate, $validSaveEdit, $validBulk, $validDelete] as $index => $valid) {
     $label = ['create save', 'edit save', 'bulk', 'delete'][$index];
     pcf_check($valid['input']->headerReads === [PCF_HEADER], 'valid ' . $label . ' reads exact canonical header');
     pcf_check($valid['input']->methodUpperFlags === [true], 'valid ' . $label . ' enforces exact POST method');
     $headerPosition = array_search('input:header:' . PCF_HEADER, $valid['events'], true);
-    $modelEvent = ['model:save', 'model:save', 'model:bulk', 'model:delete'][$index];
-    $modelPosition = array_search($modelEvent, $valid['events'], true);
+    $terminalEvent = $index === 2 ? 'model:bulk' : 'output:status:410';
+    $terminalPosition = array_search($terminalEvent, $valid['events'], true);
     pcf_check(
-        $headerPosition !== false && $modelPosition !== false && $headerPosition < $modelPosition,
-        'valid ' . $label . ' reaches model only after header guard'
+        $headerPosition !== false && $terminalPosition !== false && $headerPosition < $terminalPosition,
+        'valid ' . $label . ' reaches its terminal action only after header guard'
     );
 }
 pcf_check($validSaveCreate['input']->rawReads === 1 && $validSaveEdit['input']->rawReads === 1, 'valid single saves parse payload only after guard');
@@ -621,5 +638,5 @@ if ($productionFormulaCsrfFailures !== []) {
 
 echo '[PASS] Production component formula mutation CSRF smoke: '
     . $productionFormulaCsrfChecks
-    . ' checks; editor RBAC, all three POST/header-only guards, payload boundary, and model reachability verified without DB/network/bootstrap.'
+    . ' checks; editor RBAC, all three POST/header-only guards, canonical bulk writer, and retired one-line writers verified without DB/network/bootstrap.'
     . PHP_EOL;

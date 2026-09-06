@@ -2225,7 +2225,7 @@ mrpe_check($hubController->session->reads === [] && $hubController->session->wri
 mrpe_check(!array_key_exists(MRPE_FIELD, $hubController->renderedData), 'product_extra_hub render data remains token-free');
 
 mrpe_check(substr_count($formViewSource, 'name="' . MRPE_FIELD . '"') === 1, 'generic relation form has exactly one product-extra hidden token');
-$extraFormBranchAt = strpos($formViewSource, '<?php elseif ($isProductExtra): ?>');
+$extraFormBranchAt = strpos($formViewSource, '<?php if ($isProductExtra): ?>');
 $extraFormTokenAt = strpos($formViewSource, 'name="' . MRPE_FIELD . '"');
 $extraFormBranchEnd = strpos($formViewSource, '<?php endif; ?>', (int)$extraFormBranchAt);
 mrpe_check(
@@ -2234,11 +2234,10 @@ mrpe_check(
     'product-extra token is confined to the product-extra generic form branch'
 );
 mrpe_check(substr_count($formViewSource, 'name="' . MRPE_RECIPE_FIELD . '"') === 1, 'product-recipe form token remains intact');
-mrpe_check(substr_count($formViewSource, 'name="' . MRPE_FORMULA_FIELD . '"') === 1, 'component-formula form token remains intact');
+mrpe_check(substr_count($formViewSource, 'name="' . MRPE_FORMULA_FIELD . '"') === 0, 'retired component-formula form no longer exposes a legacy mutation token');
 
 $extraDeleteForm = '<form method="post" action="<?php echo site_url(\'master/relation/product-extra/delete/\'';
 $recipeDeleteForm = '<form method="post" action="<?php echo site_url(\'master/relation/product-recipe/delete/\'';
-$formulaDeleteForm = '<form method="post" action="<?php echo site_url(\'master/relation/component-formula/delete/\'';
 mrpe_check(
     strpos($listViewSource, $extraDeleteForm) !== false
         && substr_count($listViewSource, 'name="' . MRPE_FIELD . '"') === 1
@@ -2252,9 +2251,10 @@ mrpe_check(
     'product-recipe delete remains a scoped POST form'
 );
 mrpe_check(
-    strpos($listViewSource, $formulaDeleteForm) !== false
-        && strpos($listViewSource, 'name="' . MRPE_FORMULA_FIELD . '"') !== false,
-    'component-formula delete remains a scoped POST form'
+    strpos($listViewSource, 'master/relation/component-formula/delete/') === false
+        && strpos($listViewSource, 'master/relation/component-formula/edit/') === false
+        && strpos($listViewSource, 'production/component-formulas/edit/') !== false,
+    'retired component-formula list exposes only the canonical editor link'
 );
 
 $viewHost = new MasterRelationProductExtraSmokeViewHost();
@@ -2283,7 +2283,7 @@ $formulaFormHtml = $viewHost->render($formViewPath, $baseFormData + [
     'relation_type' => 'component-formula',
     MRPE_FORMULA_FIELD => MRPE_FORMULA_TOKEN,
 ]);
-mrpe_check(strpos($formulaFormHtml, 'name="' . MRPE_FORMULA_FIELD . '"') !== false && strpos($formulaFormHtml, 'name="' . MRPE_FIELD . '"') === false, 'rendered component form keeps component POST token without product-extra token');
+mrpe_check(strpos($formulaFormHtml, 'name="' . MRPE_FORMULA_FIELD . '"') === false && strpos($formulaFormHtml, 'name="' . MRPE_FIELD . '"') === false && strpos($formulaFormHtml, '/smoke/production/component-formulas/edit/12') !== false, 'retired component form exposes no mutation token and returns to canonical editor');
 
 $baseListData = [
     'title' => 'Fixture List',
@@ -2315,8 +2315,8 @@ $formulaListHtml = $viewHost->render($listViewPath, $baseListData + [
     ]],
     MRPE_FORMULA_FIELD => MRPE_FORMULA_TOKEN,
 ]);
-mrpe_check(strpos($formulaListHtml, 'name="' . MRPE_FORMULA_FIELD . '"') !== false && strpos($formulaListHtml, '<form method="post" action="/smoke/master/relation/component-formula/delete/91"') !== false, 'rendered component list keeps its scoped POST delete form');
-mrpe_check(strpos($formulaListHtml, 'name="' . MRPE_FIELD . '"') === false, 'rendered component list does not expose product-extra token');
+mrpe_check(strpos($formulaListHtml, 'name="' . MRPE_FORMULA_FIELD . '"') === false && strpos($formulaListHtml, '<form method="post" action="/smoke/master/relation/component-formula/delete/91"') === false && strpos($formulaListHtml, 'href="/smoke/production/component-formulas/edit/12"') !== false, 'retired component list exposes only the canonical editor');
+mrpe_check(strpos($formulaListHtml, 'name="' . MRPE_FIELD . '"') === false, 'retired component list does not expose product-extra token');
 
 $recipeListHtml = $viewHost->render($listViewPath, $baseListData + [
     'relation_type' => 'product-recipe',

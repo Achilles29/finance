@@ -1755,12 +1755,13 @@ class Production extends MY_Controller
         $payload = $this->request_payload();
         $id = (int)($payload['id'] ?? 0);
         $this->require_permission('production.component.formula.index', $id > 0 ? 'edit' : 'create');
-        $result = $this->Production_model->save_component_formula($payload);
-        if (!($result['ok'] ?? false)) {
-            $this->json_error((string)($result['message'] ?? 'Gagal menyimpan formula.'), 422);
-            return;
-        }
-        $this->json_ok(['id' => (int)$result['id']]);
+        // Formula wajib disimpan sebagai satu snapshot melalui endpoint bulk.
+        // Jangan hidupkan kembali writer per-baris: jalur itu tidak dapat
+        // menjaga revision lock, audit payload, dan histori formula konsisten.
+        $this->json_error(
+            'Endpoint simpan satu baris formula sudah dipensiunkan. Gunakan editor Formula Component terbaru.',
+            410
+        );
     }
 
     public function component_formula_save_bulk()
@@ -1807,12 +1808,12 @@ class Production extends MY_Controller
             return;
         }
 
-        $result = $this->Production_model->delete_component_formula((int)$id);
-        if (!($result['ok'] ?? false)) {
-            $this->json_error((string)($result['message'] ?? 'Gagal hapus formula.'), 422);
-            return;
-        }
-        $this->json_ok(['id' => (int)$id]);
+        // Penghapusan satu baris harus dilakukan dari editor bulk agar
+        // perubahan tercatat sebagai snapshot formula versi baru.
+        $this->json_error(
+            'Endpoint hapus satu baris formula sudah dipensiunkan. Gunakan editor Formula Component terbaru.',
+            410
+        );
     }
 
     public function component_cost_variables()

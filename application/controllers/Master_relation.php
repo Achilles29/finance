@@ -313,6 +313,15 @@ class Master_relation extends MY_Controller
         return true;
     }
 
+    private function redirectLegacyComponentFormulaEditor(int $componentId): void
+    {
+        $this->session->set_flashdata(
+            'warning',
+            'Editor formula lama sudah dipensiunkan. Gunakan editor Formula Component terbaru agar riwayat versi tercatat.'
+        );
+        redirect('production/component-formulas/edit/' . $componentId);
+    }
+
     private function productExtraMutationCsrf(): string
     {
         $token = (string)$this->session->userdata(self::PRODUCT_EXTRA_MUTATION_CSRF_SESSION_KEY);
@@ -1322,30 +1331,7 @@ class Master_relation extends MY_Controller
     public function component_formula_hub()
     {
         $this->requireRelationPermission('formula', 'view');
-        $q = trim((string)$this->input->get('q', true));
-
-        $this->db->select('c.id, c.component_code, c.component_name, pd.name AS product_division_name, COUNT(f.id) AS total_line');
-        $this->db->from('mst_component c');
-        $this->db->join('mst_product_division pd', 'pd.id = c.product_division_id', 'left');
-        $this->db->join('mst_component_formula f', 'f.component_id = c.id', 'left');
-        $this->db->where('c.is_active', 1);
-        if ($q !== '') {
-            $this->db->group_start();
-            $this->db->like('c.component_code', $q);
-            $this->db->or_like('c.component_name', $q);
-            $this->db->group_end();
-        }
-        $this->db->group_by('c.id, c.component_code, c.component_name, pd.name');
-        $this->db->order_by('c.component_name', 'ASC');
-        $rows = $this->db->get()->result_array();
-
-        $this->render('master/relation_hub', [
-            'title' => 'Halaman Formula Component',
-            'active_menu' => 'grp.master',
-            'relation_type' => 'component-formula',
-            'rows' => $rows,
-            'q' => $q,
-        ]);
+        redirect('production/component-formulas');
     }
 
     public function product_recipe(int $productId)
@@ -1992,45 +1978,13 @@ class Master_relation extends MY_Controller
     public function component_formula(int $componentId)
     {
         $this->requireRelationPermission('formula', 'view');
-        $component = $this->Master_model->get_by_id('mst_component', $componentId);
-        if (!$component) show_404();
-
-        $this->db->select('f.*, i.item_name, c.component_name, u.name AS uom_name, od.name AS source_division_name');
-        $this->db->from('mst_component_formula f');
-        $this->db->join('mst_item i', 'i.id = f.material_item_id', 'left');
-        $this->db->join('mst_component c', 'c.id = f.sub_component_id', 'left');
-        $this->db->join('mst_uom u', 'u.id = f.uom_id', 'left');
-        $this->db->join('mst_operational_division od', 'od.id = f.source_division_id', 'left');
-        $this->db->where('f.component_id', $componentId);
-        $this->db->order_by('f.sort_order ASC, f.id ASC');
-        $rows = $this->db->get()->result_array();
-
-        $this->render('master/relation_list', [
-            'title' => 'Relasi Formula Component',
-            'active_menu' => 'grp.master',
-            'relation_type' => 'component-formula',
-            'parent' => $component,
-            'rows' => $rows,
-            'master_relation_component_formula_mutation_csrf' => $this->componentFormulaMutationCsrf(),
-        ]);
+        redirect('production/component-formulas/detail/' . $componentId);
     }
 
     public function component_formula_create(int $componentId)
     {
         $this->requireRelationPermission('formula', 'create');
-        $component = $this->Master_model->get_by_id('mst_component', $componentId);
-        if (!$component) show_404();
-
-        $this->render('master/relation_form', [
-            'title' => 'Tambah Line Formula Component',
-            'active_menu' => 'grp.master',
-            'relation_type' => 'component-formula',
-            'parent' => $component,
-            'row' => null,
-            'form_action' => 'master/relation/component-formula/' . $componentId . '/store',
-            'options' => $this->componentFormulaOptions($componentId),
-            'master_relation_component_formula_mutation_csrf' => $this->componentFormulaMutationCsrf(),
-        ]);
+        redirect('production/component-formulas/edit/' . $componentId);
     }
 
     public function component_formula_store(int $componentId)
@@ -2039,44 +1993,7 @@ class Master_relation extends MY_Controller
         if (!$this->requireComponentFormulaMutationCsrf()) {
             return;
         }
-
-        $component = $this->Master_model->get_by_id('mst_component', $componentId);
-        if (!$component) show_404();
-
-        $this->form_validation->set_rules('line_type', 'Line Type', 'required');
-        $this->form_validation->set_rules('qty', 'Qty', 'required|numeric');
-        $this->form_validation->set_rules('uom_id', 'Satuan', 'required|integer');
-
-        if ($this->form_validation->run() === false) {
-            $this->session->set_flashdata('error', validation_errors('<li>', '</li>'));
-            redirect('master/relation/component-formula/' . $componentId . '/create');
-            return;
-        }
-
-        $lineType = (string)$this->input->post('line_type', true);
-        $materialItemId = $lineType === 'MATERIAL' ? (int)$this->input->post('material_item_id', true) : null;
-        $subComponentId = $lineType === 'COMPONENT' ? (int)$this->input->post('sub_component_id', true) : null;
-
-        if ($lineType === 'COMPONENT' && $subComponentId === $componentId) {
-            $this->session->set_flashdata('error', 'Sub component tidak boleh sama dengan component induk.');
-            redirect('master/relation/component-formula/' . $componentId . '/create');
-            return;
-        }
-
-        $this->Master_model->insert('mst_component_formula', [
-            'component_id' => $componentId,
-            'line_no' => (int)$this->input->post('line_no', true) ?: 1,
-            'line_type' => $lineType,
-            'material_item_id' => $materialItemId ?: null,
-            'sub_component_id' => $subComponentId ?: null,
-            'qty' => (float)$this->input->post('qty', true),
-            'uom_id' => (int)$this->input->post('uom_id', true),
-            'notes' => $this->input->post('notes', true),
-            'sort_order' => (int)$this->input->post('sort_order', true) ?: 0,
-        ]);
-
-        $this->session->set_flashdata('success', 'Line formula component berhasil ditambahkan.');
-        redirect('master/relation/component-formula/' . $componentId);
+        $this->redirectLegacyComponentFormulaEditor($componentId);
     }
 
     public function component_formula_edit(int $id)
@@ -2084,19 +2001,7 @@ class Master_relation extends MY_Controller
         $this->requireRelationPermission('formula', 'edit');
         $row = $this->Master_model->get_by_id('mst_component_formula', $id);
         if (!$row) show_404();
-        $parent = $this->Master_model->get_by_id('mst_component', (int)$row['component_id']);
-        if (!$parent) show_404();
-
-        $this->render('master/relation_form', [
-            'title' => 'Edit Line Formula Component',
-            'active_menu' => 'grp.master',
-            'relation_type' => 'component-formula',
-            'parent' => $parent,
-            'row' => $row,
-            'form_action' => 'master/relation/component-formula/edit/' . $id . '/update',
-            'options' => $this->componentFormulaOptions((int)$row['component_id']),
-            'master_relation_component_formula_mutation_csrf' => $this->componentFormulaMutationCsrf(),
-        ]);
+        $this->redirectLegacyComponentFormulaEditor((int)$row['component_id']);
     }
 
     public function component_formula_update(int $id)
@@ -2108,30 +2013,7 @@ class Master_relation extends MY_Controller
 
         $row = $this->Master_model->get_by_id('mst_component_formula', $id);
         if (!$row) show_404();
-
-        $lineType = (string)$this->input->post('line_type', true);
-        $materialItemId = $lineType === 'MATERIAL' ? (int)$this->input->post('material_item_id', true) : null;
-        $subComponentId = $lineType === 'COMPONENT' ? (int)$this->input->post('sub_component_id', true) : null;
-
-        if ($lineType === 'COMPONENT' && $subComponentId === (int)$row['component_id']) {
-            $this->session->set_flashdata('error', 'Sub component tidak boleh sama dengan component induk.');
-            redirect('master/relation/component-formula/edit/' . $id);
-            return;
-        }
-
-        $this->Master_model->update('mst_component_formula', $id, [
-            'line_no' => (int)$this->input->post('line_no', true) ?: 1,
-            'line_type' => $lineType,
-            'material_item_id' => $materialItemId ?: null,
-            'sub_component_id' => $subComponentId ?: null,
-            'qty' => (float)$this->input->post('qty', true),
-            'uom_id' => (int)$this->input->post('uom_id', true),
-            'notes' => $this->input->post('notes', true),
-            'sort_order' => (int)$this->input->post('sort_order', true) ?: 0,
-        ]);
-
-        $this->session->set_flashdata('success', 'Line formula component berhasil diperbarui.');
-        redirect('master/relation/component-formula/' . (int)$row['component_id']);
+        $this->redirectLegacyComponentFormulaEditor((int)$row['component_id']);
     }
 
     public function component_formula_delete(int $id)
@@ -2143,10 +2025,7 @@ class Master_relation extends MY_Controller
 
         $row = $this->Master_model->get_by_id('mst_component_formula', $id);
         if (!$row) show_404();
-
-        $this->db->where('id', $id)->delete('mst_component_formula');
-        $this->session->set_flashdata('success', 'Line formula component berhasil dihapus.');
-        redirect('master/relation/component-formula/' . (int)$row['component_id']);
+        $this->redirectLegacyComponentFormulaEditor((int)$row['component_id']);
     }
 
     public function product_extra(int $productId)
@@ -5067,24 +4946,4 @@ class Master_relation extends MY_Controller
         return $this->db->count_all_results() > 0;
     }
 
-    private function componentFormulaOptions(int $componentId): array
-    {
-        $this->db->where('id !=', $componentId);
-        $this->db->where('is_active', 1);
-        $componentRows = $this->db->order_by('component_name', 'ASC')->get('mst_component')->result_array();
-
-        $components = [];
-        foreach ($componentRows as $row) {
-            $components[] = [
-                'value' => $row['id'],
-                'label' => $row['component_name'],
-            ];
-        }
-
-        return [
-            'materials' => $this->Master_model->get_options('mst_item', 'id', 'item_name', true),
-            'components' => $components,
-            'uoms' => $this->Master_model->get_options('mst_uom', 'id', 'name', true),
-        ];
-    }
 }

@@ -6061,3 +6061,41 @@
   versi, UAT dua-tab, reauth APK/MFA, dan UAT role/perangkat tetap terbuka.
 - Batch berikutnya: alihkan jalur Formula legacy ke editor kanonis tanpa
   mengubah kontrak POS Mobile/APK.
+
+## Batch 174 — Satu jalur kanonis Formula Component
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 09:06 WIB.
+- Prioritas: P0 / `AUD-A1-SEC-02`. Riwayat versi Batch 173 hanya terjamin bila
+  seluruh writer formula memakai editor bulk kanonis; route Master lama dan
+  endpoint Production per-baris masih dapat melewati snapshot tersebut.
+- Diskusi/arah: fixer tunggal. Bookmark lama harus tetap dapat dibuka dengan
+  aman, tetapi tidak boleh lagi dapat menulis data. Tidak menyentuh POS
+  Mobile/APK, stok, HPP, mismatch historis, hak role, atau data bisnis.
+- File berubah:
+  - `application/controllers/Master_relation.php`, `Production.php`, dan
+    `application/models/Production_model.php`.
+  - View relation formula legacy dan smoke direct-URL/Formula terkait.
+  - Roadmap `_30`, `_28`, serta log ini.
+- Perubahan utama:
+  - Semua halaman/POST Formula legacy Master kini mengarahkan pengguna ke
+    editor Formula Component kanonis; POST lama memerlukan guard lama lebih
+    dahulu dan kemudian hanya memberi pesan pengalihan.
+  - Endpoint Production simpan/hapus satu line mempertahankan RBAC dan CSRF,
+    tetapi mengembalikan JSON `410 Gone` tanpa query atau mutasi.
+  - Writer/model per-baris dihapus. Satu-satunya writer aktif adalah bulk
+    save yang sudah memakai revision lock, audit atomik, dan history versi.
+- SQL/runtime: **tidak ada SQL baru**, migration, query tulis staging,
+  perubahan data formula/stok/HPP/mismatch, atau perubahan kontrak POS
+  Mobile/APK.
+- Validasi:
+  - PHP lint seluruh file PHP berubah dan `git diff --check` lulus.
+  - Smoke Formula Production 201 check, matrix A1 direct URL, A2 inventory
+    transaction matrix, dan A4 cross-module matrix lulus.
+  - Quality gate `parallel` lulus: required 69/69, development 4/4, release
+    1/1, dan preflight 1/1. Runtime/security/static serta UAT browser/perangkat
+    tetap dijalankan melalui gate dan lingkungan yang sesuai.
+- Review akhir fixer tunggal: jalur Formula Component kini tunggal dan dapat
+  ditelusuri. Risiko sisa: restore versi belum ada; UAT browser dua-tab,
+  reauth APK/MFA, baseline role nyata, dan UAT perangkat tetap terbuka.
+- Batch berikutnya: desain dan implementasikan restore versi Formula dengan
+  reauth one-use, preview before/after, lock/revision, dan audit atomik.

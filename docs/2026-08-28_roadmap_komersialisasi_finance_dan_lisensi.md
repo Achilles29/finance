@@ -69,8 +69,10 @@ lisensi, harga, dan status komersialisasi tidak berubah.
 Batch 173 menambahkan riwayat versi formula append-only pada editor Formula
 Component kanonis dan migration schema yang telah diuji replay di staging.
 Ini menjaga jejak perubahan resep produksi, bukan fitur lisensi atau paket.
-Pengalihan jalur Formula legacy, restore versi berotorisasi, serta UAT tetap
-menjadi backlog audit `_30`; status komersialisasi tidak berubah.
+Batch 174 kemudian mengalihkan jalur Master lama dan memensiunkan endpoint
+Formula per-baris agar semua perubahan memakai snapshot kanonis tersebut.
+Restore versi berotorisasi serta UAT tetap menjadi backlog audit `_30`; status
+komersialisasi tidak berubah.
 
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
