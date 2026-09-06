@@ -5,6 +5,7 @@ class Production extends MY_Controller
 {
     private const COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY = 'production_component_formula_mutation_csrf';
     private const COMPONENT_FORMULA_MUTATION_CSRF_CI_HEADER = 'X-Production-Component-Formula-Csrf';
+    private const COMPONENT_FORMULA_REVISION_FIELD = 'component_formula_revision';
     private const COMPONENT_ADJUSTMENT_CSRF_SESSION_KEY = 'production_component_adjustment_csrf';
     private const COMPONENT_ADJUSTMENT_CSRF_CI_HEADER = 'X-Production-Component-Adjustment-Csrf';
     private const COMPONENT_BATCH_CSRF_SESSION_KEY = 'production_component_batch_csrf';
@@ -1739,6 +1740,7 @@ class Production extends MY_Controller
             'components' => $this->active_components(),
             'source_divisions' => $sourceDivisions,
             'production_component_formula_mutation_csrf' => $this->component_formula_mutation_csrf(),
+            'component_formula_revision' => $this->Production_model->component_formula_revision($componentId),
         ]);
     }
 
@@ -1770,9 +1772,28 @@ class Production extends MY_Controller
         $payload = $this->request_payload();
         $componentId = (int)($payload['component_id'] ?? 0);
         $lines = isset($payload['lines']) && is_array($payload['lines']) ? $payload['lines'] : [];
-        $result = $this->Production_model->save_component_formula_bulk($componentId, $lines);
+        $expectedRevision = (string)($payload[self::COMPONENT_FORMULA_REVISION_FIELD] ?? '');
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            $this->json_error('Snapshot formula tidak valid. Muat ulang halaman sebelum menyimpan.', 422);
+            return;
+        }
+        $sourceIp = method_exists($this->input, 'ip_address')
+            ? trim((string)$this->input->ip_address())
+            : '';
+        $result = $this->Production_model->save_component_formula_bulk(
+            $componentId,
+            $lines,
+            $expectedRevision,
+            [
+                'actor_user_id' => !empty($this->current_user['id']) ? (int)$this->current_user['id'] : null,
+                'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
+            ]
+        );
         if (!($result['ok'] ?? false)) {
-            $this->json_error((string)($result['message'] ?? 'Gagal simpan formula bulk.'), 422);
+            $this->json_error(
+                (string)($result['message'] ?? 'Gagal simpan formula bulk.'),
+                (int)($result['status'] ?? 422)
+            );
             return;
         }
         $this->json_ok(['component_id' => $componentId]);

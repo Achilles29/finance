@@ -5857,3 +5857,47 @@
   resmi, lalu lanjutkan mutasi inventory lain.
 - Penyerahan: commit lokal setelah semua gate lulus, tanpa push; ringkasan
   dikirim ke Telegram Namua setelah commit.
+
+## Batch 169 — Revision dan audit editor massal Formula Component
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 07:31 WIB.
+- Prioritas: P0 / `AUD-A1-SEC-02`. Editor Formula Component mengganti seluruh
+  line formula; dua tab browser sebelumnya dapat menimpa formula terbaru tanpa
+  konflik eksplisit atau jejak before/after atomik.
+- Diskusi/arah: fixer tunggal. Scope hanya endpoint kanonis
+  `production/component-formulas/save-bulk`, model Formula Component, dan
+  editor web resminya. Tidak menyentuh POS Mobile/APK, stok, lot, HPP, data
+  mismatch, SQL/schema, atau matriks role.
+- File berubah:
+  - `application/controllers/Production.php`,
+    `application/models/Production_model.php`, dan
+    `application/views/production/component_formula_edit.php`.
+  - `tools/tests/production_component_formula_mutation_csrf_smoke.php` dan
+    smoke baru `production_component_formula_revision_audit_smoke.php`.
+  - Manifest/kontrak quality gate, roadmap `_30`, `_28`, serta log ini.
+- Perubahan utama:
+  - Editor membawa hash revision dari snapshot formula saat halaman dibuka.
+  - Simpan massal memvalidasi revision, mengunci parent `mst_component` dan
+    line `mst_component_formula` dengan `FOR UPDATE`, lalu menolak tab lama
+    dengan HTTP 409 dan pesan untuk memuat ulang halaman.
+  - Hapus/ganti seluruh line dan audit `REPLACE_COMPONENT_FORMULA` dengan
+    payload sebelum/sesudah berada dalam satu transaksi. Audit/table/kolom,
+    lock, write audit, atau commit yang gagal membatalkan perubahan.
+- SQL/runtime: **tidak ada SQL baru**, migration, query tulis staging,
+  perubahan data HPP/mismatch, credential, sidebar, atau kontrak POS
+  Mobile/APK.
+- Validasi:
+  - Lint seluruh PHP berubah, `git diff --check`, smoke CSRF formula (192
+    check), smoke revision/audit formula (13), matrix direct-URL A1, matrix A2,
+    dan quality-gate contract (27) lulus sebelum full gate.
+  - Quality gate `parallel` lulus: required 67/67, development 4/4, release
+    1/1, dan preflight 1/1. Runtime/security/static serta UAT browser dua-tab
+    nyata tetap harus dibuktikan terpisah.
+- Review akhir fixer tunggal: layak untuk editor massal Formula Component.
+  Snapshot lama tidak dapat menimpa formula terbaru dan audit atomik
+  fail-closed. Writer formula individual, Extra, Bundle, formula versioning,
+  APK, MFA, baseline role nyata, serta UAT perangkat tetap terbuka.
+- Batch berikutnya: petakan writer Resep individual atau Extra sebagai batch
+  A1 kecil berikutnya.
+- Penyerahan: commit lokal tanpa push setelah seluruh gate lulus; ringkasan
+  dikirim ke Telegram Namua setelah commit.

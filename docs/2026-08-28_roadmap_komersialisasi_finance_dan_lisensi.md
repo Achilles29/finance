@@ -46,6 +46,12 @@ Batch 168 menambah revision, lock, dan audit atomik pada editor massal Resep
 Produk agar perubahan lama tidak menimpa resep terbaru. Ini perbaikan fondasi
 teknis di `_30`, bukan perubahan paket, lisensi, atau status komersialisasi.
 
+Batch 169 menerapkan pola yang sama pada editor massal Formula Component.
+Perubahan formula dari tab lama kini ditolak, dan snapshot sebelum/sesudah
+tercatat dalam audit yang sama dengan penggantian line. Ini tetap fondasi
+teknis di `_30`; tidak mengubah paket, lisensi, harga, atau status
+komersialisasi.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 

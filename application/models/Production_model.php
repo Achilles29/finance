@@ -8148,7 +8148,12 @@ class Production_model extends CI_Model
         return ['ok' => $this->db->affected_rows() > 0, 'id' => (int)$this->db->insert_id()];
     }
 
-    public function save_component_formula_bulk(int $componentId, array $lines): array
+    public function save_component_formula_bulk(
+        int $componentId,
+        array $lines,
+        string $expectedRevision = '',
+        array $auditContext = []
+    ): array
     {
         $component = $this->db->select('id, component_type')
             ->from('mst_component')
@@ -8158,6 +8163,13 @@ class Production_model extends CI_Model
             ->row_array();
         if (!$component) {
             return ['ok' => false, 'message' => 'Component tidak ditemukan.'];
+        }
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            return [
+                'ok' => false,
+                'status' => 422,
+                'message' => 'Snapshot formula tidak valid. Muat ulang halaman sebelum menyimpan.',
+            ];
         }
 
         $normalized = [];
@@ -8242,16 +8254,153 @@ class Production_model extends CI_Model
             ];
         }
 
-        $this->db->trans_start();
+        if (!$this->component_formula_audit_ready()) {
+            return [
+                'ok' => false,
+                'status' => 503,
+                'message' => 'Pencatatan audit formula belum siap. Perubahan tidak dijalankan.',
+            ];
+        }
+        if ($this->db->trans_begin() === false) {
+            return [
+                'ok' => false,
+                'status' => 503,
+                'message' => 'Transaksi perubahan formula tidak dapat dimulai.',
+            ];
+        }
+        if (!$this->lock_component_formula_parent($componentId)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'status' => 409, 'message' => 'Component formula tidak dapat dikunci. Muat ulang halaman.'];
+        }
+        $beforeRows = $this->component_formula_revision_rows($componentId, true);
+        if ($beforeRows === null) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'status' => 503, 'message' => 'Snapshot formula tidak dapat dikunci.'];
+        }
+        if (!hash_equals($this->canonical_component_formula_revision($beforeRows), $expectedRevision)) {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'status' => 409,
+                'message' => 'Formula telah berubah oleh pengguna lain. Muat ulang halaman sebelum menyimpan kembali.',
+            ];
+        }
         $this->db->where('component_id', $componentId)->delete('mst_component_formula');
         foreach ($normalized as $row) {
             $this->db->insert('mst_component_formula', $row);
         }
-        $this->db->trans_complete();
-        if ($this->db->trans_status() === false) {
+        if (!$this->write_component_formula_bulk_audit($componentId, $beforeRows, $normalized, $auditContext)
+            || $this->db->trans_status() === false
+            || $this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
             return ['ok' => false, 'message' => 'Gagal menyimpan formula bulk.'];
         }
+        unset($this->componentFormulaLinesCache[$componentId]);
         return ['ok' => true];
+    }
+
+    public function component_formula_revision(int $componentId): string
+    {
+        $rows = $this->component_formula_revision_rows($componentId, false);
+        return $this->canonical_component_formula_revision($rows ?? []);
+    }
+
+    private function component_formula_revision_rows(int $componentId, bool $forUpdate): ?array
+    {
+        if ($componentId <= 0) {
+            return [];
+        }
+        $fields = [
+            'id', 'component_id', 'line_no', 'line_type', 'material_item_id',
+            'sub_component_id', 'qty', 'notes', 'sort_order',
+        ];
+        foreach (['material_id', 'uom_id', 'source_division_id'] as $field) {
+            if ($this->db->field_exists($field, 'mst_component_formula')) {
+                $fields[] = $field;
+            }
+        }
+        $query = $this->db->query(
+            'SELECT ' . implode(', ', $fields)
+            . ' FROM mst_component_formula WHERE component_id = ? ORDER BY id ASC'
+            . ($forUpdate ? ' FOR UPDATE' : ''),
+            [$componentId]
+        );
+        return $query === false ? null : $query->result_array();
+    }
+
+    private function canonical_component_formula_revision(array $rows): string
+    {
+        $canonicalRows = [];
+        foreach ($rows as $row) {
+            $canonicalRows[] = [
+                'id' => (int)($row['id'] ?? 0),
+                'component_id' => (int)($row['component_id'] ?? 0),
+                'line_no' => (int)($row['line_no'] ?? 0),
+                'line_type' => strtoupper(trim((string)($row['line_type'] ?? ''))),
+                'material_id' => (int)($row['material_id'] ?? 0),
+                'material_item_id' => (int)($row['material_item_id'] ?? 0),
+                'sub_component_id' => (int)($row['sub_component_id'] ?? 0),
+                'qty' => number_format((float)($row['qty'] ?? 0), 6, '.', ''),
+                'uom_id' => (int)($row['uom_id'] ?? 0),
+                'source_division_id' => (int)($row['source_division_id'] ?? 0),
+                'notes' => trim((string)($row['notes'] ?? '')),
+                'sort_order' => (int)($row['sort_order'] ?? 0),
+            ];
+        }
+        usort($canonicalRows, static function (array $left, array $right): int {
+            return $left['id'] <=> $right['id'];
+        });
+        return hash('sha256', json_encode($canonicalRows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function lock_component_formula_parent(int $componentId): bool
+    {
+        $query = $this->db->query('SELECT id FROM mst_component WHERE id = ? FOR UPDATE', [$componentId]);
+        return $query !== false && !empty($query->row_array());
+    }
+
+    private function component_formula_audit_ready(): bool
+    {
+        $requiredColumns = [
+            'module_code', 'action_code', 'entity_table', 'entity_id', 'transaction_no',
+            'ref_table', 'ref_id', 'actor_user_id', 'source_ip', 'before_payload',
+            'after_payload', 'notes', 'created_at',
+        ];
+        if (!$this->db->table_exists('aud_transaction_log')) {
+            return false;
+        }
+        foreach ($requiredColumns as $column) {
+            if (!$this->db->field_exists($column, 'aud_transaction_log')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function write_component_formula_bulk_audit(int $componentId, array $before, array $after, array $context): bool
+    {
+        $beforeJson = json_encode($before, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        $afterJson = json_encode($after, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_string($beforeJson) || !is_string($afterJson)) {
+            return false;
+        }
+        $actorUserId = (int)($context['actor_user_id'] ?? 0);
+        $sourceIp = trim((string)($context['source_ip'] ?? ''));
+        return $this->db->insert('aud_transaction_log', [
+            'module_code' => 'PRODUCTION',
+            'action_code' => 'REPLACE_COMPONENT_FORMULA',
+            'entity_table' => 'mst_component_formula',
+            'entity_id' => $componentId,
+            'transaction_no' => null,
+            'ref_table' => 'mst_component',
+            'ref_id' => $componentId,
+            'actor_user_id' => $actorUserId > 0 ? $actorUserId : null,
+            'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
+            'before_payload' => $beforeJson,
+            'after_payload' => $afterJson,
+            'notes' => 'Replace component formula lines',
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
     }
 
     public function variable_cost_default_list(): array

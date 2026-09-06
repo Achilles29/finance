@@ -15,6 +15,8 @@ const PCF_HEADER = 'X-Production-Component-Formula-Csrf';
 const PCF_TOKEN = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const PCF_WRONG_TOKEN = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const PCF_CROSS_SCOPE_TOKEN = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+const PCF_REVISION_FIELD = 'component_formula_revision';
+const PCF_REVISION = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
 
 final class ProductionFormulaCsrfDenied extends RuntimeException
 {
@@ -196,6 +198,13 @@ final class ProductionFormulaCsrfModel
         ];
     }
 
+    public function component_formula_revision($componentId): string
+    {
+        $this->calls[] = ['revision', (int)$componentId];
+        ProductionFormulaCsrfTrace::add('model:revision');
+        return PCF_REVISION;
+    }
+
     public function save_component_formula(array $payload): array
     {
         $this->calls[] = ['save', $payload];
@@ -203,9 +212,9 @@ final class ProductionFormulaCsrfModel
         return ['ok' => true, 'id' => (int)($payload['id'] ?? 91)];
     }
 
-    public function save_component_formula_bulk($componentId, array $lines): array
+    public function save_component_formula_bulk($componentId, array $lines, string $revision = '', array $auditContext = []): array
     {
-        $this->calls[] = ['bulk', (int)$componentId, $lines];
+        $this->calls[] = ['bulk', (int)$componentId, $lines, $revision, $auditContext];
         ProductionFormulaCsrfTrace::add('model:bulk');
         return ['ok' => true];
     }
@@ -228,6 +237,7 @@ class MY_Controller
     public array $permissions = [];
     public array $permissionCalls = [];
     public array $canCalls = [];
+    public array $current_user = [];
     public ?string $renderedView = null;
     public array $renderedData = [];
 
@@ -313,7 +323,11 @@ function pcf_payload(string $endpoint, bool $editSave = false): array
         return ['id' => $editSave ? 17 : 0, 'qty' => 2];
     }
     if ($endpoint === 'bulk') {
-        return ['component_id' => 31, 'lines' => [['line_type' => 'MATERIAL', 'qty' => 1]]];
+        return [
+            'component_id' => 31,
+            PCF_REVISION_FIELD => PCF_REVISION,
+            'lines' => [['line_type' => 'MATERIAL', 'qty' => 1]],
+        ];
     }
     return ['unused' => true];
 }
@@ -443,8 +457,9 @@ pcf_check(
 pcf_check(
     strpos($bulkSource, "require_permission('" . PCF_PAGE . "', 'edit')") < strpos($bulkSource, 'require_component_formula_mutation_csrf()')
         && strpos($bulkSource, 'require_component_formula_mutation_csrf()') < strpos($bulkSource, 'request_payload()')
-        && strpos($bulkSource, 'request_payload()') < strpos($bulkSource, 'save_component_formula_bulk('),
-    'bulk orders edit RBAC, guard, payload parse, then model mutation'
+        && strpos($bulkSource, 'request_payload()') < strpos($bulkSource, 'COMPONENT_FORMULA_REVISION_FIELD')
+        && strpos($bulkSource, 'COMPONENT_FORMULA_REVISION_FIELD') < strpos($bulkSource, 'save_component_formula_bulk('),
+    'bulk orders edit RBAC, guard, payload parse, revision check, then model mutation'
 );
 pcf_check(
     strpos($deleteSource, "require_permission('" . PCF_PAGE . "', 'delete')") < strpos($deleteSource, 'require_component_formula_mutation_csrf()')
@@ -568,6 +583,7 @@ pcf_invoke($validBulk, 'bulk');
 $validBulk['events'] = ProductionFormulaCsrfTrace::$events;
 pcf_check(($validBulk['model']->calls[0][0] ?? '') === 'bulk', 'valid bulk reaches bulk model');
 pcf_check(($validBulk['model']->calls[0][1] ?? 0) === 31, 'valid bulk preserves component payload');
+pcf_check(($validBulk['model']->calls[0][3] ?? '') === PCF_REVISION, 'valid bulk preserves its formula revision');
 
 $validDelete = pcf_fixture('delete');
 pcf_invoke($validDelete, 'delete');
