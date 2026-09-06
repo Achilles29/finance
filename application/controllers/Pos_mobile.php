@@ -192,6 +192,7 @@ class Pos_mobile extends CI_Controller
                 'sync_cursor' => date('c'),
                 'server_time' => date('c'),
                 'access_context' => $this->mobile_access_context_payload(),
+                'sensitive_action_contract' => $this->mobile_sensitive_action_contract(),
                 'cashier_bootstrap' => $cashierBootstrap,
                 'active_sessions' => $activeSessions,
                 'filter_options' => $filterOptions,
@@ -385,6 +386,35 @@ class Pos_mobile extends CI_Controller
         }
 
         return ['is_bearer' => true, 'order_id' => $orderId, 'outlet_id' => $boundOutletId];
+    }
+
+    /**
+     * Server-owned APK capability contract. It contains no secret and lets a
+     * client choose the exact verification flow without guessing API behavior.
+     */
+    private function mobile_sensitive_action_contract(): array
+    {
+        return [
+            'version' => 1,
+            'proof_ttl_seconds' => self::MOBILE_REVERSAL_STEP_UP_TTL_SECONDS,
+            'actions' => [
+                'VOID' => [
+                    'verify_route' => 'pos-mobile/orders/reversal-step-up/verify',
+                    'submit_route' => 'pos-mobile/orders/void/save',
+                    'submit_method' => 'POST',
+                ],
+                'REFUND' => [
+                    'verify_route' => 'pos-mobile/orders/reversal-step-up/verify',
+                    'submit_route' => 'pos-mobile/orders/refund/save',
+                    'submit_method' => 'POST',
+                ],
+                'ORDER_REPRINT' => [
+                    'verify_route' => 'pos-mobile/orders/reprint-step-up/verify',
+                    'submit_route' => 'pos-mobile/orders/reprint-targets/{order_id}',
+                    'submit_method' => 'POST',
+                ],
+            ],
+        ];
     }
 
     private function mobile_order_reversal_permission(string $action): bool

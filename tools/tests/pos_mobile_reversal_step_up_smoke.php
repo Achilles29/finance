@@ -47,6 +47,7 @@ $void = $method($controller, 'order_void_save');
 $refund = $method($controller, 'order_refund_save');
 $reprintVerify = $method($controller, 'order_reprint_step_up_verify');
 $reprint = $method($controller, 'order_reprint_targets');
+$contract = $method($controller, 'mobile_sensitive_action_contract');
 
 $check($controller !== '' && $routes !== '' && $migration !== '' && $reprintMigration !== '' && $baseline !== '' && is_array($catalog), 'POS Mobile proof sources are readable');
 $check(strpos($routes, "\$route['pos-mobile/orders/reversal-step-up/verify'] = 'pos_mobile/order_reversal_step_up_verify';") !== false, 'mobile reversal proof route is registered');
@@ -62,6 +63,7 @@ $check($ordered($consume, ["'proof_hash', hash('sha256', \$proof)", "'mobile_tok
 $check($ordered($void, ['mobile_financial_order_context(', "consume_mobile_order_reversal_step_up('VOID'", "unset(\$payload['step_up_proof'])", 'save_order_void(']), 'mobile void consumes its proof before the writer and strips it from the writer payload');
 $check($ordered($refund, ['mobile_financial_order_context(', "consume_mobile_order_reversal_step_up('REFUND'", "unset(\$payload['step_up_proof'])", 'save_order_refund(']), 'mobile refund consumes its proof before the writer and strips it from the writer payload');
 $check($ordered($reprint, ['$this->require_mobile_post()', '$this->authorize_mobile(true)', "mobile_order_workspace_page_code('view')", 'mobile_financial_order_context(', '$this->request_payload()', "consume_mobile_order_reversal_step_up('ORDER_REPRINT'", "unset(\$payload['step_up_proof'])", 'direct_print_targets_for_order_reprint']), 'mobile reprint is POST-only and consumes a fixed reprint proof after RBAC/outlet scope and before printer targets');
+$check($ordered($contract, ["'version' => 1", "'proof_ttl_seconds' => self::MOBILE_REVERSAL_STEP_UP_TTL_SECONDS", "'VOID'", "'REFUND'", "'ORDER_REPRINT'", "'pos-mobile/orders/reprint-step-up/verify'", "'pos-mobile/orders/reprint-targets/{order_id}'"]) && substr_count($contract, "'submit_method' => 'POST'") === 3, 'bearer bootstrap contract names every proof-required action and its exact POST endpoint without exposing a secret');
 $check(strpos($consume, "['step_up_required' => true]") !== false && substr_count($consume, '428') >= 2, 'missing, expired, cross-bound, or replayed proof fails closed with a machine-readable 428 response');
 $check(strpos($migration, 'ALTER TABLE `pos_mobile_auth_token`') !== false && strpos($migration, 'CREATE TABLE IF NOT EXISTS `pos_mobile_sensitive_action_proof`') !== false && strpos($migration, "enum('VOID','REFUND')") !== false, 'managed migration supplies limiter columns and a narrow proof table');
 $check(strpos($reprintMigration, 'ALTER TABLE `pos_mobile_sensitive_action_proof`') !== false && strpos($reprintMigration, "enum('VOID','REFUND','ORDER_REPRINT')") !== false, 'managed follow-up migration expands only the permitted proof action enum');

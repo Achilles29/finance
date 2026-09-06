@@ -6238,3 +6238,18 @@
   aksi mobile sensitif lain, MFA, dan baseline role nyata masih terbuka.
 - Batch berikutnya: jalankan UAT APK atas alur Void/Refund/Reprint atau pilih
   aksi POS Mobile sensitif bernilai tinggi berikutnya.
+
+## Batch 178 — Kontrak capability reauth APK POS Mobile
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A1 / `AUD-A1-POS-01`. APK tidak boleh menebak endpoint atau
+  method setelah perubahan proof Void/Refund/Reprint.
+- Perubahan utama: respons bearer `pos-mobile/bootstrap` kini memuat kontrak
+  non-secret versi 1: TTL proof dan route/method exact untuk `VOID`, `REFUND`,
+  serta `ORDER_REPRINT`. Tidak mengubah permission, writer, stok, HPP, data,
+  atau schema.
+- Validasi: lint PHP, smoke authorization POS Mobile, smoke proof, matrix A1,
+  dan quality gate penuh dijalankan pada batch ini.
+- Risiko sisa/batch berikutnya: kontrak perlu diadopsi APK dan dibuktikan pada
+  perangkat nyata; keputusan apakah pembayaran/tutup kasir perlu reauth harus
+  mengikuti kebijakan operasional karena jalur web juga belum mewajibkannya.

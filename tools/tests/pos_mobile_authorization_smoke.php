@@ -1520,6 +1520,7 @@ $model->businessResults['deposit_payment_method_options'] = [['id' => 1, 'method
 $controller->bootstrap();
 $scopedBootstrapResponse = pos_mobile_smoke_json($output);
 $scopedCashierBootstrap = (array)($scopedBootstrapResponse['cashier_bootstrap'] ?? []);
+$sensitiveActionContract = (array)($scopedBootstrapResponse['sensitive_action_contract'] ?? []);
 pos_mobile_smoke_expect(
     $output->status === 200
         && (int)($scopedCashierBootstrap['default_outlet_id'] ?? 0) === 71
@@ -1538,6 +1539,16 @@ pos_mobile_smoke_expect(
         && ($scopedBootstrapResponse['payment_methods'] ?? []) === $model->businessResults['deposit_payment_method_options']
         && strpos($output->body, 'MUST-NOT-LEAK') === false,
     'bearer bootstrap scopes defaults, bootstrap/filter options, sessions, and markers while preserving non-scope/payment data'
+);
+pos_mobile_smoke_expect(
+    ($sensitiveActionContract['version'] ?? null) === 1
+        && ($sensitiveActionContract['proof_ttl_seconds'] ?? null) === 180
+        && (($sensitiveActionContract['actions']['VOID']['verify_route'] ?? '') === 'pos-mobile/orders/reversal-step-up/verify')
+        && (($sensitiveActionContract['actions']['REFUND']['submit_method'] ?? '') === 'POST')
+        && (($sensitiveActionContract['actions']['ORDER_REPRINT']['verify_route'] ?? '') === 'pos-mobile/orders/reprint-step-up/verify')
+        && (($sensitiveActionContract['actions']['ORDER_REPRINT']['submit_route'] ?? '') === 'pos-mobile/orders/reprint-targets/{order_id}')
+        && (($sensitiveActionContract['actions']['ORDER_REPRINT']['submit_method'] ?? '') === 'POST'),
+    'bearer bootstrap exposes a server-owned non-secret capability contract for every proof-required APK action'
 );
 pos_mobile_smoke_expect(
     $model->findActiveSessionCalls === 1
