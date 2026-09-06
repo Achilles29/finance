@@ -165,7 +165,13 @@ class Master_relation extends MY_Controller
         return true;
     }
 
-    private function writeProductRecipeAudit(int $productId, array $before, array $after): bool
+    private function writeProductRecipeAudit(
+        int $productId,
+        array $before,
+        array $after,
+        string $actionCode = 'REPLACE_PRODUCT_RECIPE',
+        string $notes = 'Replace product recipe lines'
+    ): bool
     {
         $beforeJson = json_encode($before, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         $afterJson = json_encode($after, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
@@ -175,7 +181,7 @@ class Master_relation extends MY_Controller
         $sourceIp = method_exists($this->input, 'ip_address') ? trim((string)$this->input->ip_address()) : '';
         return $this->db->insert('aud_transaction_log', [
             'module_code' => 'MASTER_RELATION',
-            'action_code' => 'REPLACE_PRODUCT_RECIPE',
+            'action_code' => $actionCode,
             'entity_table' => 'mst_product_recipe',
             'entity_id' => $productId,
             'transaction_no' => null,
@@ -185,9 +191,91 @@ class Master_relation extends MY_Controller
             'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
             'before_payload' => $beforeJson,
             'after_payload' => $afterJson,
-            'notes' => 'Replace product recipe lines',
+            'notes' => $notes,
             'created_at' => date('Y-m-d H:i:s'),
         ]);
+    }
+
+    private function commitProductRecipeLineMutation(
+        int $productId,
+        string $expectedRevision,
+        string $operation,
+        ?int $lineId = null,
+        array $payload = []
+    ): array {
+        if (!$this->beginProductRecipeAuditTransaction()) {
+            return ['ok' => false, 'reason' => 'audit'];
+        }
+        if (!$this->lockProductRecipeParentForRevision($productId)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'reason' => 'database'];
+        }
+        $beforeRows = $this->lockProductRecipeRowsForRevision($productId);
+        if ($beforeRows === null) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'reason' => 'database'];
+        }
+        if (!hash_equals($this->canonicalProductRecipeRevision($beforeRows), $expectedRevision)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'reason' => 'conflict'];
+        }
+
+        if ($lineId !== null) {
+            $lineExists = false;
+            foreach ($beforeRows as $beforeRow) {
+                if ((int)($beforeRow['id'] ?? 0) === $lineId) {
+                    $lineExists = true;
+                    break;
+                }
+            }
+            if (!$lineExists) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'reason' => 'conflict'];
+            }
+        }
+
+        $operationMap = [
+            'create' => ['CREATE_PRODUCT_RECIPE_LINE', 'Create product recipe line'],
+            'update' => ['UPDATE_PRODUCT_RECIPE_LINE', 'Update product recipe line'],
+            'delete' => ['DELETE_PRODUCT_RECIPE_LINE', 'Delete product recipe line'],
+        ];
+        if (!isset($operationMap[$operation])) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'reason' => 'database'];
+        }
+
+        if ($operation === 'create') {
+            $written = $this->db->insert('mst_product_recipe', $payload) !== false;
+        } elseif ($operation === 'update') {
+            $written = $this->db
+                ->where('id', $lineId)
+                ->where('product_id', $productId)
+                ->update('mst_product_recipe', $payload) !== false;
+        } else {
+            $written = $this->db
+                ->where('id', $lineId)
+                ->where('product_id', $productId)
+                ->delete('mst_product_recipe') !== false;
+        }
+        if (!$written) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'reason' => 'database'];
+        }
+
+        $afterRows = $this->lockProductRecipeRowsForRevision($productId);
+        if ($afterRows === null) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'reason' => 'database'];
+        }
+        [$actionCode, $notes] = $operationMap[$operation];
+        if (!$this->writeProductRecipeAudit($productId, $beforeRows, $afterRows, $actionCode, $notes)
+            || $this->db->trans_status() === false
+            || $this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'reason' => 'database'];
+        }
+
+        return ['ok' => true];
     }
 
     private function componentFormulaMutationCsrf(): string
@@ -1112,6 +1200,7 @@ class Master_relation extends MY_Controller
             'default_source_division' => $this->resolveProductRecipeDefaultDivision($product),
             'product_variable_cost' => $this->productRecipeVariableCostContext($product),
             'master_relation_product_recipe_mutation_csrf' => $this->productRecipeMutationCsrf(),
+            'product_recipe_revision' => $this->canonicalProductRecipeRevision($recipeData['rows']),
         ]);
     }
 
@@ -1471,6 +1560,7 @@ class Master_relation extends MY_Controller
         $this->requireRelationPermission('recipe', 'create');
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) show_404();
+        $recipeData = $this->loadProductRecipeData($product);
 
         $this->render('master/relation_form', [
             'title' => 'Tambah Line Recipe Product',
@@ -1482,6 +1572,7 @@ class Master_relation extends MY_Controller
             'options' => $this->productRecipeOptions($product),
             'product_variable_cost' => $this->productRecipeVariableCostContext($product),
             'master_relation_product_recipe_mutation_csrf' => $this->productRecipeMutationCsrf(),
+            'product_recipe_revision' => $this->canonicalProductRecipeRevision($recipeData['rows']),
         ]);
     }
 
@@ -1494,6 +1585,12 @@ class Master_relation extends MY_Controller
 
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) show_404();
+        $expectedRevision = (string)$this->input->post(self::PRODUCT_RECIPE_REVISION_FIELD, false);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            $this->session->set_flashdata('error', 'Snapshot resep tidak valid. Muat ulang halaman sebelum menyimpan.');
+            redirect('master/relation/product-recipe/' . $productId . '/create');
+            return;
+        }
 
         $this->form_validation->set_rules('line_type', 'Line Type', 'required');
         $this->form_validation->set_rules('qty', 'Qty', 'required|numeric');
@@ -1558,7 +1655,17 @@ class Master_relation extends MY_Controller
             $payload['ingredient_role'] = $ingredientRole;
         }
 
-        $this->Master_model->insert('mst_product_recipe', $payload);
+        $result = $this->commitProductRecipeLineMutation($productId, $expectedRevision, 'create', null, $payload);
+        if (empty($result['ok'])) {
+            $this->session->set_flashdata(
+                ($result['reason'] ?? '') === 'conflict' ? 'warning' : 'error',
+                ($result['reason'] ?? '') === 'conflict'
+                    ? 'Resep telah berubah oleh pengguna lain. Muat ulang halaman sebelum menyimpan kembali.'
+                    : 'Gagal menyimpan line recipe karena audit transaksi tidak lengkap.'
+            );
+            redirect('master/relation/product-recipe/' . $productId . '/create');
+            return;
+        }
 
         $this->session->set_flashdata('success', 'Line recipe product berhasil ditambahkan.');
         redirect('master/relation/product-recipe/' . $productId);
@@ -1571,6 +1678,7 @@ class Master_relation extends MY_Controller
         if (!$row) show_404();
         $parent = $this->loadProductRecipeParent((int)$row['product_id']);
         if (!$parent) show_404();
+        $recipeData = $this->loadProductRecipeData($parent);
 
         $this->render('master/relation_form', [
             'title' => 'Edit Line Recipe Product',
@@ -1582,6 +1690,7 @@ class Master_relation extends MY_Controller
             'options' => $this->productRecipeOptions($parent, $row),
             'product_variable_cost' => $this->productRecipeVariableCostContext($parent),
             'master_relation_product_recipe_mutation_csrf' => $this->productRecipeMutationCsrf(),
+            'product_recipe_revision' => $this->canonicalProductRecipeRevision($recipeData['rows']),
         ]);
     }
 
@@ -1597,6 +1706,12 @@ class Master_relation extends MY_Controller
 
         $product = $this->loadProductRecipeParent((int)$row['product_id']);
         if (!$product) show_404();
+        $expectedRevision = (string)$this->input->post(self::PRODUCT_RECIPE_REVISION_FIELD, false);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            $this->session->set_flashdata('error', 'Snapshot resep tidak valid. Muat ulang halaman sebelum menyimpan.');
+            redirect('master/relation/product-recipe/edit/' . $id);
+            return;
+        }
 
         $this->form_validation->set_rules('line_type', 'Line Type', 'required');
         $this->form_validation->set_rules('qty', 'Qty', 'required|numeric');
@@ -1661,7 +1776,17 @@ class Master_relation extends MY_Controller
             $payload['ingredient_role'] = $ingredientRole;
         }
 
-        $this->Master_model->update('mst_product_recipe', $id, $payload);
+        $result = $this->commitProductRecipeLineMutation((int)$row['product_id'], $expectedRevision, 'update', $id, $payload);
+        if (empty($result['ok'])) {
+            $this->session->set_flashdata(
+                ($result['reason'] ?? '') === 'conflict' ? 'warning' : 'error',
+                ($result['reason'] ?? '') === 'conflict'
+                    ? 'Resep telah berubah oleh pengguna lain. Muat ulang halaman sebelum menyimpan kembali.'
+                    : 'Gagal memperbarui line recipe karena audit transaksi tidak lengkap.'
+            );
+            redirect('master/relation/product-recipe/edit/' . $id);
+            return;
+        }
 
         $this->session->set_flashdata('success', 'Line recipe product berhasil diperbarui.');
         redirect('master/relation/product-recipe/' . (int)$row['product_id']);
@@ -1676,8 +1801,24 @@ class Master_relation extends MY_Controller
 
         $row = $this->Master_model->get_by_id('mst_product_recipe', $id);
         if (!$row) show_404();
+        $expectedRevision = (string)$this->input->post(self::PRODUCT_RECIPE_REVISION_FIELD, false);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            $this->session->set_flashdata('error', 'Snapshot resep tidak valid. Muat ulang halaman sebelum menghapus.');
+            redirect('master/relation/product-recipe/' . (int)$row['product_id']);
+            return;
+        }
 
-        $this->db->where('id', $id)->delete('mst_product_recipe');
+        $result = $this->commitProductRecipeLineMutation((int)$row['product_id'], $expectedRevision, 'delete', $id);
+        if (empty($result['ok'])) {
+            $this->session->set_flashdata(
+                ($result['reason'] ?? '') === 'conflict' ? 'warning' : 'error',
+                ($result['reason'] ?? '') === 'conflict'
+                    ? 'Resep telah berubah oleh pengguna lain. Muat ulang halaman sebelum menghapus kembali.'
+                    : 'Gagal menghapus line recipe karena audit transaksi tidak lengkap.'
+            );
+            redirect('master/relation/product-recipe/' . (int)$row['product_id']);
+            return;
+        }
         $this->session->set_flashdata('success', 'Line recipe product berhasil dihapus.');
         redirect('master/relation/product-recipe/' . (int)$row['product_id']);
     }

@@ -80,6 +80,7 @@ $ingredientRoleOptions = is_array($options['ingredient_roles'] ?? null) ? $optio
 
       <form method="post" action="<?php echo site_url($form_action); ?>" id="productRecipeForm">
         <input type="hidden" name="master_relation_product_recipe_mutation_csrf" value="<?php echo html_escape((string)($master_relation_product_recipe_mutation_csrf ?? '')); ?>">
+        <input type="hidden" name="product_recipe_revision" value="<?php echo html_escape((string)($product_recipe_revision ?? '')); ?>">
         <input type="hidden" name="source_division_id" id="source_division_id" value="<?php echo html_escape((string)$current('source_division_id', (string)$defaultSourceDivisionId)); ?>">
         <input type="hidden" name="uom_id" id="uom_id" value="<?php echo html_escape((string)$current('uom_id', '')); ?>">
 

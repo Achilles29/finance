@@ -52,6 +52,10 @@ tercatat dalam audit yang sama dengan penggantian line. Ini tetap fondasi
 teknis di `_30`; tidak mengubah paket, lisensi, harga, atau status
 komersialisasi.
 
+Batch 170 menutup jalur lama tambah, ubah, dan hapus satu line Resep Produk
+dengan snapshot dan audit atomik yang sama. Ini perbaikan fondasi teknis di
+`_30`; paket, lisensi, harga, dan status komersialisasi tidak berubah.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 

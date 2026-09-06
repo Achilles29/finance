@@ -8,6 +8,8 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 $root = dirname(__DIR__, 2);
 $controller = (string)file_get_contents($root . '/application/controllers/Master_relation.php');
 $view = (string)file_get_contents($root . '/application/views/master/relation_product_recipe_edit.php');
+$singleView = (string)file_get_contents($root . '/application/views/master/relation_form.php');
+$listView = (string)file_get_contents($root . '/application/views/master/relation_list.php');
 $checks = 0;
 $check = static function (bool $condition, string $message) use (&$checks): void {
     if (!$condition) throw new RuntimeException('FAIL: ' . $message);
@@ -62,6 +64,36 @@ $auditStart = $block($controller, 'beginProductRecipeAuditTransaction');
 $check(strpos($auditStart, "table_exists('aud_transaction_log')") !== false && strpos($auditStart, 'trans_begin()') !== false, 'bulk replacement fails closed when audit storage or transaction is unavailable');
 $audit = $block($controller, 'writeProductRecipeAudit');
 $check(strpos($audit, "'REPLACE_PRODUCT_RECIPE'") !== false && strpos($audit, "'before_payload'") !== false && strpos($audit, "'after_payload'") !== false, 'replacement writes atomic before/after audit payloads');
+
+foreach (['product_recipe_store', 'product_recipe_update', 'product_recipe_delete'] as $writer) {
+    $source = $block($controller, $writer);
+    $check(
+        strpos($source, 'PRODUCT_RECIPE_REVISION_FIELD') !== false
+            && strpos($source, 'commitProductRecipeLineMutation(') !== false,
+        $writer . ' requires a recipe snapshot and uses the audited line-mutation transaction'
+    );
+}
+$check(strpos($singleView, 'name="product_recipe_revision"') !== false, 'individual create/edit form posts its recipe snapshot');
+$check(strpos($listView, 'name="product_recipe_revision"') !== false, 'individual delete form posts its recipe snapshot');
+$lineMutation = $block($controller, 'commitProductRecipeLineMutation');
+$check(
+    $ordered($lineMutation, [
+        'beginProductRecipeAuditTransaction(',
+        'lockProductRecipeParentForRevision(',
+        'lockProductRecipeRowsForRevision(',
+        'hash_equals(',
+        "'CREATE_PRODUCT_RECIPE_LINE'",
+        "'UPDATE_PRODUCT_RECIPE_LINE'",
+        "'DELETE_PRODUCT_RECIPE_LINE'",
+        'writeProductRecipeAudit(',
+        'trans_commit(',
+    ]),
+    'individual recipe writes lock the full recipe snapshot and audit create/update/delete before commit'
+);
+$check(
+    strpos($lineMutation, 'trans_rollback()') !== false && strpos($lineMutation, "'reason' => 'conflict'") !== false,
+    'individual recipe writes roll back stale snapshots rather than overwrite another editor'
+);
 $check(strpos($controller, 'Pos_mobile') === false, 'recipe concurrency hardening does not alter POS Mobile/APK contracts');
 
 echo 'PASS master-relation-product-recipe-revision-audit checks=' . $checks . PHP_EOL;

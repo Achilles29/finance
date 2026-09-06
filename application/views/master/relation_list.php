@@ -242,6 +242,7 @@ if ($isProductRecipe) {
                   <a class="btn btn-sm btn-outline-primary action-icon-btn" data-bs-toggle="tooltip" title="Edit" aria-label="Edit" href="<?php echo site_url('master/relation/product-recipe/edit/' . (int)$r['id']); ?>"><i class="ri ri-edit-line"></i></a>
                   <form method="post" action="<?php echo site_url('master/relation/product-recipe/delete/' . (int)$r['id']); ?>" class="d-inline" onsubmit="return confirm('Hapus relasi ini?')">
                     <input type="hidden" name="master_relation_product_recipe_mutation_csrf" value="<?php echo html_escape((string)($master_relation_product_recipe_mutation_csrf ?? '')); ?>">
+                    <input type="hidden" name="product_recipe_revision" value="<?php echo html_escape((string)($product_recipe_revision ?? '')); ?>">
                     <button type="submit" class="btn btn-sm btn-outline-danger action-icon-btn" data-bs-toggle="tooltip" title="Hapus" aria-label="Hapus"><i class="ri ri-delete-bin-line"></i></button>
                   </form>
                 <?php elseif ($isComponentFormula): ?>

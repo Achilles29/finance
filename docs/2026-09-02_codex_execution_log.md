@@ -5901,3 +5901,42 @@
   A1 kecil berikutnya.
 - Penyerahan: commit lokal tanpa push setelah seluruh gate lulus; ringkasan
   dikirim ke Telegram Namua setelah commit.
+
+## Batch 170 — Revision dan audit writer individual Resep Produk
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 07:45 WIB.
+- Prioritas: P0 / `AUD-A1-SEC-02`. Jalur lama Tambah, Edit, dan Hapus satu
+  line resep sudah memakai RBAC/CSRF, tetapi belum menolak snapshot resep yang
+  kedaluwarsa dan belum selalu mencatat before/after audit atomik.
+- Diskusi/arah: fixer tunggal. Scope hanya `Master_relation` dan form/list
+  Resep Produk lama. Tidak mengubah aturan bahan/component, HPP, formula,
+  stock, data mismatch, SQL/schema, POS Mobile/APK, atau role matrix.
+- File berubah:
+  - `application/controllers/Master_relation.php`.
+  - `application/views/master/relation_form.php` dan
+    `application/views/master/relation_list.php`.
+  - Smoke CSRF/revision Resep Produk dan roadmap `_30`, `_28`, serta log ini.
+- Perubahan utama:
+  - Form tambah/edit dan form hapus membawa snapshot hash seluruh resep.
+  - Tiga writer memulai transaksi audit, mengunci produk serta seluruh line
+    resep `FOR UPDATE`, lalu membatalkan request dari tab yang kedaluwarsa.
+  - Audit before/after atomik mencatat aksi terpisah
+    `CREATE_PRODUCT_RECIPE_LINE`, `UPDATE_PRODUCT_RECIPE_LINE`, atau
+    `DELETE_PRODUCT_RECIPE_LINE`; audit/lock/commit yang gagal membatalkan
+    perubahan line.
+- SQL/runtime: **tidak ada SQL baru**, migration, query tulis staging,
+  perubahan data HPP/mismatch, credential, sidebar, atau kontrak POS
+  Mobile/APK.
+- Validasi:
+  - Lint PHP, `git diff --check`, smoke CSRF Resep Produk (138 check), smoke
+    revision/audit (18), matrix direct-URL A1, dan quality-gate contract (27)
+    lulus sebelum full gate.
+  - Quality gate `parallel` lulus: required 67/67, development 4/4, release
+    1/1, dan preflight 1/1. Runtime/security/static serta UAT browser dua-tab
+    nyata tetap harus dibuktikan terpisah.
+- Review akhir fixer tunggal: layak untuk tiga writer individual. Extra,
+  Bundle, formula versioning, APK, MFA, baseline role nyata, serta UAT
+  perangkat tetap terbuka.
+- Batch berikutnya: petakan writer Extra sebagai batch A1 kecil berikutnya.
+- Penyerahan: commit lokal tanpa push setelah seluruh gate lulus; ringkasan
+  dikirim ke Telegram Namua setelah commit.

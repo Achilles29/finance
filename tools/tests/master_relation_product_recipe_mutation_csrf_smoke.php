@@ -364,7 +364,7 @@ function mrpr_invoke_writer(
     string $rawBody = ''
 ): array {
     [$controller, $reflection] = mrpr_fixture($method, $post, $permissionAllowed, $sessionValues, $get, $headers, $rawBody);
-    if ($writer === 'product_recipe_bulk_save' && !array_key_exists('product_recipe_revision', $post)) {
+    if (!array_key_exists('product_recipe_revision', $post)) {
         $revision = $reflection->getMethod('canonicalProductRecipeRevision');
         $revision->setAccessible(true);
         $post['product_recipe_revision'] = (string)$revision->invoke($controller, $controller->db->recipeRows);
@@ -516,8 +516,9 @@ foreach (array_keys($writers) as $writer) {
             }
         }
     } else {
-        foreach ($validController->Master_model->calls as $call) {
-            if (($call[0] ?? '') === ($writer === 'product_recipe_store' ? 'insert' : 'update')) {
+        $expectedWriter = $writer === 'product_recipe_store' ? 'insert' : 'update';
+        foreach ($validController->db->calls as $call) {
+            if (($call[0] ?? '') === $expectedWriter) {
                 $reachedWriter = true;
                 break;
             }
