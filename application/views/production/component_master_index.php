@@ -6,7 +6,7 @@ $divisions = is_array($divisions ?? null) ? $divisions : [];
 $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : [];
 ?>
 <div class="container-xxl py-3">
-  <div class="fin-page-header">
+  <div class="finance-page-header fin-page-header">
     <div>
       <h4 class="fin-page-title mb-1">Master Base/Prepare</h4>
       <p class="fin-page-subtitle mb-0">Kelola komponen base/prepare, validasi kategori, dan akses cepat ke formula.</p>
@@ -15,11 +15,13 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
 
   <?php $this->load->view('production/_component_ops_tabs', ['component_tab_active' => 'master']); ?>
 
-  <div class="card border-0 shadow-sm">
+  <div class="card finance-card border-0 shadow-sm">
     <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="finance-card-header mb-3">
         <h5 class="mb-0">Data Component</h5>
-        <button id="btn-new" type="button" class="btn btn-primary btn-sm">Tambah Component</button>
+        <div class="finance-action-bar">
+          <button id="btn-new" type="button" class="btn btn-primary btn-sm">Tambah Component</button>
+        </div>
       </div>
 
       <div class="d-flex gap-2 flex-wrap mb-2" id="status-tabs">
@@ -35,7 +37,7 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
 
       <form id="filter-form" class="row g-2 mb-3">
         <div class="col-md-3">
-          <select class="form-select" id="division_id">
+          <select class="form-select finance-filter-control" id="division_id">
             <option value="0">Semua Divisi</option>
             <?php foreach ($divisions as $d): ?>
               <option value="<?php echo (int)$d['id']; ?>"><?php echo html_escape((string)$d['name']); ?></option>
@@ -43,7 +45,7 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
           </select>
         </div>
         <div class="col-md-3">
-          <select class="form-select" id="category_id">
+          <select class="form-select finance-filter-control" id="category_id">
             <option value="0">Semua Kategori</option>
             <?php foreach ($categories as $c): ?>
               <option value="<?php echo (int)$c['id']; ?>"><?php echo html_escape((string)$c['name']); ?></option>
@@ -51,10 +53,10 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
           </select>
         </div>
         <div class="col-md-4">
-          <input id="q" class="form-control" placeholder="Cari nama component (ajax search)">
+          <input id="q" class="form-control finance-filter-control" placeholder="Cari nama component (ajax search)">
         </div>
         <div class="col-md-1">
-          <select class="form-select" id="limit">
+          <select class="form-select finance-filter-control" id="limit">
             <option value="25">25</option>
             <option value="50" selected>50</option>
             <option value="100">100</option>
@@ -66,8 +68,9 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
         </div>
       </form>
 
-      <div class="table-responsive">
-        <table class="table table-sm table-hover align-middle">
+      <div id="component-list-feedback" class="finance-feedback-region mb-3" role="status" aria-live="polite" aria-atomic="true"></div>
+      <div class="finance-table-region">
+        <table class="table table-sm table-hover align-middle finance-table">
           <thead>
             <tr>
               <th>Nama</th>
@@ -87,7 +90,7 @@ $productDivisions = is_array($product_divisions ?? null) ? $product_divisions : 
           <tbody id="table-body"></tbody>
         </table>
       </div>
-      <div id="empty-state" class="text-muted py-3 d-none">Data tidak ditemukan.</div>
+      <div id="empty-state" class="finance-empty-state d-none">Data component tidak ditemukan pada filter ini.</div>
 
       <div class="d-flex justify-content-between align-items-center mt-3">
         <small id="pagination-info" class="text-muted"></small>
@@ -197,6 +200,8 @@ const state = {
 
 const tableBody = document.getElementById('table-body');
 const emptyState = document.getElementById('empty-state');
+const listFeedback = document.getElementById('component-list-feedback');
+const filterForm = document.getElementById('filter-form');
 const paginationInfo = document.getElementById('pagination-info');
 const pagination = document.getElementById('pagination');
 const modalEl = document.getElementById('componentModal');
@@ -314,6 +319,41 @@ function renderRows(rows) {
   `).join('');
 }
 
+function clearListFeedback() {
+  listFeedback.replaceChildren();
+}
+
+function showListFeedback(kind, message) {
+  listFeedback.replaceChildren();
+  const state = document.createElement('div');
+  state.className = kind === 'error' ? 'finance-error-state' : 'finance-loading-state';
+  if (kind === 'loading') {
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner-border spinner-border-sm';
+    spinner.setAttribute('aria-hidden', 'true');
+    state.appendChild(spinner);
+  }
+  const text = document.createElement('span');
+  text.textContent = String(message || '');
+  state.appendChild(text);
+  if (kind === 'error') {
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn btn-sm btn-outline-danger ms-2';
+    retry.id = 'btn-retry-load';
+    retry.textContent = 'Coba lagi';
+    state.appendChild(retry);
+  }
+  listFeedback.appendChild(state);
+}
+
+function setListLoading(isLoading) {
+  filterForm.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+  if (isLoading) {
+    showListFeedback('loading', 'Memuat data component...');
+  }
+}
+
 function renderPagination(meta) {
   const start = meta.total === 0 ? 0 : ((meta.page - 1) * meta.limit) + 1;
   const end = Math.min(meta.total, meta.page * meta.limit);
@@ -335,9 +375,20 @@ async function loadData(pushHistory = true) {
     const newUrl = `${location.pathname}?${qsFromState()}`;
     history.replaceState(null, '', newUrl);
   }
-  const json = await getJson(`<?php echo site_url('production/component-masters/data'); ?>?${qsFromState()}`);
-  renderRows(json.rows || []);
-  renderPagination(json.meta || {total: 0, page: 1, limit: state.limit, total_pages: 1});
+  setListLoading(true);
+  try {
+    const json = await getJson(`<?php echo site_url('production/component-masters/data'); ?>?${qsFromState()}`);
+    renderRows(json.rows || []);
+    renderPagination(json.meta || {total: 0, page: 1, limit: state.limit, total_pages: 1});
+    clearListFeedback();
+  } catch (error) {
+    tableBody.innerHTML = '';
+    emptyState.classList.add('d-none');
+    renderPagination({total: 0, page: 1, limit: state.limit, total_pages: 1});
+    showListFeedback('error', `Data component belum dapat dimuat. ${error.message || 'Coba lagi.'}`);
+  } finally {
+    setListLoading(false);
+  }
 }
 
 function setButtonBusy(button, label) {
@@ -476,6 +527,11 @@ document.getElementById('btn-clear-filter').addEventListener('click', async () =
   await loadData();
 });
 
+listFeedback.addEventListener('click', async (event) => {
+  if (!event.target.closest('#btn-retry-load')) return;
+  await loadData(false);
+});
+
 pagination.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-page]');
   if (!btn) return;
@@ -507,6 +563,6 @@ tableBody.addEventListener('click', async (e) => {
   }
 });
 
-loadData(false).catch((e) => alert(e.message));
+loadData(false);
 });
 </script>

@@ -166,10 +166,10 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | ID | Gelombang | Scope/acceptance | Implementasi | Validasi | Status nyata |
 | --- | ---: | --- | --- | --- | --- |
 | `AUD-A3-UI-01` | 1 | Shared button, icon action, alert/confirm, loading, dan form validation tersedia serta dipakai konsisten. | `CODE_PASS` | `AUTO_PASS` | Primitive global tersedia; adopsi halaman lama tetap diperiksa per wave. |
-| `AUD-A3-UI-02` | 2 | Filter, table, pagination, loading/error/empty state konsisten dan responsive. | `IN_PROGRESS` | `AUTO_PASS` | Fondasi CSS ada; seluruh view belum dimigrasikan. |
+| `AUD-A3-UI-02` | 2 | Filter, table, pagination, loading/error/empty state konsisten dan responsive. | `IN_PROGRESS` | `AUTO_PASS` | Batch 180: Master Component memakai primitive filter/tabel responsif serta state loading, kosong, gagal, dan retry yang aman; seluruh view belum dimigrasikan. |
 | `AUD-A3-UI-03` | 3 | Sidebar, page header, tabs, cards, keyboard focus, dan mobile shell konsisten. | `CODE_PASS` | `STAGING_PASS` | Shell/sidebar lulus; visual UAT belum. |
 | `AUD-A3-UI-04` | 4 | POS web dan reservation memakai pola baru tanpa mengganggu kontrak APK. | `IN_PROGRESS` | `AUTO_PASS` | Belum audit visual per halaman; file APK dilindungi. |
-| `AUD-A3-UI-05` | 5 | Inventory dan production selesai dimigrasikan serta regression lulus. | `IN_PROGRESS` | `AUTO_PASS` | Baru memperoleh shell global. |
+| `AUD-A3-UI-05` | 5 | Inventory dan production selesai dimigrasikan serta regression lulus. | `IN_PROGRESS` | `AUTO_PASS` | Batch 180 memigrasikan Master Component sebagai halaman Production pertama; halaman inventory/production lain masih bertahap. |
 | `AUD-A3-UI-06` | 6 | Purchase dan finance selesai dimigrasikan serta regression lulus. | `IN_PROGRESS` | `AUTO_PASS` | Baru memperoleh shell global. |
 | `AUD-A3-UI-07` | 7 | Attendance, payroll, dan asset selesai dimigrasikan serta regression lulus. | `IN_PROGRESS` | `AUTO_PASS` | Baru memperoleh shell global. |
 | `AUD-A3-UI-08` | 8 | Master, reports, dan system selesai dimigrasikan dengan permission tetap fail-closed. | `IN_PROGRESS` | `AUTO_PASS` | Sidebar manage dan dashboard roadmap internal bertab memakai primitive; rumpun lain belum lengkap. |

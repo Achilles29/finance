@@ -10,6 +10,7 @@ $css = file_get_contents($root . '/assets/css/theme-custom.css');
 $core = file_get_contents($root . '/application/core/MY_Controller.php');
 $footer = file_get_contents($root . '/application/views/layout/footer.php');
 $app = file_get_contents($root . '/assets/js/app.js');
+$componentMaster = file_get_contents($root . '/application/views/production/component_master_index.php');
 $checks = 0;
 $failures = [];
 
@@ -38,7 +39,7 @@ function a3_ui_module(string $activeMenu): string
 
 a3_ui_check(
     is_string($layout) && is_string($manage) && is_string($css) && is_string($core)
-        && is_string($footer) && is_string($app),
+        && is_string($footer) && is_string($app) && is_string($componentMaster),
     'shell sources are readable'
 );
 a3_ui_check(
@@ -192,6 +193,32 @@ a3_ui_check(
         && strpos($manage, 'id="menu-list-table"') !== false
         && strpos($manage, 'id="menu-list-search"') !== false,
     'existing sidebar IDs and JavaScript hooks are preserved'
+);
+a3_ui_check(
+    strpos($componentMaster, 'finance-page-header fin-page-header') !== false
+        && strpos($componentMaster, 'finance-card') !== false
+        && strpos($componentMaster, 'finance-action-bar') !== false
+        && strpos($componentMaster, 'finance-filter-control') !== false,
+    'component master adopts the shared page, action, card, and filter primitives'
+);
+a3_ui_check(
+    strpos($componentMaster, 'finance-table-region') !== false
+        && strpos($componentMaster, 'finance-table') !== false
+        && strpos($componentMaster, 'finance-empty-state') !== false
+        && strpos($componentMaster, 'id="component-list-feedback"') !== false,
+    'component master supplies responsive table, empty, and live feedback regions'
+);
+a3_ui_check(
+    strpos($componentMaster, "showListFeedback('loading', 'Memuat data component...')") !== false
+        && strpos($componentMaster, "showListFeedback('error', `Data component belum dapat dimuat.") !== false
+        && strpos($componentMaster, "retry.id = 'btn-retry-load';") !== false
+        && strpos($componentMaster, "filterForm.setAttribute('aria-busy'") !== false,
+    'component master exposes loading, recoverable error, and busy state for AJAX filtering'
+);
+a3_ui_check(
+    strpos($componentMaster, "text.textContent = String(message || '');") !== false
+        && strpos($componentMaster, 'listFeedback.replaceChildren();') !== false,
+    'component master feedback inserts server error text without HTML injection'
 );
 
 if ($failures !== []) {

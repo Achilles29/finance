@@ -6271,3 +6271,19 @@
   (required 71/71, development 4/4, release 1/1, preflight 1/1).
 - Risiko sisa/batch berikutnya: artefak customer nyata tetap menunggu commit
   kandidat bersih, signing key produksi, installer/updater, serta UAT deploy.
+
+## Batch 180 — State UI aman untuk Master Component
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A3 gelombang 2/5 (`AUD-A3-UI-02`, `AUD-A3-UI-05`). Halaman
+  Master Component sudah memakai AJAX filter, tetapi belum mengadopsi state
+  loading/gagal/retry dan primitive tabel global secara utuh.
+- Perubahan utama: memakai shell header/card/action/filter/tabel yang sama,
+  menampilkan loading, empty state, error dengan tombol retry, dan `aria-busy`.
+  Pesan backend dimasukkan sebagai `textContent`, bukan HTML. Tidak ada
+  perubahan endpoint, permission, formula, stok, HPP, atau data component.
+- Validasi: `php -l` view dan smoke UI 54/54 lulus;
+  `php tools/tests/finance_quality_gate.php parallel` lulus
+  (required 71/71, development 4/4, release 1/1, preflight 1/1).
+- Risiko sisa/batch berikutnya: ini baru satu halaman Production; migrasi UI
+  tetap dilanjutkan satu rumpun kecil per batch dan memerlukan UAT visual.
