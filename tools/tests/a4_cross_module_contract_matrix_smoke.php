@@ -32,6 +32,7 @@ function a4_cross_module_manifest(): array
         'auth_login_throttle_smoke.php',
         'dashboard_component_value_mismatch_smoke.php',
         'component_formula_restore_smoke.php',
+        'pos_mobile_reversal_step_up_smoke.php',
         'master_att_holiday_generate_csrf_smoke.php',
         'printer_agent_trust_smoke.py',
         'production_component_formula_mutation_csrf_smoke.php',

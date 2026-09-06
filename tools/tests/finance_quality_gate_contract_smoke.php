@@ -27,6 +27,7 @@ $expectedRequired = [
     'a1-finance-period-close-csrf',
     'a1-finance-period-close-reopen-atomic',
     'a1-pos-reversal-step-up',
+    'a1-pos-mobile-reversal-step-up',
     'a1-component-adjustment-step-up',
     'a1-stock-adjustment-step-up',
     'a1-component-batch-step-up',
@@ -125,7 +126,7 @@ $check(
     'Printer Agent runtime is pinned to the A4 venv Python executable'
 );
 $check(
-    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 83,
+    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 84,
     'all automated manifest IDs are unique'
 );
 $check(

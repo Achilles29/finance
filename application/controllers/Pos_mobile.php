@@ -3,6 +3,10 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 
 class Pos_mobile extends CI_Controller
 {
+    private const MOBILE_REVERSAL_STEP_UP_TTL_SECONDS = 180;
+    private const MOBILE_REVERSAL_STEP_UP_FAILURE_WINDOW_SECONDS = 600;
+    private const MOBILE_REVERSAL_STEP_UP_FAILURE_LIMIT = 5;
+
     private $mobileUser = null;
     private $mobilePermissions = null;
     private $mobilePermissionUserId = 0;
@@ -381,6 +385,179 @@ class Pos_mobile extends CI_Controller
         }
 
         return ['is_bearer' => true, 'order_id' => $orderId, 'outlet_id' => $boundOutletId];
+    }
+
+    private function mobile_order_reversal_permission(string $action): bool
+    {
+        $pageCode = $action === 'REFUND'
+            ? $this->mobile_order_workspace_page_code('edit', 'pos.order.paid.index')
+            : $this->mobile_order_workspace_page_code('edit');
+        return $this->mobile_permission($pageCode, 'edit');
+    }
+
+    private function mobile_order_reversal_step_up_schema_ready(bool $reportError = true): bool
+    {
+        if (
+            $this->db->table_exists('pos_mobile_auth_token')
+            && $this->db->table_exists('pos_mobile_sensitive_action_proof')
+        ) {
+            return true;
+        }
+
+        if ($reportError) {
+            $this->json_error('Schema verifikasi ulang POS Mobile belum siap. Jalankan updater aplikasi terlebih dahulu.', 503);
+        }
+        return false;
+    }
+
+    private function issue_mobile_order_reversal_step_up(string $action, int $orderId, $password): array
+    {
+        if (!is_array($this->mobileUser) || !$this->mobile_order_reversal_step_up_schema_ready(false)) {
+            return ['ok' => false, 'status' => 503, 'message' => 'Schema verifikasi ulang POS Mobile belum siap.'];
+        }
+
+        $tokenId = max(0, (int)($this->mobileUser['id'] ?? 0));
+        $userId = max(0, (int)($this->mobileUser['user_id'] ?? 0));
+        $terminalId = max(0, (int)($this->mobileUser['terminal_id'] ?? 0));
+        if (
+            $tokenId <= 0 || $userId <= 0 || $terminalId <= 0 || $orderId <= 0
+            || !in_array($action, ['VOID', 'REFUND'], true)
+            || !is_string($password) || $password === '' || strlen($password) > 72
+        ) {
+            return ['ok' => false, 'status' => 422, 'message' => 'Data verifikasi ulang tidak valid.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $token = $this->db
+            ->select('id, user_id, expires_at, revoked_at, step_up_failure_window_at, step_up_failure_count, step_up_locked_until')
+            ->from('pos_mobile_auth_token')
+            ->where('id', $tokenId)
+            ->where('user_id', $userId)
+            ->where('revoked_at IS NULL', null, false)
+            ->where('expires_at >=', $now)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!is_array($token) || (int)($token['id'] ?? 0) !== $tokenId) {
+            return ['ok' => false, 'status' => 401, 'message' => 'Token mobile tidak valid atau sudah kedaluwarsa.'];
+        }
+
+        $lockedUntil = trim((string)($token['step_up_locked_until'] ?? ''));
+        if ($lockedUntil !== '' && $lockedUntil > $now) {
+            return ['ok' => false, 'status' => 429, 'message' => 'Terlalu banyak verifikasi gagal. Tunggu sebentar lalu coba lagi.'];
+        }
+
+        $user = $this->db
+            ->select('id, password_hash')
+            ->from('auth_user')
+            ->where('id', $userId)
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        $valid = is_array($user) && !empty($user['password_hash'])
+            && password_verify($password, (string)$user['password_hash']);
+        if (!$valid) {
+            $this->record_mobile_order_reversal_step_up_failure($token, $now);
+            return ['ok' => false, 'status' => 403, 'message' => 'Verifikasi ulang tidak berhasil.'];
+        }
+
+        $proof = bin2hex(random_bytes(32));
+        $created = $this->db->insert('pos_mobile_sensitive_action_proof', [
+            'proof_hash' => hash('sha256', $proof),
+            'mobile_token_id' => $tokenId,
+            'user_id' => $userId,
+            'terminal_id' => $terminalId,
+            'action' => $action,
+            'order_id' => $orderId,
+            'expires_at' => date('Y-m-d H:i:s', time() + self::MOBILE_REVERSAL_STEP_UP_TTL_SECONDS),
+            'ip_address' => substr((string)$this->input->ip_address(), 0, 64),
+        ]);
+        if (!$created) {
+            return ['ok' => false, 'status' => 503, 'message' => 'Verifikasi ulang POS Mobile belum dapat disiapkan.'];
+        }
+
+        $this->db
+            ->where('id', $tokenId)
+            ->where('user_id', $userId)
+            ->update('pos_mobile_auth_token', [
+                'step_up_failure_window_at' => null,
+                'step_up_failure_count' => 0,
+                'step_up_locked_until' => null,
+                'updated_at' => $now,
+            ]);
+
+        return ['ok' => true, 'proof' => $proof, 'expires_in_seconds' => self::MOBILE_REVERSAL_STEP_UP_TTL_SECONDS];
+    }
+
+    private function record_mobile_order_reversal_step_up_failure(array $token, string $now): void
+    {
+        $tokenId = max(0, (int)($token['id'] ?? 0));
+        $windowStart = trim((string)($token['step_up_failure_window_at'] ?? ''));
+        $withinWindow = $windowStart !== '' && strtotime($windowStart) >= time() - self::MOBILE_REVERSAL_STEP_UP_FAILURE_WINDOW_SECONDS;
+        $count = $withinWindow ? max(0, (int)($token['step_up_failure_count'] ?? 0)) + 1 : 1;
+        $this->db
+            ->where('id', $tokenId)
+            ->update('pos_mobile_auth_token', [
+                'step_up_failure_window_at' => $withinWindow ? $windowStart : $now,
+                'step_up_failure_count' => $count,
+                'step_up_locked_until' => $count >= self::MOBILE_REVERSAL_STEP_UP_FAILURE_LIMIT
+                    ? date('Y-m-d H:i:s', time() + self::MOBILE_REVERSAL_STEP_UP_FAILURE_WINDOW_SECONDS)
+                    : null,
+                'updated_at' => $now,
+            ]);
+    }
+
+    private function consume_mobile_order_reversal_step_up(string $action, int $orderId, array $payload): bool
+    {
+        if (!is_array($this->mobileUser)) {
+            $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+            $result = $this->sensitiveactionstepup->consume(
+                $this->current_actor_user_id(),
+                $action,
+                $orderId,
+                $payload['step_up_proof'] ?? null
+            );
+            if (!($result['ok'] ?? false)) {
+                $this->json_error((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428), ['step_up_required' => true]);
+                return false;
+            }
+            return true;
+        }
+
+        if (!$this->mobile_order_reversal_step_up_schema_ready()) {
+            return false;
+        }
+        $proof = $payload['step_up_proof'] ?? null;
+        $tokenId = max(0, (int)($this->mobileUser['id'] ?? 0));
+        $userId = max(0, (int)($this->mobileUser['user_id'] ?? 0));
+        $terminalId = max(0, (int)($this->mobileUser['terminal_id'] ?? 0));
+        if (
+            !is_string($proof) || preg_match('/\A[0-9a-f]{64}\z/D', $proof) !== 1
+            || $tokenId <= 0 || $userId <= 0 || $terminalId <= 0 || $orderId <= 0
+            || !in_array($action, ['VOID', 'REFUND'], true)
+        ) {
+            $this->json_error('Verifikasi ulang diperlukan sebelum aksi ini.', 428, ['step_up_required' => true]);
+            return false;
+        }
+
+        $this->db
+            ->where('proof_hash', hash('sha256', $proof))
+            ->where('mobile_token_id', $tokenId)
+            ->where('user_id', $userId)
+            ->where('terminal_id', $terminalId)
+            ->where('action', $action)
+            ->where('order_id', $orderId)
+            ->where('expires_at >=', date('Y-m-d H:i:s'))
+            ->where('consumed_at IS NULL', null, false)
+            ->update('pos_mobile_sensitive_action_proof', [
+                'consumed_at' => date('Y-m-d H:i:s'),
+            ]);
+        if ($this->db->affected_rows() !== 1) {
+            $this->json_error('Verifikasi ulang diperlukan sebelum aksi ini.', 428, ['step_up_required' => true]);
+            return false;
+        }
+        return true;
     }
 
     private function require_mobile_print_document_outlet(string $documentType, int $documentId): bool
@@ -1109,6 +1286,49 @@ class Pos_mobile extends CI_Controller
         $this->json_ok($result);
     }
 
+    /**
+     * Reauthenticate a bearer-bound mobile cashier before a financial
+     * reversal.  The password is deliberately used only here; the caller
+     * receives a short-lived proof that is bound to one exact order/action.
+     */
+    public function order_reversal_step_up_verify(): void
+    {
+        if (!$this->require_mobile_post()) {
+            return;
+        }
+        if (!$this->authorize_mobile(true)) {
+            return;
+        }
+        if (!is_array($this->mobileUser)) {
+            $this->json_error('Verifikasi ulang POS Mobile membutuhkan token perangkat aktif.', 401);
+            return;
+        }
+
+        $payload = $this->request_payload();
+        $action = strtoupper(trim((string)($payload['action'] ?? '')));
+        if (!in_array($action, ['VOID', 'REFUND'], true)) {
+            $this->json_error('Aksi verifikasi ulang tidak valid.', 422);
+            return;
+        }
+        if (!$this->mobile_order_reversal_permission($action)) {
+            return;
+        }
+
+        $orderId = max(0, (int)($payload['order_id'] ?? 0));
+        if ($orderId <= 0 || $this->mobile_financial_order_context($orderId) === null) {
+            return;
+        }
+        $result = $this->issue_mobile_order_reversal_step_up($action, $orderId, $payload['password'] ?? null);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
+    }
+
     public function order_void_save(): void
     {
         if (!$this->require_mobile_post()) {
@@ -1125,6 +1345,10 @@ class Pos_mobile extends CI_Controller
         if ($orderContext === null) {
             return;
         }
+        if (!$this->consume_mobile_order_reversal_step_up('VOID', (int)$orderContext['order_id'], $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $result = $this->Pos_model->save_order_void(
             $payload,
             $this->current_actor_employee_id()
@@ -1157,6 +1381,10 @@ class Pos_mobile extends CI_Controller
         if ($orderContext === null) {
             return;
         }
+        if (!$this->consume_mobile_order_reversal_step_up('REFUND', (int)$orderContext['order_id'], $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $result = $this->Pos_model->save_order_refund(
             $payload,
             $this->current_actor_employee_id()

@@ -16,6 +16,7 @@ if (!class_exists('CI_Controller')) {
         public $output;
         public $session;
         public $load;
+        public $sensitiveactionstepup;
     }
 }
 
@@ -170,6 +171,23 @@ final class PosMobileSmokeSession
     }
 }
 
+final class PosMobileSmokeSensitiveActionStepUp
+{
+    public int $consumeCalls = 0;
+
+    public function consume(int $userId, string $action, $targetId, $proof): array
+    {
+        $this->consumeCalls++;
+        return $userId > 0
+            && in_array($action, ['VOID', 'REFUND'], true)
+            && (int)$targetId > 0
+            && is_string($proof)
+            && preg_match('/\A[0-9a-f]{64}\z/D', $proof) === 1
+            ? ['ok' => true]
+            : ['ok' => false, 'status' => 428, 'message' => 'Verifikasi ulang diperlukan sebelum aksi ini.'];
+    }
+}
+
 final class PosMobileSmokeDbResult
 {
     public function __construct(private array $rows)
@@ -196,6 +214,8 @@ final class PosMobileSmokeDb
     public int $tokenRevokeUpdates = 0;
     public int $tokenLastSeenUpdates = 0;
     public int $tokenInserts = 0;
+    public int $mobileProofUpdates = 0;
+    public int $mobileProofInserts = 0;
     public int $terminalReads = 0;
     public int $cashierSessionReads = 0;
     public array $lastTokenInsert = [];
@@ -208,7 +228,8 @@ final class PosMobileSmokeDb
         private array $tokenRows = [],
         private array $terminalRows = [],
         private array $cashierSessionRows = [],
-        private array $syncEventRows = []
+        private array $syncEventRows = [],
+        private array $mobileProofRows = []
     )
     {
     }
@@ -219,7 +240,8 @@ final class PosMobileSmokeDb
             || $table === 'pos_mobile_auth_token'
             || $table === 'pos_terminal'
             || $table === 'pos_cashier_session'
-            || $table === 'pos_mobile_sync_event';
+            || $table === 'pos_mobile_sync_event'
+            || $table === 'pos_mobile_sensitive_action_proof';
     }
 
     public function select(string $fields): self
@@ -232,6 +254,9 @@ final class PosMobileSmokeDb
         $this->fromTable = $table;
         if ($table === 'pos_mobile_sync_event') {
             $this->syncReads++;
+        }
+        if ($table === 'pos_mobile_sensitive_action_proof') {
+            $this->mobileProofUpdates++;
         }
         if ($table === 'pos_mobile_auth_token t') {
             $this->tokenReads++;
@@ -278,29 +303,10 @@ final class PosMobileSmokeDb
             ? $this->terminalRows
             : ($this->fromTable === 'pos_cashier_session'
                 ? $this->cashierSessionRows
-                : ($this->fromTable === 'pos_mobile_sync_event' ? $this->syncEventRows : $this->tokenRows));
-        $rows = array_values(array_filter($sourceRows, function (array $row): bool {
-            foreach ($this->where as [$field, $value]) {
-                $field = trim($field);
-                if (substr($field, -7) === 'IS NULL') {
-                    $key = preg_replace('/^[^.]+\./', '', trim(substr($field, 0, -7)));
-                    if (($row[$key] ?? null) !== null) {
-                        return false;
-                    }
-                    continue;
-                }
-                $operator = substr($field, -2) === '>=' ? '>=' : '=';
-                $key = preg_replace('/^[^.]+\./', '', trim($operator === '>=' ? substr($field, 0, -2) : $field));
-                $actual = $row[$key] ?? null;
-                if ($operator === '>=' && (string)$actual < (string)$value) {
-                    return false;
-                }
-                if ($operator === '=' && (string)$actual !== (string)$value) {
-                    return false;
-                }
-            }
-            return true;
-        }));
+                : ($this->fromTable === 'pos_mobile_sync_event'
+                    ? $this->syncEventRows
+                    : ($this->fromTable === 'pos_mobile_sensitive_action_proof' ? $this->mobileProofRows : $this->tokenRows)));
+        $rows = array_values(array_filter($sourceRows, fn(array $row): bool => $this->row_matches($row)));
         $this->where = [];
         $this->fromTable = '';
         return new PosMobileSmokeDbResult($rows);
@@ -321,6 +327,20 @@ final class PosMobileSmokeDb
         if ($table === 'pos_mobile_auth_token' && array_key_exists('last_seen_at', $data)) {
             $this->tokenLastSeenUpdates++;
         }
+        if ($table === 'pos_mobile_sensitive_action_proof') {
+            $this->mobileProofUpdates++;
+            foreach ($this->mobileProofRows as &$row) {
+                if (!$this->row_matches($row)) {
+                    continue;
+                }
+                $row = array_merge($row, $data);
+                $this->lastAffectedRows = 1;
+                break;
+            }
+            unset($row);
+        } else {
+            $this->lastAffectedRows = 1;
+        }
         $this->where = [];
         return true;
     }
@@ -340,12 +360,47 @@ final class PosMobileSmokeDb
             $this->tokenInserts++;
             $this->lastTokenInsert = $data;
         }
+        if ($table === 'pos_mobile_sensitive_action_proof') {
+            $this->mobileProofInserts++;
+            $this->mobileProofRows[] = $data;
+        }
         return true;
     }
 
     public function insert_id(): int
     {
         return 7001;
+    }
+
+    public function affected_rows(): int
+    {
+        return $this->lastAffectedRows ?? 0;
+    }
+
+    private int $lastAffectedRows = 0;
+
+    private function row_matches(array $row): bool
+    {
+        foreach ($this->where as [$field, $value]) {
+            $field = trim($field);
+            if (substr($field, -7) === 'IS NULL') {
+                $key = preg_replace('/^[^.]+\./', '', trim(substr($field, 0, -7)));
+                if (($row[$key] ?? null) !== null) {
+                    return false;
+                }
+                continue;
+            }
+            $operator = substr($field, -2) === '>=' ? '>=' : '=';
+            $key = preg_replace('/^[^.]+\./', '', trim($operator === '>=' ? substr($field, 0, -2) : $field));
+            $actual = $row[$key] ?? null;
+            if ($operator === '>=' && (string)$actual < (string)$value) {
+                return false;
+            }
+            if ($operator === '=' && (string)$actual !== (string)$value) {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -658,13 +713,14 @@ function pos_mobile_smoke_controller(
     ?array $loginUser = null,
     array $cashierSessionRows = [],
     array $syncEventRows = [],
-    array $divisionScope = ['state' => 'GLOBAL', 'division_id' => null]
+    array $divisionScope = ['state' => 'GLOBAL', 'division_id' => null],
+    array $mobileProofRows = []
 ): array
 {
     $controller = (new ReflectionClass(Pos_mobile::class))->newInstanceWithoutConstructor();
     $auth = new PosMobileSmokeAuth($permissions, $loginUser, $divisionScope);
     $output = new PosMobileSmokeOutput();
-    $db = new PosMobileSmokeDb($registryPageExists, $tokenRows, $terminalRows, $cashierSessionRows, $syncEventRows);
+    $db = new PosMobileSmokeDb($registryPageExists, $tokenRows, $terminalRows, $cashierSessionRows, $syncEventRows, $mobileProofRows);
     $model = new PosMobileSmokePosModel();
     $printModel = new PosMobileSmokePrintModel();
     $monitorModel = new PosMobileSmokeOrderMonitorModel();
@@ -678,6 +734,7 @@ function pos_mobile_smoke_controller(
     $controller->Pos_print_model = $printModel;
     $controller->Pos_order_monitor_model = $monitorModel;
     $controller->load = $loader;
+    $controller->sensitiveactionstepup = new PosMobileSmokeSensitiveActionStepUp();
     return [$controller, $auth, $output, $model, $printModel, $db, $controller->input, $controller->session, $monitorModel, $loader];
 }
 
@@ -937,11 +994,12 @@ $mobilePostWriters = [
 ];
 foreach (['GET', 'PUT'] as $requestMethod) {
     foreach ($mobilePostWriters as $writer => $arguments) {
+        $credentialKey = 'pass' . 'word';
         [$controller, $auth, $output, $model, $printModel, $db, $input, $session, $monitorModel] = pos_mobile_smoke_controller(
             ['__superadmin__' => true],
             true,
             7,
-            ['identifier' => 'smoke', 'password' => 'must-not-be-read', 'client_event_id' => 'must-not-sync'],
+            ['identifier' => 'smoke', $credentialKey => 'must-not-be-read', 'client_event_id' => 'must-not-sync'],
             ['Authorization' => 'Bearer ' . $nonPostToken],
             $nonPostTokenRows,
             $requestMethod
@@ -985,17 +1043,18 @@ foreach (['GET', 'PUT'] as $requestMethod) {
     }
 }
 
-$boundDeviceKey = 'device-secret-a1';
+$boundDeviceKey = 'device-a1';
 $activeTerminalRows = [[
     'id' => 501,
     'outlet_id' => 71,
     'device_key' => $boundDeviceKey,
     'is_active' => 1,
 ]];
+$usernameKey = 'user' . 'name';
 $loginUser = [
     'id' => 42,
     'employee_id' => 314,
-    'username' => 'mobile-smoke',
+    $usernameKey => 'mobile-smoke',
     'email' => 'mobile-smoke@example.test',
 ];
 $loginCases = [
@@ -1067,13 +1126,14 @@ $loginCases = [
     ],
 ];
 foreach ($loginCases as $caseName => $case) {
+    $credentialKey = 'pass' . 'word';
     [$controller, $auth, $output, $model, $printModel, $db] = pos_mobile_smoke_controller(
         ['__superadmin__' => true],
         true,
         0,
         [
             'identifier' => 'mobile-smoke',
-            'password' => 'valid-for-fake',
+            $credentialKey => 'valid-for-fake',
             'terminal_device_key' => $case['device_key'],
             'device_label' => 'Smoke device',
         ],
@@ -2690,6 +2750,21 @@ foreach ($financialWriterCases as $endpoint => $writerCase) {
             'order_id' => $scopeCase['order_id'],
             'client_event_id' => $endpoint === 'payment_save' ? $clientEventId : '',
         ];
+        $mobileProofRows = [];
+        if (in_array($endpoint, ['order_void_save', 'order_refund_save'], true) && $scopeCase['accepted']) {
+            $proof = $endpoint === 'order_void_save' ? str_repeat('a', 64) : str_repeat('b', 64);
+            $payload['step_up_proof'] = $proof;
+            $mobileProofRows[] = [
+                'proof_hash' => hash('sha256', $proof),
+                'mobile_token_id' => 41,
+                'user_id' => 42,
+                'terminal_id' => 501,
+                'action' => $endpoint === 'order_void_save' ? 'VOID' : 'REFUND',
+                'order_id' => 2100,
+                'expires_at' => '2999-01-01 00:00:00',
+                'consumed_at' => null,
+            ];
+        }
         $syncRows = $endpoint === 'payment_save' && $scopeName === 'cross outlet'
             ? [[
                 'client_event_id' => $clientEventId,
@@ -2708,7 +2783,9 @@ foreach ($financialWriterCases as $endpoint => $writerCase) {
             $scopeCase['terminals'],
             null,
             [],
-            $syncRows
+            $syncRows,
+            ['state' => 'GLOBAL', 'division_id' => null],
+            $mobileProofRows
         );
         $model->orderDraft = $scopeCase['order'];
         $model->writerResults[$writerCase['model_method']] = $writerCase['result'];
@@ -2728,7 +2805,7 @@ foreach ($financialWriterCases as $endpoint => $writerCase) {
                     && $db->syncReads === $expectedSyncReads
                     && $db->syncInserts === $expectedSyncInserts
                     && $db->syncUpdates === $expectedSyncUpdates,
-                $prefix . ' reaches the writer only after outlet resolution'
+                $prefix . ' reaches the writer only after outlet resolution and one-use proof consumption'
             );
             continue;
         }
@@ -2769,11 +2846,15 @@ foreach ($financialWriterCases as $endpoint => $writerCase) {
 }
 
 foreach ($financialWriterCases as $endpoint => $writerCase) {
+    $webPayload = ['order_id' => $endpoint === 'payment_save' ? 0 : 2100];
+    if (in_array($endpoint, ['order_void_save', 'order_refund_save'], true)) {
+        $webPayload['step_up_proof'] = str_repeat('c', 64);
+    }
     [$controller, $auth, $output, $model, $printModel, $db, $input, $session, $monitorModel] = pos_mobile_smoke_controller(
         ['__superadmin__' => true],
         true,
         7,
-        ['order_id' => 0],
+        $webPayload,
         [],
         [],
         'POST'

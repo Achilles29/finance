@@ -26,6 +26,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'a1-finance-period-close-csrf', 'file' => 'finance_period_close_csrf_smoke.php'],
             ['id' => 'a1-finance-period-close-reopen-atomic', 'file' => 'finance_period_close_reopen_atomic_smoke.php'],
             ['id' => 'a1-pos-reversal-step-up', 'file' => 'pos_reversal_step_up_smoke.php'],
+            ['id' => 'a1-pos-mobile-reversal-step-up', 'file' => 'pos_mobile_reversal_step_up_smoke.php'],
             ['id' => 'a1-component-adjustment-step-up', 'file' => 'component_adjustment_step_up_smoke.php'],
             ['id' => 'a1-stock-adjustment-step-up', 'file' => 'stock_adjustment_step_up_smoke.php'],
             ['id' => 'a1-component-batch-step-up', 'file' => 'component_batch_step_up_smoke.php'],

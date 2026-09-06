@@ -746,6 +746,7 @@ $route['pos-mobile/cashier/close'] = 'pos_mobile/cashier_close';
 $route['pos-mobile/orders'] = 'pos_mobile/orders';
 $route['pos-mobile/orders/(:num)'] = 'pos_mobile/order_load/$1';
 $route['pos-mobile/orders/reversal-preview/(:num)'] = 'pos_mobile/order_reversal_preview/$1';
+$route['pos-mobile/orders/reversal-step-up/verify'] = 'pos_mobile/order_reversal_step_up_verify';
 $route['pos-mobile/orders/save'] = 'pos_mobile/order_save';
 $route['pos-mobile/orders/confirm'] = 'pos_mobile/order_confirm';
 $route['pos-mobile/orders/void/save'] = 'pos_mobile/order_void_save';

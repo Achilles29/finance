@@ -153,19 +153,25 @@ pfw_check(
 );
 
 $writers = [
-    'order_void_save' => 'save_order_void(',
-    'order_refund_save' => 'save_order_refund(',
-    'payment_save' => 'save_cashier_payment(',
+    'order_void_save' => ['writer' => 'save_order_void(', 'proof' => "consume_mobile_order_reversal_step_up('VOID'"],
+    'order_refund_save' => ['writer' => 'save_order_refund(', 'proof' => "consume_mobile_order_reversal_step_up('REFUND'"],
+    'payment_save' => ['writer' => 'save_cashier_payment(', 'proof' => ''],
 ];
-foreach ($writers as $endpoint => $writerNeedle) {
+foreach ($writers as $endpoint => $writerPolicy) {
     $method = pfw_method($source, $endpoint);
+    $needles = [
+        '$this->require_mobile_post()', '$this->authorize_mobile(true)',
+        '$this->mobile_permission(', '$this->request_payload()',
+        '$this->mobile_financial_order_context(',
+    ];
+    if ($writerPolicy['proof'] !== '') {
+        $needles[] = $writerPolicy['proof'];
+        $needles[] = "unset(\$payload['step_up_proof'])";
+    }
+    $needles[] = $writerPolicy['writer'];
     pfw_check(
-        pfw_ordered($method, [
-            '$this->require_mobile_post()', '$this->authorize_mobile(true)',
-            '$this->mobile_permission(', '$this->request_payload()',
-            '$this->mobile_financial_order_context(', $writerNeedle,
-        ]),
-        $endpoint . ' orders POST, auth, RBAC, payload, canonical scope, then writer'
+        pfw_ordered($method, $needles),
+        $endpoint . ' orders POST, auth, RBAC, payload, canonical scope, proof when required, then writer'
     );
 }
 $payment = pfw_method($source, 'payment_save');

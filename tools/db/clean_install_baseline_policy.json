@@ -4,8 +4,8 @@
   "cutoff": "2026-09-06",
   "schema": {
     "path": "sql/baseline/2026-09-05_clean_install_schema.sql",
-    "sha256": "d2a8699080efe6e17e0b6bb7b8e0d775881f5c0d6922704367cfcede8fbdc295",
-    "table_count": 284,
+    "sha256": "86ce456c38d8dba06d21f092df13f45a896cd712513704929e8bcabe7a88b245",
+    "table_count": 285,
     "required_tables": [
       "auth_user",
       "auth_role",
@@ -24,6 +24,7 @@
       "pos_outlet",
       "pos_order",
       "pos_payment",
+      "pos_mobile_sensitive_action_proof",
       "inv_material_fifo_lot",
       "inv_component_lot",
       "pur_purchase_order",
@@ -95,6 +96,7 @@
     "2026-09-05b-telegram-setup-guide",
     "2026-09-05c-telegram-safe-activation-default",
     "2026-09-06a-component-formula-version-history",
-    "2026-09-06b-component-formula-restore-action"
+    "2026-09-06b-component-formula-restore-action",
+    "2026-09-06c-pos-mobile-reversal-step-up"
   ]
 }

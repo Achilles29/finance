@@ -135,6 +135,20 @@
         "clean_install",
         "upgrade"
       ]
+    },
+    {
+      "id": "2026-09-06c-pos-mobile-reversal-step-up",
+      "order": 2026090603,
+      "path": "sql/2026-09-06c_pos_mobile_reversal_step_up.sql",
+      "sha256": "910412ff192dd5a08295e12092e374a6a4cd3983ac3b9abc3972408745252dec",
+      "dependencies": [
+        "2026-09-04c-a5-schema-migration-registry-foundation"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
     }
   ]
 }

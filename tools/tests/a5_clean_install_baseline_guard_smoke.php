@@ -22,10 +22,10 @@ $check = static function (bool $ok, string $message) use (&$checks, &$failures):
 };
 
 $result = a512_validate_baseline($root, $root . '/tools/db/clean_install_baseline_policy.json');
-$check($result['ok'] === true && $result['table_count'] === 284, 'canonical schema baseline and checksum validate');
+$check($result['ok'] === true && $result['table_count'] === 285, 'canonical schema baseline and checksum validate');
 $check($result['seed_status'] === 'approved_minimal', 'minimal customer-neutral seed is explicitly classified');
 $check($result['seed_rows'] === $policy['seed']['artifact_rows'], 'seed row inventory is policy-locked');
-$check(substr_count($schema, 'CREATE TABLE `') === 284, 'baseline contains exactly 284 unique schema tables');
+$check(substr_count($schema, 'CREATE TABLE `') === 285, 'baseline contains exactly 285 unique schema tables');
 $check(strpos($schema, "DEFAULT 'local-dev-token'") === false, 'baseline contains no local development bot token default');
 $check(preg_match('/\b(?:INSERT\s+INTO|REPLACE\s+INTO|DELETE\s+FROM|LOAD\s+DATA)\b/i', $schema) !== 1, 'baseline contains no row data statements');
 

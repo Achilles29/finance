@@ -6141,3 +6141,55 @@
   nyata, dan UAT perangkat masih terbuka.
 - Batch berikutnya: jalankan matriks UAT Formula Component dan pilih hardening
   A1 berikutnya berdasarkan hasilnya.
+
+## Batch 176 — Reauth one-use Void/Refund POS Mobile
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 09:51 WIB.
+- Prioritas: P0 / `AUD-A1-POS-01` dan `AUD-A1-STEP-01`. Void dan Refund
+  melalui POS Mobile sudah memakai bearer/device/outlet/RBAC, tetapi belum
+  mewajibkan verifikasi ulang password seperti jalur web. Token perangkat yang
+  tertinggal dapat dipakai untuk reversal finansial tanpa proof tambahan.
+- Diskusi/arah: fixer tunggal. Kontrak API hanya berubah untuk Void/Refund:
+  APK meminta proof melalui endpoint verify, kemudian mengirim proof itu pada
+  writer. POS Mobile lain, stok, HPP, data mismatch historis, dan rule bisnis
+  reversal tidak diubah.
+- File berubah:
+  - `application/controllers/Pos_mobile.php` dan `application/config/routes.php`.
+  - `sql/2026-09-06c_pos_mobile_reversal_step_up.sql`, baseline clean-install,
+    katalog migration, policy baseline, dan drill restore/rollback.
+  - Smoke POS Mobile, matriks A1/A4, quality-gate, kontrak katalog/health,
+    serta dua roadmap induk.
+- Perubahan utama:
+  - Endpoint `pos-mobile/orders/reversal-step-up/verify` menerima password
+    hanya untuk menerbitkan proof acak 180 detik. Yang disimpan hanya hash,
+    terikat token, user, terminal, action `VOID`/`REFUND`, dan `order_id`.
+  - Writer Void/Refund mengonsumsi proof dengan update bersyarat atomik;
+    proof replay, expired, beda terminal/user/action/order, atau tanpa proof
+    ditolak `428 step_up_required`. Password dan proof dibuang sebelum model
+    writer dipanggil.
+  - Kegagalan password dibatasi per token (5 dalam 10 menit); schema yang
+    belum diperbarui gagal tertutup `503`, bukan fallback tanpa reauth.
+  - Jalur session lama memakai `SensitiveActionStepUp` web yang sama; tidak
+    ada bypass pada route POS Mobile.
+- SQL/runtime:
+  - Staging: runner policy `upgrade` dry-run planned 8; apply applied 1/
+    skipped 7; replay applied 0/skipped 8. Probe read-only membuktikan tabel
+    proof dan tiga kolom limiter token tersedia.
+  - Server utama/customer: migration dikelola catalog/updater; jangan
+    menjalankan file SQL manual. APK kandidat harus menambahkan alur
+    verify-password → `step_up_proof` → Void/Refund.
+- Validasi:
+  - PHP lint seluruh file PHP berubah dan `git diff --check` lulus.
+  - Smoke proof baru 13 check, authorization POS Mobile, binding financial
+    writer, A1 direct URL, migration catalog/baseline/health/rollback,
+    roadmap consistency, dan preflight release lulus.
+  - Quality gate `parallel` lulus: required 71/71, development 4/4, release
+    1/1, preflight 1/1. Runtime/security/static dan UAT browser/APK/printer
+    tetap berada pada profile/lingkungan terpisah.
+- Review akhir fixer tunggal: layak untuk staging dan kontrak APK baru.
+  Risiko sisa: APK lama tanpa proof akan menerima `428`; UAT perangkat,
+  reprint/aksi mobile sensitif lain, MFA, dan baseline role nyata masih
+  terbuka.
+- Batch berikutnya: inventaris dan amankan reprint POS Mobile atau pilih aksi
+  mobile sensitif bernilai tinggi berikutnya; jalankan UAT APK setelah build
+  mengadopsi proof reversal.

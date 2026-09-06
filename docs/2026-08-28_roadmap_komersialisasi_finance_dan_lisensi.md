@@ -73,7 +73,11 @@ Batch 174 kemudian mengalihkan jalur Master lama dan memensiunkan endpoint
 Formula per-baris agar semua perubahan memakai snapshot kanonis tersebut.
 Batch 175 menambahkan restore versi berotorisasi dengan proof password
 satu-kali, lock, history, dan audit; UAT tetap menjadi backlog audit `_30`.
-Status komersialisasi tidak berubah.
+Batch 176 menyamakan Void/Refund POS Mobile/APK dengan boundary reauth web:
+proof satu-kali kini terikat perangkat dan order, sehingga APK kandidat harus
+mengikuti kontrak verify-proof tersebut. Ini fondasi teknis di `_30`, bukan
+fitur lisensi, paket, atau kenaikan status komersialisasi. Status
+komersialisasi tidak berubah.
 
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
