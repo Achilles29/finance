@@ -42,6 +42,10 @@ reauth one-use yang terikat satu divisi aktif, dan file tidak lagi dapat
 menulis baris divisi lain. Ini fondasi audit, bukan perubahan paket, lisensi,
 atau status komersialisasi.
 
+Batch 168 menambah revision, lock, dan audit atomik pada editor massal Resep
+Produk agar perubahan lama tidak menimpa resep terbaru. Ini perbaikan fondasi
+teknis di `_30`, bukan perubahan paket, lisensi, atau status komersialisasi.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 

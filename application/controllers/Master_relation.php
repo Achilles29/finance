@@ -5,6 +5,7 @@ class Master_relation extends MY_Controller
 {
     private const PRODUCT_RECIPE_MUTATION_CSRF_SESSION_KEY = 'master_relation_product_recipe_mutation_csrf';
     private const PRODUCT_RECIPE_MUTATION_CSRF_FORM_FIELD = 'master_relation_product_recipe_mutation_csrf';
+    private const PRODUCT_RECIPE_REVISION_FIELD = 'product_recipe_revision';
     private const COMPONENT_FORMULA_MUTATION_CSRF_SESSION_KEY = 'master_relation_component_formula_mutation_csrf';
     private const COMPONENT_FORMULA_MUTATION_CSRF_FORM_FIELD = 'master_relation_component_formula_mutation_csrf';
     private const PRODUCT_EXTRA_MUTATION_CSRF_SESSION_KEY = 'master_relation_product_extra_mutation_csrf';
@@ -88,6 +89,105 @@ class Master_relation extends MY_Controller
         }
 
         return true;
+    }
+
+    private function canonicalProductRecipeRevision(array $rows): string
+    {
+        $canonicalRows = [];
+        foreach ($rows as $row) {
+            $canonicalRows[] = [
+                'id' => (int)($row['id'] ?? 0),
+                'line_no' => (int)($row['line_no'] ?? 0),
+                'line_type' => strtoupper(trim((string)($row['line_type'] ?? ''))),
+                'material_item_id' => (int)($row['material_item_id'] ?? 0),
+                'component_id' => (int)($row['component_id'] ?? 0),
+                'source_division_id' => (int)($row['source_division_id'] ?? 0),
+                'qty' => number_format((float)($row['qty'] ?? 0), 6, '.', ''),
+                'uom_id' => (int)($row['uom_id'] ?? 0),
+                'ingredient_role' => strtoupper(trim((string)($row['ingredient_role'] ?? 'MAIN'))),
+                'notes' => trim((string)($row['notes'] ?? '')),
+                'sort_order' => (int)($row['sort_order'] ?? 0),
+            ];
+        }
+        usort($canonicalRows, static function (array $left, array $right): int {
+            return $left['id'] <=> $right['id'];
+        });
+
+        return hash('sha256', json_encode($canonicalRows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function lockProductRecipeRowsForRevision(int $productId): ?array
+    {
+        $fields = [
+            'id', 'line_no', 'line_type', 'material_item_id', 'component_id',
+            'source_division_id', 'qty', 'uom_id', 'notes', 'sort_order',
+        ];
+        if ($this->db->field_exists('ingredient_role', 'mst_product_recipe')) {
+            $fields[] = 'ingredient_role';
+        }
+        $query = $this->db->query(
+            'SELECT ' . implode(', ', $fields) . ' FROM mst_product_recipe WHERE product_id = ? ORDER BY id ASC FOR UPDATE',
+            [$productId]
+        );
+        if ($query === false) {
+            return null;
+        }
+        return $query->result_array();
+    }
+
+    private function lockProductRecipeParentForRevision(int $productId): bool
+    {
+        $query = $this->db->query('SELECT id FROM mst_product WHERE id = ? FOR UPDATE', [$productId]);
+        return $query !== false && !empty($query->row_array());
+    }
+
+    private function beginProductRecipeAuditTransaction(): bool
+    {
+        $requiredColumns = [
+            'module_code', 'action_code', 'entity_table', 'entity_id',
+            'actor_user_id', 'source_ip', 'before_payload', 'after_payload',
+            'notes', 'created_at',
+        ];
+        if (!$this->db->table_exists('aud_transaction_log')) {
+            show_error('Pencatatan audit belum siap. Perubahan resep tidak dijalankan.', 503, 'Service Unavailable');
+            return false;
+        }
+        foreach ($requiredColumns as $column) {
+            if (!$this->db->field_exists($column, 'aud_transaction_log')) {
+                show_error('Pencatatan audit belum siap. Perubahan resep tidak dijalankan.', 503, 'Service Unavailable');
+                return false;
+            }
+        }
+        if ($this->db->trans_begin() === false) {
+            show_error('Transaksi perubahan resep tidak dapat dimulai.', 503, 'Service Unavailable');
+            return false;
+        }
+        return true;
+    }
+
+    private function writeProductRecipeAudit(int $productId, array $before, array $after): bool
+    {
+        $beforeJson = json_encode($before, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        $afterJson = json_encode($after, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_string($beforeJson) || !is_string($afterJson)) {
+            return false;
+        }
+        $sourceIp = method_exists($this->input, 'ip_address') ? trim((string)$this->input->ip_address()) : '';
+        return $this->db->insert('aud_transaction_log', [
+            'module_code' => 'MASTER_RELATION',
+            'action_code' => 'REPLACE_PRODUCT_RECIPE',
+            'entity_table' => 'mst_product_recipe',
+            'entity_id' => $productId,
+            'transaction_no' => null,
+            'ref_table' => 'mst_product',
+            'ref_id' => $productId,
+            'actor_user_id' => !empty($this->current_user['id']) ? (int)$this->current_user['id'] : null,
+            'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
+            'before_payload' => $beforeJson,
+            'after_payload' => $afterJson,
+            'notes' => 'Replace product recipe lines',
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
     }
 
     private function componentFormulaMutationCsrf(): string
@@ -1262,6 +1362,7 @@ class Master_relation extends MY_Controller
             'options' => $this->productRecipeOptions($product),
             'product_variable_cost' => $this->productRecipeVariableCostContext($product),
             'master_relation_product_recipe_mutation_csrf' => $this->productRecipeMutationCsrf(),
+            'product_recipe_revision' => $this->canonicalProductRecipeRevision($recipeData['rows']),
         ]);
     }
 
@@ -1274,6 +1375,13 @@ class Master_relation extends MY_Controller
 
         $product = $this->loadProductRecipeParent($productId);
         if (!$product) show_404();
+
+        $expectedRevision = $this->input->post(self::PRODUCT_RECIPE_REVISION_FIELD, false);
+        if (!is_string($expectedRevision) || preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            $this->session->set_flashdata('error', 'Snapshot resep tidak valid. Muat ulang halaman sebelum menyimpan.');
+            redirect('master/relation/product-recipe/edit-all/' . $productId);
+            return;
+        }
 
         $raw = (string)$this->input->post('lines_json', false);
         $lines = json_decode($raw, true);
@@ -1290,15 +1398,37 @@ class Master_relation extends MY_Controller
             return;
         }
 
-        $this->db->trans_start();
+        if (!$this->beginProductRecipeAuditTransaction()) {
+            return;
+        }
+        if (!$this->lockProductRecipeParentForRevision($productId)) {
+            $this->db->trans_rollback();
+            $this->session->set_flashdata('error', 'Gagal mengunci produk resep.');
+            redirect('master/relation/product-recipe/edit-all/' . $productId);
+            return;
+        }
+        $beforeRows = $this->lockProductRecipeRowsForRevision($productId);
+        if ($beforeRows === null) {
+            $this->db->trans_rollback();
+            $this->session->set_flashdata('error', 'Gagal mengunci snapshot resep produk.');
+            redirect('master/relation/product-recipe/edit-all/' . $productId);
+            return;
+        }
+        if (!hash_equals($this->canonicalProductRecipeRevision($beforeRows), $expectedRevision)) {
+            $this->db->trans_rollback();
+            $this->session->set_flashdata('warning', 'Resep telah berubah oleh pengguna lain. Muat ulang halaman sebelum menyimpan kembali.');
+            redirect('master/relation/product-recipe/edit-all/' . $productId);
+            return;
+        }
+
         $this->db->where('product_id', $productId)->delete('mst_product_recipe');
         foreach ($normalized['rows'] as $row) {
             $this->db->insert('mst_product_recipe', $row);
         }
-        $this->db->trans_complete();
-
-        if ($this->db->trans_status() === false) {
-            $this->session->set_flashdata('error', 'Gagal menyimpan resep produk.');
+        $auditWritten = $this->writeProductRecipeAudit($productId, $beforeRows, $normalized['rows']);
+        if (!$auditWritten || $this->db->trans_status() === false || $this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
+            $this->session->set_flashdata('error', 'Gagal menyimpan resep produk karena audit transaksi tidak lengkap.');
             redirect('master/relation/product-recipe/edit-all/' . $productId);
             return;
         }

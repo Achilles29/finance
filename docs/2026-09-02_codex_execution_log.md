@@ -5249,6 +5249,46 @@
 - Penyerahan: commit lokal setelah gate lulus, tanpa push; ringkasan dikirim ke
   Telegram Namua setelah commit.
 
+## Batch 168 — Revision dan audit editor massal Resep Produk
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 07:14 WIB.
+- Prioritas: P0 / `AUD-A1-SEC-02`. Editor massal mengganti seluruh line resep,
+  sehingga dua tab browser dapat menyebabkan lost update dan sebelumnya tidak
+  meninggalkan before/after audit khusus.
+- Diskusi/arah: fixer tunggal. Scope hanya `product_recipe_bulk_save`; writer
+  line individual, Formula Component, Extra, dan Bundle sengaja tidak disentuh
+  agar perubahan kecil dan mudah diverifikasi. Tidak ada SQL/schema, data HPP,
+  POS Mobile/APK, atau perubahan matriks role.
+- File berubah:
+  - `application/controllers/Master_relation.php`.
+  - `application/views/master/relation_product_recipe_edit.php`.
+  - Regression fixture recipe, smoke revision/audit baru, manifest, kontrak
+    quality gate, roadmap `_30`, `_28`, serta log ini.
+- Perubahan utama:
+  - Halaman editor membawa hash revision dari line resep saat dibuka.
+  - Writer memvalidasi revision, mengunci produk serta line resep dengan
+    `FOR UPDATE`, dan rollback dengan pesan muat ulang jika data telah berubah.
+  - Replace line dan insert audit `REPLACE_PRODUCT_RECIPE` before/after berada
+    dalam satu transaksi. Jika tabel/kolom audit, lock, write audit, atau commit
+    gagal, perubahan resep dibatalkan.
+- SQL/runtime: **tidak ada SQL baru**, migration, query tulis staging,
+  perubahan data HPP/mismatch, credential, sidebar, atau kontrak POS Mobile/APK.
+- Validasi:
+  - `php -l`, regression guard resep (138 check), smoke revision/audit baru,
+    matrix direct-URL A1 required, quality-gate contract, dan `git diff --check`
+    lulus sebelum full gate.
+  - Quality gate `parallel` wajib lulus setelah manifest bertambah. UAT browser
+    dua-tab nyata masih perlu dilakukan terpisah.
+- Review akhir fixer tunggal: layak untuk editor massal. Snapshot lama tidak
+  dapat menimpa perubahan baru; perubahan dan audit berhasil atau rollback
+  bersama-sama.
+- Risiko sisa: writer resep individual, Formula Component, Extra, Bundle,
+  API/APK, MFA, baseline role nyata, serta UAT browser/perangkat per role.
+- Batch berikutnya: pilih writer Formula Component atau writer Resep individual
+  sebagai batch A1 kecil berikutnya.
+- Penyerahan: commit lokal setelah gate lulus, tanpa push; ringkasan dikirim ke
+  Telegram Namua setelah commit.
+
 ## Batch 167 — Reauth import Excel Stock Opening satu divisi
 
 - Waktu/tanggal: 2026-09-06, validasi akhir 06:52 WIB.

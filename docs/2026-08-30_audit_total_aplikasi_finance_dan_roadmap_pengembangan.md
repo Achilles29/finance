@@ -4,12 +4,14 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 167 menambahkan
-reauth password one-use pada import Excel Stock Opening Divisi. Satu file kini
-terikat pada satu divisi aktif yang dipilih dan baris lintas divisi ditolak
-sebelum writer. Bersama Batch 166, seluruh writer Stock Opening Gudang/Divisi
-memakai CSRF dan reauth; proof manual terikat scope/ID Divisi, VOID terikat
-snapshot tepat, dan import terikat divisi terpilih. Batch 164 menambahkan CSRF scoped serta reauth password dengan
+**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 168 mengunci editor
+massal Resep Produk dengan revision optimistic-concurrency, lock produk/baris,
+dan audit before/after atomik. Simpan dari tab lama kini ditolak agar tidak
+menimpa resep pengguna lain. Batch 167 menambahkan reauth password one-use
+pada import Excel Stock Opening Divisi. Satu file kini terikat pada satu divisi
+aktif yang dipilih dan baris lintas divisi ditolak sebelum writer. Bersama
+Batch 166, seluruh writer Stock Opening Gudang/Divisi memakai CSRF dan reauth.
+Batch 164 menambahkan CSRF scoped serta reauth password dengan
 proof satu-kali pada Save Draft, Delete Draft, Post, dan VOID Transfer Stok
 Divisi web. Transfer tidak lagi
 dapat langsung diposting melalui auto_post; alur resminya adalah simpan
@@ -106,7 +108,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | ID | Sumber | Prioritas/fase | Masalah | Solusi/acceptance | Implementasi | Validasi | Release/data | Bukti atau langkah berikutnya |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `AUD-A1-SEC-01` | P0-01 | P0 / A1 | Endpoint Master belum seluruhnya deny-by-default. | Semua writer/read sensitif memakai permission aksi, scope, method, CSRF, dan negative test. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 82, 84A–C, 91–92, 148–149: 12 endpoint/36 entity terkunci; page Component kanonis dan 35 page unik aktif terbukti; enam writer memakai audit before/after atomik dan redaksi credential. Negative role UAT masih terbuka. |
-| `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 54–68; endpoint sisa dan versioning belum selesai. |
+| `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `AUTO_PASS` | `BLOCKED` | Batch 54–68 sudah memberi guard dasar. Batch 168 menutup editor massal Resep Produk: snapshot revision, `FOR UPDATE` pada produk/baris, rollback konflik, dan audit before/after atomik. Writer resep individual serta formula, extra, bundle, dan formula versioning masih terbuka. |
 | `AUD-A1-POS-01` | P0-03 | P0 / A1 | Surface POS Mobile/APK belum seluruhnya terikat terminal/outlet. | Semua endpoint memakai bearer context otoritatif, izin aksi, step-up, dan UAT perangkat. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 73–81, 89a–f, 93, 105–107, 150: token kini memvalidasi ulang role/scope serta membawa konteks division/outlet/terminal. Batch 156 menutup step-up untuk Void/Refund **web saja**; kontrak step-up dan UAT APK masih terbuka. |
 | `AUD-A1-RBAC-01` | P0-04 | P0 / A1 | Multi-role dan scope operasional terlalu luas. | Baseline role, precedence multi-role, outlet/division scope, dan negative matrix nyata lulus. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 6/7/150: union izin dan scope fail-closed lulus. Batch 151: simulator role/user/scope dan report selisih izin tersedia; 22 akun staging cocok dengan resolver aktif. Isi baseline hak per jabatan menunggu owner; UAT tetap terbuka. |
 | `AUD-A1-RBAC-02` | P0-05 | P0 / A1 | Penghapusan role dahulu memakai kolom relasi salah. | Relasi benar, transaksi aman, dan regression test lulus. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 2A. |
@@ -191,7 +193,7 @@ sudah berjalan. `DITUNDA` berarti keputusan penundaan memang disengaja.
 | ID | Klasifikasi | Pekerjaan yang belum tertutup | Alasan/status nyata | Rencana tindak lanjut |
 | --- | --- | --- | --- | --- |
 | `GAP-01` | `IN_PROGRESS` | Penutupan A0: credential produksi, rotasi secret, recovery Git, dan pemisahan runtime data customer. | Credential DB dan runtime index/package lulus Batch 146; cutoff commit/tag lokal dibuat Batch 147. Source masih shallow, cutoff belum dipush, secret lama belum dirotasi, dan off-site encryption belum aktif. | Verifikasi lalu push cutoff atas perintah owner, tetapkan strategi full-history, dan rotasi secret pada cutover terjadwal; jangan menghapus runtime staging. |
-| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; formulir publik/CSRF admin lulus Batch 152–153; Batch 154–155 mengunci seluruh alur Tutup Periode Keuangan sampai reopen atomik. Batch 156–164 menutup reauth proof satu-kali pada Void/Refund/Reopen/Reprint, Post/VOID Adjustment Component, Adjustment Stok Gudang/Divisi, Component Batch Produksi, quick-adjust Daily Recon Component, dan Transfer Stok Divisi; draft/jalur Daily terkait memakai CSRF scoped. Batch 165–167 menutup seluruh writer Stock Opening dengan CSRF dan reauth, termasuk import Excel yang sekarang satu-divisi satu-proof. APK atau seluruh tindakan sensitif belum tertutup. | Petakan mutasi inventory/produksi bernilai tinggi berikutnya per batch kecil; rancang kontrak reauth APK terpisah. Owner meninjau baseline tanpa reset izin otomatis; UAT finance/admin/QR/proxy/APK tetap perlu. |
+| `GAP-02` | `IN_PROGRESS` | Sisa A1: isi baseline izin per jabatan, writer produksi, step-up/MFA, dan UAT. | Batch 148–150 mengunci endpoint, audit Master, serta scope multi-role web/mobile. Simulator lulus Batch 151; formulir publik/CSRF admin lulus Batch 152–153; Batch 154–155 mengunci seluruh alur Tutup Periode Keuangan sampai reopen atomik. Batch 156–164 menutup reauth proof satu-kali pada Void/Refund/Reopen/Reprint, Post/VOID Adjustment Component, Adjustment Stok Gudang/Divisi, Component Batch Produksi, quick-adjust Daily Recon Component, dan Transfer Stok Divisi; draft/jalur Daily terkait memakai CSRF scoped. Batch 165–167 menutup seluruh writer Stock Opening dengan CSRF dan reauth. Batch 168 menutup lost-update/audit editor massal Resep Produk. APK atau seluruh tindakan sensitif belum tertutup. | Lanjutkan writer Resep individual, Formula Component, Extra, dan Bundle per batch kecil; rancang kontrak reauth APK terpisah. Owner meninjau baseline tanpa reset izin otomatis; UAT finance/admin/QR/proxy/APK tetap perlu. |
 | `GAP-03` | `TERLEWAT` | P2 bisnis A2: uang makan slip payroll dan running balance rekening backdate. | Belum mendapat batch khusus walaupun pekerjaan bergerak ke A3–A5. | Audit aturan bisnis, buat fixture, lalu minta acceptance finance sebelum implementasi. |
 | `GAP-04` | `TERLEWAT` | A3.2 rollout UI 8.3 gelombang 2 dan 4–9 serta visual UAT. | Fondasi UI dan sidebar selesai, tetapi migrasi halaman tidak pernah ditutup per wave. | Kembali ke checklist UI 8.3 gelombang 01–09 setelah fondasi A5; satu rumpun per batch, bukan rewrite besar. |
 | `GAP-05` | `TERLEWAT_OPERASIONAL` | UAT browser role, APK/device, printer fisik, dan updater customer. | Automated tooling A4 lulus tetapi tidak menggantikan perangkat nyata. | Jalankan setelah kandidat build dan APK siap; bukti UAT harus terikat ke versi artefak. |
@@ -1772,10 +1774,9 @@ setelah gerbang ini lulus, pekerjaan paket/lisensi dilanjutkan di `_28`.
 
 1. Tutup `GAP-01`: credential produksi, rotasi secret, recovery Git, dan
    pemisahan runtime data customer tanpa melonggarkan preflight fail-closed.
-2. Lanjutkan `AUD-A1-STEP-01` secara kecil: petakan dan tutup stock opening
-   serta action mutasi lain yang benar-benar perlu proof tanpa mengubah matrix izin;
-   rancang kontrak APK terpisah dan jangan memakai password dalam writer
-   transaksi.
+2. Lanjutkan `AUD-A1-SEC-02` secara kecil: tutup writer Resep individual,
+   Formula Component, Extra, dan Bundle dengan concurrency/audit yang seragam;
+   rancang kontrak APK reauth terpisah dan jangan memakai password dalam writer.
 3. Uji command inbound `/menu`, `/omzet`, dan `/belanja` dari grup Namua;
    sebelum grup tidak tepercaya dipakai, tambahkan allowlist identitas pengirim.
 4. Jalankan A3.2 rollout UI melalui `AUD-A3-UI-01`–`09` per rumpun; jangan

@@ -119,21 +119,21 @@ final class MasterRelationRecipeSmokeSession
 
 final class MasterRelationRecipeSmokeResult
 {
-    private array $row;
+    private array $rows;
 
     public function __construct(array $row = [])
     {
-        $this->row = $row;
+        $this->rows = array_is_list($row) ? $row : ($row === [] ? [] : [$row]);
     }
 
     public function row_array(): array
     {
-        return $this->row;
+        return $this->rows[0] ?? [];
     }
 
     public function result_array(): array
     {
-        return $this->row === [] ? [] : [$this->row];
+        return $this->rows;
     }
 }
 
@@ -141,6 +141,18 @@ final class MasterRelationRecipeSmokeDb
 {
     public array $calls = [];
     private array $nextRow;
+    public array $recipeRows = [[
+        'id' => 91,
+        'line_no' => 1,
+        'line_type' => 'COMPONENT',
+        'material_item_id' => 0,
+        'component_id' => 7,
+        'source_division_id' => 1,
+        'qty' => 1,
+        'uom_id' => 1,
+        'notes' => '',
+        'sort_order' => 10,
+    ]];
 
     public function __construct(array $nextRow = [])
     {
@@ -156,10 +168,35 @@ final class MasterRelationRecipeSmokeDb
         if ((string)$name === 'trans_status') {
             return true;
         }
-        if ((string)$name === 'field_exists') {
-            return false;
-        }
         return $this;
+    }
+
+    public function table_exists($table): bool
+    {
+        $this->calls[] = ['table_exists', [(string)$table]];
+        return (string)$table === 'aud_transaction_log';
+    }
+
+    public function field_exists($field, $table): bool
+    {
+        $this->calls[] = ['field_exists', [(string)$field, (string)$table]];
+        return (string)$table === 'aud_transaction_log' && in_array((string)$field, [
+            'module_code', 'action_code', 'entity_table', 'entity_id',
+            'actor_user_id', 'source_ip', 'before_payload', 'after_payload',
+            'notes', 'created_at',
+        ], true);
+    }
+
+    public function query($sql, $bindings = []): MasterRelationRecipeSmokeResult
+    {
+        $this->calls[] = ['query', [(string)$sql, $bindings]];
+        return new MasterRelationRecipeSmokeResult($this->recipeRows);
+    }
+
+    public function insert($table, $data): bool
+    {
+        $this->calls[] = ['insert', [(string)$table, $data]];
+        return true;
     }
 }
 
@@ -326,7 +363,13 @@ function mrpr_invoke_writer(
     array $headers = [],
     string $rawBody = ''
 ): array {
-    [$controller] = mrpr_fixture($method, $post, $permissionAllowed, $sessionValues, $get, $headers, $rawBody);
+    [$controller, $reflection] = mrpr_fixture($method, $post, $permissionAllowed, $sessionValues, $get, $headers, $rawBody);
+    if ($writer === 'product_recipe_bulk_save' && !array_key_exists('product_recipe_revision', $post)) {
+        $revision = $reflection->getMethod('canonicalProductRecipeRevision');
+        $revision->setAccessible(true);
+        $post['product_recipe_revision'] = (string)$revision->invoke($controller, $controller->db->recipeRows);
+        $controller->input = new MasterRelationRecipeSmokeInput($method, $post, $get, $headers, $rawBody);
+    }
     $response = null;
     try {
         $controller->{$writer}($writer === 'product_recipe_bulk_save' || $writer === 'product_recipe_store' ? 12 : 91);
