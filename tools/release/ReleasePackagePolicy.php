@@ -190,7 +190,7 @@ final class ReleasePackagePolicy
         if ($root === '' || !is_dir($root)) {
             return ['files' => [], 'excluded_files' => 0, 'issues' => [['category' => 'SOURCE_ROOT_INVALID', 'path' => '.']]];
         }
-        $process = @proc_open(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+        $process = @proc_open(['git', 'ls-files', '--cached', '-z'],
             [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root);
         if (!is_resource($process)) {
             return ['files' => [], 'excluded_files' => 0, 'issues' => [['category' => 'SOURCE_MANIFEST_UNAVAILABLE', 'path' => '.git']]];
@@ -230,5 +230,28 @@ final class ReleasePackagePolicy
             $files[] = $path;
         }
         return ['files' => $files, 'excluded_files' => $excluded, 'issues' => $issues];
+    }
+
+    /**
+     * A release artifact must represent one committed source state. Runtime
+     * files, local notes, and a developer's untracked work must never be
+     * silently folded into the customer package.
+     */
+    public static function worktreeClean(string $root): bool
+    {
+        $root = realpath($root) ?: '';
+        if ($root === '' || !is_dir($root)) {
+            return false;
+        }
+        $process = @proc_open(['git', 'status', '--porcelain=v1', '-z', '--untracked-files=all'],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root);
+        if (!is_resource($process)) {
+            return false;
+        }
+        $output = stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return proc_close($process) === 0 && is_string($output) && $output === '';
     }
 }

@@ -90,6 +90,7 @@ foreach (['a4_release_preflight_smoke.php', 'a4_static_analysis_smoke.php', 'a4_
 }
 $run(['git', 'init', '-q'], $root);
 $run(['git', 'add', '-f', '.'], $root);
+$run(['git', '-c', 'user.name=Finance Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], $root);
 
 $builder = dirname(__DIR__) . '/release/build_release_artifact.php';
 $artifactA = $outputDirectory . '/release-a.tar';
@@ -127,6 +128,7 @@ $denied = [
 ];
 $check(array_intersect($denied, $archivePaths) === [], 'runtime, customer data, secrets, and internal audit paths are excluded');
 $check(in_array('docs/customer-guide.md', $archivePaths, true), 'non-internal customer documentation remains packageable');
+$check(ReleasePackagePolicy::worktreeClean($root), 'fixture release source starts from one clean committed worktree');
 
 $run(['/usr/bin/tar', '-xf', $artifactA, '-C', $extract], $root);
 $manifest = json_decode((string)file_get_contents($extract . '/RELEASE-MANIFEST.json'), true);
@@ -152,6 +154,21 @@ if ($linkCreated) {
     unlink($link);
     $run(['git', 'rm', '--cached', '-q', 'application/linked.php'], $root);
 }
+
+$untrackedDirectory = $root . '/scripts';
+mkdir($untrackedDirectory, 0700, true);
+$untracked = $untrackedDirectory . '/local-helper.php';
+file_put_contents($untracked, "<?php // local-only helper\n");
+$untrackedArtifact = $outputDirectory . '/untracked.tar';
+$untrackedBuild = $run($arguments($untrackedArtifact), $root, $environment);
+$check(
+    $untrackedBuild['code'] !== 0
+        && !file_exists($untrackedArtifact)
+        && strpos($untrackedBuild['output'], 'SOURCE_WORKTREE_DIRTY') !== false,
+    'untracked local source blocks the release instead of entering its candidate set'
+);
+unlink($untracked);
+rmdir($untrackedDirectory);
 
 $mutationArtifact = $outputDirectory . '/mutation.tar';
 $mutationEnvironment = $environment + ['A4_ARTIFACT_MUTATE' => $root . '/application/index.php'];

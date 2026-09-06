@@ -6253,3 +6253,21 @@
 - Risiko sisa/batch berikutnya: kontrak perlu diadopsi APK dan dibuktikan pada
   perangkat nyata; keputusan apakah pembayaran/tutup kasir perlu reauth harus
   mengikuti kebijakan operasional karena jalur web juga belum mewajibkannya.
+
+## Batch 179 — Kandidat artefak release hanya dari Git bersih
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A0/A5 / `AUD-A5-PACK-01`. Builder artefak sebelumnya dapat
+  mempertimbangkan file untracked; ini berisiko memasukkan helper lokal atau
+  pekerjaan yang belum disetujui ke paket customer.
+- Perubahan utama: candidate set hanya mengambil file tracked, dan builder
+  menolak worktree dengan perubahan staged, unstaged, atau untracked sebelum
+  menjalankan gate maupun sebelum menerbitkan archive. Tidak ada data runtime
+  atau credential yang dihapus.
+- Validasi: `php -l` untuk tiga file PHP berubah; contract artefak menguji dua
+  build committed yang deterministik, symlink, mutasi source, dan untracked
+  local source yang wajib ditolak; preflight dan contract policy lulus;
+  `php tools/tests/finance_quality_gate.php parallel` lulus
+  (required 71/71, development 4/4, release 1/1, preflight 1/1).
+- Risiko sisa/batch berikutnya: artefak customer nyata tetap menunggu commit
+  kandidat bersih, signing key produksi, installer/updater, serta UAT deploy.

@@ -124,6 +124,9 @@ $temporaryArchive = $outputDirectory . '/.finance-release-' . bin2hex(random_byt
 $listPath = $stage . '.list';
 try {
     $policy = ReleasePackagePolicy::fromFile($root . '/tools/release/package_policy.json');
+    if (!ReleasePackagePolicy::worktreeClean($root)) {
+        throw new RuntimeException('SOURCE_WORKTREE_DIRTY');
+    }
     $before = releaseArtifactSnapshot($policy, $root);
     foreach ([
         ['PREFLIGHT', 'a4_release_preflight_smoke.php'],
@@ -138,7 +141,7 @@ try {
             throw new RuntimeException('GATE_' . $label . '_FAILED');
         }
     }
-    if ($before !== releaseArtifactSnapshot($policy, $root)) {
+    if (!ReleasePackagePolicy::worktreeClean($root) || $before !== releaseArtifactSnapshot($policy, $root)) {
         throw new RuntimeException('SOURCE_MUTATED_DURING_BUILD');
     }
     if (!mkdir($stage, 0700)) {
@@ -177,7 +180,7 @@ try {
     if ($tar['code'] !== 0 || !is_file($temporaryArchive) || !chmod($temporaryArchive, 0644)) {
         throw new RuntimeException('ARCHIVE_CREATE_FAILED');
     }
-    if ($before !== releaseArtifactSnapshot($policy, $root)) {
+    if (!ReleasePackagePolicy::worktreeClean($root) || $before !== releaseArtifactSnapshot($policy, $root)) {
         throw new RuntimeException('SOURCE_MUTATED_DURING_BUILD');
     }
     if (!rename($temporaryArchive, $output)) {

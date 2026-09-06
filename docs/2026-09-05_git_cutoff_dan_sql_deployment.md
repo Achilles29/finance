@@ -46,6 +46,10 @@ Rencana yang berlaku:
 | 3 | `sql/2026-09-05a_telegram_bot_foundation.sql` | Jalankan melalui runner; schema/menu/RBAC Telegram. |
 | 4 | `sql/2026-09-05b_telegram_setup_guide.sql` | Jalankan melalui runner; halaman panduan Telegram. |
 | 5 | `sql/2026-09-05c_telegram_safe_activation_default.sql` | Jalankan melalui runner; default Telegram tetap aman/OFF bila belum diatur. |
+| 6 | `sql/2026-09-06a_component_formula_version_history.sql` | Jalankan melalui runner; history Formula Component append-only. |
+| 7 | `sql/2026-09-06b_component_formula_restore_action.sql` | Jalankan melalui runner; mengaktifkan aksi restore Formula terotorisasi. |
+| 8 | `sql/2026-09-06c_pos_mobile_reversal_step_up.sql` | Jalankan melalui runner; proof Void/Refund POS Mobile. |
+| 9 | `sql/2026-09-06d_pos_mobile_reprint_step_up.sql` | Jalankan melalui runner; proof Reprint POS Mobile setelah 06c. |
 
 Urutan aktual ditentukan oleh angka `order` pada
 `tools/db/migration_catalog.json`; tabel di atas menjelaskan dependency bisnis,
@@ -81,7 +85,7 @@ Database customer baru memakai alur berikut:
 3. Jalankan health check, login bootstrap owner, dan acceptance test sesuai
    artefak release yang sama.
 
-Policy `clean_install` menjalankan enam migration managed, termasuk
+Policy `clean_install` menjalankan sepuluh migration managed, termasuk
 `2026-09-05d_a5_clean_install_reference_seed.sql`. File `09-05d` khusus
 database kosong dan tidak boleh dijalankan pada server utama/customer existing.
 
@@ -123,7 +127,16 @@ persetujuan pemilik, dan rekonsiliasi before/after.
 File fisik runtime staging tidak dihapus saat dilepas dari index. Konfigurasi
 database staging aktif berada di boundary privat server, bukan di repository.
 
-## 6. Dokumentasi Akhir Produk
+## 6. Aturan Kandidat Artefak Release
+
+Builder release hanya menerima worktree Git yang benar-benar bersih dan hanya
+mengemas file yang tracked pada commit tersebut. File lokal/untracked, perubahan
+belum commit, runtime, backup, upload, log, credential, dan dashboard audit
+internal menyebabkan build ditolak; tidak ada artefak parsial yang diterbitkan.
+Selesaikan atau simpan pekerjaan lokal terlebih dahulu, commit kandidat yang
+disetujui, lalu build artefak dari commit bersih itu.
+
+## 7. Dokumentasi Akhir Produk
 
 Setelah fitur, UI, installer, dan proses upgrade stabil, dokumentasi release
 harus diterbitkan dalam empat bagian: panduan pengguna per peran/modul, panduan
