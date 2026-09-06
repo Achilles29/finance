@@ -391,8 +391,27 @@ final class MasterRelationProductExtraSmokeDb
     public function insert($table, array $payload): bool
     {
         $this->calls[] = ['insert', [(string)$table, $payload], 'db_debug' => $this->db_debug];
+        if ((string)$table === 'aud_transaction_log') {
+            return true;
+        }
         log_message('error', 'Query error: SECRET_SQL_ERROR_MARKER Invalid query: INSERT LEAK MARKER');
         return false;
+    }
+
+    public function table_exists($table): bool
+    {
+        $this->calls[] = ['table_exists', [(string)$table]];
+        return (string)$table === 'aud_transaction_log';
+    }
+
+    public function field_exists($field, $table): bool
+    {
+        $this->calls[] = ['field_exists', [(string)$field, (string)$table]];
+        return (string)$table === 'aud_transaction_log' && in_array((string)$field, [
+            'module_code', 'action_code', 'entity_table', 'entity_id',
+            'actor_user_id', 'source_ip', 'before_payload', 'after_payload',
+            'notes', 'created_at',
+        ], true);
     }
 
     public function trans_begin(): bool
@@ -886,6 +905,8 @@ mrpe_check(
 );
 
 $storeSource = mrpe_method_source($controllerSource, 'product_extra_store');
+$auditReadySource = mrpe_method_source($controllerSource, 'productExtraAuditReady');
+$auditWriteSource = mrpe_method_source($controllerSource, 'writeProductExtraAudit');
 $storePayloadAt = strpos($storeSource, "->post('extra_group_id'");
 $storeBeginAt = strpos($storeSource, 'trans_begin()');
 $storeGroupAt = strpos($storeSource, 'SELECT id, product_division_id, is_active FROM mst_extra_group');
@@ -930,6 +951,23 @@ mrpe_check(
         && strpos($storeSource, 'canonicalExtraGroupProductMappingRevision') === false,
     'legacy product_extra_store does not claim or emulate the B67 checklist revision protocol'
 );
+mrpe_check(
+    strpos($auditReadySource, "table_exists('aud_transaction_log')") !== false
+        && strpos($auditReadySource, "'before_payload'") !== false
+        && strpos($auditReadySource, "'after_payload'") !== false,
+    'product-extra writer fails closed when its audit schema is unavailable'
+);
+mrpe_check(
+    strpos($auditWriteSource, "'CREATE_PRODUCT_EXTRA_MAP'") === false
+        && strpos($auditWriteSource, "'before_payload'") !== false
+        && strpos($auditWriteSource, "'after_payload'") !== false,
+    'product-extra audit helper accepts caller-specific actions and writes before/after payloads'
+);
+mrpe_check(
+    $storeInsertAt < strpos($storeSource, 'writeProductExtraAudit(')
+        && strpos($storeSource, 'writeProductExtraAudit(') < strpos($storeSource, 'trans_commit()'),
+    'store writes its audit record after the prepared insert and before commit'
+);
 
 $deleteSource = mrpe_method_source($controllerSource, 'product_extra_delete');
 $deleteBeginAt = strpos($deleteSource, 'trans_begin()');
@@ -947,6 +985,11 @@ mrpe_check(
     strpos($deleteSource, "['affected_rows']") !== false
         && strpos($deleteSource, '$affectedRows !== 1') !== false,
     'product_extra_delete constrains prepared exact-row DML and verifies exactly one affected row'
+);
+mrpe_check(
+    $deleteDmlAt < strpos($deleteSource, 'writeProductExtraAudit(')
+        && strpos($deleteSource, 'writeProductExtraAudit(') < strpos($deleteSource, 'trans_commit()'),
+    'delete writes its audit record after exact-row DML and before commit'
 );
 mrpe_check(
     strpos($storeSource, '$this->db->query(') === false
@@ -1184,6 +1227,10 @@ mrpe_check(
     !mrpe_has_call($storeController->db->calls, 'insert', 'mst_product_extra_map')
         && !mrpe_has_call($storeController->Master_model->calls, 'insert', 'mst_product_extra_map'),
     'successful store bypasses framework and Master_model insert paths'
+);
+mrpe_check(
+    mrpe_has_call($storeController->db->calls, 'insert', 'aud_transaction_log'),
+    'successful store writes its audit row in the existing transaction'
 );
 mrpe_check($storeController->db->db_debug === true, 'successful insert restores the prior db_debug value');
 mrpe_check(
@@ -1841,6 +1888,10 @@ mrpe_check(
         ['close'],
     ] && !mrpe_has_call($deleteController->db->calls, 'delete', 'mst_product_extra_map'),
     'product_extra_delete reaches only the exact prepared delete with integer binds'
+);
+mrpe_check(
+    mrpe_has_call($deleteController->db->calls, 'insert', 'aud_transaction_log'),
+    'successful delete writes its audit row in the existing transaction'
 );
 mrpe_check(
     $deleteController->Master_model->calls === []

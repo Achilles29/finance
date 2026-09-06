@@ -346,6 +346,54 @@ class Master_relation extends MY_Controller
         return true;
     }
 
+    private function productExtraAuditReady(): bool
+    {
+        $requiredColumns = [
+            'module_code', 'action_code', 'entity_table', 'entity_id',
+            'actor_user_id', 'source_ip', 'before_payload', 'after_payload',
+            'notes', 'created_at',
+        ];
+        if (!$this->db->table_exists('aud_transaction_log')) {
+            return false;
+        }
+        foreach ($requiredColumns as $column) {
+            if (!$this->db->field_exists($column, 'aud_transaction_log')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function writeProductExtraAudit(
+        string $actionCode,
+        int $productId,
+        ?int $mappingId,
+        array $before,
+        array $after
+    ): bool {
+        $beforeJson = json_encode($before, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        $afterJson = json_encode($after, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_string($beforeJson) || !is_string($afterJson)) {
+            return false;
+        }
+        $sourceIp = method_exists($this->input, 'ip_address') ? trim((string)$this->input->ip_address()) : '';
+        return $this->db->insert('aud_transaction_log', [
+            'module_code' => 'MASTER_RELATION',
+            'action_code' => $actionCode,
+            'entity_table' => 'mst_product_extra_map',
+            'entity_id' => $mappingId,
+            'transaction_no' => null,
+            'ref_table' => 'mst_product',
+            'ref_id' => $productId,
+            'actor_user_id' => !empty($this->current_user['id']) ? (int)$this->current_user['id'] : null,
+            'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
+            'before_payload' => $beforeJson,
+            'after_payload' => $afterJson,
+            'notes' => 'Mutasi mapping product extra',
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
     /**
      * Run a single-row B68 SELECT through mysqli directly so a failed statement
      * cannot be rendered or logged by CI_DB_driver. All values are integer-bound
@@ -2615,6 +2663,11 @@ class Master_relation extends MY_Controller
             redirect('master/relation/product-extra/' . $productId . '/create');
             return;
         }
+        if (!$this->productExtraAuditReady()) {
+            $this->session->set_flashdata('error', 'Pencatatan audit mapping product-extra belum siap. Perubahan tidak dijalankan.');
+            redirect('master/relation/product-extra/' . $productId . '/create');
+            return;
+        }
 
         $payload = [
             'product_id' => $productId,
@@ -2736,6 +2789,17 @@ class Master_relation extends MY_Controller
                 return;
             }
 
+            if (!$this->writeProductExtraAudit(
+                'CREATE_PRODUCT_EXTRA_MAP',
+                $productId,
+                null,
+                [],
+                $payload
+            )) {
+                $failureOperation = 'audit_write';
+                throw new RuntimeException('audit_write_failed');
+            }
+
             if ($this->db->trans_status() === false) {
                 $failureOperation = 'transaction_status';
                 throw new RuntimeException('transaction_status_failed');
@@ -2811,6 +2875,12 @@ class Master_relation extends MY_Controller
             $productId = (int)($row['product_id'] ?? 0);
             $extraGroupId = (int)($row['extra_group_id'] ?? 0);
 
+            if (!$this->productExtraAuditReady()) {
+                $this->session->set_flashdata('error', 'Pencatatan audit mapping product-extra belum siap. Perubahan tidak dijalankan.');
+                redirect('master/relation/product-extra/' . $productId);
+                return;
+            }
+
             if ($this->db->trans_begin() === false) {
                 log_message(
                     'error',
@@ -2875,6 +2945,20 @@ class Master_relation extends MY_Controller
                 $this->session->set_flashdata('warning', 'Mapping berubah. Muat ulang data sebelum menghapus.');
                 redirect('master/relation/product-extra/' . $productId);
                 return;
+            }
+            if (!$this->writeProductExtraAudit(
+                'DELETE_PRODUCT_EXTRA_MAP',
+                $productId,
+                $id,
+                [
+                    'id' => $id,
+                    'product_id' => $productId,
+                    'extra_group_id' => $extraGroupId,
+                ],
+                []
+            )) {
+                $failureOperation = 'audit_write';
+                throw new RuntimeException('audit_write_failed');
             }
             if ($this->db->trans_status() === false) {
                 $failureOperation = 'transaction_status';

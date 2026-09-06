@@ -5940,3 +5940,40 @@
 - Batch berikutnya: petakan writer Extra sebagai batch A1 kecil berikutnya.
 - Penyerahan: commit lokal tanpa push setelah seluruh gate lulus; ringkasan
   dikirim ke Telegram Namua setelah commit.
+
+## Batch 171 — Audit atomik mapping Product Extra
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 07:51 WIB.
+- Prioritas: P0 / `AUD-A1-SEC-02`. Writer tambah dan hapus mapping Product
+  Extra sudah memakai CSRF, prepared statement, revalidasi, lock, dan
+  transaksi; tetapi belum mencatat before/after audit sebagai bagian commit.
+- Diskusi/arah: fixer tunggal. Jalur prepared statement dan aturan group aktif,
+  divisi, duplicate, serta pembersihan mapping historis tidak diganti. Tidak
+  mengubah POS Mobile/APK, HPP, stok, data mismatch, SQL/schema, atau role.
+- File berubah:
+  - `application/controllers/Master_relation.php`.
+  - `tools/tests/master_relation_product_extra_mutation_csrf_smoke.php`.
+  - Roadmap `_30`, `_28`, serta log ini.
+- Perubahan utama:
+  - Audit wajib tersedia sebelum mutasi dimulai; bila tabel/kolom audit belum
+    siap, mapping tidak ditulis.
+  - Setelah prepared insert atau delete tepat satu row, transaksi menyimpan
+    audit `CREATE_PRODUCT_EXTRA_MAP` atau `DELETE_PRODUCT_EXTRA_MAP` dengan
+    payload sebelum/sesudah. Audit gagal membuat seluruh transaksi rollback.
+  - Prepared statement, bind integer, lock, serta error aman yang telah ada
+    tetap menjadi satu-satunya jalur DML mapping.
+- SQL/runtime: **tidak ada SQL baru**, migration, query tulis staging,
+  perubahan data HPP/mismatch, credential, sidebar, atau kontrak POS
+  Mobile/APK.
+- Validasi:
+  - Lint PHP, `git diff --check`, smoke mapping Product Extra (434 check),
+    matrix direct-URL A1, dan regression resep lulus sebelum full gate.
+  - Quality gate `parallel` lulus: required 67/67, development 4/4, release
+    1/1, dan preflight 1/1. Runtime/security/static serta UAT browser nyata
+    tetap harus dibuktikan terpisah.
+- Review akhir fixer tunggal: layak untuk writer mapping Product Extra. Bundle,
+  formula versioning, APK, MFA, baseline role nyata, serta UAT perangkat tetap
+  terbuka.
+- Batch berikutnya: petakan writer Bundle sebagai batch A1 kecil berikutnya.
+- Penyerahan: commit lokal tanpa push setelah seluruh gate lulus; ringkasan
+  dikirim ke Telegram Namua setelah commit.
