@@ -284,6 +284,7 @@ $moduleFilterOptions = [
   .mut-table tbody tr:last-child td { border-bottom: 0; }
 
   .mut-col-date  { width: 100px; }
+  .mut-col-posted { width: 132px; }
   .mut-col-no    { width: 145px; }
   .mut-col-acct  { width: 150px; }
   .mut-col-type  { width: 58px;  text-align: center; }
@@ -327,7 +328,7 @@ $moduleFilterOptions = [
 
   @media (min-width: 768px) and (max-width: 1199.98px) {
     .mut-board-card > .card-body { padding:.8rem .8rem 0; }
-    .mut-table { min-width:1040px; }
+    .mut-table { min-width:1160px; }
     .mut-table thead .mut-col-date,
     .mut-table tbody .mut-col-date { position:sticky;left:0;z-index:3;background:#fff;box-shadow:inset -1px 0 0 #e8ddd7,4px 0 8px rgba(50,35,30,.06); }
     .mut-table thead .mut-col-date { z-index:5; }
@@ -345,7 +346,7 @@ $moduleFilterOptions = [
     .mut-table tbody tr { display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1px solid #e8ddd7;border-radius:14px;background:#fff;box-shadow:0 6px 16px rgba(67,89,113,.07);overflow:hidden; }
     .mut-table tbody td,.mut-table tbody td[class^="mut-col-"],.mut-table tbody td[class*=" mut-col-"] { display:block;width:auto;min-width:0;padding:.58rem .68rem;border:0;border-bottom:1px solid #f0e9e5;white-space:normal;overflow:visible;text-overflow:clip;text-align:left; }
     .mut-table tbody td::before { content:attr(data-label);display:block;margin-bottom:.18rem;color:#8a7d77;font-size:.58rem;font-weight:800;letter-spacing:.055em;text-transform:uppercase; }
-    .mut-table tbody .mut-col-date,.mut-table tbody .mut-col-no,.mut-table tbody .mut-col-notes { grid-column:1 / -1; }
+    .mut-table tbody .mut-col-date,.mut-table tbody .mut-col-posted,.mut-table tbody .mut-col-no,.mut-table tbody .mut-col-notes { grid-column:1 / -1; }
     .mut-table tbody .mut-col-date { background:#fff8f5; }.mut-table tbody .mut-col-date > div:first-child { font-size:.82rem !important;font-weight:800;color:#2c2225; }
     .mut-table tbody .mut-col-no { font-size:.7rem !important;overflow-wrap:anywhere; }.mut-table tbody .mut-col-amt { font-size:.82rem; }.mut-table tbody .mut-col-ref { overflow-wrap:anywhere; }
     .mut-table tbody .mut-col-notes { border-bottom:0;line-height:1.45; }.mut-table tbody tr.mut-empty-row { display:block; }.mut-table tbody tr.mut-empty-row td { text-align:center;border:0; }.mut-table tbody tr.mut-empty-row td::before { display:none; }
@@ -405,6 +406,10 @@ $moduleFilterOptions = [
       </div>
       <div class="mut-hero-sub mt-2">
         <?php echo html_escape((string)($scopeTabs[$scope]['desc'] ?? '')); ?>
+      </div>
+      <div class="mut-hero-sub mt-2">
+        Urutan riwayat mengikuti <strong>waktu posting</strong> agar Saldo Sebelum/Sesudah tetap satu rantai.
+        Filter tetap memakai <strong>tanggal bisnis</strong>; label <strong>Backdate</strong> berarti keduanya berbeda.
       </div>
     </div>
     <div class="mut-hero-actions">
@@ -552,11 +557,11 @@ $moduleFilterOptions = [
             </select>
           </div>
           <div class="col-6 col-md-2">
-            <label class="form-label mb-1">Dari</label>
+            <label class="form-label mb-1">Tanggal Bisnis Dari</label>
             <input type="date" name="date_from" class="form-control form-control-sm" value="<?php echo html_escape((string)($date_from ?? '')); ?>">
           </div>
           <div class="col-6 col-md-2">
-            <label class="form-label mb-1">Sampai</label>
+            <label class="form-label mb-1">Tanggal Bisnis Sampai</label>
             <input type="date" name="date_to" class="form-control form-control-sm" value="<?php echo html_escape((string)($date_to ?? '')); ?>">
           </div>
           <div class="col-4 col-md-1">
@@ -587,7 +592,8 @@ $moduleFilterOptions = [
         <table class="table table-hover mb-0 mut-table">
           <thead>
             <tr>
-              <th class="mut-col-date">Tanggal</th>
+              <th class="mut-col-date">Tanggal Bisnis</th>
+              <th class="mut-col-posted">Diposting</th>
               <th class="mut-col-no">No Mutasi</th>
               <th class="mut-col-acct">Rekening</th>
               <th class="mut-col-type">Tipe</th>
@@ -601,7 +607,7 @@ $moduleFilterOptions = [
           </thead>
           <tbody>
             <?php if (empty($rows)): ?>
-              <tr class="mut-empty-row"><td colspan="10" class="text-center text-muted py-5">
+              <tr class="mut-empty-row"><td colspan="11" class="text-center text-muted py-5">
                 <i class="ri ri-inbox-line" style="font-size:2rem;display:block;margin-bottom:.5rem;"></i>
                 Belum ada data mutasi pada periode ini.
               </td></tr>
@@ -617,12 +623,19 @@ $moduleFilterOptions = [
                 $refUrl           = $resolveRefUrl($mod, $tbl, $refId, $posLineParentId);
               ?>
               <tr>
-                <?php $dt = (string)($r['mutation_date'] ?? ''); ?>
-                <td class="mut-col-date" data-label="Tanggal" title="<?php echo html_escape($dt); ?>">
+                <?php
+                  $dt = (string)($r['mutation_date'] ?? '');
+                  $postedAt = (string)($r['created_at'] ?? '');
+                  $isBackdated = strlen($dt) >= 10 && strlen($postedAt) >= 10 && substr($dt, 0, 10) !== substr($postedAt, 0, 10);
+                ?>
+                <td class="mut-col-date" data-label="Tanggal Bisnis" title="<?php echo html_escape($dt); ?>">
                   <div style="font-size:.73rem;"><?php echo html_escape(strlen($dt) >= 10 ? substr($dt, 0, 10) : $dt); ?></div>
-                  <?php if (strlen($dt) >= 16): ?>
-                    <div style="font-size:.63rem;color:#9ca3af;"><?php echo html_escape(substr($dt, 11, 5)); ?></div>
+                  <?php if ($isBackdated): ?>
+                    <span class="badge bg-label-warning mt-1" style="font-size:.59rem;">Backdate</span>
                   <?php endif; ?>
+                </td>
+                <td class="mut-col-posted" data-label="Diposting" title="<?php echo html_escape($postedAt); ?>" style="font-size:.71rem;color:#6b7280;">
+                  <?php echo html_escape($postedAt !== '' ? substr($postedAt, 0, 16) : '–'); ?>
                 </td>
                 <td class="mut-col-no" data-label="No Mutasi" style="font-family:monospace;font-size:.71rem;"><?php echo html_escape((string)($r['mutation_no'] ?? '')); ?></td>
                 <td class="mut-col-acct" data-label="Rekening">

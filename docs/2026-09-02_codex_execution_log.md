@@ -6287,3 +6287,22 @@
   (required 71/71, development 4/4, release 1/1, preflight 1/1).
 - Risiko sisa/batch berikutnya: ini baru satu halaman Production; migrasi UI
   tetap dilanjutkan satu rumpun kecil per batch dan memerlukan UAT visual.
+
+## Batch 181 — Riwayat rekening jelas pada transaksi backdate
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A2 / `AUD-A2-FIN-01`. Kolom saldo sebelum/sesudah adalah chain
+  saat posting, tetapi daftar sebelumnya mengurutkan tanggal bisnis sehingga
+  backdate tampak seperti saldo yang putus.
+- Perubahan utama: daftar diurutkan berdasarkan ID posting, filter tetap
+  menggunakan tanggal bisnis, serta UI menunjukkan Tanggal Bisnis, waktu
+  Diposting, dan label Backdate bila kedua tanggal berbeda. Tidak ada saldo,
+  mutasi, periode, atau data historis yang diubah.
+- Validasi: `php -l` untuk model/view/test/gate lulus; contract riwayat A2
+  6/6 dan contract gate 27/27 lulus; quality gate parallel lulus
+  (required 72/72, development 4/4, release 1/1, preflight 1/1). Probe
+  database A2 yang hanya-baca dicoba tetapi tidak dapat tersambung pada
+  konfigurasi PHP CLI saat ini; tidak ada query atau perubahan data dilakukan.
+- Risiko sisa/batch berikutnya: acceptance finance untuk laporan as-of/rebuild
+  saldo dan fixture backdate nyata masih diperlukan; uang makan/slip payroll
+  belum disentuh karena memerlukan keputusan aturan bisnis.

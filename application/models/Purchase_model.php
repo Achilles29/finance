@@ -456,8 +456,11 @@ class Purchase_model extends CI_Model
         $this->applyAccountMutationTypeFilter('m', $mutationType);
         $this->applyAccountMutationModuleFilter('m', $moduleFilter);
 
+        // balance_before/balance_after are a posting-time chain. Keep this
+        // ledger ordered by its append-only posting ID; mutation_date remains
+        // the business-date filter and is deliberately not the running-balance
+        // order when a permitted backdate is entered.
         return $this->db
-            ->order_by('m.mutation_date', 'DESC')
             ->order_by('m.id', 'DESC')
             ->limit($limit, max(0, $offset))
             ->get()
