@@ -4,13 +4,14 @@
   "cutoff": "2026-09-06",
   "schema": {
     "path": "sql/baseline/2026-09-05_clean_install_schema.sql",
-    "sha256": "97b7ac2882c37ec1576ffbec913b8fe1aeeda4b420f2cbb1f6f79f0c0e6ce5b3",
-    "table_count": 285,
+    "sha256": "d00b6ca1fa8e241bd349d07231113c1cdac2ad79cd08a66fcb337de8aab13c45",
+    "table_count": 286,
     "required_tables": [
       "auth_user",
       "auth_role",
       "auth_role_permission",
       "auth_user_role",
+      "aud_access_event",
       "ci_sessions",
       "sys_page",
       "sys_menu",
@@ -65,11 +66,11 @@
     },
     "post_apply_counts": {
       "sys_matrix_group": 20,
-      "sys_page": 206,
-      "sys_menu": 241,
+      "sys_page": 207,
+      "sys_menu": 242,
       "sys_page_alias": 10,
       "auth_role": 1,
-      "auth_role_permission": 206,
+      "auth_role_permission": 207,
       "auth_user": 0,
       "auth_user_role": 0
     },
@@ -98,6 +99,7 @@
     "2026-09-06a-component-formula-version-history",
     "2026-09-06b-component-formula-restore-action",
     "2026-09-06c-pos-mobile-reversal-step-up",
-    "2026-09-06d-pos-mobile-reprint-step-up"
+    "2026-09-06d-pos-mobile-reprint-step-up",
+    "2026-09-06e-activity-audit-foundation"
   ]
 }

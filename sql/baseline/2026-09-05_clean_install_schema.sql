@@ -881,6 +881,28 @@ CREATE TABLE `auth_user` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `aud_access_event` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint(20) unsigned NOT NULL,
+  `session_log_id` bigint(20) unsigned DEFAULT NULL,
+  `page_code` varchar(100) DEFAULT NULL,
+  `route_path` varchar(255) NOT NULL,
+  `request_method` varchar(10) NOT NULL DEFAULT 'GET',
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` varchar(255) DEFAULT NULL,
+  `device_label` varchar(80) DEFAULT NULL,
+  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_aud_access_event_created` (`created_at`,`id`) USING BTREE,
+  KEY `idx_aud_access_event_user_created` (`user_id`,`created_at`) USING BTREE,
+  KEY `idx_aud_access_event_page_created` (`page_code`,`created_at`) USING BTREE,
+  KEY `idx_aud_access_event_session_created` (`session_log_id`,`created_at`) USING BTREE,
+  CONSTRAINT `fk_aud_access_event_session` FOREIGN KEY (`session_log_id`) REFERENCES `auth_session_log` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_aud_access_event_user` FOREIGN KEY (`user_id`) REFERENCES `auth_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Metadata-only authenticated web page access audit';
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
 CREATE TABLE `auth_user_permission_override` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `user_id` bigint(20) unsigned NOT NULL,

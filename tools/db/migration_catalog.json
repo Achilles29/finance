@@ -163,6 +163,20 @@
         "clean_install",
         "upgrade"
       ]
+    },
+    {
+      "id": "2026-09-06e-activity-audit-foundation",
+      "order": 2026090605,
+      "path": "sql/2026-09-06e_activity_audit_foundation.sql",
+      "sha256": "c75afadeaf8a79d4736b101f4c1353ccf0423438541444f1d69a833cc99b68ce",
+      "dependencies": [
+        "2026-09-04c-a5-schema-migration-registry-foundation"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
     }
   ]
 }

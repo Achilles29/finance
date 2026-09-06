@@ -43,6 +43,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'a2-matrix', 'file' => 'a2_inventory_transaction_matrix_smoke.php'],
             ['id' => 'a2-account-mutation-history', 'file' => 'a2_account_mutation_history_smoke.php'],
             ['id' => 'purchase-item-price-history', 'file' => 'purchase_item_price_history_smoke.php'],
+            ['id' => 'activity-audit', 'file' => 'activity_audit_smoke.php'],
             ['id' => 'a3-finance-ui-shell', 'file' => 'a3_finance_ui_shell_smoke.php'],
             ['id' => 'a3-navigation-registry', 'file' => 'a3_navigation_registry_smoke.php'],
             ['id' => 'a3-page-alias-registry', 'file' => 'a3_page_alias_registry_smoke.php'],

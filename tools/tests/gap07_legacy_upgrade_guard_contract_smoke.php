@@ -70,6 +70,7 @@ $check(
         '2026-09-06b-component-formula-restore-action',
         '2026-09-06c-pos-mobile-reversal-step-up',
         '2026-09-06d-pos-mobile-reprint-step-up',
+        '2026-09-06e-activity-audit-foundation',
     ],
     'managed-v1 upgrade plan is exact, ordered, and excludes clean-install-only navigation seed'
 );
@@ -117,8 +118,8 @@ $validateJson = json_decode(trim($validateCli['out']), true);
 $planJson = json_decode(trim($planA['out']), true);
 $check(
     $validateCli['code'] === 0 && ($validateJson['legacy_records'] ?? null) === 7
-        && ($validateJson['managed_upgrade_migrations'] ?? null) === 9,
-    'DB-free validate reports seven retired legacy paths and nine managed upgrade migrations'
+        && ($validateJson['managed_upgrade_migrations'] ?? null) === 10,
+    'DB-free validate reports seven retired legacy paths and ten managed upgrade migrations'
 );
 $check(
     $planA['code'] === 0 && $planA['out'] === $planB['out']

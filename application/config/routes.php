@@ -955,6 +955,7 @@ $route['dbtools/action/compare-data']            = 'system_tools/action_compare_
 $route['dbtools/action/setup-master']            = 'system_tools/action_setup_master';
 $route['dbtools/action/failover']               = 'system_tools/action_failover';
 $route['dbtools/action/restart-replication']    = 'system_tools/action_restart_replication';
+$route['system/activity-audit']                 = 'activity_audit/index';
 
 $route['purchase/item-price-history']           = 'purchase/item_price_history';
 $route['purchase/item-price-history/item-search'] = 'purchase/item_price_history_item_search';

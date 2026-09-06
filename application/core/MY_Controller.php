@@ -34,6 +34,9 @@ class MY_Controller extends CI_Controller
     /** Menutup request bila pemulihan permission gagal, termasuk sesi superadmin. */
     private $permission_refresh_failed = false;
 
+    /** Mencegah satu halaman layout tercatat lebih dari sekali per request. */
+    private $access_event_recorded = false;
+
     /** Mencegah lebih dari satu pemulihan scope sesi lama dalam satu request. */
     private $division_scope_recovery_attempted = false;
 
@@ -424,7 +427,78 @@ class MY_Controller extends CI_Controller
         $data['content_view'] = $view;
         $data['content_data'] = $data;
 
+        $this->record_page_access((string)($data['active_menu'] ?? ''));
+
         return $this->load->view('layout/main', $data, $return);
+    }
+
+    /**
+     * Rekam satu akses halaman HTML yang sudah lolos autentikasi/permission.
+     * Tidak merekam query string, request body, password, token, atau endpoint
+     * AJAX/API. Kegagalan audit tidak boleh membuat halaman operasional mati
+     * ketika migration belum diterapkan.
+     */
+    private function record_page_access(string $pageCode): void
+    {
+        if ($this->access_event_recorded || $this->input->is_cli_request()
+            || strtoupper((string)$this->input->method(true)) !== 'GET'
+            || $this->input->is_ajax_request()) {
+            return;
+        }
+        $userId = (int)($this->current_user['id'] ?? 0);
+        if ($userId <= 0) {
+            return;
+        }
+        $this->access_event_recorded = true;
+
+        try {
+            if (!$this->db->table_exists('aud_access_event')) {
+                return;
+            }
+            $path = trim((string)uri_string(), '/');
+            if ($path === '') {
+                $path = '/';
+            }
+            $normalizedPageCode = preg_match('/\A[a-z0-9][a-z0-9._-]{0,99}\z/i', $pageCode) === 1
+                ? $pageCode
+                : null;
+            $userAgent = mb_substr(trim((string)$this->input->user_agent()), 0, 255);
+            $this->db->insert('aud_access_event', [
+                'user_id' => $userId,
+                'session_log_id' => max(0, (int)$this->session->userdata('session_log_id')) ?: null,
+                'page_code' => $normalizedPageCode,
+                'route_path' => mb_substr($path, 0, 255),
+                'request_method' => 'GET',
+                'ip_address' => mb_substr((string)$this->input->ip_address(), 0, 45),
+                'user_agent' => $userAgent !== '' ? $userAgent : null,
+                'device_label' => $this->access_device_label($userAgent),
+            ]);
+        } catch (Throwable $e) {
+            log_message('error', 'Authenticated page access audit could not be recorded.');
+        }
+    }
+
+    private function access_device_label(string $userAgent): ?string
+    {
+        if ($userAgent === '') {
+            return null;
+        }
+        $platform = 'Perangkat lain';
+        foreach (['Android' => '/android/i', 'iOS' => '/iphone|ipad|ipod/i', 'Windows' => '/windows/i', 'macOS' => '/macintosh|mac os/i', 'Linux' => '/linux/i'] as $label => $pattern) {
+            if (preg_match($pattern, $userAgent)) {
+                $platform = $label;
+                break;
+            }
+        }
+        $browser = 'Browser lain';
+        foreach (['Edge' => '/edg\//i', 'Chrome' => '/chrome|crios/i', 'Firefox' => '/firefox|fxios/i', 'Safari' => '/safari/i'] as $label => $pattern) {
+            if (preg_match($pattern, $userAgent)) {
+                $browser = $label;
+                break;
+            }
+        }
+
+        return mb_substr($platform . ' / ' . $browser, 0, 80);
     }
 
     protected function sidebar_favorite_csrf(): string
@@ -452,6 +526,8 @@ class MY_Controller extends CI_Controller
         $data['user_perms'] = $this->user_perms;
         $data['content_view'] = $view;
         $data['content_data'] = $data;
+
+        $this->record_page_access((string)($data['active_menu'] ?? ''));
 
         return $this->load->view('layout/cashier', $data, $return);
     }

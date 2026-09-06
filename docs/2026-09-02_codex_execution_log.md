@@ -6326,3 +6326,33 @@
 - Risiko sisa/batch berikutnya: perlu UAT browser untuk item 561 dan satu
   receipt historis tanpa ledger; pembetulan angka/data receipt yang salah tetap
   tidak dilakukan otomatis.
+
+## Batch 183 — Registry aktivitas akses dan transaksi
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A1/A5 / `AUD-A1-ACT-01`. Sebelumnya aplikasi hanya memiliki log
+  login dan audit transaksi parsial tanpa satu halaman yang menjawab siapa,
+  kapan, dari IP/perangkat apa, membuka halaman mana, atau mengubah data apa.
+- Perubahan utama: halaman **System → Log Aktivitas** menggabungkan login,
+  akses halaman, dan transaksi audit yang ada. Akses halaman HTML yang sudah
+  lolos login/permission direkam mulai fitur aktif. Pencatatan tidak menyimpan
+  query URL, body request, password, token, atau payload before/after. Untuk
+  transaksi, perangkat hanya ditampilkan bila ada sesi login cocok pada user,
+  waktu, dan IP yang sama.
+- Hak akses: page/menu baru `system.activity_audit.index`, hanya SUPERADMIN
+  secara default; admin dapat memberi hak view melalui matrix role bila perlu.
+- SQL/runtime: migration managed `2026-09-06e_activity_audit_foundation`
+  membuat `aud_access_event`, indeks, FK, page, sidebar, dan grant. Baseline
+  clean-install, catalog, restore/rollback, health contract, dan policy count
+  ikut diperbarui; tidak ada payload atau data transaksi yang dimigrasikan.
+- Risiko sisa/batch berikutnya: page view sebelum migration tidak dapat
+  direkonstruksi. Perlu apply staging, akses beberapa halaman sebagai user
+  SUPERADMIN, lalu verifikasi menu, RBAC, event baru, serta korelasi transaksi.
+- Validasi akhir: PHP lint semua file PHP baru/berubah, migration catalog
+  validate, smoke registry 12/12, clean-install baseline 18/18, catalog 38/38,
+  legacy guard 19/19, dan quality gate `parallel` lulus (required 74/74,
+  development 4/4, release 1/1, preflight 1/1). Apply staging tidak dijalankan
+  karena proses CLI tidak memiliki pasangan credential option-file dan
+  database-name privat (`STAGING_BLOCKED_ENV`); probe DB read-only juga tidak
+  dapat tersambung. Tidak ada credential, konfigurasi database, atau data
+  runtime yang diubah untuk memaksa proses tersebut.
