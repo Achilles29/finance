@@ -4,14 +4,16 @@
 
 **Pembaruan menyeluruh:** 2026-09-01
 
-**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 174 memensiunkan
-seluruh writer Formula Component per-baris (jalur Master legacy dan endpoint
-Production lama). Semua perubahan formula kini melalui editor bulk kanonis,
-yang memiliki revision lock, audit atomik, serta riwayat versi append-only.
-Bookmark lama tetap dialihkan dengan aman; endpoint API lama memberi respons
-`410 Gone` tanpa mutasi. Pemulihan versi masih backlog terarah. Batch 173
-menambahkan snapshot baseline lama dan snapshot penggantian baru yang ditulis
-atomik bersama perubahan formula; migrasi sudah applied dan replay di staging.
+**Pembaruan status eksekusi:** 2026-09-06, setelah Batch 175 menambahkan
+pemulihan versi Formula Component yang dilindungi reauth proof satu-kali,
+revision lock, riwayat `RESTORE`, dan audit before/after atomik. Batch 174
+memensiunkan seluruh writer Formula Component per-baris (jalur Master legacy
+dan endpoint Production lama). Semua perubahan formula kini melalui editor
+bulk kanonis atau restore versi terotorisasi; bookmark lama tetap dialihkan
+dengan aman dan endpoint API lama memberi respons `410 Gone` tanpa mutasi.
+Batch 173 menambahkan snapshot baseline lama dan snapshot penggantian baru
+yang ditulis atomik bersama perubahan formula; migrasi sudah applied dan
+replay di staging.
 Batch 172
 menutup writer Bundle Produk dengan snapshot revision, lock header/line, dan
 audit atomik untuk tambah, ganti isi, serta ubah status. Batch 171 menambahkan audit
@@ -120,7 +122,7 @@ ditunda. Fase hanya `DONE` bila seluruh child wajibnya `DONE`. `CODE_PASS` atau
 | ID | Sumber | Prioritas/fase | Masalah | Solusi/acceptance | Implementasi | Validasi | Release/data | Bukti atau langkah berikutnya |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `AUD-A1-SEC-01` | P0-01 | P0 / A1 | Endpoint Master belum seluruhnya deny-by-default. | Semua writer/read sensitif memakai permission aksi, scope, method, CSRF, dan negative test. | `CODE_PASS` | `STAGING_PASS` | `BLOCKED` | Batch 82, 84A–C, 91–92, 148–149: 12 endpoint/36 entity terkunci; page Component kanonis dan 35 page unik aktif terbukti; enam writer memakai audit before/after atomik dan redaksi credential. Negative role UAT masih terbuka. |
-| `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 54–68 memberi guard dasar; Batch 168–172 menutup snapshot konflik, lock, dan audit writer prioritas. Batch 173 menambah riwayat Formula Component append-only: formula lama pertama disimpan sebagai `BASELINE`, setiap simpan baru sebagai `REPLACE`, dan detail menampilkan timeline. Batch 174 mengalihkan semua jalur Master legacy ke editor kanonis dan memensiunkan endpoint Production per-baris dengan `410` tanpa DML; writer aktif hanya `save-bulk`. Restore versi berotorisasi dan UAT dua-tab tetap terbuka. |
+| `AUD-A1-SEC-02` | P0-02 | P0 / A1 | Writer resep, formula, extra, dan bundle belum seragam. | Seluruh writer mempunyai RBAC aksi, CSRF/POST, concurrency, audit, dan formula versioning. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 54–68 memberi guard dasar; Batch 168–172 menutup snapshot konflik, lock, dan audit writer prioritas. Batch 173 menambah riwayat Formula Component append-only; Batch 174 mengalihkan jalur Master legacy dan memensiunkan endpoint Production per-baris dengan `410` tanpa DML. Batch 175 menambah restore terotorisasi: proof reauth terikat versi, revision lock, snapshot `RESTORE`, dan audit before/after atomik. UAT dua-tab/restore serta kontrak reauth APK tetap terbuka. |
 | `AUD-A1-POS-01` | P0-03 | P0 / A1 | Surface POS Mobile/APK belum seluruhnya terikat terminal/outlet. | Semua endpoint memakai bearer context otoritatif, izin aksi, step-up, dan UAT perangkat. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 73–81, 89a–f, 93, 105–107, 150: token kini memvalidasi ulang role/scope serta membawa konteks division/outlet/terminal. Batch 156 menutup step-up untuk Void/Refund **web saja**; kontrak step-up dan UAT APK masih terbuka. |
 | `AUD-A1-RBAC-01` | P0-04 | P0 / A1 | Multi-role dan scope operasional terlalu luas. | Baseline role, precedence multi-role, outlet/division scope, dan negative matrix nyata lulus. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 6/7/150: union izin dan scope fail-closed lulus. Batch 151: simulator role/user/scope dan report selisih izin tersedia; 22 akun staging cocok dengan resolver aktif. Isi baseline hak per jabatan menunggu owner; UAT tetap terbuka. |
 | `AUD-A1-RBAC-02` | P0-05 | P0 / A1 | Penghapusan role dahulu memakai kolom relasi salah. | Relasi benar, transaksi aman, dan regression test lulus. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 2A. |
@@ -189,11 +191,12 @@ tidak otomatis dijalankan.
 | `2026-09-05d_a5_clean_install_reference_seed.sql` | Managed clean-install seed | `STAGING_PASS_DISPOSABLE` | Runner memasang seed sebelum Telegram; hasil exact 20 group, 206 page, 241 menu, 10 alias, 1 SUPERADMIN, dan 206 permission. | `FRESH_INSTALL_ONLY` | Jangan dijalankan pada staging/server utama yang sudah berisi data; migration runner otomatis mengecualikannya dari policy upgrade. |
 | `2026-09-05e_whatsapp_safe_reference_seed.sql` | Managed repeat-safe seed | `STAGING_PASS` | Backup privat valid; runner applied 1/skipped 4 lalu replay applied 0/skipped 5; template, session, ledger, dan checksum exact. | `PENDING_OWNER` | Jalankan melalui migration runner policy `upgrade`; jangan menjalankan pengganti legacy secara manual di luar runner. |
 | `2026-09-06a_component_formula_version_history.sql` | Managed schema migration | `STAGING_PASS` | Runner staging applied 1/skipped 5 lalu replay applied 0/skipped 6. Menambah header dan line snapshot formula append-only; tidak mengubah stok, HPP, atau formula transaksi lama. | `PENDING_OWNER` | Jalankan hanya melalui migration runner policy `upgrade`; jangan menjalankan manual atau mengisi history dengan repair data. |
-| `baseline/2026-09-05_clean_install_schema.sql` | Clean-install schema-only | `STAGING_PASS` | 284 tabel dan checksum terkunci; catalog clean-install berisi tujuh migration termasuk formula history. | `NOT_FOR_UPGRADE` | Hanya titik awal database customer baru, dilanjutkan migration runner policy clean_install. |
+| `2026-09-06b_component_formula_restore_action.sql` | Managed schema migration | `STAGING_PASS` | Runner staging applied 1/skipped 6 lalu replay applied 0/skipped 7. Hanya memperluas enum riwayat formula dengan `RESTORE`; tidak mengubah stok, HPP, atau baris formula aktif. | `PENDING_OWNER` | Jalankan hanya melalui migration runner policy `upgrade`, setelah `2026-09-06a`; jangan menjalankan file manual. |
+| `baseline/2026-09-05_clean_install_schema.sql` | Clean-install schema-only | `STAGING_PASS` | 284 tabel dan checksum terkunci; catalog clean-install berisi delapan migration termasuk history dan restore Formula Component. | `NOT_FOR_UPGRADE` | Hanya titik awal database customer baru, dilanjutkan migration runner policy clean_install. |
 
-Migration runner kini mengelola tujuh file: `2026-09-04c`, clean-install-only
+Migration runner kini mengelola delapan file: `2026-09-04c`, clean-install-only
 `2026-09-05d`, repeat-safe `2026-09-05e`, `2026-09-05a`–`2026-09-05c`, dan
-`2026-09-06a` formula history.
+`2026-09-06a`–`2026-09-06b` Formula Component history/restore.
 Tujuh file lain tetap legacy/non-deployable, tetapi disposition-nya sudah final
 dan dijaga otomatis: 1 baseline, 4 enroll via fingerprint, 1 replace, dan
 1 retire. Jangan menjalankan seluruh folder `sql/` sekaligus.
@@ -1753,8 +1756,8 @@ browser serta APK/device/printer fisik.
 
 - `[~]` Schema version registry, katalog checksum, dan migration runner
   deterministik sudah dimulai. Mode DB-free `validate`/`plan`, executor dengan
-  lock/state/timeout, serta contract lulus. Enam migration dikelola; policy
-  upgrade menjalankan lima dan mengecualikan seed navigasi clean-install.
+  lock/state/timeout, serta contract lulus. Delapan migration dikelola; policy
+  upgrade menjalankan tujuh dan mengecualikan seed navigasi clean-install.
   Tujuh SQL lama tetap non-deployable dan disposition finalnya 1 baseline,
   4 enroll berbasis fingerprint exact, 1 replace, serta 1 retire. Replay file
   lama dan adopsi ledger palsu ditolak. Source pre-catalog tetap memerlukan
@@ -1790,9 +1793,10 @@ setelah gerbang ini lulus, pekerjaan paket/lisensi dilanjutkan di `_28`.
 
 1. Tutup `GAP-01`: credential produksi, rotasi secret, recovery Git, dan
    pemisahan runtime data customer tanpa melonggarkan preflight fail-closed.
-2. Lanjutkan `AUD-A1-SEC-02` secara kecil: rancang restore versi Formula
-   Component dengan reauth/audit, preview snapshot, dan kontrak reauth APK
-   terpisah tanpa memakai password dalam writer.
+2. Jalankan UAT `AUD-A1-SEC-02` secara kecil: dua tab mengubah formula,
+   restore versi lama, proof sekali pakai/replay, role view-only, dan rollback
+   kegagalan audit. Kontrak reauth APK tetap terpisah dan tidak memakai
+   password dalam writer.
 3. Uji command inbound `/menu`, `/omzet`, dan `/belanja` dari grup Namua;
    sebelum grup tidak tepercaya dipakai, tambahkan allowlist identitas pengirim.
 4. Jalankan A3.2 rollout UI melalui `AUD-A3-UI-01`–`09` per rumpun; jangan

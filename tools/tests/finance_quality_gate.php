@@ -37,6 +37,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'a1-product-recipe-revision-audit', 'file' => 'master_relation_product_recipe_revision_audit_smoke.php'],
             ['id' => 'a1-component-formula-revision-audit', 'file' => 'production_component_formula_revision_audit_smoke.php'],
             ['id' => 'a1-component-formula-version-history', 'file' => 'component_formula_version_history_smoke.php'],
+            ['id' => 'a1-component-formula-restore', 'file' => 'component_formula_restore_smoke.php'],
             ['id' => 'a1-product-bundle-revision-audit', 'file' => 'master_relation_product_bundle_revision_audit_smoke.php'],
             ['id' => 'a2-matrix', 'file' => 'a2_inventory_transaction_matrix_smoke.php'],
             ['id' => 'a3-finance-ui-shell', 'file' => 'a3_finance_ui_shell_smoke.php'],

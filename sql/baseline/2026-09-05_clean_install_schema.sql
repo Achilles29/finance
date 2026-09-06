@@ -3693,7 +3693,7 @@ CREATE TABLE `mst_component_formula_version` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `component_id` bigint(20) unsigned NOT NULL,
   `version_no` int(10) unsigned NOT NULL,
-  `change_action` enum('BASELINE','REPLACE') NOT NULL,
+  `change_action` enum('BASELINE','REPLACE','RESTORE') NOT NULL,
   `formula_revision` char(64) NOT NULL,
   `line_count` int(10) unsigned NOT NULL DEFAULT 0,
   `actor_user_id` bigint(20) unsigned DEFAULT NULL,

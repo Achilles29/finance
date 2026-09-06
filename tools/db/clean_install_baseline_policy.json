@@ -4,7 +4,7 @@
   "cutoff": "2026-09-06",
   "schema": {
     "path": "sql/baseline/2026-09-05_clean_install_schema.sql",
-    "sha256": "6d76a06e59a5e42d96146e5a783fe52bd1b46e4ce38377f1dab8a3adb3e85c40",
+    "sha256": "d2a8699080efe6e17e0b6bb7b8e0d775881f5c0d6922704367cfcede8fbdc295",
     "table_count": 284,
     "required_tables": [
       "auth_user",
@@ -94,6 +94,7 @@
     "2026-09-05a-telegram-bot-foundation",
     "2026-09-05b-telegram-setup-guide",
     "2026-09-05c-telegram-safe-activation-default",
-    "2026-09-06a-component-formula-version-history"
+    "2026-09-06a-component-formula-version-history",
+    "2026-09-06b-component-formula-restore-action"
   ]
 }

@@ -154,7 +154,7 @@ $expectedSqlPaths = array_map(static function (string $path): string {
     return basename($path);
 }, $sqlFiles);
 sort($expectedSqlPaths, SORT_STRING);
-$check(count($expectedSqlPaths) === 14, 'workspace must contain exactly 14 top-level sql/*.sql files');
+$check(count($expectedSqlPaths) === 15, 'workspace must contain exactly 15 top-level sql/*.sql files');
 
 $registerTable = [];
 $registerHeading = '';
@@ -203,7 +203,7 @@ sort($registeredSqlPaths, SORT_STRING);
 $check($duplicateSqlPaths === [], 'SQL register has duplicate filenames: ' . implode(', ', $duplicateSqlPaths));
 $check(
     $registeredSqlPaths === $expectedSqlPaths,
-    'SQL register must match all 13 current top-level sql/*.sql filenames exactly'
+    'SQL register must match all current top-level sql/*.sql filenames exactly'
 );
 
 $check(

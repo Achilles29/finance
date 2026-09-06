@@ -45,7 +45,7 @@ $check(strpos($migration, 'original_line_id') !== false && strpos($migration, 'F
 $check(substr_count($baseline, 'CREATE TABLE ' . $quoted . 'mst_component_formula_version' . $quoted) === 1 && substr_count($baseline, 'CREATE TABLE ' . $quoted . 'mst_component_formula_version_line' . $quoted) === 1, 'clean-install baseline contains both formula history tables exactly once');
 
 $versionWriter = $block($model, 'write_component_formula_version');
-$check(strpos($versionWriter, "'BASELINE'") !== false && strpos($versionWriter, "'REPLACE'") !== false, 'version writer accepts only baseline and replacement snapshots');
+$check(strpos($versionWriter, "'BASELINE'") !== false && strpos($versionWriter, "'REPLACE'") !== false && strpos($versionWriter, "'RESTORE'") !== false, 'version writer accepts baseline, replacement, and restore snapshots');
 $check(strpos($versionWriter, "insert('mst_component_formula_version'") !== false && strpos($versionWriter, "insert('mst_component_formula_version_line'") !== false, 'version writer persists header and immutable line snapshots');
 $baselineWriter = $block($model, 'ensure_component_formula_baseline_version');
 $check(strpos($baselineWriter, '$beforeRows === []') !== false && strpos($baselineWriter, "'BASELINE'") !== false, 'first change preserves a non-empty pre-existing formula as baseline');
@@ -53,7 +53,7 @@ $versionsReader = $block($model, 'component_formula_versions');
 $check(strpos($versionsReader, "order_by('v.version_no', 'DESC')") !== false && strpos($versionsReader, 'auth_user u') !== false, 'timeline reads newest versions with accountable actor where available');
 $show = $block($controller, 'component_formula_show');
 $check(strpos($show, "'versions' => " . '$this->Production_model->component_formula_versions') !== false, 'formula detail controller supplies history to the view');
-$check(strpos($detailView, 'Riwayat versi formula') !== false && strpos($detailView, 'pemulihan versi lama belum') !== false, 'detail UI distinguishes read-only history from a restore action');
+$check(strpos($detailView, 'Riwayat versi formula') !== false && strpos($detailView, 'Pulihkan versi formula') !== false, 'detail UI exposes an explicit, protected restore action');
 
 $entry = null;
 foreach (($catalog['migrations'] ?? []) as $candidate) {

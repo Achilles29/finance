@@ -6099,3 +6099,45 @@
   reauth APK/MFA, baseline role nyata, dan UAT perangkat tetap terbuka.
 - Batch berikutnya: desain dan implementasikan restore versi Formula dengan
   reauth one-use, preview before/after, lock/revision, dan audit atomik.
+
+## Batch 175 — Restore versi Formula Component terotorisasi
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 09:19 WIB.
+- Prioritas: P0 / `AUD-A1-SEC-02`. History append-only dan writer kanonis
+  sudah ada, tetapi operator belum mempunyai jalur terkendali untuk kembali ke
+  versi formula lama tanpa menyalin resep secara manual.
+- Diskusi/arah: fixer tunggal. Restore harus satu transaksi, menolak tab lama,
+  memakai password hanya untuk menerbitkan proof sekali pakai yang terikat ID
+  versi, dan tidak menyentuh POS Mobile/APK, stok, HPP, atau data mismatch.
+- File berubah:
+  - `Production` controller/model, `SensitiveActionStepUp`, routes, dan detail
+    Formula Component.
+  - Migration `2026-09-06b_component_formula_restore_action.sql`, baseline,
+    katalog, policy, drill, health/rollback contract, serta smoke restore.
+  - Roadmap `_30`, `_28`, dan log ini.
+- Perubahan utama:
+  - Timeline formula menampilkan tombol Pulihkan hanya untuk user berizin edit.
+    Modal meminta password; browser langsung menghapusnya lalu mengirim hanya
+    proof satu-kali ke writer restore.
+  - Writer mengunci component dan formula aktif, memeriksa revision browser,
+    memastikan versi milik component yang sama dan lengkap, lalu mengganti
+    formula dalam transaksi. Snapshot hasil diberi `RESTORE` dan audit
+    `RESTORE_COMPONENT_FORMULA` menyimpan before/after serta ID versi asal.
+- SQL/runtime:
+  - Staging: migration runner upgrade applied 1/skipped 6; replay applied 0/
+    skipped 7. Migration hanya memperluas enum action riwayat formula dengan
+    `RESTORE`; tidak mengubah stok, HPP, atau formula aktif.
+  - Server utama: `PENDING_OWNER`; jalankan via migration runner managed,
+    bukan file SQL manual.
+- Validasi:
+  - PHP lint, `git diff --check`, smoke restore 21 check, A1 direct URL,
+    A4 cross-module, formula revision/history, serta kontrak katalog,
+    fingerprint, legacy upgrade, restore/rollback, health, dan Telegram lulus.
+  - Quality gate `parallel` lulus: required 70/70, development 4/4, release
+    1/1, dan preflight 1/1. Runtime/security/static serta UAT browser/perangkat
+    tetap dijalankan melalui gate dan lingkungan yang sesuai.
+- Review akhir fixer tunggal: restore aman untuk UAT staging. Risiko sisa:
+  UAT browser dua-tab/restore nyata, kontrak reauth APK, MFA, baseline role
+  nyata, dan UAT perangkat masih terbuka.
+- Batch berikutnya: jalankan matriks UAT Formula Component dan pilih hardening
+  A1 berikutnya berdasarkan hasilnya.

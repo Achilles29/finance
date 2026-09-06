@@ -445,6 +445,8 @@ $route['production/component-formulas/edit/(:num)'] = 'production/component_form
 $route['production/component-formulas/save'] = 'production/component_formula_save';
 $route['production/component-formulas/save-bulk'] = 'production/component_formula_save_bulk';
 $route['production/component-formulas/delete/(:num)'] = 'production/component_formula_delete/$1';
+$route['production/component-formulas/restore-step-up/verify'] = 'production/component_formula_restore_step_up_verify';
+$route['production/component-formulas/restore'] = 'production/component_formula_restore';
 $route['production/component-cost-variables'] = 'production/component_cost_variables';
 $route['production/component-cost-variables/save'] = 'production/component_cost_variable_save';
 

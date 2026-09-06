@@ -1705,10 +1705,14 @@ class Production extends MY_Controller
             show_error((string)($detail['message'] ?? 'Formula tidak ditemukan.'), 404, 'Not Found');
             return;
         }
+        $canRestore = $this->can('production.component.formula.index', 'edit');
         $this->render('production/component_formula_detail', [
             'page_title' => 'Detail Formula Component',
             'detail' => $detail,
             'versions' => $this->Production_model->component_formula_versions($componentId),
+            'can_restore' => $canRestore,
+            'production_component_formula_mutation_csrf' => $canRestore ? $this->component_formula_mutation_csrf() : '',
+            'component_formula_revision' => $this->Production_model->component_formula_revision($componentId),
         ]);
     }
 
@@ -1799,6 +1803,82 @@ class Production extends MY_Controller
             return;
         }
         $this->json_ok(['component_id' => $componentId]);
+    }
+
+    /** Issues a one-use proof for one exact immutable formula version. */
+    public function component_formula_restore_step_up_verify()
+    {
+        $this->require_permission('production.component.formula.index', 'edit');
+        if (!$this->require_component_formula_mutation_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $componentId = (int)($payload['component_id'] ?? 0);
+        $versionId = (int)($payload['formula_version_id'] ?? 0);
+        if ($componentId <= 0 || $versionId <= 0) {
+            $this->json_error('Component atau versi formula tidak valid.', 422);
+            return;
+        }
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_FORMULA_RESTORE',
+            $versionId,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
+    }
+
+    /** Restores a historical snapshot only after a version-bound one-use proof. */
+    public function component_formula_restore()
+    {
+        $this->require_permission('production.component.formula.index', 'edit');
+        if (!$this->require_component_formula_mutation_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $componentId = (int)($payload['component_id'] ?? 0);
+        $versionId = (int)($payload['formula_version_id'] ?? 0);
+        $expectedRevision = (string)($payload[self::COMPONENT_FORMULA_REVISION_FIELD] ?? '');
+        if ($componentId <= 0 || $versionId <= 0 || preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            $this->json_error('Data pemulihan formula tidak valid. Muat ulang halaman sebelum mencoba lagi.', 422);
+            return;
+        }
+        if (!$this->consume_component_formula_restore_step_up($versionId, $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
+        $this->release_session_lock();
+        $sourceIp = method_exists($this->input, 'ip_address')
+            ? trim((string)$this->input->ip_address())
+            : '';
+        $result = $this->Production_model->restore_component_formula_version(
+            $componentId,
+            $versionId,
+            $expectedRevision,
+            [
+                'actor_user_id' => !empty($this->current_user['id']) ? (int)$this->current_user['id'] : null,
+                'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
+            ]
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error(
+                (string)($result['message'] ?? 'Pemulihan formula gagal.'),
+                (int)($result['status'] ?? 422)
+            );
+            return;
+        }
+        $this->json_ok([
+            'component_id' => $componentId,
+            'restored_version_id' => $versionId,
+        ]);
     }
 
     public function component_formula_delete($id)
@@ -3714,6 +3794,22 @@ class Production extends MY_Controller
             max(0, (int)($this->current_user['id'] ?? 0)),
             'COMPONENT_ADJUSTMENT_VOID',
             $adjustmentId,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang diperlukan.'), (int)($result['status'] ?? 428), ['step_up_required' => true]);
+            return false;
+        }
+        return true;
+    }
+
+    private function consume_component_formula_restore_step_up(int $versionId, array $payload): bool
+    {
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            max(0, (int)($this->current_user['id'] ?? 0)),
+            'COMPONENT_FORMULA_RESTORE',
+            $versionId,
             $payload['step_up_proof'] ?? null
         );
         if (!($result['ok'] ?? false)) {

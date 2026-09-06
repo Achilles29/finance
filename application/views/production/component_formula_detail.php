@@ -4,6 +4,10 @@ $component = is_array($detail['component'] ?? null) ? $detail['component'] : [];
 $summary = is_array($detail['summary'] ?? null) ? $detail['summary'] : [];
 $lines = is_array($detail['lines'] ?? null) ? $detail['lines'] : [];
 $versions = is_array($versions ?? null) ? $versions : [];
+$canRestore = !empty($can_restore);
+$formulaMutationCsrf = trim((string)($production_component_formula_mutation_csrf ?? ''));
+$currentFormulaRevision = trim((string)($component_formula_revision ?? ''));
+$componentId = (int)($component['id'] ?? 0);
 
 $directStd = (float)($summary['direct_cost_standard'] ?? 0);
 $directLive = (float)($summary['direct_cost_live'] ?? 0);
@@ -149,19 +153,39 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
                 <th>Baris</th>
                 <th>Diubah oleh</th>
                 <th>Waktu</th>
+                <?php if ($canRestore): ?><th class="text-end">Aksi</th><?php endif; ?>
               </tr>
             </thead>
             <tbody>
               <?php foreach ($versions as $version): ?>
+                <?php $isCurrentSnapshot = hash_equals($currentFormulaRevision, (string)($version['formula_revision'] ?? '')); ?>
                 <tr>
                   <td class="fw-semibold">v<?php echo (int)($version['version_no'] ?? 0); ?></td>
                   <td>
-                    <?php $isBaseline = (string)($version['change_action'] ?? '') === 'BASELINE'; ?>
-                    <span class="badge <?php echo $isBaseline ? 'bg-secondary' : 'bg-primary'; ?>"><?php echo $isBaseline ? 'Baseline awal' : 'Perubahan formula'; ?></span>
+                    <?php
+                      $versionAction = (string)($version['change_action'] ?? '');
+                      $isBaseline = $versionAction === 'BASELINE';
+                      $isRestore = $versionAction === 'RESTORE';
+                    ?>
+                    <span class="badge <?php echo $isBaseline ? 'bg-secondary' : ($isRestore ? 'bg-warning text-dark' : 'bg-primary'); ?>"><?php echo $isBaseline ? 'Baseline awal' : ($isRestore ? 'Pemulihan versi' : 'Perubahan formula'); ?></span>
                   </td>
                   <td><?php echo (int)($version['line_count'] ?? 0); ?> baris</td>
                   <td><?php echo html_escape((string)($version['actor_username'] ?? 'Sistem / histori lama')); ?></td>
                   <td><?php echo html_escape((string)($version['created_at'] ?? '-')); ?></td>
+                  <?php if ($canRestore): ?>
+                    <td class="text-end">
+                      <?php if ($isCurrentSnapshot): ?>
+                        <span class="badge bg-success">Versi aktif</span>
+                      <?php else: ?>
+                        <button
+                          type="button"
+                          class="btn btn-outline-warning btn-sm js-component-formula-restore"
+                          data-version-id="<?php echo (int)($version['id'] ?? 0); ?>"
+                          data-version-no="<?php echo (int)($version['version_no'] ?? 0); ?>"
+                        >Pulihkan</button>
+                      <?php endif; ?>
+                    </td>
+                  <?php endif; ?>
                 </tr>
               <?php endforeach; ?>
             </tbody>
@@ -171,3 +195,103 @@ $totalLive = (float)($summary['total_cogs_live'] ?? 0);
     </div>
   </div>
 </div>
+
+<?php if ($canRestore && $componentId > 0 && $formulaMutationCsrf !== '' && $currentFormulaRevision !== ''): ?>
+  <div class="modal fade" id="componentFormulaRestoreModal" tabindex="-1" aria-labelledby="componentFormulaRestoreModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="componentFormulaRestoreModalLabel">Pulihkan versi formula</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-2">Anda akan mengganti formula aktif dengan <strong id="componentFormulaRestoreVersionLabel">versi pilihan</strong>.</p>
+          <p class="small text-danger">Tindakan ini membuat riwayat dan audit baru. Formula aktif terbaru tidak dihapus dari riwayat.</p>
+          <label class="form-label" for="componentFormulaRestorePassword">Konfirmasi password Anda</label>
+          <input type="password" class="form-control" id="componentFormulaRestorePassword" autocomplete="current-password" maxlength="72">
+          <div class="invalid-feedback" id="componentFormulaRestoreError"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button>
+          <button type="button" class="btn btn-warning" id="componentFormulaRestoreSubmit">Pulihkan versi</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (() => {
+    const componentId = <?php echo $componentId; ?>;
+    const currentRevision = <?php echo json_encode($currentFormulaRevision, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+    const csrfToken = <?php echo json_encode($formulaMutationCsrf, JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+    const verifyUrl = <?php echo json_encode(site_url('production/component-formulas/restore-step-up/verify'), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+    const restoreUrl = <?php echo json_encode(site_url('production/component-formulas/restore'), JSON_INVALID_UTF8_SUBSTITUTE); ?>;
+    const modalElement = document.getElementById('componentFormulaRestoreModal');
+    const passwordInput = document.getElementById('componentFormulaRestorePassword');
+    const errorElement = document.getElementById('componentFormulaRestoreError');
+    const submitButton = document.getElementById('componentFormulaRestoreSubmit');
+    const versionLabel = document.getElementById('componentFormulaRestoreVersionLabel');
+    let versionId = 0;
+    const modal = window.bootstrap && modalElement ? new window.bootstrap.Modal(modalElement) : null;
+
+    const showError = (message) => {
+      errorElement.textContent = String(message || 'Permintaan tidak dapat diproses.');
+      passwordInput.classList.add('is-invalid');
+    };
+    const postJson = async (url, payload) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-Production-Component-Formula-Csrf': csrfToken
+        },
+        body: JSON.stringify(payload)
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.ok) throw new Error(body.message || 'Permintaan tidak dapat diproses.');
+      return body;
+    };
+
+    document.querySelectorAll('.js-component-formula-restore').forEach((button) => {
+      button.addEventListener('click', () => {
+        versionId = Number(button.dataset.versionId || 0);
+        versionLabel.textContent = 'versi v' + String(button.dataset.versionNo || '-');
+        passwordInput.value = '';
+        passwordInput.classList.remove('is-invalid');
+        errorElement.textContent = '';
+        if (modal) modal.show();
+      });
+    });
+    submitButton.addEventListener('click', async () => {
+      const password = String(passwordInput.value || '');
+      if (!Number.isInteger(versionId) || versionId <= 0 || password === '') {
+        showError('Password dan versi formula wajib dipilih.');
+        return;
+      }
+      submitButton.disabled = true;
+      try {
+        const verification = await postJson(verifyUrl, {
+          component_id: componentId,
+          formula_version_id: versionId,
+          password: password
+        });
+        passwordInput.value = '';
+        await postJson(restoreUrl, {
+          component_id: componentId,
+          formula_version_id: versionId,
+          component_formula_revision: currentRevision,
+          step_up_proof: verification.step_up_proof
+        });
+        window.location.reload();
+      } catch (error) {
+        passwordInput.value = '';
+        showError(error && error.message ? error.message : 'Pemulihan formula gagal.');
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+  })();
+  </script>
+<?php endif; ?>

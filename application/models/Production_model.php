@@ -8218,6 +8218,80 @@ class Production_model extends CI_Model
     }
 
     /**
+     * Replaces the live formula with one immutable historical snapshot. The
+     * caller supplies a current revision so a stale browser can never restore
+     * over a newer formula unseen by that operator.
+     */
+    public function restore_component_formula_version(
+        int $componentId,
+        int $versionId,
+        string $expectedRevision,
+        array $auditContext = []
+    ): array {
+        if ($componentId <= 0 || $versionId <= 0) {
+            return ['ok' => false, 'status' => 422, 'message' => 'Component atau versi formula tidak valid.'];
+        }
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            return ['ok' => false, 'status' => 422, 'message' => 'Snapshot formula tidak valid. Muat ulang halaman sebelum memulihkan.'];
+        }
+        if (!$this->component_formula_audit_ready() || !$this->component_formula_versioning_ready()) {
+            return [
+                'ok' => false,
+                'status' => 503,
+                'message' => 'Pencatatan audit dan riwayat versi formula belum siap. Pemulihan tidak dijalankan.',
+            ];
+        }
+        if ($this->db->trans_begin() === false) {
+            return ['ok' => false, 'status' => 503, 'message' => 'Transaksi pemulihan formula tidak dapat dimulai.'];
+        }
+        if (!$this->lock_component_formula_parent($componentId)) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'status' => 409, 'message' => 'Formula component tidak dapat dikunci. Muat ulang halaman.'];
+        }
+        $beforeRows = $this->component_formula_revision_rows($componentId, true);
+        if ($beforeRows === null) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'status' => 503, 'message' => 'Snapshot formula aktif tidak dapat dikunci.'];
+        }
+        if (!hash_equals($this->canonical_component_formula_revision($beforeRows), $expectedRevision)) {
+            $this->db->trans_rollback();
+            return [
+                'ok' => false,
+                'status' => 409,
+                'message' => 'Formula telah berubah oleh pengguna lain. Muat ulang halaman sebelum memulihkan versi.',
+            ];
+        }
+        $targetRows = $this->component_formula_version_rows($componentId, $versionId, true);
+        if ($targetRows === null) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'status' => 404, 'message' => 'Versi formula yang dipilih tidak ditemukan atau tidak lengkap.'];
+        }
+        $restoreRows = $this->component_formula_restore_rows($componentId, $targetRows);
+        if ($restoreRows === null) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'status' => 422, 'message' => 'Snapshot versi formula tidak valid untuk dipulihkan.'];
+        }
+        $this->db->where('component_id', $componentId)->delete('mst_component_formula');
+        foreach ($restoreRows as $row) {
+            if (!$this->db->insert('mst_component_formula', $row)) {
+                $this->db->trans_rollback();
+                return ['ok' => false, 'status' => 422, 'message' => 'Baris formula versi lama tidak dapat dipulihkan.'];
+            }
+        }
+        $afterRows = $this->component_formula_revision_rows($componentId, true);
+        if ($afterRows === null
+            || !$this->write_component_formula_version($componentId, $afterRows, 'RESTORE', $auditContext)
+            || !$this->write_component_formula_restore_audit($componentId, $versionId, $beforeRows, $afterRows, $auditContext)
+            || $this->db->trans_status() === false
+            || $this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'status' => 422, 'message' => 'Pemulihan formula gagal dan seluruh perubahan dibatalkan.'];
+        }
+        unset($this->componentFormulaLinesCache[$componentId]);
+        return ['ok' => true];
+    }
+
+    /**
      * Read-only timeline for the canonical formula detail screen. Snapshot
      * lines remain immutable; restoring an old version is intentionally a
      * separate, explicitly authorised workflow.
@@ -8260,6 +8334,82 @@ class Production_model extends CI_Model
             [$componentId]
         );
         return $query === false ? null : $query->result_array();
+    }
+
+    /** Returns an immutable snapshot only when it belongs to this component. */
+    private function component_formula_version_rows(int $componentId, int $versionId, bool $forUpdate): ?array
+    {
+        $headerQuery = $this->db->query(
+            'SELECT id, line_count FROM mst_component_formula_version WHERE id = ? AND component_id = ?'
+            . ($forUpdate ? ' FOR UPDATE' : ''),
+            [$versionId, $componentId]
+        );
+        $header = $headerQuery === false ? null : $headerQuery->row_array();
+        if (!is_array($header)) {
+            return null;
+        }
+        $rowsQuery = $this->db->query(
+            'SELECT line_no, line_type, material_id, material_item_id, sub_component_id, source_division_id, uom_id, qty, notes, sort_order'
+            . ' FROM mst_component_formula_version_line WHERE formula_version_id = ? ORDER BY line_no ASC, id ASC'
+            . ($forUpdate ? ' FOR UPDATE' : ''),
+            [$versionId]
+        );
+        if ($rowsQuery === false) {
+            return null;
+        }
+        $rows = $rowsQuery->result_array();
+        return count($rows) === (int)($header['line_count'] ?? 0) ? $rows : null;
+    }
+
+    /** Converts a trusted immutable snapshot into live formula rows. */
+    private function component_formula_restore_rows(int $componentId, array $versionRows): ?array
+    {
+        $materialColumn = $this->formula_material_column();
+        $hasUom = $this->db->field_exists('uom_id', 'mst_component_formula');
+        $hasMaterialItem = $this->db->field_exists('material_item_id', 'mst_component_formula');
+        $hasSourceDivision = $this->db->field_exists('source_division_id', 'mst_component_formula');
+        $rows = [];
+        foreach ($versionRows as $index => $line) {
+            $lineType = strtoupper(trim((string)($line['line_type'] ?? '')));
+            $materialId = (int)($line['material_id'] ?? 0);
+            $subComponentId = (int)($line['sub_component_id'] ?? 0);
+            $qty = round((float)($line['qty'] ?? 0), 4);
+            if (!in_array($lineType, ['MATERIAL', 'COMPONENT'], true)
+                || $qty <= 0
+                || ($lineType === 'MATERIAL' && $materialId <= 0)
+                || ($lineType === 'COMPONENT' && $subComponentId <= 0)) {
+                return null;
+            }
+            $row = [
+                'component_id' => $componentId,
+                'line_no' => max(1, (int)($line['line_no'] ?? ($index + 1))),
+                'line_type' => $lineType,
+                $materialColumn => $lineType === 'MATERIAL' ? $materialId : null,
+                'sub_component_id' => $lineType === 'COMPONENT' ? $subComponentId : null,
+                'qty' => $qty,
+                'notes' => $this->nullable_string($line['notes'] ?? null),
+                'sort_order' => (int)($line['sort_order'] ?? $index),
+            ];
+            if ($hasUom) {
+                $uomId = (int)($line['uom_id'] ?? 0);
+                if ($uomId <= 0) {
+                    return null;
+                }
+                $row['uom_id'] = $uomId;
+            }
+            if ($hasMaterialItem) {
+                $row['material_item_id'] = $lineType === 'MATERIAL' && (int)($line['material_item_id'] ?? 0) > 0
+                    ? (int)$line['material_item_id']
+                    : null;
+            }
+            if ($hasSourceDivision) {
+                $row['source_division_id'] = (int)($line['source_division_id'] ?? 0) > 0
+                    ? (int)$line['source_division_id']
+                    : null;
+            }
+            $rows[] = $row;
+        }
+        return $rows;
     }
 
     private function canonical_component_formula_revision(array $rows): string
@@ -8336,7 +8486,7 @@ class Production_model extends CI_Model
 
     private function write_component_formula_version(int $componentId, array $rows, string $action, array $context): bool
     {
-        if (!in_array($action, ['BASELINE', 'REPLACE'], true)) {
+        if (!in_array($action, ['BASELINE', 'REPLACE', 'RESTORE'], true)) {
             return false;
         }
         $latest = $this->db
@@ -8428,6 +8578,37 @@ class Production_model extends CI_Model
             'before_payload' => $beforeJson,
             'after_payload' => $afterJson,
             'notes' => 'Replace component formula lines',
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    private function write_component_formula_restore_audit(
+        int $componentId,
+        int $restoredVersionId,
+        array $before,
+        array $after,
+        array $context
+    ): bool {
+        $beforeJson = json_encode($before, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        $afterJson = json_encode($after, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_string($beforeJson) || !is_string($afterJson)) {
+            return false;
+        }
+        $actorUserId = (int)($context['actor_user_id'] ?? 0);
+        $sourceIp = trim((string)($context['source_ip'] ?? ''));
+        return $this->db->insert('aud_transaction_log', [
+            'module_code' => 'PRODUCTION',
+            'action_code' => 'RESTORE_COMPONENT_FORMULA',
+            'entity_table' => 'mst_component_formula',
+            'entity_id' => $componentId,
+            'transaction_no' => null,
+            'ref_table' => 'mst_component_formula_version',
+            'ref_id' => $restoredVersionId,
+            'actor_user_id' => $actorUserId > 0 ? $actorUserId : null,
+            'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
+            'before_payload' => $beforeJson,
+            'after_payload' => $afterJson,
+            'notes' => 'Restore component formula from immutable version #' . $restoredVersionId,
             'created_at' => date('Y-m-d H:i:s'),
         ]);
     }

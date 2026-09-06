@@ -121,6 +121,20 @@
         "clean_install",
         "upgrade"
       ]
+    },
+    {
+      "id": "2026-09-06b-component-formula-restore-action",
+      "order": 2026090602,
+      "path": "sql/2026-09-06b_component_formula_restore_action.sql",
+      "sha256": "4ddd673e61e2e97b2f094d6fc9dbe16106c9bc5d0912393072355b63abd649d3",
+      "dependencies": [
+        "2026-09-06a-component-formula-version-history"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
     }
   ]
 }
