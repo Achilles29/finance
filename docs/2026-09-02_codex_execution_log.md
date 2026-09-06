@@ -5977,3 +5977,47 @@
 - Batch berikutnya: petakan writer Bundle sebagai batch A1 kecil berikutnya.
 - Penyerahan: commit lokal tanpa push setelah seluruh gate lulus; ringkasan
   dikirim ke Telegram Namua setelah commit.
+
+## Batch 172 — Revision dan audit writer Bundle Produk
+
+- Waktu/tanggal: 2026-09-06, validasi akhir 08:01 WIB.
+- Prioritas: P0 / `AUD-A1-SEC-02`. Tambah, ganti isi, dan ubah status Bundle
+  Produk sudah memakai RBAC/CSRF tetapi belum mempunyai snapshot konflik,
+  row lock, atau jejak audit atomik; editor lama dapat menimpa isi terbaru.
+- Diskusi/arah: fixer tunggal. Scope hanya writer Bundle di `Master_relation`,
+  editor Bundle web, dan smoke terkait. Tidak menyentuh POS Mobile/APK, aturan
+  harga bundle, POS transaksi, stok, HPP, data mismatch, SQL/schema, atau
+  matriks role.
+- File berubah:
+  - `application/controllers/Master_relation.php` dan
+    `application/views/master/product_bundle_edit.php`.
+  - `tools/tests/master_relation_product_bundle_mutation_csrf_smoke.php` dan
+    smoke baru `master_relation_product_bundle_revision_audit_smoke.php`.
+  - Manifest/kontrak quality gate, roadmap `_30`, `_28`, serta log ini.
+- Perubahan utama:
+  - Editor kirim hash revision dari header dan seluruh line Bundle saat
+    halaman dibuka. Simpan dari snapshot lama dibatalkan dengan pesan untuk
+    memuat ulang, sehingga tidak dapat menimpa perubahan operator lain.
+  - Ganti isi mengunci header dan line `FOR UPDATE`; tambah juga menulis lewat
+    transaksi audit. Audit gagal, lock gagal, atau commit gagal membatalkan
+    seluruh perubahan.
+  - Audit before/after atomik mencatat `CREATE_PRODUCT_BUNDLE`,
+    `REPLACE_PRODUCT_BUNDLE`, dan `TOGGLE_PRODUCT_BUNDLE`. Toggle status juga
+    mengunci header supaya dua request tidak saling membaca status lama.
+- SQL/runtime: **tidak ada SQL baru**, migration, query tulis staging,
+  perubahan data HPP/mismatch, credential, sidebar, atau kontrak POS
+  Mobile/APK.
+- Validasi:
+  - Lint seluruh PHP berubah, `git diff --check`, smoke CSRF Bundle (152
+    check), smoke revision/audit Bundle (13), serta quality-gate contract (27)
+    lulus sebelum full gate.
+  - Quality gate `parallel` lulus: required 68/68, development 4/4, release
+    1/1, dan preflight 1/1. Runtime/security/static serta UAT browser dua-tab
+    nyata tetap harus dibuktikan terpisah.
+- Review akhir fixer tunggal: layak untuk writer Bundle Produk. Formula
+  versioning, reauth APK, MFA, baseline role nyata, serta UAT perangkat tetap
+  terbuka.
+- Batch berikutnya: petakan formula versioning sebagai batch A1 kecil tanpa
+  mengubah kontrak POS Mobile/APK.
+- Penyerahan: commit lokal tanpa push setelah seluruh gate lulus; ringkasan
+  dikirim ke Telegram Namua setelah commit.

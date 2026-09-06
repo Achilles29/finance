@@ -159,6 +159,27 @@ final class MasterRelationBundleSmokeDb
         ]];
     }
 
+    public function query($sql, $bindings = [])
+    {
+        $this->calls[] = ['query', [(string)$sql, $bindings]];
+        $sql = (string)$sql;
+        if (strpos($sql, 'FROM pos_product_bundle_line') !== false) {
+            $line = [
+                'id' => 11,
+                'bundle_id' => 91,
+                'product_id' => 31,
+                'qty' => 2,
+                'unit_price_override' => null,
+                'sort_order' => 10,
+            ];
+            return new MasterRelationBundleSmokeResult($line, [$line]);
+        }
+        if (strpos($sql, 'FROM pos_product_bundle') !== false) {
+            return new MasterRelationBundleSmokeResult($this->bundleRows[0], $this->bundleRows);
+        }
+        return false;
+    }
+
     public function __call($name, $arguments)
     {
         $name = (string)$name;
@@ -171,12 +192,15 @@ final class MasterRelationBundleSmokeDb
             return true;
         }
         if ($name === 'field_exists') {
-            return false;
+            return (string)($arguments[1] ?? '') === 'aud_transaction_log';
         }
         if ($name === 'insert_id') {
             return 77;
         }
         if ($name === 'trans_status') {
+            return true;
+        }
+        if (in_array($name, ['insert', 'update', 'delete', 'trans_begin', 'trans_commit', 'trans_rollback'], true)) {
             return true;
         }
         if ($name === 'count_all_results') {
@@ -278,6 +302,10 @@ function show_404(): void
 }
 
 function redirect($uri = '', $method = 'auto', $code = null): void
+{
+}
+
+function log_message($level, $message): void
 {
 }
 
@@ -384,6 +412,7 @@ function mrpb_valid_post(): array
         'description' => 'Fixture',
         'sort_order' => '10',
         'is_active' => '1',
+        'product_bundle_revision' => mrpb_revision(),
         'lines_json' => json_encode([[
             'product_id' => 31,
             'qty' => 2,
@@ -391,6 +420,28 @@ function mrpb_valid_post(): array
             'sort_order' => 10,
         ]]),
     ];
+}
+
+function mrpb_revision(): string
+{
+    return hash('sha256', json_encode([
+        'id' => 91,
+        'bundle_code' => 'BND-FIXTURE',
+        'bundle_name' => 'Fixture Bundle',
+        'product_division_id' => 4,
+        'pos_scope' => 'REGULAR',
+        'selling_price' => '50000.00',
+        'description' => 'Fixture',
+        'sort_order' => 10,
+        'is_active' => 1,
+        'lines' => [[
+            'id' => 11,
+            'product_id' => 31,
+            'qty' => '2.0000',
+            'unit_price_override' => null,
+            'sort_order' => 10,
+        ]],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
 }
 
 function mrpb_has_db_call(MasterRelationBundleSmokeDb $db, string $method, ?string $table = null): bool
@@ -517,12 +568,14 @@ foreach ($writers as $writer => $action) {
 mrpb_check($storeResponse === null, 'valid store POST passes bundle guard');
 mrpb_check(mrpb_has_db_call($store->db, 'insert', 'pos_product_bundle'), 'valid store reaches bundle insert');
 mrpb_check(mrpb_has_db_call($store->db, 'insert', 'pos_product_bundle_line'), 'valid store reaches bundle-line insert');
+mrpb_check(mrpb_has_db_call($store->db, 'insert', 'aud_transaction_log'), 'valid store writes its audit record before commit');
 
 [$update, $updateResponse] = mrpb_invoke_writer('product_bundle_update', 'POST', mrpb_valid_post());
 mrpb_check($updateResponse === null, 'valid update POST passes bundle guard');
 mrpb_check(mrpb_has_db_call($update->db, 'update', 'pos_product_bundle'), 'valid update reaches bundle update');
 mrpb_check(mrpb_has_db_call($update->db, 'delete', 'pos_product_bundle_line'), 'valid update replaces prior bundle lines');
 mrpb_check(mrpb_has_db_call($update->db, 'insert', 'pos_product_bundle_line'), 'valid update writes normalized bundle lines');
+mrpb_check(mrpb_has_db_call($update->db, 'insert', 'aud_transaction_log'), 'valid update writes its replacement audit record before commit');
 
 [$toggle, $toggleResponse] = mrpb_invoke_writer('product_bundle_toggle', 'POST', [MRPB_FIELD => MRPB_TOKEN]);
 mrpb_check($toggleResponse === null, 'valid toggle POST passes bundle guard');
@@ -533,6 +586,7 @@ foreach ($toggle->db->calls as $call) {
     }
 }
 mrpb_check(is_array($toggleMutation) && ($toggleMutation['is_active'] ?? null) === 0, 'valid toggle reaches expected status mutation');
+mrpb_check(mrpb_has_db_call($toggle->db, 'insert', 'aud_transaction_log'), 'valid toggle writes its audit record before commit');
 
 $reflection = new ReflectionClass(Master_relation::class);
 $guard = $reflection->getMethod('requireProductBundleMutationCsrf');

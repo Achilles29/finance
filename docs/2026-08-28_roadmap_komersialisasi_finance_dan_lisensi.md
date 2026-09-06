@@ -61,6 +61,11 @@ tanpa mengganti prepared statement, lock, atau aturan divisi yang telah ada.
 Ini tetap fondasi teknis di `_30`; paket, lisensi, harga, dan status
 komersialisasi tidak berubah.
 
+Batch 172 menutup writer Bundle Produk: tab editor lama ditolak dengan snapshot
+revision, header/line dikunci saat transaksi, dan tambah/ganti isi/ubah status
+dicatat sebagai audit atomik. Ini tetap fondasi teknis di `_30`; paket,
+lisensi, harga, dan status komersialisasi tidak berubah.
+
 Dokumen ini adalah sumber utama keputusan komersialisasi. Ia tidak menjadi
 daftar bug aplikasi dan tidak menggantikan audit `_30`.
 

@@ -17,6 +17,7 @@ class Master_relation extends MY_Controller
     private const EXTRA_GROUP_PRODUCT_MAPPING_REVISION_FIELD = 'mapping_revision';
     private const PRODUCT_BUNDLE_MUTATION_CSRF_SESSION_KEY = 'master_relation_product_bundle_mutation_csrf';
     private const PRODUCT_BUNDLE_MUTATION_CSRF_FORM_FIELD = 'master_relation_product_bundle_mutation_csrf';
+    private const PRODUCT_BUNDLE_REVISION_FIELD = 'product_bundle_revision';
 
     private $productRecipeMaterialCostCache = [];
     private $productRecipeComponentCostCache = [];
@@ -1027,6 +1028,123 @@ class Master_relation extends MY_Controller
         }
 
         return true;
+    }
+
+    private function canonicalProductBundleRevision(array $bundle, array $rows): string
+    {
+        $canonicalRows = [];
+        foreach ($rows as $row) {
+            $canonicalRows[] = [
+                'id' => (int)($row['id'] ?? 0),
+                'product_id' => (int)($row['product_id'] ?? 0),
+                'qty' => number_format((float)($row['qty'] ?? 0), 4, '.', ''),
+                'unit_price_override' => !array_key_exists('unit_price_override', $row) || $row['unit_price_override'] === null
+                    ? null
+                    : number_format((float)$row['unit_price_override'], 2, '.', ''),
+                'sort_order' => (int)($row['sort_order'] ?? 0),
+            ];
+        }
+        usort($canonicalRows, static function (array $left, array $right): int {
+            return $left['id'] <=> $right['id'];
+        });
+
+        $canonical = [
+            'id' => (int)($bundle['id'] ?? 0),
+            'bundle_code' => strtoupper(trim((string)($bundle['bundle_code'] ?? ''))),
+            'bundle_name' => trim((string)($bundle['bundle_name'] ?? '')),
+            'product_division_id' => !array_key_exists('product_division_id', $bundle) || $bundle['product_division_id'] === null
+                ? null
+                : (int)$bundle['product_division_id'],
+            'pos_scope' => strtoupper(trim((string)($bundle['pos_scope'] ?? 'REGULAR'))),
+            'selling_price' => number_format((float)($bundle['selling_price'] ?? 0), 2, '.', ''),
+            'description' => trim((string)($bundle['description'] ?? '')),
+            'sort_order' => (int)($bundle['sort_order'] ?? 0),
+            'is_active' => (int)($bundle['is_active'] ?? 0),
+            'lines' => $canonicalRows,
+        ];
+
+        return hash('sha256', json_encode($canonical, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function productBundleAuditReady(): bool
+    {
+        $requiredColumns = [
+            'module_code', 'action_code', 'entity_table', 'entity_id',
+            'transaction_no', 'ref_table', 'ref_id',
+            'actor_user_id', 'source_ip', 'before_payload', 'after_payload',
+            'notes', 'created_at',
+        ];
+        if (!$this->db->table_exists('aud_transaction_log')) {
+            return false;
+        }
+        foreach ($requiredColumns as $column) {
+            if (!$this->db->field_exists($column, 'aud_transaction_log')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function beginProductBundleAuditTransaction(): bool
+    {
+        if (!$this->productBundleAuditReady()) {
+            show_error('Pencatatan audit belum siap. Perubahan bundle tidak dijalankan.', 503, 'Service Unavailable');
+            return false;
+        }
+        if ($this->db->trans_begin() === false) {
+            show_error('Transaksi perubahan bundle tidak dapat dimulai.', 503, 'Service Unavailable');
+            return false;
+        }
+        return true;
+    }
+
+    private function lockProductBundleForRevision(int $bundleId): ?array
+    {
+        $query = $this->db->query(
+            'SELECT id, bundle_code, bundle_name, product_division_id, pos_scope, selling_price, description, sort_order, is_active FROM pos_product_bundle WHERE id = ? FOR UPDATE',
+            [$bundleId]
+        );
+        if ($query === false) {
+            return null;
+        }
+        return $query->row_array() ?: null;
+    }
+
+    private function lockProductBundleLinesForRevision(int $bundleId): ?array
+    {
+        $query = $this->db->query(
+            'SELECT id, bundle_id, product_id, qty, unit_price_override, sort_order FROM pos_product_bundle_line WHERE bundle_id = ? ORDER BY id ASC FOR UPDATE',
+            [$bundleId]
+        );
+        if ($query === false) {
+            return null;
+        }
+        return $query->result_array();
+    }
+
+    private function writeProductBundleAudit(string $actionCode, int $bundleId, array $before, array $after, string $notes): bool
+    {
+        $beforeJson = json_encode($before, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        $afterJson = json_encode($after, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_string($beforeJson) || !is_string($afterJson)) {
+            return false;
+        }
+        $sourceIp = method_exists($this->input, 'ip_address') ? trim((string)$this->input->ip_address()) : '';
+        return $this->db->insert('aud_transaction_log', [
+            'module_code' => 'MASTER_RELATION',
+            'action_code' => $actionCode,
+            'entity_table' => 'pos_product_bundle',
+            'entity_id' => $bundleId,
+            'transaction_no' => null,
+            'ref_table' => 'pos_product_bundle',
+            'ref_id' => $bundleId,
+            'actor_user_id' => !empty($this->current_user['id']) ? (int)$this->current_user['id'] : null,
+            'source_ip' => $sourceIp !== '' ? substr($sourceIp, 0, 45) : null,
+            'before_payload' => $beforeJson,
+            'after_payload' => $afterJson,
+            'notes' => $notes,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
     }
 
     private function operationalDivisionCode(int $divisionId): string
@@ -3145,17 +3263,36 @@ class Master_relation extends MY_Controller
             return;
         }
 
-        $this->db->trans_start();
-        $this->db->insert('pos_product_bundle', $payload['bundle']);
-        $bundleId = (int)$this->db->insert_id();
-        foreach ($payload['lines'] as $line) {
-            $line['bundle_id'] = $bundleId;
-            $this->db->insert('pos_product_bundle_line', $line);
+        if (!$this->beginProductBundleAuditTransaction()) {
+            return;
         }
-        $this->db->trans_complete();
-
-        if ($this->db->trans_status() === false) {
-            $this->session->set_flashdata('error', 'Gagal menyimpan bundle produk.');
+        $bundleId = 0;
+        try {
+            if ($this->db->insert('pos_product_bundle', $payload['bundle']) === false) {
+                throw new RuntimeException('bundle_insert_failed');
+            }
+            $bundleId = (int)$this->db->insert_id();
+            if ($bundleId <= 0) {
+                throw new RuntimeException('bundle_id_missing');
+            }
+            foreach ($payload['lines'] as $line) {
+                $line['bundle_id'] = $bundleId;
+                if ($this->db->insert('pos_product_bundle_line', $line) === false) {
+                    throw new RuntimeException('bundle_line_insert_failed');
+                }
+            }
+            $afterBundle = $this->lockProductBundleForRevision($bundleId);
+            $afterRows = $this->lockProductBundleLinesForRevision($bundleId);
+            if ($afterBundle === null || $afterRows === null
+                || !$this->writeProductBundleAudit('CREATE_PRODUCT_BUNDLE', $bundleId, [], ['bundle' => $afterBundle, 'lines' => $afterRows], 'Create product bundle')
+                || $this->db->trans_status() === false
+                || $this->db->trans_commit() === false) {
+                throw new RuntimeException('bundle_audit_or_commit_failed');
+            }
+        } catch (Throwable $exception) {
+            $this->db->trans_rollback();
+            log_message('error', 'Master_relation::product_bundle_store failed: ' . $exception->getMessage());
+            $this->session->set_flashdata('error', 'Gagal menyimpan bundle produk karena audit transaksi tidak lengkap.');
             redirect('master/relation/product-bundle/create');
             return;
         }
@@ -3185,6 +3322,7 @@ class Master_relation extends MY_Controller
             'save_url' => site_url('master/relation/product-bundle/edit/' . $bundleId . '/save'),
             'back_url' => site_url('master/relation/product-bundle/' . $bundleId),
             'master_relation_product_bundle_mutation_csrf' => $this->productBundleMutationCsrf(),
+            'product_bundle_revision' => $this->canonicalProductBundleRevision($bundle, $rows),
         ]);
     }
 
@@ -3200,6 +3338,13 @@ class Master_relation extends MY_Controller
             show_404();
         }
 
+        $expectedRevision = (string)$this->input->post(self::PRODUCT_BUNDLE_REVISION_FIELD, false);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $expectedRevision) !== 1) {
+            $this->session->set_flashdata('error', 'Snapshot bundle tidak valid. Muat ulang halaman sebelum menyimpan.');
+            redirect('master/relation/product-bundle/edit/' . $bundleId);
+            return;
+        }
+
         $payload = $this->normalizeProductBundlePayload($bundleId);
         if (empty($payload['ok'])) {
             $this->session->set_flashdata('error', (string)($payload['message'] ?? 'Payload bundle produk tidak valid.'));
@@ -3207,17 +3352,43 @@ class Master_relation extends MY_Controller
             return;
         }
 
-        $this->db->trans_start();
-        $this->db->where('id', $bundleId)->update('pos_product_bundle', $payload['bundle']);
-        $this->db->where('bundle_id', $bundleId)->delete('pos_product_bundle_line');
-        foreach ($payload['lines'] as $line) {
-            $line['bundle_id'] = $bundleId;
-            $this->db->insert('pos_product_bundle_line', $line);
+        if (!$this->beginProductBundleAuditTransaction()) {
+            return;
         }
-        $this->db->trans_complete();
-
-        if ($this->db->trans_status() === false) {
-            $this->session->set_flashdata('error', 'Gagal memperbarui bundle produk.');
+        try {
+            $beforeBundle = $this->lockProductBundleForRevision($bundleId);
+            $beforeRows = $this->lockProductBundleLinesForRevision($bundleId);
+            if ($beforeBundle === null || $beforeRows === null) {
+                throw new RuntimeException('bundle_lock_failed');
+            }
+            if (!hash_equals($this->canonicalProductBundleRevision($beforeBundle, $beforeRows), $expectedRevision)) {
+                $this->db->trans_rollback();
+                $this->session->set_flashdata('warning', 'Bundle telah berubah oleh pengguna lain. Muat ulang halaman sebelum menyimpan kembali.');
+                redirect('master/relation/product-bundle/edit/' . $bundleId);
+                return;
+            }
+            if ($this->db->where('id', $bundleId)->update('pos_product_bundle', $payload['bundle']) === false
+                || $this->db->where('bundle_id', $bundleId)->delete('pos_product_bundle_line') === false) {
+                throw new RuntimeException('bundle_replace_failed');
+            }
+            foreach ($payload['lines'] as $line) {
+                $line['bundle_id'] = $bundleId;
+                if ($this->db->insert('pos_product_bundle_line', $line) === false) {
+                    throw new RuntimeException('bundle_line_insert_failed');
+                }
+            }
+            $afterBundle = $this->lockProductBundleForRevision($bundleId);
+            $afterRows = $this->lockProductBundleLinesForRevision($bundleId);
+            if ($afterBundle === null || $afterRows === null
+                || !$this->writeProductBundleAudit('REPLACE_PRODUCT_BUNDLE', $bundleId, ['bundle' => $beforeBundle, 'lines' => $beforeRows], ['bundle' => $afterBundle, 'lines' => $afterRows], 'Replace product bundle')
+                || $this->db->trans_status() === false
+                || $this->db->trans_commit() === false) {
+                throw new RuntimeException('bundle_audit_or_commit_failed');
+            }
+        } catch (Throwable $exception) {
+            $this->db->trans_rollback();
+            log_message('error', 'Master_relation::product_bundle_update bundle_id=' . $bundleId . ' failed: ' . $exception->getMessage());
+            $this->session->set_flashdata('error', 'Gagal memperbarui bundle produk karena audit transaksi tidak lengkap.');
             redirect('master/relation/product-bundle/edit/' . $bundleId);
             return;
         }
@@ -3236,11 +3407,32 @@ class Master_relation extends MY_Controller
         $bundle = $this->loadProductBundle($bundleId);
         if (!$bundle) {
             show_404();
+            return;
         }
 
-        $this->db->where('id', $bundleId)->update('pos_product_bundle', [
-            'is_active' => (int)($bundle['is_active'] ?? 0) === 1 ? 0 : 1,
-        ]);
+        if (!$this->beginProductBundleAuditTransaction()) {
+            return;
+        }
+        try {
+            $beforeBundle = $this->lockProductBundleForRevision($bundleId);
+            if ($beforeBundle === null) {
+                throw new RuntimeException('bundle_lock_failed');
+            }
+            $afterBundle = $beforeBundle;
+            $afterBundle['is_active'] = (int)($beforeBundle['is_active'] ?? 0) === 1 ? 0 : 1;
+            if ($this->db->where('id', $bundleId)->update('pos_product_bundle', ['is_active' => $afterBundle['is_active']]) === false
+                || !$this->writeProductBundleAudit('TOGGLE_PRODUCT_BUNDLE', $bundleId, ['bundle' => $beforeBundle], ['bundle' => $afterBundle], 'Toggle product bundle status')
+                || $this->db->trans_status() === false
+                || $this->db->trans_commit() === false) {
+                throw new RuntimeException('bundle_toggle_failed');
+            }
+        } catch (Throwable $exception) {
+            $this->db->trans_rollback();
+            log_message('error', 'Master_relation::product_bundle_toggle bundle_id=' . $bundleId . ' failed: ' . $exception->getMessage());
+            $this->session->set_flashdata('error', 'Gagal memperbarui status bundle produk karena audit transaksi tidak lengkap.');
+            redirect('master/relation/product-bundle');
+            return;
+        }
         $this->session->set_flashdata('success', 'Status bundle produk berhasil diperbarui.');
         redirect('master/relation/product-bundle');
     }

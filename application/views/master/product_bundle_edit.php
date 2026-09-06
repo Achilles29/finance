@@ -240,6 +240,7 @@ foreach ($rows as $row) {
 
   <form method="post" action="<?php echo $saveUrl; ?>" id="productBundleForm">
     <input type="hidden" name="master_relation_product_bundle_mutation_csrf" value="<?php echo html_escape((string)($master_relation_product_bundle_mutation_csrf ?? '')); ?>">
+    <input type="hidden" name="product_bundle_revision" value="<?php echo html_escape((string)($product_bundle_revision ?? '')); ?>">
     <input type="hidden" name="lines_json" id="lines_json" value="">
 
     <div class="card bundle-meta-card border-0 shadow-sm mb-3">
