@@ -4825,43 +4825,17 @@ class Purchase extends MY_Controller
         $mode   = in_array($this->input->get('mode', true), ['hpp', 'buy'], true)
                 ? $this->input->get('mode', true) : 'hpp';
 
-        if ($itemId <= 0 || !$this->db->table_exists('inv_stock_movement_log')) {
+        if ($itemId <= 0) {
             $this->jsonOk(['rows' => [], 'meta' => ['total' => 0]]);
             return;
         }
 
-        $rows = $this->db->query("
-            SELECT
-                l.id,
-                l.movement_date,
-                l.item_id,
-                COALESCE(l.profile_name, i.item_name, '') AS item_name,
-                COALESCE(l.profile_brand, '') AS brand,
-                l.unit_cost,
-                ROUND(l.unit_cost * COALESCE(l.profile_content_per_buy, 1), 4) AS price_per_buy,
-                l.qty_buy_delta,
-                l.qty_content_delta,
-                COALESCE(l.profile_buy_uom_code, bu.code, 'pack') AS buy_uom,
-                COALESCE(l.profile_content_uom_code, cu.code, '') AS content_uom,
-                COALESCE(l.profile_content_per_buy, 0) AS content_per_buy,
-                d.name AS division_name
-            FROM inv_stock_movement_log l
-            LEFT JOIN mst_item i ON i.id = l.item_id
-            LEFT JOIN mst_operational_division d ON d.id = l.division_id
-            LEFT JOIN mst_uom bu ON bu.id = l.buy_uom_id
-            LEFT JOIN mst_uom cu ON cu.id = l.content_uom_id
-            WHERE l.item_id = {$itemId}
-              AND l.movement_type = 'PURCHASE_IN'
-            ORDER BY l.movement_date DESC, l.id DESC
-            LIMIT {$limit}
-        ")->result_array();
+        $history = $this->Purchase_model->get_item_price_history($itemId, $limit);
 
-        $total = (int)($this->db->query("
-            SELECT COUNT(*) AS cnt FROM inv_stock_movement_log
-            WHERE item_id = {$itemId} AND movement_type = 'PURCHASE_IN'
-        ")->row_array()['cnt'] ?? 0);
-
-        $this->jsonOk(['rows' => $rows, 'meta' => ['total' => $total, 'limit' => $limit, 'mode' => $mode]]);
+        $this->jsonOk([
+            'rows' => $history['rows'],
+            'meta' => ['total' => $history['total'], 'limit' => $limit, 'mode' => $mode],
+        ]);
     }
 
     public function stock_warehouse_opname_monthly()

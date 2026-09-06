@@ -120,7 +120,7 @@ $preselectedId = (int)($preselected_id ?? 0);
     <table class="table table-sm table-hover align-middle mb-0 iph-table">
       <thead class="table-light">
         <tr>
-          <th>#</th><th>Tanggal</th><th>Nama / Brand</th><th>Divisi</th>
+          <th>#</th><th>Tanggal</th><th>Nama / Brand</th><th>Divisi</th><th>Sumber</th>
           <th class="text-end">Qty Isi</th><th class="text-end">Qty Pack</th>
           <th class="text-end">HPP / Isi</th><th class="text-end">Harga / Pack</th>
         </tr>
@@ -276,7 +276,7 @@ $preselectedId = (int)($preselected_id ?? 0);
   /* ── Table render ─────────────────────────────────────────── */
   function renderTable(rows, total) {
     tableMeta.textContent = rows.length + ' dari ' + total + ' total';
-    if (!rows.length) { tableBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Belum ada data.</td></tr>'; return; }
+    if (!rows.length) { tableBody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">Belum ada data.</td></tr>'; return; }
     tableBody.innerHTML = rows.map(function(r, i) {
       const brand = r.brand && r.brand !== r.item_name ? r.brand : '';
       return `<tr>
@@ -287,6 +287,7 @@ $preselectedId = (int)($preselected_id ?? 0);
           ${brand ? `<div class="small text-muted">${esc(brand)}</div>` : ''}
         </td>
         <td>${r.division_name ? `<span class="iph-div-badge">${esc(r.division_name)}</span>` : '<span class="text-muted">-</span>'}</td>
+        <td><span class="small ${r.source_type === 'PURCHASE_RECEIPT' ? 'text-success' : 'text-muted'}">${esc(r.source_type === 'PURCHASE_RECEIPT' ? (r.source_ref || 'Receipt') : 'Ledger lama')}</span></td>
         <td class="text-end">${num(r.qty_content_delta)} <span class="text-muted small">${esc(r.content_uom||'')}</span></td>
         <td class="text-end">${parseFloat(r.qty_buy_delta||0)>0 ? num(r.qty_buy_delta)+' <span class="text-muted small">pack</span>' : '<span class="text-muted">-</span>'}</td>
         <td class="text-end fw-semibold">${money(r.unit_cost)}</td>

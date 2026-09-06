@@ -95,6 +95,125 @@ class Purchase_model extends CI_Model
         return $summary;
     }
 
+    /**
+     * Riwayat harga beli per item.
+     *
+     * Receipt yang sudah POSTED adalah sumber utama karena merupakan bukti
+     * penerimaan barang. Ledger hanya dipakai untuk transaksi lama yang belum
+     * memiliki receipt line, agar data historis tidak hilang tetapi juga tidak
+     * terhitung dua kali.
+     */
+    public function get_item_price_history(int $itemId, int $limit = 20): array
+    {
+        $empty = ['rows' => [], 'total' => 0];
+        if ($itemId <= 0) {
+            return $empty;
+        }
+
+        $limit = min(200, max(5, $limit));
+        $hasReceiptSource = $this->db->table_exists('pur_purchase_receipt')
+            && $this->db->table_exists('pur_purchase_receipt_line')
+            && $this->db->table_exists('pur_purchase_order_line');
+        $hasLedgerSource = $this->db->table_exists('inv_stock_movement_log');
+        if (!$hasReceiptSource && !$hasLedgerSource) {
+            return $empty;
+        }
+
+        $sources = [];
+        $params = [];
+        if ($hasReceiptSource) {
+            $sources[] = "
+                SELECT
+                    rl.id AS id,
+                    r.receipt_date AS movement_date,
+                    COALESCE(rl.item_id, pol.item_id) AS item_id,
+                    COALESCE(pol.snapshot_item_name, i.item_name, '') AS item_name,
+                    COALESCE(rl.brand_name, pol.snapshot_brand_name, pol.brand_name, '') AS brand,
+                    ROUND(
+                        pol.unit_price / NULLIF(
+                            COALESCE(
+                                NULLIF(rl.qty_content_received / NULLIF(rl.qty_buy_received, 0), 0),
+                                NULLIF(rl.conversion_factor_to_content, 0),
+                                NULLIF(pol.conversion_factor_to_content, 0),
+                                NULLIF(pol.content_per_buy, 0),
+                                1
+                            ),
+                            0
+                        ),
+                        6
+                    ) AS unit_cost,
+                    pol.unit_price AS price_per_buy,
+                    rl.qty_buy_received AS qty_buy_delta,
+                    rl.qty_content_received AS qty_content_delta,
+                    COALESCE(pol.snapshot_buy_uom_code, bu.code, bu.name, 'pack') AS buy_uom,
+                    COALESCE(pol.snapshot_content_uom_code, cu.code, cu.name, '') AS content_uom,
+                    COALESCE(
+                        NULLIF(rl.qty_content_received / NULLIF(rl.qty_buy_received, 0), 0),
+                        NULLIF(rl.conversion_factor_to_content, 0),
+                        NULLIF(pol.conversion_factor_to_content, 0),
+                        NULLIF(pol.content_per_buy, 0),
+                        0
+                    ) AS content_per_buy,
+                    d.name AS division_name,
+                    'PURCHASE_RECEIPT' AS source_type,
+                    r.receipt_no AS source_ref
+                FROM pur_purchase_receipt_line rl
+                INNER JOIN pur_purchase_receipt r ON r.id = rl.purchase_receipt_id
+                INNER JOIN pur_purchase_order_line pol ON pol.id = rl.purchase_order_line_id
+                LEFT JOIN mst_item i ON i.id = COALESCE(rl.item_id, pol.item_id)
+                LEFT JOIN mst_operational_division d ON d.id = r.destination_division_id
+                LEFT JOIN mst_uom bu ON bu.id = rl.buy_uom_id
+                LEFT JOIN mst_uom cu ON cu.id = rl.content_uom_id
+                WHERE r.status = 'POSTED'
+                  AND (rl.item_id = ? OR pol.item_id = ?)";
+            $params[] = $itemId;
+            $params[] = $itemId;
+        }
+
+        if ($hasLedgerSource) {
+            $sources[] = "
+                SELECT
+                    l.id AS id,
+                    l.movement_date,
+                    l.item_id,
+                    COALESCE(l.profile_name, i.item_name, '') AS item_name,
+                    COALESCE(l.profile_brand, '') AS brand,
+                    l.unit_cost,
+                    ROUND(l.unit_cost * COALESCE(l.profile_content_per_buy, 1), 4) AS price_per_buy,
+                    l.qty_buy_delta,
+                    l.qty_content_delta,
+                    COALESCE(l.profile_buy_uom_code, bu.code, bu.name, 'pack') AS buy_uom,
+                    COALESCE(l.profile_content_uom_code, cu.code, cu.name, '') AS content_uom,
+                    COALESCE(l.profile_content_per_buy, 0) AS content_per_buy,
+                    d.name AS division_name,
+                    'LEGACY_LEDGER' AS source_type,
+                    l.movement_no AS source_ref
+                FROM inv_stock_movement_log l
+                LEFT JOIN mst_item i ON i.id = l.item_id
+                LEFT JOIN mst_operational_division d ON d.id = l.division_id
+                LEFT JOIN mst_uom bu ON bu.id = l.buy_uom_id
+                LEFT JOIN mst_uom cu ON cu.id = l.content_uom_id
+                WHERE l.item_id = ?
+                  AND l.movement_type = 'PURCHASE_IN'
+                  AND l.receipt_line_id IS NULL";
+            $params[] = $itemId;
+        }
+
+        $union = implode("\nUNION ALL\n", $sources);
+        $countRow = $this->db->query("SELECT COUNT(*) AS total FROM ({$union}) price_history", $params)->row_array();
+        $rows = $this->db->query(
+            "SELECT * FROM ({$union}) price_history
+             ORDER BY movement_date DESC, id DESC
+             LIMIT {$limit}",
+            $params
+        )->result_array();
+
+        return [
+            'rows' => $rows,
+            'total' => (int)($countRow['total'] ?? 0),
+        ];
+    }
+
     public function get_purchase_order_filtered_summary(string $q, string $status, string $dateStart, string $dateEnd): array
     {
         $summary = [

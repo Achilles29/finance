@@ -6306,3 +6306,23 @@
 - Risiko sisa/batch berikutnya: acceptance finance untuk laporan as-of/rebuild
   saldo dan fixture backdate nyata masih diperlukan; uang makan/slip payroll
   belum disentuh karena memerlukan keputusan aturan bisnis.
+
+## Batch 182 — Riwayat harga Purchase berbasis Receipt
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A2 / `AUD-A2-PUR-02`. Halaman `purchase/item-price-history/561`
+  sebelumnya hanya membaca `inv_stock_movement_log` bertipe `PURCHASE_IN`.
+  Receipt pembelian yang valid tetapi ledger-nya tidak lengkap akibat proses
+  lama menjadi tampak tidak memiliki riwayat harga.
+- Perubahan utama: `pur_purchase_receipt` berstatus `POSTED` beserta line PO
+  menjadi sumber utama. HPP per isi dihitung dari kuantitas receipt aktual,
+  lalu conversion/profile PO sebagai fallback. Ledger lama tetap ditampilkan
+  hanya bila tidak punya `receipt_line_id`, sehingga tidak menduplikasi receipt.
+  UI kini menunjukkan nomor receipt atau label Ledger lama.
+- File berubah: `Purchase.php`, `Purchase_model.php`, view riwayat harga,
+  smoke khusus, quality gate, dan roadmap audit induk.
+- Validasi: PHP lint seluruh file berubah, `git diff --check`, smoke riwayat
+  harga 9/9, serta contract quality gate 27/27 lulus.
+- Risiko sisa/batch berikutnya: perlu UAT browser untuk item 561 dan satu
+  receipt historis tanpa ledger; pembetulan angka/data receipt yang salah tetap
+  tidak dilakukan otomatis.
