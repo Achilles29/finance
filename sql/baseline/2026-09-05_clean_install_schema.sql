@@ -5328,7 +5328,7 @@ CREATE TABLE `pos_mobile_sensitive_action_proof` (
   `mobile_token_id` bigint(20) unsigned NOT NULL,
   `user_id` bigint(20) unsigned NOT NULL,
   `terminal_id` bigint(20) unsigned NOT NULL,
-  `action` enum('VOID','REFUND') NOT NULL,
+  `action` enum('VOID','REFUND','ORDER_REPRINT') NOT NULL,
   `order_id` bigint(20) unsigned NOT NULL,
   `expires_at` datetime NOT NULL,
   `consumed_at` datetime DEFAULT NULL,
@@ -5338,7 +5338,7 @@ CREATE TABLE `pos_mobile_sensitive_action_proof` (
   UNIQUE KEY `uq_pos_mobile_sensitive_action_proof_hash` (`proof_hash`) USING BTREE,
   KEY `idx_pos_mobile_sensitive_action_proof_consume` (`mobile_token_id`,`user_id`,`terminal_id`,`action`,`order_id`,`expires_at`,`consumed_at`) USING BTREE,
   KEY `idx_pos_mobile_sensitive_action_proof_expiry` (`expires_at`) USING BTREE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='One-use reauthentication proofs for POS Mobile void/refund.';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='One-use reauthentication proofs for POS Mobile void/refund/reprint.';
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;

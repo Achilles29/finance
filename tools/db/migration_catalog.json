@@ -149,6 +149,20 @@
         "clean_install",
         "upgrade"
       ]
+    },
+    {
+      "id": "2026-09-06d-pos-mobile-reprint-step-up",
+      "order": 2026090604,
+      "path": "sql/2026-09-06d_pos_mobile_reprint_step_up.sql",
+      "sha256": "075a544974b0d646573d89fcfcb9efd66513ec501402707e4815f9b8cfa32d30",
+      "dependencies": [
+        "2026-09-06c-pos-mobile-reversal-step-up"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
     }
   ]
 }

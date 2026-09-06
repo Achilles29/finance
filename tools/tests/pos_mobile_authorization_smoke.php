@@ -179,7 +179,7 @@ final class PosMobileSmokeSensitiveActionStepUp
     {
         $this->consumeCalls++;
         return $userId > 0
-            && in_array($action, ['VOID', 'REFUND'], true)
+            && in_array($action, ['VOID', 'REFUND', 'ORDER_REPRINT'], true)
             && (int)$targetId > 0
             && is_string($proof)
             && preg_match('/\A[0-9a-f]{64}\z/D', $proof) === 1
@@ -2309,6 +2309,8 @@ $directOrderEndpointCases = [
     'order_reprint_targets' => [
         'arguments' => [1102],
         'payload' => ['printer_id' => 0, 'line_scope' => 'ALL'],
+        'method' => 'POST',
+        'step_up_action' => 'ORDER_REPRINT',
         'downstream' => 'direct_print_targets_for_order_reprint',
         'result' => ['ok' => true, 'targets' => []],
     ],
@@ -2337,19 +2339,40 @@ foreach ([
     'same outlet from another terminal' => 999,
 ] as $scopeName => $orderTerminalId) {
     foreach ($directOrderEndpointCases as $endpoint => $case) {
+        $orderId = $endpoint === 'voucher_search'
+            ? (int)$case['payload']['order_id']
+            : (int)$case['arguments'][0];
+        $payload = $case['payload'];
+        $mobileProofRows = [];
+        if (!empty($case['step_up_action'])) {
+            $proof = str_repeat('d', 64);
+            $payload['step_up_proof'] = $proof;
+            $mobileProofRows[] = [
+                'proof_hash' => hash('sha256', $proof),
+                'mobile_token_id' => 41,
+                'user_id' => 42,
+                'terminal_id' => 501,
+                'action' => (string)$case['step_up_action'],
+                'order_id' => $orderId,
+                'expires_at' => '2999-01-01 00:00:00',
+                'consumed_at' => null,
+            ];
+        }
         [$controller, $auth, $output, $model] = pos_mobile_smoke_controller(
             ['__superadmin__' => true],
             true,
             0,
-            $case['payload'],
+            $payload,
             $boundHeaders,
             $tokenRows,
-            'GET',
-            $activeTerminalRows
+            $case['method'] ?? 'GET',
+            $activeTerminalRows,
+            null,
+            [],
+            [],
+            ['state' => 'GLOBAL', 'division_id' => null],
+            $mobileProofRows
         );
-        $orderId = $endpoint === 'voucher_search'
-            ? (int)$case['payload']['order_id']
-            : (int)$case['arguments'][0];
         $model->orderDraft = [
             'header' => ['id' => $orderId, 'outlet_id' => 71, 'terminal_id' => $orderTerminalId],
             'lines' => [],
@@ -2384,7 +2407,7 @@ foreach ([
             $case['payload'],
             $boundHeaders,
             $tokenRows,
-            'GET',
+            $case['method'] ?? 'GET',
             $activeTerminalRows
         );
         $model->orderDraft = $orderDraft;
@@ -2410,7 +2433,7 @@ foreach ($directOrderEndpointCases as $endpoint => $case) {
         $case['payload'],
         $boundHeaders,
         $tokenRows,
-        'GET',
+        $case['method'] ?? 'GET',
         $zeroOutletTerminalRows
     );
     $model->orderDraft = ['header' => ['outlet_id' => 71], 'lines' => []];
@@ -2431,14 +2454,18 @@ foreach ($directOrderEndpointCases as $endpoint => $case) {
 }
 
 foreach ($directOrderEndpointCases as $endpoint => $case) {
+    $payload = $case['payload'];
+    if (!empty($case['step_up_action'])) {
+        $payload['step_up_proof'] = str_repeat('e', 64);
+    }
     [$controller, $auth, $output, $model] = pos_mobile_smoke_controller(
         ['__superadmin__' => true],
         true,
         7,
-        $case['payload'],
+        $payload,
         [],
         [],
-        'GET'
+        $case['method'] ?? 'GET'
     );
     $model->businessResults[$case['downstream']] = $case['result'];
     call_user_func_array([$controller, $endpoint], $case['arguments']);

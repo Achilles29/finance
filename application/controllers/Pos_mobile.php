@@ -389,6 +389,10 @@ class Pos_mobile extends CI_Controller
 
     private function mobile_order_reversal_permission(string $action): bool
     {
+        if ($action === 'ORDER_REPRINT') {
+            return $this->mobile_permission($this->mobile_order_workspace_page_code('view'), 'view');
+        }
+
         $pageCode = $action === 'REFUND'
             ? $this->mobile_order_workspace_page_code('edit', 'pos.order.paid.index')
             : $this->mobile_order_workspace_page_code('edit');
@@ -421,7 +425,7 @@ class Pos_mobile extends CI_Controller
         $terminalId = max(0, (int)($this->mobileUser['terminal_id'] ?? 0));
         if (
             $tokenId <= 0 || $userId <= 0 || $terminalId <= 0 || $orderId <= 0
-            || !in_array($action, ['VOID', 'REFUND'], true)
+            || !in_array($action, ['VOID', 'REFUND', 'ORDER_REPRINT'], true)
             || !is_string($password) || $password === '' || strlen($password) > 72
         ) {
             return ['ok' => false, 'status' => 422, 'message' => 'Data verifikasi ulang tidak valid.'];
@@ -535,7 +539,7 @@ class Pos_mobile extends CI_Controller
         if (
             !is_string($proof) || preg_match('/\A[0-9a-f]{64}\z/D', $proof) !== 1
             || $tokenId <= 0 || $userId <= 0 || $terminalId <= 0 || $orderId <= 0
-            || !in_array($action, ['VOID', 'REFUND'], true)
+            || !in_array($action, ['VOID', 'REFUND', 'ORDER_REPRINT'], true)
         ) {
             $this->json_error('Verifikasi ulang diperlukan sebelum aksi ini.', 428, ['step_up_required' => true]);
             return false;
@@ -1329,6 +1333,43 @@ class Pos_mobile extends CI_Controller
         ]);
     }
 
+    /**
+     * Reauthenticate a bearer-bound mobile cashier before a reprint. Reprint
+     * is deliberately separate from reversal so an APK can use a fixed action
+     * and cannot turn a valid reprint proof into a financial reversal proof.
+     */
+    public function order_reprint_step_up_verify(): void
+    {
+        if (!$this->require_mobile_post()) {
+            return;
+        }
+        if (!$this->authorize_mobile(true)) {
+            return;
+        }
+        if (!is_array($this->mobileUser)) {
+            $this->json_error('Verifikasi ulang POS Mobile membutuhkan token perangkat aktif.', 401);
+            return;
+        }
+        if (!$this->mobile_order_reversal_permission('ORDER_REPRINT')) {
+            return;
+        }
+
+        $payload = $this->request_payload();
+        $orderId = max(0, (int)($payload['order_id'] ?? 0));
+        if ($orderId <= 0 || $this->mobile_financial_order_context($orderId) === null) {
+            return;
+        }
+        $result = $this->issue_mobile_order_reversal_step_up('ORDER_REPRINT', $orderId, $payload['password'] ?? null);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
+    }
+
     public function order_void_save(): void
     {
         if (!$this->require_mobile_post()) {
@@ -1438,17 +1479,25 @@ class Pos_mobile extends CI_Controller
 
     public function order_reprint_targets($id): void
     {
+        if (!$this->require_mobile_post()) {
+            return;
+        }
         if (!$this->authorize_mobile(true)) {
             return;
         }
         if (!$this->mobile_permission($this->mobile_order_workspace_page_code('view'), 'view')) {
             return;
         }
-        if ($this->mobile_financial_order_context((int)$id) === null) {
+        $orderContext = $this->mobile_financial_order_context((int)$id);
+        if ($orderContext === null) {
             return;
         }
 
         $payload = $this->request_payload();
+        if (!$this->consume_mobile_order_reversal_step_up('ORDER_REPRINT', (int)$orderContext['order_id'], $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $result = $this->Pos_model->direct_print_targets_for_order_reprint((int)$id, [
             'printer_id' => max(0, (int)($payload['printer_id'] ?? 0)),
             'line_scope' => strtoupper(trim((string)($payload['line_scope'] ?? 'ALL'))),

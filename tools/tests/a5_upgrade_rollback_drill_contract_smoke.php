@@ -24,7 +24,7 @@ $root = dirname(__DIR__, 2);
 $source = (string)file_get_contents($root . '/tools/db/disposable_upgrade_rollback_drill.php');
 $check(strpos($source, "define('A511_DISPOSABLE_RESTORE_LIBRARY_ONLY', true)") !== false, 'rollback drill reuses the hardened disposable restore boundary');
 $check(strpos($source, "define('A513_POST_INSTALL_HEALTH_LIBRARY_ONLY', true)") !== false, 'rollback drill uses the canonical post-install health checker');
-$check(strpos($source, "'applied'] ?? null) !== 8") !== false && strpos($source, "'skipped'] ?? null) !== 0") !== false, 'upgrade must apply the exact eight-migration plan');
+$check(strpos($source, "'applied'] ?? null) !== 9") !== false && strpos($source, "'skipped'] ?? null) !== 0") !== false, 'upgrade must apply the exact nine-migration plan');
 $check(strpos($source, 'a513_rollback_canary') !== false && strpos($source, "'migration_ledger_count'") !== false, 'controlled failed-upgrade state must be detected before rollback');
 $check(substr_count($source, 'a511_restore_archive($archive, $targetOption, $target, $timeout)') === 2, 'the same verified backup is restored before upgrade and during rollback');
 $check(substr_count($source, 'a510_load_bundle($bundleDir)') >= 2, 'backup bundle is reverified immediately before rollback restore');

@@ -100,14 +100,14 @@ $upgradeJson = json_decode(trim($upgrade['out']), true);
 $check($validate['code'] === 0 && $planA['code'] === 0 && $upgrade['code'] === 0, 'repository catalog validates and both DB-free policies plan successfully');
 $check($planA['out'] === $planB['out'], 'plan output is byte-for-byte deterministic');
 $plannedIds = array_column($planJson['migrations'] ?? [], 'id');
-$check($plannedIds === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05d-a5-clean-install-reference-seed', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up'], 'clean-install plan places both canonical reference seeds before additive Formula and POS Mobile migrations');
-$check(array_column($upgradeJson['migrations'] ?? [], 'id') === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up'], 'upgrade plan excludes only the clean-install-only navigation reference seed');
+$check($plannedIds === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05d-a5-clean-install-reference-seed', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up'], 'clean-install plan places both canonical reference seeds before additive Formula and POS Mobile proof migrations');
+$check(array_column($upgradeJson['migrations'] ?? [], 'id') === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up'], 'upgrade plan excludes only the clean-install-only navigation reference seed');
 $check(
     count($catalog['legacy_unmanaged_sql'] ?? []) === 7
-        && count($catalog['migrations'] ?? []) === 9
+        && count($catalog['migrations'] ?? []) === 10
         && hash_file('sha256', $sqlPath) === ($catalog['migrations'][0]['sha256'] ?? '')
         && ($catalog['migrations'][0]['policies'] ?? []) === ['clean_install', 'upgrade'],
-    'catalog records nine managed and seven explicit legacy SQL files plus exact foundation checksum and policies'
+    'catalog records ten managed and seven explicit legacy SQL files plus exact foundation checksum and policies'
 );
 $check(($catalog['migrations'][1]['dependencies'] ?? []) === [$catalog['migrations'][0]['id']], 'Telegram migration explicitly depends on the registry foundation');
 $check(($catalog['migrations'][2]['dependencies'] ?? []) === [$catalog['migrations'][1]['id']], 'Telegram guide migration explicitly depends on the Telegram foundation');
@@ -140,6 +140,12 @@ $check(
         && ($catalog['migrations'][8]['dependencies'] ?? []) === ['2026-09-04c-a5-schema-migration-registry-foundation']
         && ($catalog['migrations'][8]['policies'] ?? []) === ['clean_install', 'upgrade'],
     'POS Mobile reversal proof migration is managed after the registry foundation'
+);
+$check(
+    ($catalog['migrations'][9]['id'] ?? '') === '2026-09-06d-pos-mobile-reprint-step-up'
+        && ($catalog['migrations'][9]['dependencies'] ?? []) === ['2026-09-06c-pos-mobile-reversal-step-up']
+        && ($catalog['migrations'][9]['policies'] ?? []) === ['clean_install', 'upgrade'],
+    'POS Mobile reprint proof migration is managed after the immutable reversal proof schema'
 );
 $allPaths = array_merge($catalog['legacy_unmanaged_sql'] ?? [], array_column($catalog['migrations'] ?? [], 'path'));
 $check(count(array_filter($allPaths, static function ($path): bool { return strpos((string)$path, '/_old/') !== false; })) === 0, 'catalog does not enroll archived SQL');

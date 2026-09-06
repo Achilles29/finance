@@ -6193,3 +6193,48 @@
 - Batch berikutnya: inventaris dan amankan reprint POS Mobile atau pilih aksi
   mobile sensitif bernilai tinggi berikutnya; jalankan UAT APK setelah build
   mengadopsi proof reversal.
+
+## Batch 177 — Reauth one-use Reprint POS Mobile
+
+- Waktu/tanggal: 2026-09-06, validasi akhir batch.
+- Prioritas: P0 / `AUD-A1-POS-01` dan `AUD-A1-STEP-01`. Reprint APK sudah
+  dibatasi bearer/RBAC/outlet, tetapi target printer masih dapat diminta tanpa
+  reauth sehingga token perangkat yang tertinggal dapat mencetak ulang order.
+- Diskusi/arah: fixer tunggal. Perubahan hanya pada kontrak Reprint POS Mobile;
+  tidak mengubah writer order, pembayaran, stok, HPP, data mismatch, maupun
+  aturan printer.
+- File berubah:
+  - `application/controllers/Pos_mobile.php` dan `application/config/routes.php`.
+  - `sql/2026-09-06d_pos_mobile_reprint_step_up.sql`, baseline clean-install,
+    catalog/policy migration, serta drill restore/upgrade.
+  - Smoke POS Mobile, matriks A1, kontrak catalog/health/rollback, dan dua
+    roadmap induk.
+- Perubahan utama:
+  - Endpoint baru `pos-mobile/orders/reprint-step-up/verify` menerima password
+    hanya untuk menerbitkan `step_up_proof` aksi tetap `ORDER_REPRINT`.
+  - `pos-mobile/orders/reprint-targets/{id}` kini POST-only, memeriksa bearer,
+    view RBAC, dan outlet order sebelum mengonsumsi proof satu-kali. Proof Void
+    atau Refund tidak dapat dipakai untuk Reprint; replay/expired/beda binding
+    ditolak `428 step_up_required`.
+  - Migration hanya memperluas enum proof untuk `ORDER_REPRINT`; tidak mengubah
+    order, pembayaran, stok, atau HPP.
+- SQL/runtime:
+  - Staging: migration runner upgrade dry-run planned 9; apply applied 1/
+    skipped 8; replay applied 0/skipped 9. Probe read-only membuktikan action
+    `ORDER_REPRINT` tersedia pada schema proof.
+  - Server utama/customer: tetap melalui catalog/updater managed; jangan
+    menjalankan file SQL manual. APK mengirim verify-password → `step_up_proof`
+    → POST reprint targets.
+- Validasi:
+  - PHP lint, `git diff --check`, authorization POS Mobile, smoke proof (19
+    check), A1 direct URL, migration runner validate/plan, catalog, dan legacy
+    guard lulus.
+  - Quality gate `parallel` lulus: required 71/71, development 4/4, release
+    1/1, dan preflight 1/1. Runtime/security/static serta UAT browser,
+    APK/perangkat, dan printer fisik tetap berada pada profile/lingkungan
+    terpisah.
+- Review akhir fixer tunggal: layak di staging. Risiko sisa: APK lama yang
+  memakai GET atau tidak mengirim proof menerima `405`/`428`; UAT perangkat,
+  aksi mobile sensitif lain, MFA, dan baseline role nyata masih terbuka.
+- Batch berikutnya: jalankan UAT APK atas alur Void/Refund/Reprint atau pilih
+  aksi POS Mobile sensitif bernilai tinggi berikutnya.

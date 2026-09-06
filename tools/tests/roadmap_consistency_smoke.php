@@ -154,7 +154,7 @@ $expectedSqlPaths = array_map(static function (string $path): string {
     return basename($path);
 }, $sqlFiles);
 sort($expectedSqlPaths, SORT_STRING);
-$check(count($expectedSqlPaths) === 16, 'workspace must contain exactly 16 top-level sql/*.sql files');
+$check(count($expectedSqlPaths) === 17, 'workspace must contain exactly 17 top-level sql/*.sql files');
 
 $registerTable = [];
 $registerHeading = '';
