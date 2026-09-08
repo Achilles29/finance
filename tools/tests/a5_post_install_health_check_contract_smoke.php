@@ -83,7 +83,7 @@ while (($line = fgets(STDIN)) !== false) {
     } elseif (strpos($line, '__A513_AUTH__') !== false) {
         echo "__A513_AUTH__\t1\t0\t" . ($mode === 'owner_missing' ? '0' : '1') . "\n";
     } elseif (strpos($line, '__A513_SEED__') !== false) {
-        $count = strpos($line, '`sys_matrix_group`') !== false ? 20 : (strpos($line, '`sys_page`') !== false ? 209 : (strpos($line, '`sys_menu`') !== false ? 244 : 10));
+        $count = strpos($line, '`sys_matrix_group`') !== false ? 20 : (strpos($line, '`sys_page`') !== false ? 209 : (strpos($line, '`sys_menu`') !== false ? 249 : 10));
         if ($mode === 'seed_drift') $count++;
         echo "__A513_SEED__\t{$count}\n";
     } elseif (strpos($line, '__A513_TELEGRAM__') !== false) {

@@ -165,8 +165,9 @@ $check(
 $check(
     strpos($baseline, "enum('VOID','REFUND','ORDER_REPRINT','CASHIER_CLOSE','RESERVATION_DEPOSIT_REFUND')") !== false
         && strpos($baseline, '`reservation_id` bigint(20) unsigned DEFAULT NULL') !== false
-        && strpos($baseline, 'idx_pos_mobile_sensitive_action_proof_reservation_consume') !== false,
-    'clean-install baseline contains the same reservation proof schema'
+        && strpos($baseline, 'idx_pos_mobile_sensitive_action_proof_reservation_consume') === false
+        && strpos($migration, 'ADD KEY `idx_pos_mobile_sensitive_action_proof_reservation_consume`') !== false,
+    'clean install has the proof fields and creates its consume index once via managed migration'
 );
 $entry = null;
 foreach ((array)($catalog['migrations'] ?? []) as $candidate) {
