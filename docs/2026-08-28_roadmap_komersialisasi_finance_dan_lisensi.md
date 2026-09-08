@@ -11,19 +11,25 @@ atau deployment customer. Installer nyata tetap langkah berikutnya.
   MariaDB 10.6; versi source `0.1.0-alpha.3`, tanpa perubahan schema.
 - [x] Adapter manifest/tanda tangan release Control dengan katalog SQL Finance,
   baseline/checksum, dan status APK terpisah dari paket web.
-- [ ] Cutoff commit lokal dan validasi paket dari checkout bersih — berlangsung.
+- [x] Cutoff commit lokal `b10fa37a40a06b1867800327812ac1dc1490c176`;
+  199 file berubah/bertambah sejak checkpoint `d462d4a`, tanpa merge/push.
+- [x] Paket 1.621 file dari checkout bersih berhasil dibangun, ditandatangani,
+  dan diverifikasi melalui CLI Control; status `INTERNAL_CANDIDATE`, bukan publish.
+- [ ] Tooling cold-cache: analisis penuh checkout baru lulus nol error, tetapi
+  melampaui timeout gate 150 detik. Build lulus setelah analisis penuh selesai;
+  budget cold-start/cache isolation masih perlu dirapikan, bukan melewati gate.
 - [ ] Registrasi DRAFT, publish/install-plan Finance di Control dan install/upgrade
   nyata di instance disposable belum dijalankan pada batch ini.
 
-**Update pelaksanaan 2026-09-08, Batch 224–227:** lanjut non-APK melalui
+**Riwayat pelaksanaan 2026-09-08, Batch 224–227:** lanjut non-APK melalui
 Menu Book customer (C2), perlindungan upload dan plan/runtime instalasi (C3),
 serta verifikasi signed entitlement Control (C4). Tabel 0.1 telah diperbarui;
 tidak ada fase C0–C5 yang ditutup hanya karena tes kode lulus. APK ditunda
 owner. Panduan setup awal berada di `customer_setup_and_release_guide.md`;
 installer/deployment/pilot nyata dan kontrak penjualan tetap terbuka.
 Validasi gabungan 107 entry lulus (Batch 227); ini bukan persetujuan rilis
-atau penutupan fase. Keputusan cutoff commit lokal dan koordinasi delivery
-Finance di Control masih diperlukan sebelum membuat artefak customer nyata.
+atau penutupan fase. Pada penutupan Batch 227 cutoff/delivery masih menunggu
+persetujuan; cutoff dan verifikasi paket kemudian dilaksanakan pada Batch 228.
 
 **Status:** Keputusan produk dan urutan implementasi menuju siap jual.
 Diperbarui 31 Agustus 2026 berdasarkan
@@ -157,10 +163,10 @@ internal. Status teknis A0–A5 tetap hanya berasal dari control board `_30`.
 | Fase | Implementasi | Validasi tertinggi | Release/data | Status fase | Alasan/gerbang berikutnya |
 | --- | --- | --- | --- | --- | --- |
 | C0 — handoff/go-no-go | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Gerbang teknis A0–A5 masih diblokir dan belum disetujui product owner. |
-| C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 `NAMUA_FINANCE` telah diimpor ke Control dengan 28 feature, 4 edition, 29 dependency, hak pakai `PERPETUAL`, dan maintenance awal 365 hari. Source masih dirty dan belum boleh menjadi release; harga, EULA/SLA, data policy, add-on/override per customer, serta kontrak pilot belum final. |
+| C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 `NAMUA_FINANCE` telah diimpor ke Control dengan 28 feature, 4 edition, 29 dependency, hak pakai `PERPETUAL`, dan maintenance awal 365 hari. Batch 228 menetapkan cutoff source alpha.3; registrasi/penerbitan versi ini di Control belum dilakukan. Harga, EULA/SLA, data policy, add-on/override per customer, serta kontrak pilot belum final. |
 | C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_READY` | Batch 219–220 menyediakan branding inti dan setup profil. Batch 224–225 menambah Menu Book customer/legacy/nonaktif, audit pilihan template, serta pemeriksaan folder upload dari PHP-FPM. Outlet/printer tetap override. Marketing menyeluruh, preset demo, pajak/service, integrasi, health/privacy, install profile, serta validasi URL customer belum selesai. |
-| C3 — artifact/installer/update | `IN_PROGRESS` | `CODE_PASS` | `BLOCKED` | `FINANCE_CONTRACT_READY` | Batch 225 mewajibkan pengecualian assets/uploads, checker/prepare folder aman, plan clean-install versus upgrade, dan hook Composer portabel no-dev. Plan belum installer. Source dirty; artifact signed, penyesuaian provisioning/delivery Finance di Control, installer Windows/Linux, upgrade dan rollback customer nyata belum selesai. |
-| C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `AUDIT_ONLY_FOUNDATION` | Batch 226 menambah verifier Ed25519 sesuai envelope Control, binding instalasi, pemeriksaan lease/grace, serta entitlement dari payload signed (bukan flag SQL). FeatureGate tetap audit-only. Activation/polling/cache writer, replay/rollback lintas restart, Windows/native guard, pairing, limit dan enforcement belum selesai. APK ditunda owner. |
+| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `ARTIFACT_VERIFY_READY` | Batch 228: cutoff lokal alpha.3, paket bertanda tangan dan verifikasi CLI Control PASS dengan SQL Finance serta key release terpisah. Quality gate 108 entry lulus. Cold-start analisis statis perlu penataan budget/cache; tidak ada gate yang dilewati. Registrasi DRAFT/publish, installer Windows/Linux, upgrade/rollback customer nyata belum selesai; plan belum installer. |
+| C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `AUDIT_ONLY_FOUNDATION` | Batch 226 menambah verifier Ed25519 sesuai envelope Control, binding instalasi, pemeriksaan lease/grace, serta entitlement dari payload signed (bukan flag SQL). FeatureGate tetap audit-only. Activation/polling/cache writer, replay/rollback lintas restart, Windows/native guard, pairing, limit dan enforcement belum selesai. Komersialisasi APK boleh berjalan; bug operasional/build dan UAT APK ditunda owner. |
 | C5 — pilot/operasi penjualan | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Pilot non-Namua, support playbook, dan operasi penjualan belum dijalankan. |
 
 **Aturan urutan:** tidak ada enforcement lisensi atau pembangunan License Hub
@@ -177,10 +183,10 @@ tetap sejalan dengan arah produk ini:
 | Area | Kondisi Control Center | Kondisi Finance | Status sinkronisasi |
 | --- | --- | --- | --- |
 | Batas data/monitoring | Customer/instance terpisah; heartbeat signed, outbound, tanpa database atau data bisnis customer. | Sender heartbeat Finance memakai kontrak HMAC/nonce/idempotency yang sama. Pilot `NAMUA_FINANCE` telah diarsipkan dari Control, jadi ini bukti kontrak, bukan integrasi aktif. | `SELARAS`, jangan aktifkan ulang tanpa instance runtime terpisah. |
-| C1 katalog | Manifest v2, scanner allowlist, preview/import produk-edition-feature, dependency, hak perpetual, maintenance, dan audit tersedia. | `app-manifest.json` v2 `NAMUA_FINANCE` telah diimpor sebagai katalog draft: 28 feature, Starter POS/Operations/Control/Enterprise, 29 dependency, serta limit outlet/terminal awal. Source Finance masih dirty, sehingga tidak dapat dipakai sebagai release. | `TERHUBUNG_DRAFT`; catalog bukan FeatureGate dan belum mengubah runtime customer. |
+| C1 katalog | Manifest v2, scanner allowlist, preview/import produk-edition-feature, dependency, hak perpetual, maintenance, dan audit tersedia. | Katalog draft: 28 feature, Starter POS/Operations/Control/Enterprise, 29 dependency, limit outlet/terminal awal. Source alpha.3 kini mempunyai cutoff bersih `b10fa37`; versi release alpha.3 belum diregistrasikan/dipublikasikan di Control. | `TERHUBUNG_DRAFT`; catalog bukan FeatureGate dan belum mengubah runtime customer. |
 | C2 identitas customer | Registry customer/PIC/instance vendor tersedia. | Profil lokal, setup admin, branding shell/login/QR/dokumen/label, locale/currency/timezone, dan fallback printer tersedia. | `TIDAK TUMPANG TINDIH`; registry vendor bukan pengganti profil usaha lokal. Template marketing/install profile tetap Finance-side. |
-| C3 delivery | Release maker-checker, private artifact, install plan claim-once, unduhan hash-bound, dan receipt tersedia generik. | Preflight SemVer/package/runtime/migration dan plan installer non-mutating tersedia; build resmi tetap menolak worktree kotor. | `KONTRAK_AWAL`; claim/receipt client hanya dibuat setelah artifact bersih dan signed. |
-| C4 lisensi | Subscription, aktivasi server, lease Ed25519, grace/revoke, dan audit tersedia untuk Linux AMD64. | Registry/cache/device/audit lokal dan FeatureGate audit-only tersedia; belum ada verifier/pairing/enforcement. | `KONTRAK_AWAL`; tidak boleh mengaktifkan enforcement sebelum signed entitlement dan UAT offline. |
+| C3 delivery | Release maker-checker, private artifact, claim-once, unduhan hash-bound, dan receipt tersedia generik. Batch 228 menambah provisioning release-key Finance terpisah dan CLI verifikasi read-only. | Paket alpha.3 dari cutoff bersih, signature konteks release Control, katalog SQL/baseline/runtime, dan verifikasi CLI Control PASS. Dua build menghasilkan byte identik. | `VERIFY_PASS`; belum registrasi DRAFT/publish, client claim/receipt atau installer nyata. Cold-start analisis masih perlu ditata. |
+| C4 lisensi | Subscription, aktivasi server, lease Ed25519, grace/revoke, dan audit tersedia untuk Linux AMD64. | Registry/cache/device/audit lokal, FeatureGate audit-only dan verifier signed entitlement dengan binding instalasi tersedia (Batch 226). Activation/polling/cache writer, pairing dan enforcement belum selesai. | `VERIFIER_FOUNDATION`; signature release Batch 228 bukan aktivasi lisensi. UAT offline dan boundary enforcement tetap wajib. |
 | C5 operasi | Customer/instance/monitoring/audit tersedia; pilot produk generik belum dijalankan. | Belum ada pilot Finance customer non-Namua, SOP support, maupun panduan terikat release. | `BELUM DIMULAI`. |
 
 **Keputusan sinkronisasi yang mengikat:** Finance tetap memakai lisensi
@@ -976,6 +982,15 @@ memblokir artefak resmi. Pemeriksaan read-only Control juga menemukan
 bersama pengelola Control, bukan memakai key Penatausahaan atau menganggap
 format provenance Finance otomatis sama dengan format Control.
 
+**Delta Batch 228 (2026-09-09):** keputusan cutoff lokal sudah dilaksanakan
+pada `b10fa37`. Control kini mendukung provisioning key **release Finance**
+terpisah serta CLI verifikasi read-only dengan trust Finance; tidak memakai
+importer migration PHP Penatausahaan. Adapter membawa checksum seluruh
+katalog SQL/baseline dan status APK secara eksplisit. Panduan teknis ada pada
+`docs/control_release_delivery.md`. Registrasi DRAFT ke database Control,
+publish/install-plan, dan installer nyata masih terbuka; jangan menjalankan
+SQL di server aplikasi lama hanya karena file tersebut masuk paket.
+
 ### C4 — License Hub, entitlement, terminal, dan APK
 
 - Bangun Product Control Center multi-produk dan katalog artefak.
@@ -1004,7 +1019,9 @@ deployment-owned di luar webroot. Tes fixture kontrak dan negatif lulus;
 belum ada aktivasi customer nyata. FeatureGate tetap AUDIT_ONLY dan flag SQL
 saja tidak bisa mengaktifkan enforcement. Windows ACL, activation/polling/cache
 writer, proteksi replay/rollback lease lintas restart, native guard, pairing,
-dan enforcement lintas endpoint tetap terbuka. APK ditunda owner.
+dan enforcement lintas endpoint tetap terbuka. Sesuai arahan terbaru,
+komersialisasi APK boleh dilanjutkan, sementara bug operasional/build/UAT
+masih ditunda owner.
 
 ### C5 — Pilot berbayar dan operasi penjualan
 

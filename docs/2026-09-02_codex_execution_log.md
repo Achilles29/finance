@@ -7718,3 +7718,67 @@
   pernyataan C0–C5 atau APK selesai. Tidak menyentuh database transaksi.
 - Batch berikutnya: registrasi private artifact Finance di Control dan
   installer Linux/upgrade salinan DB dengan rollback disposable.
+
+### Hasil Batch 228 — 2026-09-09, 05:15 WIB
+
+- Cutoff source: `b10fa37a40a06b1867800327812ac1dc1490c176`, tag lokal
+  `finance-web-alpha.3-cutoff-20260909`. Dibanding checkpoint awal `d462d4a`:
+  **58 file baru + 141 file berubah**. Ini mengarsipkan pekerjaan terdahulu
+  yang masih uncommitted, bukan 199 fitur/perbaikan baru pada batch ini.
+  Commit agregat `f07524f`; `b10fa37` memperbaiki tes jumlah ID quality gate.
+  Laporan setelah build akan berada di commit dokumen terpisah; cutoff
+  source artefak tetap tag tersebut. Tidak merge/fetch/push.
+- Validasi pertama menemukan satu tes mengunci jumlah lama (110 termasuk
+  probe staging). Diperbaiki menjadi pemeriksaan keunikan terhadap daftar
+  aktual; exact expected ID/tier tetap diuji, tidak menghapus pemeriksaan.
+- Validasi final: quality gate profile release **PASS 108 entry** (98 required,
+  4 development, 1 release-config, 2 runtime, 1 preflight, 1 security, 1 static).
+  Probe DB staging SKIPPED sesuai scope. Tes bridge 22/22 PASS; kontrak
+  katalog Control 7/7 PASS; roadmap consistency 26 checks PASS.
+- Preflight source yang sudah masuk index: 1.621 kandidat, 553 excluded,
+  870 PHP lint, 1 Node, 3 Python; findings=0. Lint PHP bridge/tools Control
+  juga PASS. Migration validator: 16 managed, 7 legacy unmanaged PASS.
+- Kendala build awal: PHPStan cold checkout timeout pada gate 150 detik.
+  Analisis penuh pada checkout final dijalankan terpisah dengan batas
+  diagnostik 300 detik, memory 2G, satu worker, scope seluruh application:
+  errors=0/file_errors=0. Tidak mengganti baseline, exclusions, atau melewati
+  gate. Build ulang dari checkout tersebut menjalankan seluruh gate dan PASS.
+  **Risiko sisa tooling:** budget cold-start dan cache lintas checkout perlu
+  dibenahi sebelum installer clean-machine/pipeline tanpa persiapan dinyatakan
+  repeatable. Kelulusan warm-cache bukan penutupan risiko itu.
+- Artefak: `/var/lib/finance-cutoff-20260909.JOMHzG/finance-0.1.0-alpha.3.tar`;
+  1.621 file, 597.248.000 byte, source epoch 1788905198.
+  SHA256 `ed47c76e39d49a718b8905a94fb2d88be88ddc89104a4a38c7aec7d361f3600e`.
+  Inner manifest SHA256
+  `77b40ddbd3fdb2dae0146864ea41167e5eb3aa3abf936ae0d8b26fb211e45685`.
+- Repro-check: build kedua dari cutoff/epoch yang sama, dengan seluruh gate
+  tetap dijalankan, menghasilkan SHA256 yang sama dan `cmp` byte-identical.
+  Arsip bukti `finance-reprocheck.tar` dipertahankan di folder yang sama.
+  Ini membuktikan determinisme paket; bukan menghapus batasan cold-cache di atas.
+- Sidecar `.release.json` dan `.release.sig.json` di folder yang sama;
+  CLI Control `verify_finance_release.php` PASS: source sesuai cutoff,
+  16 managed/7 legacy SQL, INTERNAL_CANDIDATE, published=false,
+  database_changed=false, apk_release_ready=false. Paket ini bukan upload
+  UI Control 25 MiB; jalur registrasi private CLI Finance masih perlu dibuat.
+- Satu pasangan key **release Finance**, bukan key lisensi, dibuat oleh
+  provisioning Control di `/var/lib/namua-control/release-signing/`.
+  Private/trust root-owned 0600 di luar webroot. Tidak merotasi/memakai key
+  Penatausahaan, membuat instance customer, atau mengaktifkan entitlement.
+- Tidak ada SQL/schema baru dan tidak mengeksekusi SQL pada batch ini.
+  Lima SQL yang sekarang masuk cutoff sudah dibuat batch sebelumnya:
+  `2026-09-06f`, `2026-09-06g`, `2026-09-06h`, `2026-09-06i`, `2026-09-07a`;
+  baseline schema juga membawa perubahan terdahulu. Ini bukan instruksi
+  menjalankan semuanya di server utama; deployment kelak memakai DB salinan
+  dan policy migration yang sesuai.
+- `docs/_NOTE2.md` dan tiga logo upload lokal diverifikasi SHA256 tetap sama.
+  Tidak ada backup/upload/credential/log/data runtime milik user yang dihapus.
+  Checkout build terpisah bersih; staging sengaja masih memperlihatkan file
+  lokal tersebut sebagai modified/untracked. Daftar cutoff lengkap dan
+  diff/backup Control disimpan di folder bukti di atas (root-only).
+- Review mandiri: batch cutoff/signature/verify layak sebagai kandidat internal.
+  Bukan C3 keseluruhan selesai atau persetujuan menjual/deploy customer.
+  Berikutnya: rapikan tooling cold-start, registrasi DRAFT Finance/private
+  artifacts Control, kemudian installer nyata dan uji upgrade/rollback DB
+  disposable. Bug operasional APK tetap ditunda, komersialisasinya boleh berjalan.
+- Notifikasi ringkasan Batch 228 dikirim ke grup Telegram terkonfigurasi;
+  log mengonfirmasi `notification sent` pada 2026-09-09 05:18:54 WIB.

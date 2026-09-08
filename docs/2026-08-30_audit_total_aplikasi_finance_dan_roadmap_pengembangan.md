@@ -4,11 +4,15 @@
 komersialisasi APK (boleh) dari bug operasional/build APK (ditunda).
 Tidak mengulang A3 atau memperbaiki transaksi. Batas PHP manifest dikoreksi
 dari klaim sampai 8.4 menjadi PHP 8.1 sesuai runtime yang benar-benar diuji.
-Cutoff Git terseleksi dan verifikasi artefak dari checkout bersih sedang
-dijalankan; status akhir/hash dicatat pada log batch. Integrasi Git remote,
+Cutoff Git terseleksi `b10fa37` selesai, tanpa merge/push. Quality gate release
+lulus 108 entry; paket dari checkout bersih telah ditandatangani dan diverifikasi
+Control sebagai kandidat internal. Cold-start PHPStan melampaui timeout 150 detik;
+analisis penuh terpisah lulus nol error, lalu semua gate build lulus. Penataan
+budget/cache cold-start tetap tindak lanjut A4/A5. Status akhir/hash ada di log.
+Integrasi Git remote,
 UAT, dan handoff produksi tetap belum selesai. Detail delivery hanya di `_28`.
 
-**Status terbaru 2026-09-08 — Batch 224–227:** APK ditunda atas arahan owner;
+**Riwayat 2026-09-08 — Batch 224–227:** APK ditunda atas arahan owner;
 bug/build/UAT APK tetap terbuka, tidak dianggap selesai. Perbaikan baru
 non-APK: batas paket rilis kini wajib mengecualikan `assets/uploads/`,
 pemeriksaan delapan folder upload memakai policy bersama UI/installer,
@@ -25,9 +29,11 @@ Checklist delta teknis (tidak mengulang A3 inventory/sidebar):
 - [x] A5: policy folder upload bersama; delapan folder staging READY sebagai akun `www`.
 - [x] A5: ganti hook `sed` Composer menjadi PHP portabel dengan no-op saat paket development tidak ada.
 - [x] A1→C4: flag VERIFIED/feature_cache lokal tidak cukup untuk memberikan entitlement.
-- [ ] A0/A5: pilih cutoff source dan integrasi Git; HEAD `d462d4a9cb39fcb74ff8e874549982a74fc33e15`, divergensi lokal/origin 37/150 diverifikasi 2026-09-08, worktree tetap dirty.
-- [ ] A0/A5: paket customer signed + restore/upgrade/rollback nyata + persetujuan handoff belum selesai.
-- [ ] A1/A4: penerimaan per peran dan printer fisik; APK serta MFA ditunda owner.
+- [x] A0/A5: cutoff source lokal `b10fa37a40a06b1867800327812ac1dc1490c176`, tag `finance-web-alpha.3-cutoff-20260909`; catatan lokal/upload dipertahankan di luar commit.
+- [x] A0/A5: paket kandidat internal signed dari cutoff bersih lulus verifikasi Control (Batch 228); bukan publish.
+- [ ] A0/A5: integrasi Git remote, restore/upgrade/rollback customer nyata dan persetujuan handoff belum selesai.
+- [ ] A4/A5: rapikan cold-start analisis statis; batas gate saat ini membutuhkan cache yang sudah dibentuk oleh analisis penuh yang lulus.
+- [ ] A1/A4: penerimaan per peran dan printer fisik; bug operasional/build/UAT APK serta MFA ditunda owner, pekerjaan komersialisasi APK diperbolehkan.
 
 Laporan batch: `docs/2026-09-02_codex_execution_log.md`.
 

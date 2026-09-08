@@ -14,6 +14,14 @@ aktivasi lisensi. Jalankan sebagai admin rilis Linux; jangan melalui browser.
    php tools/release/build_release_artifact.php --output=/var/lib/finance-release/finance-alpha.tar --source-epoch=COMMIT_UNIX_TIME
    ```
 
+   Catatan Batch 228: checkout baru/cold cache melampaui batas PHPStan gate
+   150 detik. Analisis penuh dengan command PHPStan yang sama, scope seluruh
+   `application`, satu worker dan memory 2G lulus nol error dalam batas
+   diagnostik 300 detik. Builder kemudian dijalankan ulang dan semua gate
+   lulus. Jangan menonaktifkan gate atau menyalin hasil PASS dari source lain.
+   Budget cold-start dan isolasi cache per checkout masih merupakan tindak
+   lanjut tooling; panduan ini belum mengklaim installer clean-machine selesai.
+
 3. Control menyediakan key release khusus produk `NAMUA_FINANCE` melalui
    `tools/provision_release_signing_key.php NAMUA_FINANCE`. Hanya sekali oleh
    root; file private/trust berada di `/var/lib/namua-control/release-signing/`.
@@ -59,6 +67,11 @@ Kontrak:
   baru harus memilih template customer di Profil Usaha; audit identitas/aset
   legacy menyeluruh tetap menjadi checklist C2, bukan dinyatakan selesai oleh
   tanda tangan paket.
+
+Kandidat Batch 228: versi `0.1.0-alpha.3`, cutoff Git
+`b10fa37a40a06b1867800327812ac1dc1490c176`. Bukti/hash dan lokasi arsip
+staging dicatat pada execution log; source/tag terpisah dari commit laporan
+setelah build. Tidak perlu menjalankan SQL tambahan untuk batch delivery ini.
 
 Setelah verifikasi: adapter registrasi Finance di private artifact storage
 Control, lalu installer Linux/upgrade salinan database/rollback disposable.
