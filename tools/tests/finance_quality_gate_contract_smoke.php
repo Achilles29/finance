@@ -152,8 +152,9 @@ $check(
     $printerRuntime === finance_quality_gate_runtime_dir() . '/printer-venv/bin/python',
     'Printer Agent runtime is pinned to the A4 venv Python executable'
 );
+$allAutomatedIds = array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds);
 $check(
-    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 110,
+    count(array_unique($allAutomatedIds)) === count($allAutomatedIds),
     'all automated manifest IDs are unique'
 );
 $check(
