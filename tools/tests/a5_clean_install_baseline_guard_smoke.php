@@ -28,6 +28,15 @@ $check($result['seed_rows'] === $policy['seed']['artifact_rows'], 'seed row inve
 $check(substr_count($schema, 'CREATE TABLE `') === 296, 'baseline contains exactly 296 unique schema tables');
 $check(strpos($schema, "DEFAULT 'local-dev-token'") === false, 'baseline contains no local development bot token default');
 $check(preg_match('/\b(?:INSERT\s+INTO|REPLACE\s+INTO|DELETE\s+FROM|LOAD\s+DATA)\b/i', $schema) !== 1, 'baseline contains no row data statements');
+// These indexes are added unconditionally by immutable managed migrations.
+// Pre-creating them in the baseline breaks clean install with duplicate-key errors.
+foreach (['cashier' => '2026-09-06f_pos_mobile_cashier_close_step_up.sql',
+    'reservation' => '2026-09-06g_pos_mobile_reservation_refund_step_up.sql'] as $kind => $file) {
+    $index = 'idx_pos_mobile_sensitive_action_proof_' . $kind . '_consume';
+    $migration = (string)file_get_contents($root . '/sql/' . $file);
+    $check(strpos($schema, 'KEY `' . $index . '`') === false
+        && strpos($migration, 'ADD KEY `' . $index . '`') !== false, 'managed migration, not baseline, owns ' . $kind . ' index');
+}
 
 $cases = [
     'customer insert' => $schema . "\nINSERT INTO auth_user (id) VALUES (1);",

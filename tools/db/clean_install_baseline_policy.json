@@ -1,10 +1,10 @@
 {
   "format": "finance-clean-install-baseline-policy",
   "version": 1,
-  "cutoff": "2026-09-07",
+  "cutoff": "2026-09-09",
   "schema": {
     "path": "sql/baseline/2026-09-05_clean_install_schema.sql",
-    "sha256": "db8b02628b0c21e0c88a42a94f41335f614573661c418a3910cac5015d508fba",
+    "sha256": "92a961016e59553c1d31d9dc9084d66fc8138cb7e6467edb73d475e45c9c20b7",
     "table_count": 296,
     "required_tables": [
       "auth_user",

@@ -5380,8 +5380,6 @@ CREATE TABLE `pos_mobile_sensitive_action_proof` (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uq_pos_mobile_sensitive_action_proof_hash` (`proof_hash`) USING BTREE,
   KEY `idx_pos_mobile_sensitive_action_proof_consume` (`mobile_token_id`,`user_id`,`terminal_id`,`action`,`order_id`,`expires_at`,`consumed_at`) USING BTREE,
-  KEY `idx_pos_mobile_sensitive_action_proof_cashier_consume` (`mobile_token_id`,`user_id`,`terminal_id`,`action`,`cashier_session_id`,`expires_at`,`consumed_at`) USING BTREE,
-  KEY `idx_pos_mobile_sensitive_action_proof_reservation_consume` (`mobile_token_id`,`user_id`,`terminal_id`,`action`,`reservation_id`,`expires_at`,`consumed_at`) USING BTREE,
   KEY `idx_pos_mobile_sensitive_action_proof_expiry` (`expires_at`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='One-use reauthentication proofs for POS Mobile sensitive actions.';
 /*!40101 SET character_set_client = @saved_cs_client */;

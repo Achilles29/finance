@@ -3,9 +3,9 @@
   "product_code": "NAMUA_FINANCE",
   "name": "Namua Finance POS",
   "description": "Aplikasi operasional usaha dan kasir: POS web/mobile, persediaan, produksi, keuangan, HR, aset, serta integrasi terpilih.",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.5",
   "schema_version": "finance-20260907",
-  "baseline_schema_version": "clean-install-20260905",
+  "baseline_schema_version": "clean-install-20260909",
   "framework": "CodeIgniter 3.1.13",
   "runtime": {
     "php": ">=8.1 <8.2",
