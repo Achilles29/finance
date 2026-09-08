@@ -10,6 +10,6 @@ parameters:
     reportUnmatchedIgnoredErrors: true
     tmpDir: %env.A4_STATIC_RUNTIME_DIR%/tmp
     parallel:
-        maximumNumberOfProcesses: 4
+        maximumNumberOfProcesses: 1
         minimumNumberOfJobsPerProcess: 8
         processTimeout: 120.0

@@ -3,7 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-<title><?= htmlspecialchars($title ?? 'Finance') ?> - Finance App</title>
+<?php
+$businessProfile = is_array($business_profile ?? null) ? $business_profile : [];
+$businessName = trim((string)($businessProfile['display_name'] ?? ''));
+$businessName = $businessName !== '' ? $businessName : 'Finance';
+$pageTitle = trim((string)($title ?? ''));
+$pageTitle = $pageTitle !== '' ? $pageTitle : $businessName;
+?>
+<title><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?> — <?= htmlspecialchars($businessName, ENT_QUOTES, 'UTF-8') ?></title>
 <link rel="icon" type="image/x-icon" href="<?= base_url('assets/img/favicon.ico') ?>">
 
 <!-- Google Fonts: Plus Jakarta Sans (400-800) -->
@@ -21,7 +28,7 @@
 <!-- ApexCharts -->
 <link rel="stylesheet" href="<?= base_url('assets/vendor/libs/apex-charts/apex-charts.css') ?>">
 <!-- Finance Theme (merah + cream) -->
-<link rel="stylesheet" href="<?= base_url('assets/css/theme-custom.css?v=20260601a') ?>">
+<link rel="stylesheet" href="<?= base_url('assets/css/theme-custom.css?v=20260907b') ?>">
 <link rel="stylesheet" href="<?= base_url('assets/css/app.css?v=20260520a') ?>">
 
 <!-- Materio Helpers (sebelum body) -->

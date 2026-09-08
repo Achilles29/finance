@@ -25,68 +25,50 @@ $printerDownloadUrl = static function (string $key): string { return site_url('p
         <?php if ($canAgentProvision): ?><div class="printer-guide-package mb-2"><a class="btn btn-primary btn-sm" href="<?= $printerDownloadUrl('agent_bundle') ?>"><i class="ri-folder-zip-line me-1"></i>Unduh Paket Agent Lengkap (.zip)</a><div class="small text-muted mt-2">Ekstrak folder <code>pos_printer_agent</code>, lalu ikuti panduan Windows atau Linux di bawah.</div></div><?php endif; ?>
         <div class="printer-guide-file"><strong>Wajib</strong><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('agent_py') ?>" download><i class="ri-download-2-line"></i><code>agent.py</code></a><span class="small text-muted">Program agent</span></div>
         <div class="printer-guide-file"><strong>Wajib</strong><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('requirements') ?>" download><i class="ri-download-2-line"></i><code>requirements.txt</code></a><span class="small text-muted">Flask, serial, Pillow, dan QR</span></div>
-        <div class="printer-guide-file"><strong>Mulai dari</strong><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('config_example') ?>" download><i class="ri-download-2-line"></i><code>config.example.json</code></a><?php if ($canAgentProvision): ?><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('config_json') ?>" download><i class="ri-download-2-line"></i><code>config.json dari Finance</code></a><?php endif; ?><span class="small text-muted">Ambil file aktif setelah koneksi printer disimpan</span></div>
-        <div class="printer-guide-file"><strong>Windows</strong><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('run_windows') ?>" download><i class="ri-download-2-line"></i><code>run_windows.bat</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('detect_windows') ?>" download><i class="ri-download-2-line"></i><code>detect_windows.bat</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('detect_py') ?>" download><i class="ri-download-2-line"></i><code>detect_printers.py</code></a></div>
-        <div class="printer-guide-file"><strong>Linux</strong><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('run_linux') ?>" download><i class="ri-download-2-line"></i><code>run_linux.sh</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('detect_linux') ?>" download><i class="ri-download-2-line"></i><code>detect_linux.sh</code></a></div>
+        <div class="printer-guide-file"><strong>Mulai dari</strong><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('config_example') ?>" download><i class="ri-download-2-line"></i><code>config.example.json</code></a><span class="small text-muted">Contoh tanpa secret; gunakan hanya bila administrator server belum menyiapkan pairing.</span></div>
+        <?php if ($canAgentProvision): ?><div class="printer-guide-file"><strong>Pairing agent</strong><div class="input-group input-group-sm" style="max-width:330px"><input id="printer-agent-name" class="form-control" value="FINANCE-POS-PRINTER-01" maxlength="80" autocomplete="off" aria-label="Nama agent printer"><button type="button" id="download-printer-agent-config" class="btn btn-primary">Unduh config.json</button></div><span class="small text-muted">Isi nama komputer agent (huruf, angka, titik, strip, underscore). Nama ini harus sama dengan kolom Agent Host pada Koneksi Printer.</span></div><?php endif; ?>
+        <div class="printer-guide-file"><strong>Windows</strong><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('run_windows') ?>" download><i class="ri-download-2-line"></i><code>run_windows.bat</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('install_windows_task') ?>" download><i class="ri-download-2-line"></i><code>install_windows_task.bat</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('uninstall_windows_task') ?>" download><i class="ri-download-2-line"></i><code>uninstall_windows_task.bat</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('detect_windows') ?>" download><i class="ri-download-2-line"></i><code>detect_windows.bat</code></a></div>
+        <div class="printer-guide-file"><strong>Linux</strong><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('run_linux') ?>" download><i class="ri-download-2-line"></i><code>run_linux.sh</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('install_linux_service') ?>" download><i class="ri-download-2-line"></i><code>install_linux_service.sh</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('uninstall_linux_service') ?>" download><i class="ri-download-2-line"></i><code>uninstall_linux_service.sh</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('detect_linux') ?>" download><i class="ri-download-2-line"></i><code>detect_linux.sh</code></a></div>
         <div class="printer-guide-file"><strong>Pemeriksaan</strong><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('check_saved_printers') ?>" download><i class="ri-download-2-line"></i><code>check_saved_printers.py</code></a><a class="printer-guide-file-link" href="<?= $printerDownloadUrl('readme') ?>" download><i class="ri-download-2-line"></i><code>README.md</code></a></div>
       </div></section>
-      <section class="card print-config-card"><div class="card-body"><div class="print-config-kicker">Keperluan terbaru</div><h5 class="mb-2">Yang harus tersedia</h5><ul class="small text-muted mb-0 ps-3"><li class="mb-2">Python 3.10 atau lebih baru.</li><li class="mb-2">Akses ke printer USB, serial, atau Bluetooth yang sudah berfungsi dari sistem operasi.</li><li class="mb-2">Browser POS dan agent harus berjalan pada komputer kasir yang sama. Agent sengaja hanya membuka <code>127.0.0.1</code> demi keamanan.</li><li class="mb-2">Origin halaman Finance harus sama persis dengan <code>api.base_url</code> atau masuk ke <code>api.allowed_origins</code>. Saat offline, isi allowlist exact; jangan gunakan wildcard.</li><li class="mb-2">Bootstrap key di PHP-FPM wajib tersedia dan hanya dikirim agent melalui header <code>X-Printer-Key</code>; query-string tidak didukung.</li><li class="mb-2"><code>qrcode[pil]</code> dan <code>Pillow</code> dari <code>requirements.txt</code> tetap disarankan agar agent bisa mencetak QR sebagai gambar. Bila belum terpasang, agent terbaru akan mencoba fallback QR native ESC/POS pada printer yang mendukung.</li><li>Layout layar memakai aset QR lokal dari aplikasi, sehingga poster dan preview tidak menunggu layanan QR pihak ketiga.</li></ul></div></section>
+      <section class="card print-config-card"><div class="card-body"><div class="print-config-kicker">Keperluan terbaru</div><h5 class="mb-2">Yang harus tersedia</h5><ul class="small text-muted mb-0 ps-3"><li class="mb-2">Python 3.10 atau lebih baru.</li><li class="mb-2">Akses ke printer USB, serial, atau Bluetooth yang sudah berfungsi dari sistem operasi.</li><li class="mb-2">Browser POS dan agent harus berjalan pada komputer kasir yang sama. Agent sengaja hanya membuka <code>127.0.0.1</code> demi keamanan.</li><li class="mb-2">Origin halaman Finance harus sama persis dengan origin di <code>config.json</code>; saat offline, gunakan allowlist exact dan jangan wildcard.</li><li class="mb-2">Administrator server menyiapkan key pairing di PHP-FPM. Operator cukup mengisi nama agent lalu mengunduh <code>config.json</code> dari halaman ini; jangan pernah mengedit atau membagikan nilai <code>api.key</code>.</li><li class="mb-2"><code>qrcode[pil]</code> dan <code>Pillow</code> dari <code>requirements.txt</code> tetap disarankan agar agent bisa mencetak QR sebagai gambar. Bila belum terpasang, agent terbaru akan mencoba fallback QR native ESC/POS pada printer yang mendukung.</li><li>Layout layar memakai aset QR lokal dari aplikasi, sehingga poster dan preview tidak menunggu layanan QR pihak ketiga.</li></ul></div></section>
     </aside>
   </div>
 
   <div class="row g-3 mb-3">
     <section class="col-xl-6"><div class="card print-config-card h-100"><div class="card-body"><div class="print-config-kicker">Windows</div><h5 class="mb-3">Pemasangan di komputer kasir Windows</h5>
-      <ol class="small text-muted ps-3 mb-0"><li class="mb-2">Unduh Python dari <a href="https://www.python.org/downloads/windows/" target="_blank" rel="noopener">python.org</a>. Saat memasang, centang <strong>Add Python to PATH</strong>.</li><li class="mb-2">Salin folder agent menjadi misalnya <code>C:\NamuaPosPrinterAgent</code>.</li><li class="mb-2">Buka Command Prompt di folder tersebut, lalu jalankan:</li></ol>
-      <pre class="printer-guide-code">cd C:\NamuaPosPrinterAgent
+      <ol class="small text-muted ps-3 mb-0"><li class="mb-2">Unduh Python dari <a href="https://www.python.org/downloads/windows/" target="_blank" rel="noopener">python.org</a>. Saat memasang, centang <strong>Add Python to PATH</strong>.</li><li class="mb-2">Ekstrak paket agent, misalnya ke <code>C:\FinancePosPrinterAgent</code>.</li><li class="mb-2">Buka Command Prompt di folder tersebut, lalu jalankan:</li></ol>
+      <pre class="printer-guide-code">cd C:\FinancePosPrinterAgent
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt</pre>
-      <ol class="small text-muted ps-3 mb-0" start="4"><li class="mb-2">Jalankan <code>detect_windows.bat</code> untuk membantu melihat printer/port. Pastikan printer sudah terhubung dan menyala.</li><li class="mb-2">Salin <code>config.example.json</code> menjadi <code>config.json</code>, lalu isi host, port, API key, dan daftar perangkat sesuai hasil deteksi.</li><li class="mb-2">Uji tanpa mencetak transaksi nyata:</li></ol>
+      <ol class="small text-muted ps-3 mb-0" start="4"><li class="mb-2">Jalankan <code>detect_windows.bat</code> untuk membantu melihat printer/port. Pastikan printer sudah terhubung dan menyala.</li><li class="mb-2">Di halaman ini, isi nama agent yang sama dengan <strong>Agent Host</strong> di Koneksi Printer, lalu unduh <code>config.json</code> dan simpan ke folder agent. File ini sudah memuat pairing; jangan menulis API key sendiri.</li><li class="mb-2">Uji tanpa mencetak transaksi nyata:</li></ol>
       <pre class="printer-guide-code">.venv\Scripts\python.exe agent.py --config config.json --once</pre>
-      <ol class="small text-muted ps-3 mb-0" start="7"><li class="mb-2">Jalankan terus-menerus dengan <code>run_windows.bat</code>.</li><li>Untuk otomatis saat komputer menyala, buat tugas di <strong>Task Scheduler</strong>: Trigger <em>At log on</em>, Action menunjuk ke <code>run_windows.bat</code>, dan <em>Start in</em> ke folder agent.</li></ol>
+      <ol class="small text-muted ps-3 mb-0" start="7"><li class="mb-2">Jalankan terus-menerus dengan <code>run_windows.bat</code>.</li><li>Untuk otomatis saat user kasir login, klik dua kali <code>install_windows_task.bat</code>. Untuk melepas autostart tanpa menghapus file konfigurasi, jalankan <code>uninstall_windows_task.bat</code>.</li></ol>
     </div></div></section>
     <section class="col-xl-6"><div class="card print-config-card h-100"><div class="card-body"><div class="print-config-kicker">Linux</div><h5 class="mb-3">Pemasangan di komputer kasir Linux</h5>
-      <ol class="small text-muted ps-3 mb-0"><li class="mb-2">Salin folder agent, misalnya ke <code>/opt/namua-pos-printer-agent</code>.</li><li class="mb-2">Pasang Python dan kebutuhan sistem:</li></ol>
+      <ol class="small text-muted ps-3 mb-0"><li class="mb-2">Ekstrak folder agent, misalnya ke <code>/opt/finance-pos-printer-agent</code>.</li><li class="mb-2">Pasang Python dan kebutuhan sistem:</li></ol>
       <pre class="printer-guide-code">sudo apt update
 sudo apt install -y python3 python3-venv python3-pip bluez libjpeg-dev zlib1g-dev
 sudo usermod -aG dialout $USER</pre>
       <p class="small text-muted">Setelah menambahkan grup <code>dialout</code>, keluar lalu masuk kembali agar akses perangkat serial/USB aktif.</p>
       <ol class="small text-muted ps-3 mb-0" start="3"><li class="mb-2">Buat virtual environment dan pasang dependensi:</li></ol>
-      <pre class="printer-guide-code">cd /opt/namua-pos-printer-agent
+      <pre class="printer-guide-code">cd /opt/finance-pos-printer-agent
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 chmod +x run_linux.sh detect_linux.sh
 ./detect_linux.sh</pre>
-      <ol class="small text-muted ps-3 mb-0" start="4"><li class="mb-2">Salin <code>config.example.json</code> menjadi <code>config.json</code>, lalu isi konfigurasi perangkat.</li><li class="mb-2">Uji agent:</li></ol>
+      <ol class="small text-muted ps-3 mb-0" start="4"><li class="mb-2">Unduh <code>config.json</code> dari halaman ini menggunakan nama agent yang sama dengan <strong>Agent Host</strong>; simpan di folder agent.</li><li class="mb-2">Uji agent:</li></ol>
       <pre class="printer-guide-code">./.venv/bin/python agent.py --config config.json --once
 ./run_linux.sh</pre>
-      <p class="small text-muted mb-0">Untuk menjalankan saat boot, gunakan systemd. Isi <code>User=</code>, folder kerja, dan path agent sesuai komputer Anda.</p>
+      <p class="small text-muted mb-0">Untuk menjalankan saat boot, jalankan <code>./install_linux_service.sh</code> sebagai user operator. Script membuat service systemd dan meminta sudo hanya saat diperlukan. Untuk melepasnya gunakan <code>./uninstall_linux_service.sh</code>.</p>
     </div></div></section>
   </div>
 
-  <section class="card print-config-card mb-3"><div class="card-body"><div class="print-config-kicker">Autostart Linux dengan systemd</div><h5 class="mb-2">Contoh service yang aman</h5><p class="small text-muted">Buat file <code>/etc/systemd/system/namua-pos-printer.service</code>, lalu sesuaikan nama user dan lokasi folder bila berbeda.</p>
-    <pre class="printer-guide-code">[Unit]
-Description=Namua POS Printer Agent
-After=network.target
-
-[Service]
-Type=simple
-User=namua
-WorkingDirectory=/opt/namua-pos-printer-agent
-ExecStart=/opt/namua-pos-printer-agent/.venv/bin/python /opt/namua-pos-printer-agent/agent.py --config /opt/namua-pos-printer-agent/config.json
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now namua-pos-printer
-sudo systemctl status namua-pos-printer</pre>
-  </div></section>
+  <section class="card print-config-card mb-3"><div class="card-body"><div class="print-config-kicker">Restart dan kesehatan agent</div><h5 class="mb-2">Kapan perlu restart?</h5><p class="small text-muted mb-2">Perubahan layout dan aturan cetak tidak membutuhkan restart. Namun jika Anda mengubah <strong>Koneksi Printer</strong>, nama agent, MAC address, atau port, restart service agent agar port lama benar-benar dilepas dan konfigurasi baru dipakai. Buka <code>http://127.0.0.1:PORT/health</code> dari komputer kasir: bila tertulis <code>restart_required</code>, restart service/task agent.</p><ul class="small text-muted mb-0 ps-3"><li>Windows: tutup proses agent lalu buka kembali <code>run_windows.bat</code>, atau log out/login bila memakai Task Scheduler.</li><li>Linux: jalankan <code>sudo systemctl restart finance-pos-printer-agent</code>, lalu <code>sudo systemctl status finance-pos-printer-agent</code>.</li><li>Untuk memeriksa pairing tanpa mencetak: jalankan <code>python agent.py --config config.json --once</code>.</li></ul></div></section>
 
   <section class="card print-config-card"><div class="card-body"><div class="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-3"><div><div class="print-config-kicker">Pemeriksaan & masalah umum</div><h5 class="mb-0">Baca ini sebelum mengubah data secara acak</h5></div><div class="printer-guide-links"><a class="btn btn-outline-secondary btn-sm" href="<?= site_url('pos/printers/preview-live') ?>">Buka Preview</a><a class="btn btn-outline-secondary btn-sm" href="<?= site_url('pos/printers/monitor') ?>">Buka Monitor</a><a class="btn btn-outline-secondary btn-sm" href="<?= site_url('pos/customer-reviews') ?>">Buka Ulasan Pelanggan</a></div></div>
     <div class="table-responsive"><table class="table table-sm printer-guide-table"><thead><tr><th>Gejala</th><th>Langkah pemeriksaan</th></tr></thead><tbody>
@@ -99,3 +81,23 @@ sudo systemctl status namua-pos-printer</pre>
     </tbody></table></div>
   </div></section>
 </div>
+<?php if ($canAgentProvision): ?>
+<script>
+(function () {
+  const field = document.getElementById('printer-agent-name');
+  const button = document.getElementById('download-printer-agent-config');
+  if (!field || !button) return;
+  const baseUrl = <?= json_encode($printerDownloadUrl('config_json')) ?>;
+  button.addEventListener('click', function () {
+    const agentName = String(field.value || '').trim().toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9_.-]{0,79}$/.test(agentName)) {
+      window.alert('Nama agent wajib berisi huruf/angka dan boleh memakai titik, strip, atau underscore.');
+      field.focus();
+      return;
+    }
+    field.value = agentName;
+    window.location.assign(baseUrl + (baseUrl.indexOf('?') >= 0 ? '&' : '?') + 'agent_name=' + encodeURIComponent(agentName));
+  });
+}());
+</script>
+<?php endif; ?>

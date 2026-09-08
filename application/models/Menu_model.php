@@ -49,6 +49,16 @@ class Menu_model extends CI_Model
             $item_parent = $item['parent_id'] ? (int)$item['parent_id'] : null;
             if ($item_parent === $parent_id) {
                 $item['children'] = $this->_build_tree($items, (int)$item['id']);
+
+                // A group row itself has no page permission. Keep it only when
+                // at least one authorized descendant remains. This prevents a
+                // role from seeing empty category shells after menu regrouping.
+                $url = trim((string)($item['url'] ?? ''));
+                $hasRealUrl = $url !== '' && $url !== '#'
+                    && stripos($url, 'javascript:') !== 0;
+                if (!$hasRealUrl && $item['children'] === []) {
+                    continue;
+                }
                 $tree[] = $item;
             }
         }

@@ -9023,7 +9023,13 @@ class Pos_model extends CI_Model
             $extraTotal = round($extraTotal, 2);
 
             $normalized[] = [
-                'order_line_id' => !empty($line['id']) ? (int)$line['id'] : 0,
+                // Web forms historically submit `id`, while POS Mobile keeps
+                // the server line identity under `order_line_id`. Preserve
+                // both contracts so confirmed orders can append new items
+                // without mistaking every existing line for a new one.
+                'order_line_id' => !empty($line['order_line_id'])
+                    ? (int)$line['order_line_id']
+                    : (!empty($line['id']) ? (int)$line['id'] : 0),
                 'product_id' => $productId,
                 'bundle_id' => $bundleId,
                 'product_code' => (string)($product['product_code'] ?? ''),

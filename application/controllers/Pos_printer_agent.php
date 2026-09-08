@@ -38,6 +38,12 @@ class Pos_printer_agent extends CI_Controller
                 'status' => 'success',
                 'message' => 'Printer bootstrap loaded.',
                 'config_source' => 'pos_print_connection',
+                // Range (rather than one exact version) keeps an already
+                // installed agent compatible through a non-breaking release.
+                'agent_contract' => [
+                    'min_protocol' => 1,
+                    'max_protocol' => 2,
+                ],
                 'data' => $rows,
             ], JSON_INVALID_UTF8_SUBSTITUTE));
     }
@@ -60,8 +66,9 @@ class Pos_printer_agent extends CI_Controller
 
     private function verify_printer_agent_key(): bool
     {
-        $expectedKey = trim((string)getenv('POS_PRINTER_BOOTSTRAP_KEY'));
-        if ($expectedKey === '') {
+        $agentName = $this->normalise_agent_name((string)$this->input->get('agent_name', true));
+        $expectedKeys = $this->expected_printer_agent_keys($agentName);
+        if (empty($expectedKeys)) {
             $this->output
                 ->set_status_header(503)
                 ->set_content_type('application/json')
@@ -73,7 +80,14 @@ class Pos_printer_agent extends CI_Controller
         }
 
         $providedKey = trim((string)$this->input->get_request_header('X-Printer-Key', true));
-        if ($providedKey === '' || !hash_equals($expectedKey, $providedKey)) {
+        $isValid = false;
+        foreach ($expectedKeys as $expectedKey) {
+            if ($providedKey !== '' && hash_equals($expectedKey, $providedKey)) {
+                $isValid = true;
+                break;
+            }
+        }
+        if (!$isValid) {
             $this->output
                 ->set_status_header(403)
                 ->set_content_type('application/json')
@@ -85,5 +99,60 @@ class Pos_printer_agent extends CI_Controller
         }
 
         return true;
+    }
+
+    /**
+     * Optional per-agent map for production pairing and staged rotation.
+     *
+     * POS_PRINTER_AGENT_KEYS is a private PHP-FPM environment JSON object:
+     * {"KASIR-01":{"current":"new-secret","previous":"old-secret"}}
+     * A simple string value is also accepted as current for compact deploys.
+     * When the map is present it is authoritative: there is no global-key
+     * fallback for an unknown agent. Existing installations keep using the
+     * legacy current/previous global variables until the map is provisioned.
+     */
+    private function expected_printer_agent_keys(string $agentName): array
+    {
+        $configured = trim((string)getenv('POS_PRINTER_AGENT_KEYS'));
+        if ($configured !== '') {
+            $decoded = json_decode($configured, true);
+            if (!is_array($decoded) || $agentName === '' || !array_key_exists($agentName, $decoded)) {
+                return [];
+            }
+            $record = $decoded[$agentName];
+            if (is_string($record)) {
+                $record = ['current' => $record];
+            }
+            if (!is_array($record)) {
+                return [];
+            }
+            return $this->non_empty_keys([
+                $record['current'] ?? '',
+                $record['previous'] ?? '',
+            ]);
+        }
+
+        return $this->non_empty_keys([
+            getenv('POS_PRINTER_BOOTSTRAP_KEY'),
+            getenv('POS_PRINTER_BOOTSTRAP_KEY_PREVIOUS'),
+        ]);
+    }
+
+    private function non_empty_keys(array $values): array
+    {
+        $keys = [];
+        foreach ($values as $value) {
+            $value = trim((string)$value);
+            if ($value !== '') {
+                $keys[] = $value;
+            }
+        }
+        return array_values(array_unique($keys));
+    }
+
+    private function normalise_agent_name(string $value): string
+    {
+        $value = strtoupper(trim($value));
+        return preg_match('/^[A-Z0-9][A-Z0-9_.-]{0,79}$/', $value) ? $value : '';
     }
 }

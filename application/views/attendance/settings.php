@@ -241,7 +241,7 @@ if ($revisionWindowDays <= 0) {
               <option value="<?php echo $opt; ?>" <?php echo ((string)$val('meal_calc_mode', 'MONTHLY') === $opt) ? 'selected' : ''; ?>><?php echo html_escape($label); ?></option>
             <?php endforeach; ?>
           </select>
-          <div class="form-text">Mode CUSTOM: uang makan tetap muncul di gross, tetapi net harian tidak memasukkan uang makan.</div>
+          <div class="form-text"><strong>Bulanan:</strong> hak uang makan per hari masuk ke payroll periode. <strong>Custom:</strong> hak tetap dicatat per hari, tetapi dibayar melalui batch Pencairan Uang Makan (bisa harian, mingguan, atau rentang tanggal lain).</div>
         </div>
         <div class="col-md-3 d-flex align-items-end">
           <div class="form-check mb-2 me-3">

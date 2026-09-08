@@ -7,10 +7,15 @@ $product_categories = $product_categories ?? [];
 $galleries  = $galleries  ?? [];
 $embeds     = $embeds     ?? [];
 $links      = $links      ?? [];
+$landingPageMutationCsrf = $landing_page_mutation_csrf ?? '';
+$businessProfile = is_array($business_profile ?? null) ? $business_profile : [];
+$landingBusinessName = trim((string)($businessProfile['display_name'] ?? ''));
+$landingBusinessName = $landingBusinessName !== '' ? $landingBusinessName : 'Usaha Anda';
 
-$host = preg_replace('/:\\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
-$isLocalHost = in_array($host, ['localhost', '127.0.0.1'], true);
-$landingUrl = $isLocalHost ? 'http://localhost/namuacoffee.com/' : 'https://namuacoffee.com/';
+$configuredLandingUrl = trim((string)($cfg['seo_canonical_url'] ?? ''));
+$landingUrl = filter_var($configuredLandingUrl, FILTER_VALIDATE_URL) ? $configuredLandingUrl : base_url();
+$defaultSeoTitle = $landingBusinessName . ' | Informasi & Pemesanan';
+$defaultSeoDescription = 'Informasi, menu, dan layanan dari ' . $landingBusinessName . '.';
 $menuCategoryIds = array_filter(array_map('intval', explode(',', (string)($cfg['menu_kategori_ids'] ?? ''))));
 $galleryCategoryIds = array_filter(array_map('intval', explode(',', (string)($cfg['gallery_kategori_ids'] ?? ''))));
 
@@ -53,12 +58,14 @@ function lp_badge(int $active): string {
 <div class="d-flex flex-wrap justify-content-between align-items-start mb-3 gap-2">
   <div>
     <h4 class="mb-1">Pengaturan Landing Page</h4>
-    <small class="text-muted">Kelola konten halaman utama Namua Coffee &amp; Roastery</small>
+    <small class="text-muted">Kelola konten halaman utama <?= html_escape($landingBusinessName) ?>.</small>
   </div>
   <a href="<?= html_escape($landingUrl) ?>" target="_blank" rel="noreferrer" class="btn btn-outline-secondary btn-sm">
     <i class="ri ri-external-link-line me-1"></i>Lihat Landing Page
   </a>
 </div>
+
+<div class="alert alert-info py-2 small"><i class="ri-information-line me-1"></i>Nama usaha diambil dari <a class="alert-link" href="<?= site_url('system/business-profile') ?>">Profil Usaha</a>. Konten, URL publik, SEO, dan gambar landing page tetap Anda atur di halaman ini agar tidak menimpa materi promosi yang sudah ada.</div>
 
 <!-- Tab nav -->
 <ul class="nav nav-tabs lp-tab-bar mb-0">
@@ -98,6 +105,7 @@ function lp_badge(int $active): string {
 <!-- ═══════════════════ TAB CONFIG ═══════════════════ -->
 <?php if ($tab === 'config'): ?>
 <form method="post" action="<?= $cfgUrl ?>">
+  <input type="hidden" name="landing_page_mutation_csrf" value="<?= html_escape($landingPageMutationCsrf) ?>">
 
   <div class="row g-3">
     <div class="col-lg-8">
@@ -179,17 +187,17 @@ function lp_badge(int $active): string {
         <div class="card-body">
           <div class="mb-3">
             <label class="form-label">SEO Title</label>
-            <input type="text" name="seo_title" id="seoTitle" class="form-control" maxlength="255" value="<?= html_escape($cfg['seo_title'] ?? 'Namua Coffee & Roastery Rembang | Kopi & Comfort Food') ?>">
+            <input type="text" name="seo_title" id="seoTitle" class="form-control" maxlength="255" value="<?= html_escape($cfg['seo_title'] ?? $defaultSeoTitle) ?>">
             <div class="form-text"><span id="seoTitleCount">0</span> karakter. Buat spesifik dan mudah dipahami.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Meta Description</label>
-            <textarea name="seo_description" id="seoDescription" class="form-control" rows="3" maxlength="320"><?= html_escape($cfg['seo_description'] ?? 'Nikmati kopi pilihan, hasil roasting, dan comfort food di Namua Coffee & Roastery Rembang. Buka setiap hari pukul 09.00-23.00.') ?></textarea>
+            <textarea name="seo_description" id="seoDescription" class="form-control" rows="3" maxlength="320"><?= html_escape($cfg['seo_description'] ?? $defaultSeoDescription) ?></textarea>
             <div class="form-text"><span id="seoDescriptionCount">0</span> karakter. Ringkas isi halaman untuk hasil pencarian.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Canonical URL</label>
-            <input type="url" name="seo_canonical_url" class="form-control form-control-sm" value="<?= html_escape($cfg['seo_canonical_url'] ?? 'https://namuacoffee.com/') ?>">
+            <input type="url" name="seo_canonical_url" class="form-control form-control-sm" value="<?= html_escape($cfg['seo_canonical_url'] ?? base_url()) ?>">
           </div>
           <div class="mb-3">
             <label class="form-label">Share Image <small class="text-muted">(URL/path)</small></label>
@@ -744,16 +752,24 @@ function lp_badge(int $active): string {
   var LINK_URL     = <?= json_encode(site_url('landing-page/links')) ?>;
   var EMBED_URL    = <?= json_encode(site_url('landing-page/embed')) ?>;
   var TAB          = <?= json_encode($tab) ?>;
+  var LANDING_PAGE_MUTATION_CSRF = <?= json_encode($landingPageMutationCsrf) ?>;
 
   // ── Helpers ────────────────────────────────────────────────────────
   function req(url, options) {
-    return fetch(url, Object.assign({ headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } }, options || {}))
+    var request = options || {};
+    var headers = Object.assign({
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json',
+      'X-Landing-Page-Csrf': LANDING_PAGE_MUTATION_CSRF
+    }, request.headers || {});
+    return fetch(url, Object.assign({}, request, { headers: headers }))
       .then(function (r) { return r.json(); });
   }
 
   function formData(obj) {
     var fd = new FormData();
     Object.keys(obj).forEach(function (k) { if (obj[k] !== null && obj[k] !== undefined) fd.append(k, obj[k]); });
+    fd.append('landing_page_mutation_csrf', LANDING_PAGE_MUTATION_CSRF);
     return fd;
   }
 

@@ -1001,6 +1001,25 @@ CREATE TABLE `coffee_packaging_label` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `coffee_packaging_label_template` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `template_key` varchar(80) NOT NULL,
+  `template_name` varchar(160) NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `design_json` mediumtext NOT NULL,
+  `is_system` tinyint(1) NOT NULL DEFAULT 0,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` bigint(20) unsigned DEFAULT NULL,
+  `updated_by` bigint(20) unsigned DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_coffee_packaging_label_template_key` (`template_key`) USING BTREE,
+  KEY `idx_coffee_packaging_label_template_active` (`is_active`,`is_system`,`template_name`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Reusable design templates for Roastery Label Studio';
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
 CREATE TABLE `cost_recalc_queue` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `product_id` bigint(20) unsigned NOT NULL,
@@ -5350,8 +5369,10 @@ CREATE TABLE `pos_mobile_sensitive_action_proof` (
   `mobile_token_id` bigint(20) unsigned NOT NULL,
   `user_id` bigint(20) unsigned NOT NULL,
   `terminal_id` bigint(20) unsigned NOT NULL,
-  `action` enum('VOID','REFUND','ORDER_REPRINT') NOT NULL,
+  `action` enum('VOID','REFUND','ORDER_REPRINT','CASHIER_CLOSE','RESERVATION_DEPOSIT_REFUND') NOT NULL,
   `order_id` bigint(20) unsigned NOT NULL,
+  `cashier_session_id` bigint(20) unsigned DEFAULT NULL,
+  `reservation_id` bigint(20) unsigned DEFAULT NULL,
   `expires_at` datetime NOT NULL,
   `consumed_at` datetime DEFAULT NULL,
   `ip_address` varchar(64) DEFAULT NULL,
@@ -5359,8 +5380,10 @@ CREATE TABLE `pos_mobile_sensitive_action_proof` (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uq_pos_mobile_sensitive_action_proof_hash` (`proof_hash`) USING BTREE,
   KEY `idx_pos_mobile_sensitive_action_proof_consume` (`mobile_token_id`,`user_id`,`terminal_id`,`action`,`order_id`,`expires_at`,`consumed_at`) USING BTREE,
+  KEY `idx_pos_mobile_sensitive_action_proof_cashier_consume` (`mobile_token_id`,`user_id`,`terminal_id`,`action`,`cashier_session_id`,`expires_at`,`consumed_at`) USING BTREE,
+  KEY `idx_pos_mobile_sensitive_action_proof_reservation_consume` (`mobile_token_id`,`user_id`,`terminal_id`,`action`,`reservation_id`,`expires_at`,`consumed_at`) USING BTREE,
   KEY `idx_pos_mobile_sensitive_action_proof_expiry` (`expires_at`) USING BTREE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='One-use reauthentication proofs for POS Mobile void/refund/reprint.';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='One-use reauthentication proofs for POS Mobile sensitive actions.';
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
@@ -8059,5 +8082,170 @@ CREATE TABLE `wa_template` (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uq_template_code` (`template_code`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sys_business_profile` (
+  `id` tinyint(3) unsigned NOT NULL DEFAULT 1,
+  `legal_name` varchar(190) DEFAULT NULL,
+  `display_name` varchar(190) NOT NULL DEFAULT 'Finance POS',
+  `short_name` varchar(80) DEFAULT NULL,
+  `tax_id` varchar(100) DEFAULT NULL,
+  `address` text DEFAULT NULL,
+  `phone` varchar(50) DEFAULT NULL,
+  `email` varchar(190) DEFAULT NULL,
+  `website_url` varchar(255) DEFAULT NULL,
+  `timezone` varchar(64) NOT NULL DEFAULT 'Asia/Jakarta',
+  `locale` varchar(20) NOT NULL DEFAULT 'id_ID',
+  `currency_code` char(3) NOT NULL DEFAULT 'IDR',
+  `logo_url` varchar(255) DEFAULT NULL,
+  `document_footer` varchar(500) DEFAULT NULL,
+  `updated_by` bigint(20) unsigned DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  CONSTRAINT `fk_sys_business_profile_updated_by` FOREIGN KEY (`updated_by`) REFERENCES `auth_user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sys_business_profile_audit` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `actor_user_id` bigint(20) unsigned DEFAULT NULL,
+  `event_code` varchar(50) NOT NULL,
+  `before_json` longtext DEFAULT NULL,
+  `after_json` longtext DEFAULT NULL,
+  `request_ip` varchar(45) DEFAULT NULL,
+  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),
+  PRIMARY KEY (`id`),
+  KEY `idx_sys_business_profile_audit_created` (`created_at`,`id`),
+  KEY `idx_sys_business_profile_audit_actor` (`actor_user_id`,`created_at`),
+  CONSTRAINT `fk_sys_business_profile_audit_actor` FOREIGN KEY (`actor_user_id`) REFERENCES `auth_user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `lic_installation` (
+  `id` tinyint(3) unsigned NOT NULL DEFAULT 1,
+  `installation_id` char(36) DEFAULT NULL,
+  `installation_public_key` varchar(255) DEFAULT NULL,
+  `activation_status` enum('UNACTIVATED','ACTIVE','SUSPENDED','REVOKED') NOT NULL DEFAULT 'UNACTIVATED',
+  `control_center_url` varchar(255) DEFAULT NULL,
+  `control_center_key_id` varchar(100) DEFAULT NULL,
+  `last_contact_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_lic_installation_id` (`installation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `lic_license_cache` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `license_id` varchar(100) NOT NULL,
+  `payload_json` longtext NOT NULL,
+  `payload_sha256` char(64) NOT NULL,
+  `signature_b64` varchar(255) NOT NULL,
+  `signing_key_id` varchar(100) NOT NULL,
+  `verification_status` enum('UNVERIFIED','VERIFIED','REJECTED','EXPIRED','REVOKED') NOT NULL DEFAULT 'UNVERIFIED',
+  `edition_code` varchar(80) DEFAULT NULL,
+  `rights_model` enum('PERPETUAL','TERM') NOT NULL DEFAULT 'PERPETUAL',
+  `not_before_at` datetime DEFAULT NULL,
+  `expires_at` datetime DEFAULT NULL,
+  `maintenance_ends_at` datetime DEFAULT NULL,
+  `grace_until_at` datetime DEFAULT NULL,
+  `verified_at` datetime DEFAULT NULL,
+  `received_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `is_current` tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_lic_license_cache_license_payload` (`license_id`,`payload_sha256`),
+  KEY `idx_lic_license_cache_current` (`is_current`,`verification_status`,`received_at`),
+  KEY `idx_lic_license_cache_license` (`license_id`,`received_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `lic_feature` (
+  `feature_code` varchar(100) NOT NULL,
+  `feature_name` varchar(190) NOT NULL,
+  `category_name` varchar(100) DEFAULT NULL,
+  `depends_on_json` longtext DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `source_manifest_version` varchar(80) DEFAULT NULL,
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`feature_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `lic_feature_cache` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `license_cache_id` bigint(20) unsigned NOT NULL,
+  `feature_code` varchar(100) NOT NULL,
+  `access_mode` enum('ENABLED','DISABLED') NOT NULL DEFAULT 'DISABLED',
+  `limit_json` longtext DEFAULT NULL,
+  `depends_on_json` longtext DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_lic_feature_cache_license_feature` (`license_cache_id`,`feature_code`),
+  KEY `idx_lic_feature_cache_feature` (`feature_code`,`access_mode`),
+  CONSTRAINT `fk_lic_feature_cache_license` FOREIGN KEY (`license_cache_id`) REFERENCES `lic_license_cache` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_lic_feature_cache_feature` FOREIGN KEY (`feature_code`) REFERENCES `lic_feature` (`feature_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `lic_device_activation` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `device_id` char(36) NOT NULL,
+  `device_public_key` varchar(255) NOT NULL,
+  `device_label` varchar(120) NOT NULL,
+  `device_type` enum('POS_WEB','POS_MOBILE','PRINTER_AGENT','OTHER') NOT NULL DEFAULT 'OTHER',
+  `outlet_id` bigint(20) unsigned DEFAULT NULL,
+  `activation_status` enum('PENDING','ACTIVE','REPLACED','REVOKED') NOT NULL DEFAULT 'PENDING',
+  `activated_at` datetime DEFAULT NULL,
+  `deactivated_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_lic_device_activation_device` (`device_id`),
+  KEY `idx_lic_device_activation_status` (`activation_status`,`device_type`),
+  KEY `idx_lic_device_activation_outlet` (`outlet_id`,`activation_status`),
+  CONSTRAINT `fk_lic_device_activation_outlet` FOREIGN KEY (`outlet_id`) REFERENCES `pos_outlet` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `lic_activation_audit` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `actor_user_id` bigint(20) unsigned DEFAULT NULL,
+  `device_activation_id` bigint(20) unsigned DEFAULT NULL,
+  `event_code` varchar(60) NOT NULL,
+  `reason` varchar(500) DEFAULT NULL,
+  `metadata_json` longtext DEFAULT NULL,
+  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),
+  PRIMARY KEY (`id`),
+  KEY `idx_lic_activation_audit_created` (`created_at`,`id`),
+  KEY `idx_lic_activation_audit_device` (`device_activation_id`,`created_at`),
+  CONSTRAINT `fk_lic_activation_audit_actor` FOREIGN KEY (`actor_user_id`) REFERENCES `auth_user` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_lic_activation_audit_device` FOREIGN KEY (`device_activation_id`) REFERENCES `lic_device_activation` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `lic_runtime_audit` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `feature_code` varchar(100) DEFAULT NULL,
+  `route_path` varchar(255) DEFAULT NULL,
+  `decision_mode` enum('AUDIT_ONLY','ENFORCE') NOT NULL DEFAULT 'AUDIT_ONLY',
+  `decision_code` varchar(60) NOT NULL,
+  `context_sha256` char(64) DEFAULT NULL,
+  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),
+  PRIMARY KEY (`id`),
+  KEY `idx_lic_runtime_audit_created` (`created_at`,`id`),
+  KEY `idx_lic_runtime_audit_feature` (`feature_code`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 SET FOREIGN_KEY_CHECKS=1;

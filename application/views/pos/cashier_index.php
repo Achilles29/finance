@@ -279,6 +279,9 @@ $incomingServerDate = date('Y-m-d');
   .cashier-cart-actions .btn { min-height:46px; }
   .cashier-mini-note { color:#85736b; font-size:.78rem; }
   .cashier-recent-list { display:grid; gap:.75rem; }
+  .cashier-recent-scroll.is-loading .cashier-recent-list { opacity:.48; pointer-events:none; transition:opacity .16s ease; }
+  .cashier-recent-state { border:1px solid rgba(225,210,199,.86); border-radius:14px; padding:.85rem .9rem; color:#7d6d67; background:#fffdfb; text-align:center; font-size:.82rem; }
+  .cashier-recent-state.is-error { border-color:#efb7bc; color:#a32836; background:#fff5f5; }
   .cashier-recent-item {
     border:1px solid rgba(225,210,199,.78); border-radius:18px; padding:.82rem .9rem; cursor:pointer; background:#fff;
     transition:border-color .15s ease, box-shadow .15s ease, background .15s ease;
@@ -1502,9 +1505,10 @@ $incomingServerDate = date('Y-m-d');
                 </select>
               </div>
             </div>
-            <div class="cashier-recent-scroll">
+            <div class="cashier-recent-scroll" id="cashier_recent_panel" aria-busy="false">
               <div id="cashier_recent_list" class="cashier-recent-list"></div>
-              <div id="cashier_recent_empty" class="cashier-empty d-none">Belum ada order pada filter ini.</div>
+              <div id="cashier_recent_empty" class="cashier-empty d-none" role="status" aria-live="polite">Belum ada order pada filter ini.</div>
+              <div id="cashier_recent_state" class="cashier-recent-state d-none mt-2" role="status" aria-live="polite"></div>
             </div>
             <div class="cashier-recent-footer d-grid gap-2">
               <button type="button" class="btn btn-outline-primary w-100" id="cashier_reprint_order_btn">Cetak Ulang Order Dipilih</button>
@@ -2198,6 +2202,9 @@ document.addEventListener('DOMContentLoaded', function () {
   let reversalPreview = null;
   let productSearchTimer = null;
   let memberSearchTimer = null;
+  let recentSearchTimer = null;
+  let recentRequestController = null;
+  let recentRequestId = 0;
   let selectedRecentOrderId = null;
   let draftSaveInFlight = false;
   let confirmInFlight = false;
@@ -2463,8 +2470,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }));
   }
 
-  async function getJson(url) {
-    const r = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+  async function getJson(url, signal = null) {
+    const r = await fetch(url, { credentials: 'same-origin', signal, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
     const t = await r.text();
     let j = null;
     try { j = JSON.parse(t); } catch (e) {
@@ -4638,7 +4645,44 @@ document.addEventListener('DOMContentLoaded', function () {
     renderCatalogRows(json.rows || []);
   }
 
+  function setRecentListState(type = '', message = '', retry = false) {
+    const panel = document.getElementById('cashier_recent_panel');
+    const state = document.getElementById('cashier_recent_state');
+    const empty = document.getElementById('cashier_recent_empty');
+    if (!panel || !state) return;
+    panel.classList.toggle('is-loading', type === 'loading');
+    panel.setAttribute('aria-busy', type === 'loading' ? 'true' : 'false');
+    state.className = `cashier-recent-state mt-2 ${type ? `is-${type}` : 'd-none'}`;
+    if (type === 'loading' && empty) empty.classList.add('d-none');
+    if (!type) {
+      state.innerHTML = '';
+      return;
+    }
+    const spinner = type === 'loading' ? '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>' : '';
+    const retryButton = retry ? '<button type="button" class="btn btn-sm btn-outline-danger ms-2" data-cashier-recent-retry>Coba lagi</button>' : '';
+    state.innerHTML = `${spinner}${escapeHtml(message)}${retryButton}`;
+    state.querySelector('[data-cashier-recent-retry]')?.addEventListener('click', () => loadRecents());
+  }
+
+  function resetRecentFilters() {
+    recentState.q = '';
+    recentState.status = 'ALL';
+    recentState.page = 1;
+    const query = document.getElementById('cashier_recent_q');
+    if (query) query.value = '';
+    document.querySelectorAll('.cashier-status-tab').forEach((button) => {
+      button.classList.toggle('active', button.dataset.status === 'ALL');
+    });
+    loadRecents();
+  }
+
   async function loadRecents() {
+    const list = document.getElementById('cashier_recent_list');
+    const empty = document.getElementById('cashier_recent_empty');
+    if (!list || !empty) return;
+    const requestId = ++recentRequestId;
+    if (recentRequestController) recentRequestController.abort();
+    recentRequestController = window.AbortController ? new AbortController() : null;
     const p = new URLSearchParams();
     p.set('q', recentState.q);
     p.set('status', recentState.status);
@@ -4647,17 +4691,24 @@ document.addEventListener('DOMContentLoaded', function () {
     p.set('outlet_id', recentState.outlet_id);
     p.set('page', recentState.page);
     p.set('limit', recentState.limit);
-    const json = await getJson('<?php echo site_url('pos/orders/draft/data'); ?>?' + p.toString());
-    const rows = json.rows || [];
-    const list = document.getElementById('cashier_recent_list');
-    const empty = document.getElementById('cashier_recent_empty');
-    if (!rows.length) {
-      list.innerHTML = '';
-      empty.classList.remove('d-none');
-      return;
-    }
-    empty.classList.add('d-none');
-    list.innerHTML = rows.map((row) => `
+    setRecentListState('loading', 'Memuat order aktif sesi ini...');
+    try {
+      const json = await getJson(
+        '<?php echo site_url('pos/orders/draft/data'); ?>?' + p.toString(),
+        recentRequestController ? recentRequestController.signal : null
+      );
+      if (requestId !== recentRequestId) return;
+      const rows = json.rows || [];
+      setRecentListState();
+      if (!rows.length) {
+        list.innerHTML = '';
+        empty.classList.remove('d-none');
+        empty.innerHTML = '<strong>Belum ada order pada filter ini.</strong><div class="small mt-1">Ubah status atau kata kunci, lalu coba lagi.</div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-cashier-recent-clear>Bersihkan filter</button>';
+        empty.querySelector('[data-cashier-recent-clear]')?.addEventListener('click', resetRecentFilters);
+        return;
+      }
+      empty.classList.add('d-none');
+      list.innerHTML = rows.map((row) => `
       <div class="cashier-recent-item${Number(row.id || 0) === Number(selectedRecentOrderId || 0) ? ' active' : ''}" data-id="${Number(row.id || 0)}">
         <div class="cashier-recent-top">
           <div class="cashier-recent-order-no">${escapeHtml(row.order_no || '-')}</div>
@@ -4674,8 +4725,22 @@ document.addEventListener('DOMContentLoaded', function () {
           </div>
         </div>
       </div>
-    `).join('');
-    list.querySelectorAll('.cashier-recent-item').forEach((el) => el.addEventListener('click', () => loadDraft(Number(el.dataset.id || 0))));
+      `).join('');
+      list.querySelectorAll('.cashier-recent-item').forEach((el) => el.addEventListener('click', () => loadDraft(Number(el.dataset.id || 0))));
+    } catch (error) {
+      if (error && error.name === 'AbortError') return;
+      if (requestId !== recentRequestId) return;
+      setRecentListState('error', error.message || 'Order aktif tidak dapat dimuat.', true);
+    } finally {
+      if (requestId === recentRequestId) {
+        recentRequestController = null;
+        const panel = document.getElementById('cashier_recent_panel');
+        if (panel) {
+          panel.classList.remove('is-loading');
+          panel.setAttribute('aria-busy', 'false');
+        }
+      }
+    }
   }
 
   async function loadDraft(id) {
@@ -5627,8 +5692,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.querySelectorAll('.cashier-status-tab').forEach((btn) => btn.addEventListener('click', () => {
     recentState.status = btn.dataset.status;
+    recentState.page = 1;
     document.querySelectorAll('.cashier-status-tab').forEach((rowBtn) => rowBtn.classList.toggle('active', rowBtn === btn));
-    loadRecents().catch((e) => alert(e.message));
+    loadRecents();
   }));
   if (salesChannelSelect) {
     salesChannelSelect.addEventListener('change', () => {
@@ -5637,8 +5703,17 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   const recentQ = document.getElementById('cashier_recent_q');
   const recentLimit = document.getElementById('cashier_recent_limit');
-  if (recentQ) recentQ.addEventListener('input', (e) => { recentState.q = e.target.value; loadRecents().catch((err) => alert(err.message)); });
-  if (recentLimit) recentLimit.addEventListener('change', (e) => { recentState.limit = Number(e.target.value || 20); loadRecents().catch((err) => alert(err.message)); });
+  if (recentQ) recentQ.addEventListener('input', (e) => {
+    recentState.q = e.target.value;
+    recentState.page = 1;
+    clearTimeout(recentSearchTimer);
+    recentSearchTimer = setTimeout(() => loadRecents(), 250);
+  });
+  if (recentLimit) recentLimit.addEventListener('change', (e) => {
+    recentState.limit = Number(e.target.value || 20);
+    recentState.page = 1;
+    loadRecents();
+  });
 
   document.getElementById('cashier_reset_order').addEventListener('click', resetOrder);
   document.getElementById('cashier_save_extra').addEventListener('click', () => {
@@ -5783,7 +5858,7 @@ document.addEventListener('DOMContentLoaded', function () {
   refreshOrderReprintModalState();
   syncServiceTypeFromChannel(true);
   syncHeaderToOrder();
-  loadRecents().catch((e) => alert(e.message));
+  loadRecents();
   if (activeSession) {
     loadCatalog().catch((e) => { catalogResult.innerHTML = `<div class="cashier-empty text-danger">${escapeHtml(e.message)}</div>`; });
   }

@@ -33,7 +33,7 @@ class Roastery extends MY_Controller
         $editId = (int)$this->input->get('edit', true);
         $newMode = (int)$this->input->get('new', true) === 1;
         $requestedTemplateRaw = trim((string)$this->input->get('template', true));
-        $requestedTemplate = $this->normalize_label_template($requestedTemplateRaw);
+        $requestedTemplateId = max(0, (int)$this->input->get('template_id', true));
         $editRow = $editId > 0 && $tableReady ? $this->Coffee_packaging_label_model->find($editId) : null;
 
         if (!$tableReady) {
@@ -46,12 +46,36 @@ class Roastery extends MY_Controller
         }
 
         $formMode = $newMode || $editId > 0;
-        $storedTemplate = !empty($editRow) && $this->is_universal_label($editRow)
-            ? self::LABEL_TEMPLATE_UNIVERSAL
-            : 'legacy-studio';
-        $selectedTemplate = $formMode && $requestedTemplateRaw !== ''
-            ? $requestedTemplate
-            : $storedTemplate;
+        $templates = $this->Coffee_packaging_label_model->list_templates();
+        $labelDesign = json_decode((string)($editRow['design_json'] ?? ''), true);
+        $labelDesign = is_array($labelDesign) ? $labelDesign : [];
+        $storedTemplateId = max(0, (int)($labelDesign['meta']['template_id'] ?? 0));
+        $storedTemplateKey = trim((string)($labelDesign['meta']['template_key'] ?? ''));
+
+        // Old labels had two hard-coded modes. Preserve their visual intent by
+        // mapping them to the two system templates, without maintaining two
+        // separate editor or print engines.
+        if ($storedTemplateKey === '') {
+            $storedTemplateKey = !empty($editRow) && $this->is_universal_label($editRow)
+                ? 'retail-wide'
+                : 'classic-portrait';
+        }
+        $requestedTemplateKey = $requestedTemplateRaw === '' ? ''
+            : ($this->normalize_label_template($requestedTemplateRaw) === self::LABEL_TEMPLATE_UNIVERSAL
+                ? 'retail-wide'
+                : 'classic-portrait');
+        $selectedTemplate = $this->select_label_template(
+            $templates,
+            $requestedTemplateId > 0 ? $requestedTemplateId : $storedTemplateId,
+            $requestedTemplateKey !== '' ? $requestedTemplateKey : $storedTemplateKey
+        );
+        if (!$selectedTemplate && !empty($templates)) {
+            $selectedTemplate = $templates[0];
+        }
+        $applyTemplate = $formMode && ($requestedTemplateId > 0 || $requestedTemplateRaw !== '');
+        $editorDesignJson = $applyTemplate && !empty($selectedTemplate['design_json'])
+            ? (string)$selectedTemplate['design_json']
+            : (string)($editRow['design_json'] ?? ($selectedTemplate['design_json'] ?? '{}'));
 
         $this->render('roastery/coffee_packaging_label_index', [
             'page_title' => 'Label Packaging Kopi',
@@ -63,7 +87,10 @@ class Roastery extends MY_Controller
             'logo_gallery' => $this->image_gallery('uploads/coffee-labels/logos', [], ['png', 'svg']),
             'edit_row' => $editRow,
             'form_mode' => $newMode || $editId > 0,
-            'label_template' => $selectedTemplate,
+            'label_templates' => $templates,
+            'selected_template' => $selectedTemplate,
+            'apply_template' => $applyTemplate,
+            'editor_design_json' => $editorDesignJson,
             'table_ready' => $tableReady,
             'can_create' => $this->can(self::PAGE_PACKAGING_LABEL, 'create'),
             'can_edit' => $this->can(self::PAGE_PACKAGING_LABEL, 'edit'),
@@ -75,11 +102,8 @@ class Roastery extends MY_Controller
     {
         $id = (int)$this->input->post('id', true);
         $this->require_permission(self::PAGE_PACKAGING_LABEL, $id > 0 ? 'edit' : 'create');
-        $requestedTemplateRaw = trim((string)$this->input->post('label_template', true));
-        $requestedTemplate = $this->normalize_label_template($requestedTemplateRaw);
-        $returnUrl = 'roastery/packaging-labels' . ($id > 0
-            ? '?edit=' . $id . ($requestedTemplate === self::LABEL_TEMPLATE_UNIVERSAL ? '&template=' . self::LABEL_TEMPLATE_UNIVERSAL : '')
-            : '?new=1' . ($requestedTemplate === self::LABEL_TEMPLATE_UNIVERSAL ? '&template=' . self::LABEL_TEMPLATE_UNIVERSAL : ''));
+        $templateId = max(0, (int)$this->input->post('template_id', true));
+        $returnUrl = 'roastery/packaging-labels' . ($id > 0 ? '?edit=' . $id : '?new=1');
         $hasMediaUpload = !empty($_FILES['label_image']['name'])
             || !empty($_FILES['logo_image']['name'])
             || !empty($_FILES['badge_logo_image']['name']);
@@ -101,6 +125,13 @@ class Roastery extends MY_Controller
         if ($id > 0 && empty($existing)) {
             $this->session->set_flashdata('error', 'Label tidak ditemukan.');
             redirect('roastery/packaging-labels');
+            return;
+        }
+
+        $template = $templateId > 0 ? $this->Coffee_packaging_label_model->find_template($templateId) : null;
+        if ($templateId > 0 && empty($template)) {
+            $this->session->set_flashdata('error', 'Template label yang dipilih tidak tersedia. Pilih template lain lalu simpan kembali.');
+            redirect($returnUrl);
             return;
         }
 
@@ -135,11 +166,19 @@ class Roastery extends MY_Controller
             $designData = [];
         }
         $designMeta = is_array($designData['meta'] ?? null) ? $designData['meta'] : [];
-        $labelTemplate = $requestedTemplateRaw !== ''
-            ? $requestedTemplate
-            : (!empty($existing) && $this->is_universal_label($existing)
-                ? self::LABEL_TEMPLATE_UNIVERSAL
-                : 'legacy-studio');
+        if (!empty($template)) {
+            $designMeta['template_id'] = (int)$template['id'];
+            $designMeta['template_key'] = (string)$template['template_key'];
+            $designMeta['template_name'] = (string)$template['template_name'];
+        } elseif (!empty($existing)) {
+            $existingDesign = json_decode((string)($existing['design_json'] ?? ''), true);
+            $existingMeta = is_array($existingDesign['meta'] ?? null) ? $existingDesign['meta'] : [];
+            foreach (['template_id', 'template_key', 'template_name'] as $templateMetaKey) {
+                if (array_key_exists($templateMetaKey, $existingMeta)) {
+                    $designMeta[$templateMetaKey] = $existingMeta[$templateMetaKey];
+                }
+            }
+        }
         $imagePath = (string)($existing['image_path'] ?? '');
         $logoPath = (string)($existing['logo_path'] ?? '');
         $badgeLogoPath = (string)($designMeta['badge_logo_path'] ?? '');
@@ -193,23 +232,11 @@ class Roastery extends MY_Controller
             unset($designMeta['badge_logo_path']);
         }
         $designData['meta'] = $designMeta;
-        if ($labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL) {
-            $designData['layout'] = 'namua-universal-10cm-v1';
-            $designData['print'] = [
-                'paper' => 'A4',
-                'columns' => 2,
-                'label_width_mm' => 100,
-                'min_height_mm' => 68,
-            ];
-        } elseif (($designData['layout'] ?? '') === 'namua-universal-10cm-v1') {
-            unset($designData['layout']);
-        }
+        $designData['schema'] = 'roastery-label-design-v1';
+        unset($designData['layout']);
         $designJson = json_encode($designData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 
         $themePreset = trim((string)$this->input->post('theme_preset', true));
-        if ($themePreset === 'namua-universal') {
-            $themePreset = 'heritage-cream';
-        }
 
         $userId = (int)($this->current_user['id'] ?? 0);
         $data = [
@@ -232,15 +259,9 @@ class Roastery extends MY_Controller
             'footer_note' => trim((string)$this->input->post('footer_note', true)),
             'image_path' => $imagePath,
             'logo_path' => $logoPath,
-            'canvas_width_mm' => $labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL
-                ? 100
-                : max(40, min(160, (int)$this->input->post('canvas_width_mm', true))),
-            'canvas_height_mm' => $labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL
-                ? 68
-                : max(60, min(240, (int)$this->input->post('canvas_height_mm', true))),
-            'theme_preset' => $labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL
-                ? 'namua-universal'
-                : ($themePreset ?: 'heritage-cream'),
+            'canvas_width_mm' => max(40, min(160, (int)$this->input->post('canvas_width_mm', true))),
+            'canvas_height_mm' => max(60, min(240, (int)$this->input->post('canvas_height_mm', true))),
+            'theme_preset' => $themePreset ?: 'heritage-cream',
             'design_json' => $designJson,
             'is_active' => (int)$this->input->post('is_active', true) === 0 ? 0 : 1,
             'updated_by' => $userId > 0 ? $userId : null,
@@ -256,12 +277,74 @@ class Roastery extends MY_Controller
             return;
         }
 
-        $this->session->set_flashdata(
-            'success',
-            $labelTemplate === self::LABEL_TEMPLATE_UNIVERSAL
-                ? 'Label packaging kopi universal 10 cm berhasil disimpan.'
-                : 'Label packaging kopi studio berhasil disimpan.'
-        );
+        $this->session->set_flashdata('success', 'Label packaging kopi berhasil disimpan. Preview dan cetak memakai desain yang sama.');
+        redirect('roastery/packaging-labels');
+    }
+
+    public function packaging_label_template_save()
+    {
+        $this->require_permission(self::PAGE_PACKAGING_LABEL, 'create');
+        if (strtoupper((string)$this->input->method(true)) !== 'POST') {
+            show_404();
+            return;
+        }
+
+        if (!$this->Coffee_packaging_label_model->template_table_ready()) {
+            $this->session->set_flashdata('error', 'Penyimpanan template belum siap. Jalankan migrasi Label Studio terlebih dahulu.');
+            redirect('roastery/packaging-labels');
+            return;
+        }
+
+        $templateName = trim((string)$this->input->post('template_name', true));
+        if ($templateName === '') {
+            $this->session->set_flashdata('error', 'Nama template wajib diisi.');
+            redirect('roastery/packaging-labels');
+            return;
+        }
+        $templateName = substr($templateName, 0, 160);
+        $designJson = $this->sanitize_template_design_json((string)$this->input->post('template_design_json', false));
+        if ($designJson === '{}') {
+            $this->session->set_flashdata('error', 'Desain template tidak valid. Kembali ke editor lalu coba simpan ulang.');
+            redirect('roastery/packaging-labels');
+            return;
+        }
+
+        $userId = (int)($this->current_user['id'] ?? 0);
+        $newId = $this->Coffee_packaging_label_model->save_template([
+            'template_key' => $this->Coffee_packaging_label_model->next_template_key($templateName),
+            'template_name' => $templateName,
+            'description' => substr(trim((string)$this->input->post('template_description', true)), 0, 255),
+            'design_json' => $designJson,
+            'is_system' => 0,
+            'is_active' => 1,
+            'created_by' => $userId > 0 ? $userId : null,
+            'updated_by' => $userId > 0 ? $userId : null,
+        ]);
+        if ($newId <= 0) {
+            $this->session->set_flashdata('error', 'Template belum dapat disimpan.');
+            redirect('roastery/packaging-labels');
+            return;
+        }
+
+        $returnId = max(0, (int)$this->input->post('return_label_id', true));
+        $this->session->set_flashdata('success', 'Template baru berhasil disimpan. Pilih lalu simpan label untuk menerapkannya.');
+        redirect('roastery/packaging-labels?' . http_build_query([
+            $returnId > 0 ? 'edit' : 'new' => $returnId > 0 ? $returnId : 1,
+            'template_id' => $newId,
+        ]));
+    }
+
+    public function packaging_label_template_delete($id)
+    {
+        $this->require_permission(self::PAGE_PACKAGING_LABEL, 'delete');
+        if (strtoupper((string)$this->input->method(true)) !== 'POST') {
+            show_404();
+            return;
+        }
+
+        $id = (int)$id;
+        $ok = $this->Coffee_packaging_label_model->delete_custom_template($id, (int)($this->current_user['id'] ?? 0));
+        $this->session->set_flashdata($ok ? 'success' : 'error', $ok ? 'Template kustom dinonaktifkan.' : 'Template sistem tidak dapat dihapus atau template tidak ditemukan.');
         redirect('roastery/packaging-labels');
     }
 
@@ -327,7 +410,15 @@ class Roastery extends MY_Controller
             return;
         }
 
-        $isUniversalTemplate = $this->is_universal_label($row);
+        $templates = $this->Coffee_packaging_label_model->list_templates();
+        $labelDesign = json_decode((string)($row['design_json'] ?? ''), true);
+        $labelDesign = is_array($labelDesign) ? $labelDesign : [];
+        $templateId = max(0, (int)($labelDesign['meta']['template_id'] ?? 0));
+        $templateKey = trim((string)($labelDesign['meta']['template_key'] ?? ''));
+        if ($templateKey === '') {
+            $templateKey = $this->is_universal_label($row) ? 'retail-wide' : 'classic-portrait';
+        }
+        $selectedTemplate = $this->select_label_template($templates, $templateId, $templateKey);
         $this->render('roastery/coffee_packaging_label_index', [
             'page_title' => 'Preview Cetak Label Kopi',
             'active_menu' => 'production.roastery.packaging_label',
@@ -338,7 +429,10 @@ class Roastery extends MY_Controller
             'logo_gallery' => $this->image_gallery('uploads/coffee-labels/logos', [], ['png', 'svg']),
             'edit_row' => $row,
             'form_mode' => true,
-            'label_template' => $isUniversalTemplate ? self::LABEL_TEMPLATE_UNIVERSAL : 'legacy-studio',
+            'label_templates' => $templates,
+            'selected_template' => $selectedTemplate,
+            'apply_template' => false,
+            'editor_design_json' => (string)($row['design_json'] ?? '{}'),
             'print_auto' => true,
             'table_ready' => $tableReady,
             'can_create' => $this->can(self::PAGE_PACKAGING_LABEL, 'create'),
@@ -470,6 +564,21 @@ class Roastery extends MY_Controller
         return 'legacy-studio';
     }
 
+    private function select_label_template(array $templates, int $id = 0, string $key = ''): ?array
+    {
+        $key = trim($key);
+        foreach ($templates as $template) {
+            if ($id > 0 && (int)($template['id'] ?? 0) === $id) {
+                return $template;
+            }
+            if ($key !== '' && hash_equals((string)($template['template_key'] ?? ''), $key)) {
+                return $template;
+            }
+        }
+
+        return null;
+    }
+
     private function is_universal_label(array $label): bool
     {
         if (trim((string)($label['theme_preset'] ?? '')) === 'namua-universal') {
@@ -496,7 +605,7 @@ class Roastery extends MY_Controller
     private function sanitize_design_json(string $json): string
     {
         $json = trim($json);
-        if ($json === '') {
+        if ($json === '' || strlen($json) > 180000) {
             return '{}';
         }
 
@@ -506,6 +615,44 @@ class Roastery extends MY_Controller
         }
 
         return json_encode($decoded, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+
+    private function sanitize_template_design_json(string $json): string
+    {
+        $json = trim($json);
+        if ($json === '' || strlen($json) > 120000) {
+            return '{}';
+        }
+
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded)) {
+            return '{}';
+        }
+
+        $allowedBlocks = [
+            'logo', 'badge_logo', 'side_ribbon', 'coffee_name', 'roastery_kicker',
+            'taste_icons', 'brew_suggestion', 'info_panel', 'origin', 'process_method',
+            'roast_level', 'weight_text', 'tasting_notes', 'batch_no', 'roast_date',
+            'expiry_date', 'description',
+        ];
+        $design = [
+            'schema' => 'roastery-label-template-v1',
+            'canvas' => is_array($decoded['canvas'] ?? null) ? $decoded['canvas'] : [],
+            'print' => is_array($decoded['print'] ?? null) ? $decoded['print'] : [],
+            'blocks' => [],
+        ];
+        foreach ($allowedBlocks as $block) {
+            if (is_array($decoded['blocks'][$block] ?? null)) {
+                $design['blocks'][$block] = $decoded['blocks'][$block];
+            }
+        }
+        foreach (['tasteIcons', 'tasteIconSizes', 'tasteTextSizes'] as $key) {
+            if (is_array($decoded[$key] ?? null)) {
+                $design[$key] = array_values(array_slice($decoded[$key], 0, 12));
+            }
+        }
+
+        return json_encode($design, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
     private function image_gallery(string $relativeDir, array $usageMap = [], array $extensions = ['png']): array

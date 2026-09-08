@@ -8,6 +8,8 @@ $scope    = (string)($scope ?? 'all');
 $filterMutationType = strtoupper((string)($filter_mutation_type ?? 'ALL'));
 $filterModule = strtoupper((string)($filter_module ?? 'ALL'));
 $purchaseMutationCsrfToken = (string)($purchase_mutation_csrf_token ?? '');
+$accountAsOfSnapshot = (array)($account_as_of_snapshot ?? []);
+$hasAccountAsOfSnapshot = !empty($accountAsOfSnapshot['available']);
 
 $buildQuery = static function ($overrides = []) use ($filter_account_id, $date_from, $date_to, $pg, $scope, $filterMutationType, $filterModule): string {
     $base = [
@@ -425,6 +427,36 @@ $moduleFilterOptions = [
 
 <div id="mut-alert-area" class="mb-2"></div>
 
+<?php if ((int)($filter_account_id ?? 0) > 0): ?>
+  <div class="alert <?php echo $hasAccountAsOfSnapshot && !empty($accountAsOfSnapshot['ledger_matches_live']) ? 'alert-info' : 'alert-warning'; ?> border-0 shadow-sm mb-3" role="status">
+    <div class="d-flex gap-2 align-items-start">
+      <i class="ri <?php echo $hasAccountAsOfSnapshot && !empty($accountAsOfSnapshot['ledger_matches_live']) ? 'ri-calendar-check-line' : 'ri-alert-line'; ?> mt-1"></i>
+      <div>
+        <?php if ($hasAccountAsOfSnapshot): ?>
+          <div class="fw-bold">Saldo bisnis per <?php echo html_escape((string)($accountAsOfSnapshot['as_of_date'] ?? $date_to ?? '')); ?>: Rp <?php echo number_format((float)($accountAsOfSnapshot['business_balance'] ?? 0), 0, ',', '.'); ?></div>
+          <div class="small mt-1">
+            Saldo awal catatan Rp <?php echo number_format((float)($accountAsOfSnapshot['opening_balance'] ?? 0), 0, ',', '.'); ?>
+            + net <?php echo ((float)($accountAsOfSnapshot['business_net_amount'] ?? 0) >= 0 ? '+' : ''); ?>Rp <?php echo number_format((float)($accountAsOfSnapshot['business_net_amount'] ?? 0), 0, ',', '.'); ?>
+            dari <?php echo number_format((int)($accountAsOfSnapshot['business_mutation_count'] ?? 0)); ?> mutasi bertanggal bisnis sampai cut-off.
+            Snapshot ini selalu memakai seluruh jurnal rekening, bukan filter modul/IN-OUT pada daftar.
+          </div>
+          <div class="small mt-1">
+            Saldo aktif saat ini: <strong>Rp <?php echo number_format((float)($accountAsOfSnapshot['live_balance'] ?? 0), 0, ',', '.'); ?></strong>.
+            <?php if (!empty($accountAsOfSnapshot['ledger_matches_live'])): ?>
+              Catatan posting dan saldo aktif cocok.
+            <?php else: ?>
+              Catatan posting tidak cocok dengan saldo aktif; jangan melakukan rebuild otomatis, periksa audit mutasi terlebih dahulu.
+            <?php endif; ?>
+          </div>
+        <?php else: ?>
+          <div class="fw-bold">Saldo bisnis per tanggal belum dapat ditampilkan</div>
+          <div class="small mt-1"><?php echo html_escape((string)($accountAsOfSnapshot['message'] ?? 'Pilih rekening dan tanggal yang valid.')); ?></div>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+<?php endif; ?>
+
 <!-- ───────────────── Summary Cards ──────────────────────────────── -->
 <div class="row g-3 mb-3">
   <div class="col-6 col-md-3">
@@ -599,8 +631,8 @@ $moduleFilterOptions = [
               <th class="mut-col-type">Tipe</th>
               <th class="mut-col-mod">Modul</th>
               <th class="mut-col-amt">Nominal</th>
-              <th class="mut-col-bal">Before</th>
-              <th class="mut-col-bal">After</th>
+              <th class="mut-col-bal">Sebelum Diposting</th>
+              <th class="mut-col-bal">Sesudah Diposting</th>
               <th class="mut-col-ref">Ref No</th>
               <th class="mut-col-notes">Catatan</th>
             </tr>
@@ -661,8 +693,8 @@ $moduleFilterOptions = [
                 <td class="mut-col-amt <?php echo $isIn ? 'mut-amt-in' : 'mut-amt-out'; ?>" data-label="Nominal">
                   <?php echo ($isIn ? '+' : '-'); ?>Rp&nbsp;<?php echo number_format((float)($r['amount'] ?? 0), 0, ',', '.'); ?>
                 </td>
-                <td class="mut-col-bal" data-label="Saldo Sebelum" style="color:#6b7280;font-size:.73rem;"><?php echo number_format((float)($r['balance_before'] ?? 0), 0, ',', '.'); ?></td>
-                <td class="mut-col-bal" data-label="Saldo Sesudah" style="font-weight:600;font-size:.73rem;"><?php echo number_format((float)($r['balance_after'] ?? 0), 0, ',', '.'); ?></td>
+                <td class="mut-col-bal" data-label="Saldo sebelum diposting" style="color:#6b7280;font-size:.73rem;"><?php echo number_format((float)($r['balance_before'] ?? 0), 0, ',', '.'); ?></td>
+                <td class="mut-col-bal" data-label="Saldo sesudah diposting" style="font-weight:600;font-size:.73rem;"><?php echo number_format((float)($r['balance_after'] ?? 0), 0, ',', '.'); ?></td>
                 <td class="mut-col-ref" data-label="Referensi" style="font-size:.71rem;color:#6b7280;" title="<?php echo html_escape($refNo); ?>">
                   <?php if ($refNo !== '' && $refUrl !== ''): ?>
                     <a href="<?php echo html_escape($refUrl); ?>" class="mut-ref-link" target="_blank" style="font-size:.71rem;"><?php echo html_escape($refNo); ?></a>

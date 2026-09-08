@@ -34,11 +34,6 @@ $reconBadge = static function ($status): string {
 .asset-stat{border:1px solid #eadbd1;border-radius:8px;background:#fff;min-height:90px}
 .asset-stat .label{font-size:.74rem;text-transform:uppercase;color:#8b6f61;letter-spacing:.02em}
 .asset-stat .value{font-size:1.35rem;font-weight:800;color:#2f1f1a;line-height:1.15}
-.asset-tabs .asset-section-tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.5rem}
-.asset-tabs .asset-section-tabs .nav-item{width:100%}
-.asset-tabs .asset-section-tabs .nav-link{width:100%;display:inline-flex;align-items:center;justify-content:center;gap:.45rem;min-height:40px;border:1px solid #d8c9bd;border-radius:8px;color:#5a4a40;background:#fff;font-weight:700;box-shadow:0 6px 18px rgba(35,24,18,.035)}
-.asset-tabs .asset-section-tabs .nav-link.active{background:#18745c;border-color:#18745c;color:#fff;box-shadow:0 10px 22px rgba(24,116,92,.18)}
-.asset-tabs .asset-section-tabs .nav-link i{margin-right:0!important}
 .asset-table-scroll{max-height:560px;overflow:auto}
 .asset-table{table-layout:fixed;min-width:980px}
 .asset-table thead th{position:sticky;top:0;z-index:2;background:#f8f4f0}
@@ -106,14 +101,15 @@ $reconBadge = static function ($status): string {
   </div>
 </div>
 
-<div class="asset-tabs mb-3">
-  <ul class="nav asset-section-tabs">
-    <?php $q = array_merge($baseQuery, ['tab' => 'preview']); ?>
-    <li class="nav-item"><a class="nav-link <?= $activeTab === 'preview' ? 'active' : '' ?>" href="<?= site_url('asset-management/recon?' . http_build_query($q)) ?>"><i class="ri ri-eye-line me-1"></i>Preview Snapshot</a></li>
-    <?php $q = array_merge($baseQuery, ['tab' => 'history']); ?>
-    <li class="nav-item"><a class="nav-link <?= $activeTab === 'history' ? 'active' : '' ?>" href="<?= site_url('asset-management/recon?' . http_build_query($q)) ?>"><i class="ri ri-history-line me-1"></i>Riwayat Snapshot</a></li>
-  </ul>
-</div>
+<?php
+$workspace_tabs = [
+  ['label' => 'Preview Snapshot', 'url' => site_url('asset-management/recon?' . http_build_query(array_merge($baseQuery, ['tab' => 'preview']))), 'active' => $activeTab === 'preview'],
+  ['label' => 'Riwayat Snapshot', 'url' => site_url('asset-management/recon?' . http_build_query(array_merge($baseQuery, ['tab' => 'history']))), 'active' => $activeTab === 'history'],
+];
+$workspace_tab_label = 'Rekon Aset';
+$workspace_tab_aria_label = 'Pilih tampilan rekonsiliasi aset';
+$this->load->view('layout/_workspace_tabs', get_defined_vars());
+?>
 
 <?php if ($activeTab === 'preview'): ?>
   <div class="asset-panel">

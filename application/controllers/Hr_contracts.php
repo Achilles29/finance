@@ -393,6 +393,7 @@ class Hr_contracts extends MY_Controller
             'signature_map' => $signatureMap,
             'verify_url' => site_url('hr-contracts/verify/' . (string)($row['verification_token'] ?? '')),
             'ctx' => $this->ctx(),
+            'business_profile' => $this->business_profile(),
         ]);
     }
 

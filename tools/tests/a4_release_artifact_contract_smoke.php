@@ -49,6 +49,7 @@ mkdir($root . '/application/views/audit', 0700, true);
 mkdir($root . '/backup', 0700, true);
 mkdir($root . '/docs', 0700, true);
 mkdir($root . '/uploads/customer', 0700, true);
+mkdir($root . '/assets/uploads/business-profile-logo', 0700, true);
 mkdir($root . '/vendor/package', 0700, true);
 mkdir($root . '/tools/release', 0700, true);
 mkdir($root . '/tools/tests', 0700, true);
@@ -67,9 +68,11 @@ file_put_contents($root . '/application/logs/runtime.log', "denied log\n");
 file_put_contents($root . '/application/views/audit/roadmap.php', "<?php // internal roadmap view\n");
 file_put_contents($root . '/backup/customer.sql.gz', 'denied backup');
 file_put_contents($root . '/docs/_NOTE.md', "internal note\n");
+file_put_contents($root . '/docs/_NOTE2.md', "private owner note\n");
 file_put_contents($root . '/docs/2026-09-05_internal.md', "internal dated roadmap\n");
 file_put_contents($root . '/docs/customer-guide.md', "customer guide\n");
 file_put_contents($root . '/uploads/customer/file.txt', 'denied upload');
+file_put_contents($root . '/assets/uploads/business-profile-logo/customer.png', 'denied customer logo even if accidentally tracked');
 file_put_contents($root . '/vendor/package/library.php', "<?php // denied vendor\n");
 $gateTemplate = <<<'PHP'
 <?php
@@ -122,8 +125,10 @@ $denied = [
     'application/views/audit/roadmap.php',
     'backup/customer.sql.gz',
     'docs/_NOTE.md',
+    'docs/_NOTE2.md',
     'docs/2026-09-05_internal.md',
     'uploads/customer/file.txt',
+    'assets/uploads/business-profile-logo/customer.png',
     'vendor/package/library.php',
 ];
 $check(array_intersect($denied, $archivePaths) === [], 'runtime, customer data, secrets, and internal audit paths are excluded');

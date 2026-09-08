@@ -26,14 +26,14 @@ $buildQuery = static function ($overrides = []) use ($filters, $pg) {
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div>
     <h4 class="mb-0"><?php echo html_escape($title ?? 'Pencairan Uang Makan'); ?></h4>
-    <small class="text-muted">Generate kandidat dari `att_daily`, validasi anti-duplicate, lalu posting paid.</small>
+    <small class="text-muted">Hanya untuk mode uang makan <strong>Custom</strong>. Generate kandidat dari `att_daily`, validasi anti-duplikat, lalu posting paid. Mode Bulanan dibayarkan melalui payroll.</small>
   </div>
 </div>
 
 <div class="row g-3">
   <div class="col-xl-4">
     <div class="card h-100">
-      <div class="card-header"><strong>Generate Batch Uang Makan</strong></div>
+      <div class="card-header"><strong>Generate Batch Uang Makan Custom</strong></div>
       <div class="card-body">
         <form method="post" action="<?php echo site_url('payroll/meal-disbursements/generate'); ?>" class="row g-2">
           <div class="col-md-6"><label class="form-label mb-1">Periode Mulai</label><input type="date" name="period_start" class="form-control" required value="<?php echo date('Y-m-01'); ?>"></div>

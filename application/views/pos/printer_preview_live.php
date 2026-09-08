@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $routeRows = (array)($routes ?? []);
 $eventLabels = (array)($event_type_labels ?? []);
 $documentLabels = (array)($document_type_labels ?? []);

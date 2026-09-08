@@ -24,13 +24,22 @@ $preselectedId = (int)($preselected_id ?? 0);
   .iph-preview-name { font-size:1rem; font-weight:800; color:#2d1f1c; }
   .iph-preview-meta { font-size:.8rem; color:#7a6a60; }
   .iph-preview-badge { background:#e8f3ef; color:#1a6450; border-radius:999px; font-size:.72rem; font-weight:700; padding:.1rem .5rem; }
-  /* ── Spinner / empty ─────────────────── */
-  .iph-spinner { display:none; text-align:center; padding:2rem; color:#7a6a60; }
-  .iph-empty   { display:none; text-align:center; padding:2rem; border:1px dashed #d9c9bc; border-radius:16px; color:#7a6a60; }
+  /* ── State / feedback ─────────────────── */
+  .iph-state { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:.9rem; margin:0 0 1rem; padding:1rem 1.1rem; border:1px dashed #d9c9bc; border-radius:16px; background:#fffdfb; color:#7a6a60; }
+  .iph-state-icon { width:42px; height:42px; display:grid; place-items:center; border-radius:14px; background:#f7eee8; color:#835e4d; font-size:1.2rem; }
+  .iph-state[data-state="loading"] .iph-state-icon { background:#eef5f2; color:#1a6450; }
+  .iph-state[data-state="error"] { border-style:solid; border-color:#f1c5c2; background:#fff8f7; }
+  .iph-state[data-state="error"] .iph-state-icon { background:#fdeceb; color:#b42318; }
+  .iph-state-title { display:block; color:#47342d; font-size:.9rem; font-weight:800; }
+  .iph-state-copy { display:block; margin-top:.12rem; font-size:.78rem; line-height:1.4; }
+  .iph-state-action { grid-column:2; justify-self:start; margin-top:.08rem; }
   /* ── Table ───────────────────────────── */
   .iph-table th { font-size:.76rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; }
   .iph-table td { font-size:.86rem; vertical-align:middle; }
   .iph-div-badge { background:#e8f3ef; color:#1a6450; border-radius:999px; font-size:.72rem; font-weight:700; padding:.1rem .4rem; }
+  .iph-table-footer { display:flex; align-items:center; justify-content:space-between; gap:.8rem; padding:.75rem 1rem; border-top:1px solid #f0e8e2; }
+  .iph-table-footer small { color:#7a6a60; }
+  @media (max-width:575.98px) { .iph-state { grid-template-columns:auto minmax(0,1fr); padding:.85rem; } .iph-state-action { grid-column:1 / -1; width:100%; } .iph-state-action .btn { width:100%; } .iph-table-footer { align-items:stretch; flex-direction:column; } .iph-table-footer .btn { width:100%; } }
 </style>
 
 <?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'price-history']); ?>
@@ -38,7 +47,7 @@ $preselectedId = (int)($preselected_id ?? 0);
 <div class="fin-page-header mb-3">
   <div>
     <h4 class="fin-page-title"><i class="ri ri-line-chart-line me-1 text-primary"></i>Riwayat Harga Item</h4>
-    <p class="fin-page-subtitle mb-0">Tren harga beli &amp; HPP/satuan isi per item dari data purchase receipt</p>
+    <p class="fin-page-subtitle mb-0">Tren harga beli &amp; HPP/satuan isi per item dari purchase yang sudah lunas</p>
   </div>
 </div>
 
@@ -60,12 +69,12 @@ $preselectedId = (int)($preselected_id ?? 0);
         <div class="iph-preview mt-2" id="iph-preview"></div>
       </div>
 
-      <!-- N transaksi -->
+      <!-- Jumlah per halaman -->
       <div class="col-md-2">
-        <label class="form-label small mb-1">N Terakhir</label>
+        <label class="form-label small mb-1" for="iph-limit">Per halaman</label>
         <select id="iph-limit" class="form-select">
           <?php foreach ([10, 20, 30, 50, 100] as $l): ?>
-            <option value="<?php echo $l; ?>" <?php echo $l === 20 ? 'selected' : ''; ?>><?php echo $l; ?> order</option>
+            <option value="<?php echo $l; ?>" <?php echo $l === 20 ? 'selected' : ''; ?>><?php echo $l; ?> transaksi</option>
           <?php endforeach; ?>
         </select>
       </div>
@@ -91,12 +100,10 @@ $preselectedId = (int)($preselected_id ?? 0);
   </div>
 </div>
 
-<div class="iph-spinner" id="iph-spinner">
-  <span class="spinner-border text-secondary"></span>
-  <div class="mt-2 small">Memuat data...</div>
-</div>
-<div class="iph-empty" id="iph-empty">
-  <i class="ri ri-inbox-line ri-2x d-block mb-2"></i>Belum ada data purchase untuk item ini.
+<div class="iph-state" id="iph-state" data-state="initial" role="status" aria-live="polite">
+  <span class="iph-state-icon" id="iph-state-icon"><i class="ri ri-search-line"></i></span>
+  <div><strong class="iph-state-title" id="iph-state-title">Pilih item untuk melihat riwayat</strong><span class="iph-state-copy" id="iph-state-copy">Cari item atau bahan baku pada filter di atas. Hanya pembelian yang sudah lunas yang ditampilkan.</span></div>
+  <div class="iph-state-action" id="iph-state-action" hidden><button class="btn btn-sm btn-outline-danger" type="button" id="iph-retry-btn"><i class="ri ri-refresh-line me-1"></i>Coba lagi</button></div>
 </div>
 
 <!-- Chart -->
@@ -128,6 +135,10 @@ $preselectedId = (int)($preselected_id ?? 0);
       <tbody id="iph-table-body"></tbody>
     </table>
   </div>
+  <div class="iph-table-footer" id="iph-table-footer">
+    <small id="iph-pagination-meta"></small>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="iph-load-more-btn" hidden><i class="ri ri-add-line me-1"></i>Muat transaksi berikutnya</button>
+  </div>
 </div>
 
 <script>
@@ -136,6 +147,11 @@ $preselectedId = (int)($preselected_id ?? 0);
   let chart = null;
   let searchTimer = null;
   let selectedItem = <?php echo $preselected ? json_encode($preselected) : 'null'; ?>;
+  let historyRows = [];
+  let historyTotal = 0;
+  let historyHasMore = false;
+  let historyRequest = null;
+  let historyRequestSerial = 0;
 
   /* ── helpers ──────────────────────────────────────────────── */
   function money(v) { return 'Rp ' + Number(v||0).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -149,14 +165,58 @@ $preselectedId = (int)($preselected_id ?? 0);
   const searchResults = document.getElementById('iph-search-results');
   const preview      = document.getElementById('iph-preview');
   const loadBtn      = document.getElementById('iph-load-btn');
-  const spinner      = document.getElementById('iph-spinner');
-  const emptyBox     = document.getElementById('iph-empty');
+  const stateBox     = document.getElementById('iph-state');
+  const stateIcon    = document.getElementById('iph-state-icon');
+  const stateTitle   = document.getElementById('iph-state-title');
+  const stateCopy    = document.getElementById('iph-state-copy');
+  const stateAction  = document.getElementById('iph-state-action');
+  const retryBtn     = document.getElementById('iph-retry-btn');
   const chartCard    = document.getElementById('iph-chart-card');
   const tableCard    = document.getElementById('iph-table-card');
   const tableBody    = document.getElementById('iph-table-body');
   const chartMeta    = document.getElementById('iph-chart-meta');
   const tableMeta    = document.getElementById('iph-table-meta');
   const chartTitle   = document.getElementById('iph-chart-title');
+  const paginationMeta = document.getElementById('iph-pagination-meta');
+  const loadMoreBtn  = document.getElementById('iph-load-more-btn');
+
+  function showState(type, copy) {
+    const options = {
+      initial: { icon: 'ri-search-line', title: 'Pilih item untuk melihat riwayat', copy: 'Cari item atau bahan baku pada filter di atas. Hanya pembelian yang sudah lunas yang ditampilkan.' },
+      loading: { icon: 'ri-loader-4-line ri-spin', title: 'Memuat riwayat harga', copy: 'Menyiapkan transaksi pembelian dan tren harga item.' },
+      empty: { icon: 'ri-inbox-line', title: 'Belum ada riwayat pembelian lunas', copy: 'Item ini belum memiliki PO berstatus PAID, receipt POSTED, atau catatan pembelian lama yang dapat ditampilkan.' },
+      error: { icon: 'ri-error-warning-line', title: 'Riwayat belum dapat dimuat', copy: 'Periksa koneksi atau hak akses, lalu coba lagi.' },
+    };
+    const option = options[type] || options.initial;
+    stateBox.dataset.state = type;
+    stateIcon.innerHTML = '<i class="ri ' + option.icon + '"></i>';
+    stateTitle.textContent = option.title;
+    stateCopy.textContent = copy || option.copy;
+    stateAction.hidden = type !== 'error';
+    stateBox.style.display = 'grid';
+  }
+
+  function hideState() { stateBox.style.display = 'none'; }
+
+  function abortHistoryRequest() {
+    historyRequestSerial++;
+    if (historyRequest) {
+      historyRequest.abort();
+      historyRequest = null;
+    }
+  }
+
+  function resetHistory() {
+    historyRows = [];
+    historyTotal = 0;
+    historyHasMore = false;
+    tableBody.innerHTML = '';
+    chartCard.style.display = 'none';
+    tableCard.style.display = 'none';
+    loadMoreBtn.hidden = true;
+    loadMoreBtn.disabled = false;
+    paginationMeta.textContent = '';
+  }
 
   /* ── Item preview ─────────────────────────────────────────── */
   function showItemPreview(item) {
@@ -175,6 +235,7 @@ $preselectedId = (int)($preselected_id ?? 0);
 
   /* ── Item search ──────────────────────────────────────────── */
   function selectItem(item) {
+    abortHistoryRequest();
     selectedItem = item;
     itemInput.value  = item.item_name;
     itemIdInput.value = item.id;
@@ -183,17 +244,18 @@ $preselectedId = (int)($preselected_id ?? 0);
     showItemPreview(item);
     loadBtn.disabled = false;
     history.replaceState({}, '', BASE + 'purchase/item-price-history/' + item.id);
-    loadData();
+    resetHistory();
+    loadData(false);
   }
 
   function clearSelection() {
+    abortHistoryRequest();
     selectedItem = null;
     itemIdInput.value = '0';
     loadBtn.disabled = true;
     preview.style.display = 'none';
-    chartCard.style.display = 'none';
-    tableCard.style.display = 'none';
-    emptyBox.style.display  = 'none';
+    resetHistory();
+    showState('initial');
   }
 
   async function runSearch(q) {
@@ -287,7 +349,7 @@ $preselectedId = (int)($preselected_id ?? 0);
           ${brand ? `<div class="small text-muted">${esc(brand)}</div>` : ''}
         </td>
         <td>${r.division_name ? `<span class="iph-div-badge">${esc(r.division_name)}</span>` : '<span class="text-muted">-</span>'}</td>
-        <td><span class="small ${r.source_type === 'PURCHASE_RECEIPT' ? 'text-success' : 'text-muted'}">${esc(r.source_type === 'PURCHASE_RECEIPT' ? (r.source_ref || 'Receipt') : 'Ledger lama')}</span></td>
+        <td><span class="small ${r.source_type === 'PURCHASE_RECEIPT' ? 'text-success' : (r.source_type === 'PAID_PURCHASE_ORDER' ? 'text-primary' : 'text-muted')}">${esc(r.source_type === 'PURCHASE_RECEIPT' ? (r.source_ref || 'Receipt') : (r.source_type === 'PAID_PURCHASE_ORDER' ? (r.source_ref || 'PO lunas') : 'Ledger lama'))}</span></td>
         <td class="text-end">${num(r.qty_content_delta)} <span class="text-muted small">${esc(r.content_uom||'')}</span></td>
         <td class="text-end">${parseFloat(r.qty_buy_delta||0)>0 ? num(r.qty_buy_delta)+' <span class="text-muted small">pack</span>' : '<span class="text-muted">-</span>'}</td>
         <td class="text-end fw-semibold">${money(r.unit_cost)}</td>
@@ -296,57 +358,93 @@ $preselectedId = (int)($preselected_id ?? 0);
     }).join('');
   }
 
+  function updatePagination() {
+    const shown = historyRows.length;
+    paginationMeta.textContent = historyHasMore
+      ? 'Menampilkan ' + shown + ' dari ' + historyTotal + ' transaksi terbaru.'
+      : 'Semua ' + shown + ' dari ' + historyTotal + ' transaksi telah ditampilkan.';
+    loadMoreBtn.hidden = !historyHasMore;
+    loadMoreBtn.disabled = false;
+    loadMoreBtn.innerHTML = '<i class="ri ri-add-line me-1"></i>Muat transaksi berikutnya';
+  }
+
   /* ── Load data ────────────────────────────────────────────── */
-  async function loadData() {
+  async function loadData(append) {
     const itemId = Number(itemIdInput.value || 0);
     if (itemId <= 0) return;
 
-    spinner.style.display   = 'block';
-    chartCard.style.display = 'none';
-    tableCard.style.display = 'none';
-    emptyBox.style.display  = 'none';
+    const shouldAppend = append === true && historyRows.length > 0;
+    abortHistoryRequest();
+    const request = new AbortController();
+    historyRequest = request;
+    const requestSerial = ++historyRequestSerial;
+    const offset = shouldAppend ? historyRows.length : 0;
+
+    if (shouldAppend) {
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Memuat...';
+    } else {
+      resetHistory();
+      showState('loading');
+    }
 
     try {
       const limit = Number(document.getElementById('iph-limit').value || 20);
       const mode  = getMode();
-      const res  = await fetch(BASE + 'purchase/item-price-history/data?item_id=' + itemId + '&limit=' + limit + '&mode=' + mode, {
-        headers: {'X-Requested-With':'XMLHttpRequest', 'Accept':'application/json'}
+      const res  = await fetch(BASE + 'purchase/item-price-history/data?item_id=' + itemId + '&limit=' + limit + '&offset=' + offset + '&mode=' + mode, {
+        headers: {'X-Requested-With':'XMLHttpRequest', 'Accept':'application/json'}, signal: request.signal
       });
       const text = await res.text();
       let json;
       try { json = JSON.parse(text); } catch(pe) { throw new Error('Response bukan JSON. Cek permission/route.'); }
       if (!json.ok) throw new Error(json.message || 'Gagal memuat data');
+      if (requestSerial !== historyRequestSerial) return;
 
       const rows  = json.rows  || [];
       const total = json.meta?.total || 0;
+      historyRows = shouldAppend ? historyRows.concat(rows) : rows;
+      historyTotal = Number(total || 0);
+      historyHasMore = Boolean(json.meta?.has_more);
       const modeLabel = mode === 'hpp' ? 'HPP / Satuan Isi' : 'Harga Beli / Pack';
       chartTitle.textContent = (selectedItem?.item_name || 'Item') + ' — ' + modeLabel;
-      chartMeta.textContent  = rows.length + ' dari ' + total + ' total transaksi';
+      chartMeta.textContent  = historyRows.length + ' dari ' + historyTotal + ' total transaksi';
 
-      if (!rows.length) { emptyBox.style.display = 'block'; return; }
+      if (!historyRows.length) { showState('empty'); return; }
 
+      hideState();
       chartCard.style.display = 'block';
       tableCard.style.display = 'block';
-      renderChart(rows, mode);
-      renderTable(rows, total);
+      renderChart(historyRows, mode);
+      renderTable(historyRows, historyTotal);
+      updatePagination();
     } catch(e) {
-      emptyBox.style.display = 'block';
-      emptyBox.innerHTML = `<i class="ri ri-error-warning-line ri-2x d-block mb-2"></i>${esc(e.message||String(e))}`;
+      if (e.name === 'AbortError') return;
+      if (shouldAppend && historyRows.length) {
+        paginationMeta.textContent = 'Transaksi berikutnya belum dapat dimuat. Coba lagi.';
+        loadMoreBtn.hidden = false;
+        loadMoreBtn.disabled = false;
+        loadMoreBtn.innerHTML = '<i class="ri ri-refresh-line me-1"></i>Coba muat lagi';
+        return;
+      }
+      resetHistory();
+      showState('error', e.message || String(e));
     } finally {
-      spinner.style.display = 'none';
+      if (historyRequest === request) historyRequest = null;
     }
   }
 
-  loadBtn.addEventListener('click', loadData);
-  document.querySelectorAll('input[name="iph_mode"]').forEach(el => el.addEventListener('change', () => { if (Number(itemIdInput.value) > 0) loadData(); }));
-  document.getElementById('iph-limit').addEventListener('change', () => { if (Number(itemIdInput.value) > 0) loadData(); });
+  loadBtn.addEventListener('click', () => loadData(false));
+  retryBtn.addEventListener('click', () => loadData(false));
+  loadMoreBtn.addEventListener('click', () => loadData(true));
+  document.querySelectorAll('input[name="iph_mode"]').forEach(el => el.addEventListener('change', () => { if (Number(itemIdInput.value) > 0) loadData(false); }));
+  document.getElementById('iph-limit').addEventListener('change', () => { if (Number(itemIdInput.value) > 0) loadData(false); });
 
   /* ── Pre-populate if item already selected ─────────────────── */
   <?php if ($preselected): ?>
   itemInput.value = '<?php echo html_escape($preselected['item_name']); ?>';
   loadBtn.disabled = false;
   showItemPreview(selectedItem);
-  loadData();
+  loadData(false);
   <?php endif; ?>
 })();
 </script>

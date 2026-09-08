@@ -4,6 +4,9 @@ $filters = $filters ?? [];
 $pg = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
 $rows = $rows ?? [];
 $statusLabels = $status_labels ?? [];
+$businessProfile = is_array($business_profile ?? null) ? $business_profile : [];
+$assetBrand = trim((string)($businessProfile['short_name'] ?? $businessProfile['display_name'] ?? ''));
+$assetBrand = $assetBrand !== '' ? $assetBrand : 'FINANCE';
 ?>
 <style>
 .asset-panel{border:1px solid #e7d8ce;border-radius:8px;background:#fff;box-shadow:0 10px 24px rgba(35,24,18,.04)}
@@ -100,7 +103,7 @@ $statusLabels = $status_labels ?? [];
             <div class="asset-label-meta mt-1"><?= html_escape($row['category_name'] ?? '-') ?></div>
             <div class="asset-label-meta"><?= html_escape($meta ?: 'Lokasi/PIC belum ditentukan') ?></div>
           </div>
-          <div class="asset-label-brand">NAMUA ASSET | Scan untuk detail aset dan riwayat audit</div>
+          <div class="asset-label-brand"><?= html_escape($assetBrand) ?> ASSET | Scan untuk detail aset dan riwayat audit</div>
         </div>
       <?php endforeach; ?>
     </div>

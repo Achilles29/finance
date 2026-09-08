@@ -167,14 +167,15 @@ $buildPageItems = static function (int $page, int $totalPages): array {
   <span class="text-muted small">Total: <?php echo (int)($activePg['total'] ?? 0); ?></span>
 </div>
 
-<ul class="nav nav-tabs mb-3">
-  <li class="nav-item">
-    <a class="nav-link <?php echo $tab === 'recap' ? 'active' : ''; ?>" href="<?php echo site_url('attendance/daily?' . $buildQuery(['tab' => 'recap', 'page' => 1])); ?>">Rekap Bulanan Per Pegawai</a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link <?php echo $tab === 'daily' ? 'active' : ''; ?>" href="<?php echo site_url('attendance/daily?' . $buildQuery(['tab' => 'daily', 'page' => 1])); ?>">Harian</a>
-  </li>
-</ul>
+<?php
+$workspace_tabs = [
+  ['label' => 'Rekap Bulanan per Pegawai', 'url' => site_url('attendance/daily?' . $buildQuery(['tab' => 'recap', 'page' => 1])), 'active' => $tab === 'recap'],
+  ['label' => 'Harian', 'url' => site_url('attendance/daily?' . $buildQuery(['tab' => 'daily', 'page' => 1])), 'active' => $tab === 'daily'],
+];
+$workspace_tab_label = 'Absensi';
+$workspace_tab_aria_label = 'Pilih tampilan rekap absensi';
+$this->load->view('layout/_workspace_tabs', get_defined_vars());
+?>
 
 <div class="attendance-daily-summary mb-3">
   <div class="attendance-daily-card">

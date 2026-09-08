@@ -2,7 +2,11 @@
 $station = is_array($station ?? null) ? $station : null;
 $result = is_array($result ?? null) ? $result : null;
 $available = $station && !empty($station['is_active']);
-$outletName = trim((string)($station['outlet_name'] ?? 'NAMUA Coffee & Eatery'));
+$businessProfile = is_array($business_profile ?? null) ? $business_profile : [];
+$businessName = trim((string)($businessProfile['display_name'] ?? ''));
+$businessName = $businessName !== '' ? $businessName : 'Finance';
+$outletName = trim((string)($station['outlet_name'] ?? $businessName));
+$outletName = $outletName !== '' ? $outletName : $businessName;
 $posted = static function (string $key): string {
     $ci = get_instance();
     $value = $ci->input->post($key, false);
@@ -14,7 +18,7 @@ $posted = static function (string $key): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ulasan & Member Namua</title>
+  <title>Ulasan &amp; Member <?= html_escape($businessName) ?></title>
   <style>
     :root{--ink:#2d2523;--muted:#806e68;--wine:#a80e27;--coral:#dd5e44;--paper:#fffdf9;--line:#ecd8ce;--cream:#f7ede4;--green:#087443}
     *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 95% 0,rgba(232,177,139,.42),transparent 34%),radial-gradient(circle at 0 100%,rgba(168,14,39,.13),transparent 32%),linear-gradient(135deg,#fbf3e9,#f3e5d9);font-family:Georgia,"Times New Roman",serif;color:var(--ink)}
@@ -28,7 +32,7 @@ $posted = static function (string $key): string {
 </head>
 <body>
 <main class="shell"><section class="card">
-  <div class="eyebrow">Ulasan & member Namua</div>
+  <div class="eyebrow">Ulasan &amp; member <?= html_escape($businessName) ?></div>
   <h1>Bantu kami jadi lebih baik.</h1>
   <?php if (!$available): ?>
     <div class="message error">QR ulasan ini tidak ditemukan atau sedang tidak aktif. Silakan gunakan QR lain atau minta bantuan tim kami.</div>
@@ -37,7 +41,7 @@ $posted = static function (string $key): string {
   <?php else: ?>
     <p>Ceritakan pengalaman Anda di <?= html_escape($outletName) ?>. Nomor WhatsApp membantu kami mengenali Anda sebagai member tanpa perlu mengisi formulir lagi pada kunjungan berikutnya.</p>
     <div class="station"><strong><?= html_escape((string)($station['station_name'] ?? 'QR Ulasan')) ?></strong>Ulasan ini dikirim dari area <?= html_escape($outletName) ?>.</div>
-    <div class="value-row"><div class="value"><b>1. Beri bintang</b><span>Nilai pelayanan, rasa, dan kenyamanan Anda.</span></div><div class="value"><b>2. Jadi member</b><span>Nomor WhatsApp dapat dihubungkan ke Member Namua untuk poin dan voucher.</span></div></div>
+    <div class="value-row"><div class="value"><b>1. Beri bintang</b><span>Nilai pelayanan, rasa, dan kenyamanan Anda.</span></div><div class="value"><b>2. Jadi member</b><span>Nomor WhatsApp dapat dihubungkan ke program member <?= html_escape($businessName) ?> untuk poin dan voucher.</span></div></div>
     <?php if ($result): ?><div class="message error"><?= html_escape((string)($result['message'] ?? 'Ulasan belum dapat dikirim.')) ?></div><?php endif; ?>
     <form method="post" action="<?= site_url('review/station/' . rawurlencode((string)$station_code) . '/submit') ?>">
       <input type="hidden" name="_review_guard" value="<?= html_escape((string)($form_guard ?? '')) ?>">
@@ -46,7 +50,7 @@ $posted = static function (string $key): string {
       <label for="mobile-phone">Nomor WhatsApp</label><input id="mobile-phone" name="mobile_phone" required inputmode="tel" maxlength="30" value="<?= html_escape($posted('mobile_phone')) ?>" placeholder="Contoh: 0812xxxx">
       <label>Berikan bintang</label><div class="stars" aria-label="Rating bintang"><input id="station-star-5" type="radio" name="rating" value="5"><label for="station-star-5" title="5 bintang">&#9733;</label><input id="station-star-4" type="radio" name="rating" value="4"><label for="station-star-4" title="4 bintang">&#9733;</label><input id="station-star-3" type="radio" name="rating" value="3"><label for="station-star-3" title="3 bintang">&#9733;</label><input id="station-star-2" type="radio" name="rating" value="2"><label for="station-star-2" title="2 bintang">&#9733;</label><input id="station-star-1" type="radio" name="rating" value="1"><label for="station-star-1" title="1 bintang">&#9733;</label></div>
       <label for="review-text">Cerita singkat Anda <span style="font-weight:normal;color:#9a837b">(opsional)</span></label><textarea id="review-text" name="review_text" maxlength="1200" placeholder="Apa yang paling Anda suka atau perlu kami perbaiki?"><?= html_escape($posted('review_text')) ?></textarea>
-      <label class="consent"><input type="checkbox" name="join_member" value="1" required <?= $posted('join_member') === '1' ? 'checked' : '' ?>><span>Saya setuju nomor WhatsApp saya digunakan untuk menghubungkan atau membuat Member Namua agar dapat menerima poin dan voucher.</span></label>
+      <label class="consent"><input type="checkbox" name="join_member" value="1" required <?= $posted('join_member') === '1' ? 'checked' : '' ?>><span>Saya setuju nomor WhatsApp saya digunakan untuk menghubungkan atau membuat member <?= html_escape($businessName) ?> agar dapat menerima poin dan voucher.</span></label>
       <p style="font-size:12px">Nama, nomor WhatsApp, dan ulasan digunakan oleh tim outlet untuk menindaklanjuti masukan dan keanggotaan. Formulir ini tidak menampilkan profil member atau memverifikasi kepemilikan nomor. Untuk koreksi data, hubungi kasir.</p>
       <button type="submit" <?= empty($form_guard) ? 'disabled' : '' ?>>Kirim Ulasan & Lanjutkan sebagai Member</button>
     </form>

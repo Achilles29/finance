@@ -1,12 +1,14 @@
 {
-  "agent_name": "POS-PRINTER-AGENT-01",
+  "agent_name": "FINANCE-POS-PRINTER-01",
   "retry_seconds": 10,
   "print_retry_count": 2,
   "log_file": "./agent.log",
+  "log_max_bytes": 2097152,
+  "log_backup_count": 3,
   "api": {
     "enabled": true,
-    "base_url": "https://core.namuacoffee.com",
-    "allowed_origins": ["https://core.namuacoffee.com"],
+    "base_url": "https://finance.example.com",
+    "allowed_origins": ["https://finance.example.com"],
     "endpoint": "/pos/printers/bootstrap",
     "key": "",
     "agent_name_param": "agent_name",

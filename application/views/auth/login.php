@@ -1,16 +1,20 @@
 <?php
 $logoPrimaryFs = FCPATH . 'assets/uploads/logo/logo.png';
 $logoFallbackFs = FCPATH . 'assets/img/logo.png';
-$logoUrl = file_exists($logoPrimaryFs)
+$businessProfile = is_array($business_profile ?? null) ? $business_profile : [];
+$businessName = trim((string)($businessProfile['display_name'] ?? ''));
+$businessName = $businessName !== '' ? $businessName : 'Finance';
+$businessLogo = trim((string)($businessProfile['logo_url'] ?? ''));
+$logoUrl = $businessLogo !== '' ? $businessLogo : (file_exists($logoPrimaryFs)
     ? base_url('assets/uploads/logo/logo.png')
-    : (file_exists($logoFallbackFs) ? base_url('assets/img/logo.png') : base_url('assets/img/favicon-32x32.png'));
+    : (file_exists($logoFallbackFs) ? base_url('assets/img/logo.png') : base_url('assets/img/favicon-32x32.png')));
 ?>
 <!doctype html>
 <html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Login - Finance App</title>
+<title>Login — <?= html_escape($businessName) ?></title>
 <link rel="icon" type="image/x-icon" href="<?= base_url('assets/img/favicon.ico') ?>">
 <style>
 :root{
@@ -238,20 +242,20 @@ label{
     <aside class="showcase">
       <div>
         <div class="brand">
-          <span class="mark"><img src="<?= html_escape($logoUrl) ?>" alt="Finance Logo"></span>
-          <strong>Finance App</strong>
+          <span class="mark"><img src="<?= html_escape($logoUrl) ?>" alt="<?= html_escape($businessName) ?>"></span>
+          <strong><?= html_escape($businessName) ?></strong>
         </div>
         <span class="chip">CORE BUSINESS SUITE</span>
         <h1>Control Tower<br>Bisnis Harian.</h1>
         <p>Absensi, purchase, keuangan, kasir, dan inventory dalam satu sistem yang konsisten dan siap audit.</p>
       </div>
-      <small>NAMUA COFFEE & EATERY</small>
+      <small><?= html_escape($businessName) ?></small>
     </aside>
 
     <aside class="panel">
       <div class="mobile-brand">
-        <span class="mark"><img src="<?= html_escape($logoUrl) ?>" alt="Finance Logo"></span>
-        <strong>Finance App</strong>
+        <span class="mark"><img src="<?= html_escape($logoUrl) ?>" alt="<?= html_escape($businessName) ?>"></span>
+        <strong><?= html_escape($businessName) ?></strong>
       </div>
       <span class="kicker">Secure Access</span>
       <h2>Masuk</h2>
@@ -275,7 +279,7 @@ label{
         </div>
         <button class="btn" type="submit">Masuk ke Dashboard</button>
       <?= form_close() ?>
-      <div class="foot">© <?= date('Y') ?> Finance App</div>
+      <div class="foot">© <?= date('Y') ?> <?= html_escape($businessName) ?></div>
     </aside>
   </section>
 </main>

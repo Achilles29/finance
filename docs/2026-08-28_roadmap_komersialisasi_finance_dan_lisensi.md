@@ -1,5 +1,30 @@
 # Roadmap Komersialisasi Finance POS
 
+**Arahan terbaru 2026-09-09 — Batch 228:** pekerjaan komersialisasi APK
+(identitas, packaging, kompatibilitas, aktivasi) boleh dilanjutkan. Yang
+ditunda hanya bug operasional/build APK dan UAT perangkat; APK tidak otomatis
+siap jual. Batch ini berfokus pada cutoff lokal terseleksi dan adapter
+verifikasi artefak Finance di Control. Tidak merge/push, publish, aktivasi,
+atau deployment customer. Installer nyata tetap langkah berikutnya.
+
+- [x] Selaraskan manifest runtime dengan kontrak yang diuji: PHP 8.1,
+  MariaDB 10.6; versi source `0.1.0-alpha.3`, tanpa perubahan schema.
+- [x] Adapter manifest/tanda tangan release Control dengan katalog SQL Finance,
+  baseline/checksum, dan status APK terpisah dari paket web.
+- [ ] Cutoff commit lokal dan validasi paket dari checkout bersih — berlangsung.
+- [ ] Registrasi DRAFT, publish/install-plan Finance di Control dan install/upgrade
+  nyata di instance disposable belum dijalankan pada batch ini.
+
+**Update pelaksanaan 2026-09-08, Batch 224–227:** lanjut non-APK melalui
+Menu Book customer (C2), perlindungan upload dan plan/runtime instalasi (C3),
+serta verifikasi signed entitlement Control (C4). Tabel 0.1 telah diperbarui;
+tidak ada fase C0–C5 yang ditutup hanya karena tes kode lulus. APK ditunda
+owner. Panduan setup awal berada di `customer_setup_and_release_guide.md`;
+installer/deployment/pilot nyata dan kontrak penjualan tetap terbuka.
+Validasi gabungan 107 entry lulus (Batch 227); ini bukan persetujuan rilis
+atau penutupan fase. Keputusan cutoff commit lokal dan koordinasi delivery
+Finance di Control masih diperlukan sebelum membuat artefak customer nyata.
+
 **Status:** Keputusan produk dan urutan implementasi menuju siap jual.
 Diperbarui 31 Agustus 2026 berdasarkan
 `docs/2026-08-30_audit_total_aplikasi_finance_dan_roadmap_pengembangan.md`.
@@ -101,13 +126,25 @@ gerbang audit; `[ ]` belum dibangun atau belum dibuktikan.
   device sudah menjadi keputusan konsep.
 - `[~]` Product readiness belum lulus `TECH-HANDOFF-A0-A5`; status dan bukti
   setiap child dibaca hanya dari control board `_30`.
-- `[ ]` Katalog fitur machine-readable, dependency, harga final, dan EULA/SLA
-  siap pakai.
-- `[ ]` Profil usaha/customer-facing productization dan onboarding generik.
-- `[ ]` Installer customer, signed release, migration delivery, dan update
-  channel komersial.
-- `[ ]` FeatureGate, signed entitlement, activation device, dan offline cache.
-- `[ ]` Product Control Center multi-produk.
+- `[x]` Katalog fitur machine-readable dan dependency awal: `app-manifest.json`
+  Finance telah diimpor sebagai draft terjejak pada Control Center.
+- `[ ]` Harga final, EULA/SLA, data policy, serta dokumen penawaran yang telah
+  ditinjau pihak berwenang.
+- `[~]` Profil usaha/customer-facing productization dan onboarding generik.
+  Batch 220 menyelesaikan jalur inti login, shell, QR ulasan, dokumen, label,
+  fallback cetak, dan setup admin tiga langkah; template marketing/Menu Book
+  serta install profile customer tetap pekerjaan C2 terbuka.
+- `[~]` Installer customer, signed release, migration delivery, dan update
+  channel komersial. Finance kini memiliki preflight Control Center dan plan
+  installer non-mutating; artifact signed/claim/receipt dan updater customer
+  belum dibuat.
+- `[~]` FeatureGate, signed entitlement, activation device, dan offline cache.
+  Finance memiliki registry/cache lokal, halaman status, dan FeatureGate mode
+  audit; verifier signed, aktivasi Control, pairing device, dan enforcement
+  belum diaktifkan.
+- `[~]` Product Control Center multi-produk tersedia terpisah di
+  `control.namuaprojects.com`; adopsi Finance tetap fase tersendiri dan belum
+  boleh diklaim selesai.
 - `[ ]` Panduan aplikasi versi release: pengguna per peran/modul, admin
   aplikasi, admin server, serta troubleshooting/integrasi.
 - `[ ]` Pilot berbayar, support operation, dan penjualan resmi.
@@ -120,15 +157,53 @@ internal. Status teknis A0–A5 tetap hanya berasal dari control board `_30`.
 | Fase | Implementasi | Validasi tertinggi | Release/data | Status fase | Alasan/gerbang berikutnya |
 | --- | --- | --- | --- | --- | --- |
 | C0 — handoff/go-no-go | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Gerbang teknis A0–A5 masih diblokir dan belum disetujui product owner. |
-| C1 — paket/katalog/kontrak | `IN_PROGRESS` | `NONE` | `BLOCKED` | `SPECIFICATION_ONLY` | Konsep paket tersedia; katalog machine-readable, harga final, EULA, SLA, dan data policy belum final. |
-| C2 — productization/onboarding | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Profil usaha, branding terpusat, onboarding generik, dan penghapusan hardcode belum dibangun. |
-| C3 — artifact/installer/update | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Fondasi release dan exclusion credential/runtime source sudah terbukti di `_30`; baseline commit/full history, rotasi secret, signing key produksi, bridge pre-catalog, artefak customer, installer/updater, archive, dan delivery belum. |
-| C4 — License Hub/entitlement | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | FeatureGate, signed entitlement, aktivasi device, cache offline, dan control plane belum dibangun. |
+| C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 `NAMUA_FINANCE` telah diimpor ke Control dengan 28 feature, 4 edition, 29 dependency, hak pakai `PERPETUAL`, dan maintenance awal 365 hari. Source masih dirty dan belum boleh menjadi release; harga, EULA/SLA, data policy, add-on/override per customer, serta kontrak pilot belum final. |
+| C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_READY` | Batch 219–220 menyediakan branding inti dan setup profil. Batch 224–225 menambah Menu Book customer/legacy/nonaktif, audit pilihan template, serta pemeriksaan folder upload dari PHP-FPM. Outlet/printer tetap override. Marketing menyeluruh, preset demo, pajak/service, integrasi, health/privacy, install profile, serta validasi URL customer belum selesai. |
+| C3 — artifact/installer/update | `IN_PROGRESS` | `CODE_PASS` | `BLOCKED` | `FINANCE_CONTRACT_READY` | Batch 225 mewajibkan pengecualian assets/uploads, checker/prepare folder aman, plan clean-install versus upgrade, dan hook Composer portabel no-dev. Plan belum installer. Source dirty; artifact signed, penyesuaian provisioning/delivery Finance di Control, installer Windows/Linux, upgrade dan rollback customer nyata belum selesai. |
+| C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `AUDIT_ONLY_FOUNDATION` | Batch 226 menambah verifier Ed25519 sesuai envelope Control, binding instalasi, pemeriksaan lease/grace, serta entitlement dari payload signed (bukan flag SQL). FeatureGate tetap audit-only. Activation/polling/cache writer, replay/rollback lintas restart, Windows/native guard, pairing, limit dan enforcement belum selesai. APK ditunda owner. |
 | C5 — pilot/operasi penjualan | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Pilot non-Namua, support playbook, dan operasi penjualan belum dijalankan. |
 
 **Aturan urutan:** tidak ada enforcement lisensi atau pembangunan License Hub
 yang menutupi temuan P0/P1. Pekerjaan teknis yang masih menjadi bug tetap
 ditulis dan diselesaikan di `_30`.
+
+### 0.2 Sinkronisasi dengan Namua Application Control Center — 2026-09-07
+
+Control Center pada `https://control.namuaprojects.com` adalah control plane
+vendor terpisah; database dan source-nya bukan bagian dari Finance. Pemeriksaan
+terhadap roadmap/source Control menunjukkan fondasi berikut sudah tersedia dan
+tetap sejalan dengan arah produk ini:
+
+| Area | Kondisi Control Center | Kondisi Finance | Status sinkronisasi |
+| --- | --- | --- | --- |
+| Batas data/monitoring | Customer/instance terpisah; heartbeat signed, outbound, tanpa database atau data bisnis customer. | Sender heartbeat Finance memakai kontrak HMAC/nonce/idempotency yang sama. Pilot `NAMUA_FINANCE` telah diarsipkan dari Control, jadi ini bukti kontrak, bukan integrasi aktif. | `SELARAS`, jangan aktifkan ulang tanpa instance runtime terpisah. |
+| C1 katalog | Manifest v2, scanner allowlist, preview/import produk-edition-feature, dependency, hak perpetual, maintenance, dan audit tersedia. | `app-manifest.json` v2 `NAMUA_FINANCE` telah diimpor sebagai katalog draft: 28 feature, Starter POS/Operations/Control/Enterprise, 29 dependency, serta limit outlet/terminal awal. Source Finance masih dirty, sehingga tidak dapat dipakai sebagai release. | `TERHUBUNG_DRAFT`; catalog bukan FeatureGate dan belum mengubah runtime customer. |
+| C2 identitas customer | Registry customer/PIC/instance vendor tersedia. | Profil lokal, setup admin, branding shell/login/QR/dokumen/label, locale/currency/timezone, dan fallback printer tersedia. | `TIDAK TUMPANG TINDIH`; registry vendor bukan pengganti profil usaha lokal. Template marketing/install profile tetap Finance-side. |
+| C3 delivery | Release maker-checker, private artifact, install plan claim-once, unduhan hash-bound, dan receipt tersedia generik. | Preflight SemVer/package/runtime/migration dan plan installer non-mutating tersedia; build resmi tetap menolak worktree kotor. | `KONTRAK_AWAL`; claim/receipt client hanya dibuat setelah artifact bersih dan signed. |
+| C4 lisensi | Subscription, aktivasi server, lease Ed25519, grace/revoke, dan audit tersedia untuk Linux AMD64. | Registry/cache/device/audit lokal dan FeatureGate audit-only tersedia; belum ada verifier/pairing/enforcement. | `KONTRAK_AWAL`; tidak boleh mengaktifkan enforcement sebelum signed entitlement dan UAT offline. |
+| C5 operasi | Customer/instance/monitoring/audit tersedia; pilot produk generik belum dijalankan. | Belum ada pilot Finance customer non-Namua, SOP support, maupun panduan terikat release. | `BELUM DIMULAI`. |
+
+**Keputusan sinkronisasi yang mengikat:** Finance tetap memakai lisensi
+**perpetual**. Hak menjalankan versi yang sudah dibeli tidak boleh berubah
+menjadi read-only hanya karena masa maintenance berakhir. Control perlu
+mempunyai dua tanggal/keadaan berbeda: hak pakai perpetual dan
+`maintenance_ends_at` untuk update/support. Lease, grace, revoke, dan
+FeatureGate hanya boleh menegakkan hak produk yang memang dibeli—bukan
+menyandera transaksi atau data customer.
+
+**Urutan adopsi Finance yang benar:**
+
+1. C1: matangkan katalog `app-manifest.json` Finance, finalkan add-on/override
+   per customer serta dokumen komersial; model Control sudah memisahkan hak
+   perpetual dari maintenance.
+2. C2: bangun profil usaha/onboarding Finance; data ini tetap lokal pada
+   instalasi customer dan tidak disalin ke Control.
+3. C3: hubungkan builder Finance ke release SemVer, artifact manifest,
+   signature, installer/claim, serta receipt Control.
+4. C4: baru tambahkan verifier/FeatureGate, aktivasi server, cache offline,
+   batas outlet/terminal, dan kontrak APK yang fail-safe.
+5. C5: jalankan DEMO/pilot Finance dari artifact—bukan dari folder source atau
+   database staging yang sedang dipakai.
 
 ## Keputusan Final Singkat
 
@@ -850,6 +925,27 @@ dokumentasi, License Hub, dan penawaran; tidak ada paket lewat source fork.
 **Gerbang:** instalasi dapat dikonfigurasi dan di-branding tanpa edit source,
 serta seluruh preview/login/sidebar/dokumen/struk/QR konsisten.
 
+**Progress Batch 219–220:** `System > Profil Usaha & Tampilan` sekarang
+menjadi setup admin tiga langkah untuk nama usaha, kontak/lokalitas, serta
+logo/footer dokumen. Perubahan profil mengalir sebagai fallback ke login,
+sidebar, footer, QR ulasan, label aset, cetak kontrak, dan preview/struk POS;
+urutan tetap `outlet atau layout cetak -> profil usaha -> default netral`.
+Konfigurasi printer/outlet yang sudah ada tidak ditulis ulang. Landing page
+mengambil nama awal dari profil namun konten/SEO/URL-nya tetap diatur eksplisit
+melalui UI Landing Page. Menu Book lama adalah template konten Namua (produk,
+gambar, sosial, dan cerita), sehingga tidak diganti otomatis oleh nama profil.
+Ia harus dipisah/digeneralisasi sebagai template customer sebelum C2 ditutup.
+
+**Progress Batch 224–225 (2026-09-08):** Profil Usaha menyediakan pilihan
+template Menu Book customer, desain Namua lama, atau tidak dipublikasikan.
+Pilihan disimpan bersama profil dalam transaksi/audit; semua route publik
+Menu Book mengikuti pilihan itu. Katalog customer memakai produk aktif yang
+dipilih pada Landing Page, tanpa query order/stok/HPP. Desain lama dipertahankan
+dan pilihan staging tidak diubah otomatis. Delapan folder upload dapat dicek
+langsung dari UI menggunakan akun PHP-FPM. Template marketing menyeluruh,
+preset install, pajak/service, integrasi, health/privacy masih terbuka.
+Panduan awal: `docs/customer_setup_and_release_guide.md`.
+
 ### C3 — Artefak customer, installer, dan delivery update
 
 - Gunakan release foundation teknis dari `_30` sebagai input, bukan workspace
@@ -861,6 +957,24 @@ serta seluruh preview/login/sidebar/dokumen/struk/QR konsisten.
 
 **Gerbang:** clean install, upgrade, restore, dan rollback dapat diulang; paket
 tidak memuat backup, upload, log, secret, Git, atau data customer lain.
+
+**Progress Batch 219:** `tools/release/control_center_release_preflight.php`
+memeriksa sumber Finance secara read-only dan menolak publish bila worktree
+kotor. `tools/install/finance_install_plan.php` menghasilkan urutan install
+tanpa menyentuh database. Keduanya adalah kontrak C3, bukan installer customer
+atau artifact resmi.
+
+**Progress Batch 225:** paket wajib mengecualikan `assets/uploads/` termasuk
+file yang tidak sengaja masuk Git; delapan folder mempunyai checker bersama
+web/CLI dan prepare yang menolak root. Rencana clean-install tidak disamakan
+dengan upgrade; tidak ada seed atau bootstrap owner pada upgrade. Hook
+Composer memakai PHP portabel dan aman bila paket development tidak ada.
+Plan tetap bukan installer yang menjalankan deployment. Source dirty masih
+memblokir artefak resmi. Pemeriksaan read-only Control juga menemukan
+`tools/provision_release_signing_key.php` masih membatasi produk ke
+`NAMUA_PENATAUSAHAAN`; provisioning/delivery **artefak Finance** harus diselaraskan
+bersama pengelola Control, bukan memakai key Penatausahaan atau menganggap
+format provenance Finance otomatis sama dengan format Control.
 
 ### C4 — License Hub, entitlement, terminal, dan APK
 
@@ -874,6 +988,23 @@ tidak memuat backup, upload, log, secret, Git, atau data customer lain.
 
 **Gerbang:** database lokal tidak dapat menaikkan paket dan gangguan Control
 Center tidak mematikan kasir atau akses ekspor.
+
+**Progress Batch 219:** Finance memiliki tabel cache signed, registry device,
+audit runtime, halaman status, dan `FeatureGate` yang defaultnya
+`AUDIT_ONLY`. Tidak ada UI/tabel lokal yang dapat menaikkan paket. Verifikasi
+tanda tangan, aktivasi, lease/grace, batas perangkat, dan enforcement belum
+dibuat agar staging tidak terkunci secara mendadak.
+
+**Progress Batch 226:** reader Finance kini memverifikasi envelope nyata
+Control (`schema=1`, Ed25519, konteks `NAMUA_LICENSE_V1` + hash payload asli),
+key-id/fingerprint, produk, instance, installation, public-key binding,
+lease/grace, dan tipe entitlement. Hak fitur diambil dari payload bertanda
+tangan, tidak dari baris fitur yang dapat diedit lokal. Trust/identity harus
+deployment-owned di luar webroot. Tes fixture kontrak dan negatif lulus;
+belum ada aktivasi customer nyata. FeatureGate tetap AUDIT_ONLY dan flag SQL
+saja tidak bisa mengaktifkan enforcement. Windows ACL, activation/polling/cache
+writer, proteksi replay/rollback lease lintas restart, native guard, pairing,
+dan enforcement lintas endpoint tetap terbuka. APK ditunda owner.
 
 ### C5 — Pilot berbayar dan operasi penjualan
 

@@ -9,6 +9,7 @@ $dateTo   = (string)($date_to   ?? '');
 $qSearch  = (string)($q         ?? '');
 $perPage  = max(10, (int)($per_page ?? 25));
 $page     = max(1, (int)($page ?? 1));
+$hasMore  = !empty($has_more);
 $selDiv   = (int)($division_id ?? 0);
 $selDest  = strtoupper((string)($destination ?? 'ALL'));
 
@@ -99,11 +100,12 @@ $adjCategoryLabel = [
 ];
 $fmtMoney = static fn($v): string => 'Rp ' . number_format((float)$v, 0, ',', '.');
 
-// ── Pagination ───────────────────────────────────────────────────────────────
-$totalRows  = count($rows);
-$totalPages = max(1, (int)ceil($totalRows / $perPage));
-$page       = min($page, $totalPages);
-$pagedRows  = array_slice($rows, ($page - 1) * $perPage, $perPage);
+// ── Server pagination ────────────────────────────────────────────────────────
+// Controller mengambil satu baris tambahan untuk mengetahui apakah ada halaman
+// berikutnya; $rows sendiri sudah hanya berisi halaman aktif.
+$pageOffset = ($page - 1) * $perPage;
+$pageFirstRow = $kpiRows > 0 ? $pageOffset + 1 : 0;
+$pageLastRow = $pageOffset + $kpiRows;
 $pBase = ['per_page' => $perPage, 'date_from' => $dateFrom, 'date_to' => $dateTo, 'q' => $qSearch, 'destination' => $selDest];
 if ($selDiv > 0) $pBase['division_id'] = $selDiv;
 $pQs = http_build_query($pBase);
@@ -176,10 +178,8 @@ $formatDivLabel = static function (array $r): string {
 .mvt-breakdown { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; padding:.6rem 1rem; background:#faf6f3; border-bottom:1px solid #f0ddd4; }
 .mvt-type-chip {
   display:inline-flex; align-items:center; gap:.35rem; padding:.22rem .7rem; border-radius:999px;
-  font-size:.72rem; font-weight:700; border:1px solid; cursor:pointer; transition:all .15s; white-space:nowrap;
+  font-size:.72rem; font-weight:700; border:1px solid; white-space:nowrap;
 }
-.mvt-type-chip:hover  { filter:brightness(.92); transform:translateY(-1px); }
-.mvt-type-chip.dimmed { opacity:.3; }
 .mvt-type-chip-count  { background:rgba(0,0,0,.12); border-radius:999px; padding:0 .45rem; font-size:.66rem; }
 
 /* ── Table ── */
@@ -196,7 +196,6 @@ $formatDivLabel = static function (array $r): string {
 .mvt-row-adj-in  > td:first-child { border-left:3px solid #0d9488; }
 .mvt-row-shrink  > td:first-child { border-left:3px solid #c92a2a; }
 .mvt-row-opening > td:first-child { border-left:3px solid #475569; }
-.mvt-row-hidden  { display:none; }
 
 /* Movement type badge */
 .mvt-type-badge {
@@ -217,13 +216,16 @@ $formatDivLabel = static function (array $r): string {
 .mvt-page-btn:hover   { background:#f5f5f5; border-color:#bbb; color:#333; }
 .mvt-page-btn.active  { background:#6a2d3c; border-color:#6a2d3c; color:#fff; }
 .mvt-page-btn.disabled { opacity:.4; pointer-events:none; }
+.mvt-empty-state { display:grid; place-items:center; min-height:220px; padding:2rem; text-align:center; color:#766862; background:#fffdfb; }
+.mvt-empty-state .mvt-empty-icon { display:grid; place-items:center; width:52px; height:52px; margin-bottom:.7rem; border-radius:17px; background:#f6eee9; color:#8b6251; font-size:1.45rem; }
+.mvt-empty-state b { color:#493730; }.mvt-filter-status { grid-column:1 / -1; min-height:1rem; color:#7d6d65; font-size:.72rem; }
 </style>
 
 <!-- Header -->
 <div class="d-flex flex-wrap justify-content-between align-items-start mb-2 gap-2">
   <div>
     <h4 class="mb-1"><i class="ri ri-arrow-left-right-line page-title-icon"></i><?php echo html_escape((string)($title ?? 'Log Bahan Baku')); ?></h4>
-    <small class="text-muted">Log pergerakan stok per baris dari <code>inv_stock_movement_log</code> — setiap transfer, penerimaan, adjustment, dan POS usage tercatat di sini.</small>
+    <small class="text-muted">Riwayat pergerakan bahan baku: transfer, penerimaan, adjustment, dan pemakaian POS. Data hanya dibaca dari log stok.</small>
   </div>
   <a href="<?php echo site_url('inventory/fifo-audit'); ?>" class="btn btn-sm btn-outline-secondary align-self-start">
     <i class="ri ri-bar-chart-line me-1"></i>Audit FIFO
@@ -280,9 +282,10 @@ $formatDivLabel = static function (array $r): string {
           <input type="number" class="form-control form-control-sm" name="per_page" min="10" max="200" value="<?php echo $perPage; ?>">
         </div>
         <div style="display:flex;gap:.4rem;align-items:flex-end">
-          <button type="submit" class="btn btn-sm btn-outline-primary">Terapkan</button>
+          <button type="submit" class="btn btn-sm btn-outline-primary" id="mvt-apply-btn"><i class="ri ri-filter-3-line me-1"></i>Terapkan</button>
           <a href="<?php echo $baseUrl; ?>" class="btn btn-sm btn-outline-danger">Clear</a>
         </div>
+        <div class="mvt-filter-status" id="mvt-filter-status" role="status" aria-live="polite"></div>
       </div>
     </form>
   </div>
@@ -294,37 +297,37 @@ $formatDivLabel = static function (array $r): string {
   <div class="mvt-kpi mvt-kpi-1">
     <span class="mvt-kpi-icon"><i class="ri ri-arrow-left-right-line"></i></span>
     <div class="mvt-kpi-val"><?php echo number_format($kpiRows); ?></div>
-    <div class="mvt-kpi-sub"><?php echo count($typeCounts); ?> tipe gerakan</div>
-    <div class="mvt-kpi-lbl">Total Mutasi</div>
+    <div class="mvt-kpi-sub"><?php echo count($typeCounts); ?> tipe · halaman <?php echo $page; ?></div>
+    <div class="mvt-kpi-lbl">Baris Ditampilkan</div>
   </div>
   <div class="mvt-kpi mvt-kpi-2">
     <span class="mvt-kpi-icon"><i class="ri ri-building-2-line"></i></span>
     <div class="mvt-kpi-val"><?php echo number_format($kpiDivCount); ?></div>
-    <div class="mvt-kpi-sub">divisi terlibat</div>
-    <div class="mvt-kpi-lbl">Divisi Aktif</div>
+    <div class="mvt-kpi-sub">pada halaman ini</div>
+    <div class="mvt-kpi-lbl">Divisi Ditampilkan</div>
   </div>
   <div class="mvt-kpi mvt-kpi-3">
     <span class="mvt-kpi-icon"><i class="ri ri-arrow-down-circle-line"></i></span>
     <div class="mvt-kpi-val"><?php echo number_format($kpiIn, 2, ',', '.'); ?></div>
-    <div class="mvt-kpi-sub">isi masuk</div>
-    <div class="mvt-kpi-lbl">Total Masuk</div>
+    <div class="mvt-kpi-sub">isi masuk · halaman ini</div>
+    <div class="mvt-kpi-lbl">Masuk</div>
   </div>
   <div class="mvt-kpi mvt-kpi-4">
     <span class="mvt-kpi-icon"><i class="ri ri-arrow-up-circle-line"></i></span>
     <div class="mvt-kpi-val"><?php echo number_format($kpiOut, 2, ',', '.'); ?></div>
-    <div class="mvt-kpi-sub">isi keluar</div>
-    <div class="mvt-kpi-lbl">Total Keluar</div>
+    <div class="mvt-kpi-sub">isi keluar · halaman ini</div>
+    <div class="mvt-kpi-lbl">Keluar</div>
   </div>
   <div class="mvt-kpi mvt-kpi-5">
     <span class="mvt-kpi-icon"><i class="ri ri-money-dollar-circle-line"></i></span>
     <div class="mvt-kpi-val"><?php echo 'Rp '.number_format($kpiValue, 0, ',', '.'); ?></div>
-    <div class="mvt-kpi-sub">abs(delta) × cost</div>
+    <div class="mvt-kpi-sub">abs(delta) × cost · halaman ini</div>
     <div class="mvt-kpi-lbl">Nilai Pergerakan</div>
   </div>
   <div class="mvt-kpi <?php echo $kpiNet >= 0 ? 'mvt-kpi-net-pos' : 'mvt-kpi-net-neg'; ?>">
     <span class="mvt-kpi-icon"><i class="ri ri-scales-3-line"></i></span>
     <div class="mvt-kpi-val"><?php echo ($kpiNet >= 0 ? '+' : '') . number_format($kpiNet, 2, ',', '.'); ?></div>
-    <div class="mvt-kpi-sub">masuk dikurangi keluar</div>
+    <div class="mvt-kpi-sub">masuk dikurangi keluar · halaman ini</div>
     <div class="mvt-kpi-lbl">Net Delta</div>
   </div>
 </div>
@@ -336,12 +339,10 @@ $formatDivLabel = static function (array $r): string {
   <!-- Movement type breakdown chips -->
   <?php if (!empty($typeCounts)): ?>
   <div class="mvt-breakdown">
-    <span class="small text-muted me-1">Filter tipe:</span>
-    <button type="button" class="mvt-type-chip" id="mvt-chip-all"
-      style="background:#f1f5f9;border-color:#cbd5e1;color:#334155"
-      data-mvt-type="ALL">
+    <span class="small text-muted me-1">Ringkasan tipe halaman:</span>
+    <span class="mvt-type-chip" style="background:#f1f5f9;border-color:#cbd5e1;color:#334155">
       Semua <span class="mvt-type-chip-count"><?php echo $kpiRows; ?></span>
-    </button>
+    </span>
     <?php foreach ($typeCounts as $typeKey => $typeCount): ?>
       <?php
         $typeColor = $getMovColor($typeKey);
@@ -349,11 +350,10 @@ $formatDivLabel = static function (array $r): string {
         $typeValueFmt = isset($typeValues[$typeKey]) && $typeValues[$typeKey] > 0
           ? ' · Rp'.number_format($typeValues[$typeKey],0,',','.') : '';
       ?>
-      <button type="button" class="mvt-type-chip" data-mvt-type="<?php echo html_escape($typeKey); ?>"
-        style="background:<?php echo $typeColor; ?>1a;border-color:<?php echo $typeColor; ?>55;color:<?php echo $typeColor; ?>">
+      <span class="mvt-type-chip" style="background:<?php echo $typeColor; ?>1a;border-color:<?php echo $typeColor; ?>55;color:<?php echo $typeColor; ?>">
         <?php echo html_escape($typeDisplayLabel); ?>
         <span class="mvt-type-chip-count"><?php echo $typeCount; ?></span>
-      </button>
+      </span>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
@@ -380,10 +380,10 @@ $formatDivLabel = static function (array $r): string {
         </tr>
       </thead>
       <tbody>
-      <?php if (empty($pagedRows)): ?>
-        <tr><td colspan="15" class="text-center text-muted py-4">Belum ada data mutasi untuk filter ini.</td></tr>
+      <?php if (empty($rows)): ?>
+        <tr><td colspan="15" class="p-0"><div class="mvt-empty-state"><span class="mvt-empty-icon"><i class="ri ri-inbox-line"></i></span><b><?php echo $page > 1 ? 'Tidak ada data pada halaman ini.' : 'Belum ada data mutasi untuk filter ini.'; ?></b><span class="small mt-1">Coba ubah periode, kata kunci, divisi, atau tujuan stok.</span><?php if ($page > 1): ?><a class="btn btn-sm btn-outline-primary mt-3" href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.($page-1)); ?>"><i class="ri ri-arrow-left-line me-1"></i>Kembali ke halaman sebelumnya</a><?php else: ?><a class="btn btn-sm btn-outline-primary mt-3" href="<?php echo html_escape($baseUrl); ?>"><i class="ri ri-refresh-line me-1"></i>Reset filter</a><?php endif; ?></div></td></tr>
       <?php else: ?>
-        <?php foreach ($pagedRows as $r): ?>
+        <?php foreach ($rows as $r): ?>
           <?php
             $typeRaw    = strtoupper(trim((string)($r['movement_type_label'] ?? $r['movement_type'] ?? 'UNKNOWN')));
             $typeLabel  = $getMovLabel($typeRaw);
@@ -476,29 +476,33 @@ $formatDivLabel = static function (array $r): string {
   </div>
 
   <!-- Pagination footer -->
-  <?php if ($totalRows > 0): ?>
+  <?php if ($kpiRows > 0): ?>
   <div class="card-footer py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
-    <?php $fromR = ($page-1)*$perPage+1; $toR = min($page*$perPage,$totalRows); ?>
-    <span class="text-muted small">Baris <?php echo "{$fromR}–{$toR}"; ?> dari <?php echo number_format($totalRows); ?></span>
-    <?php if ($totalPages > 1): ?>
     <div class="mvt-pagination">
-      <?php
-        $ws = max(1,$page-2); $we = min($totalPages,$page+2);
-        if ($we-$ws < 4) { if ($ws===1) $we=min($totalPages,$ws+4); else $ws=max(1,$we-4); }
-      ?>
-      <a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.($page-1)); ?>" class="mvt-page-btn<?php echo $page>1?'':' disabled'; ?>">&#8249;</a>
-      <?php if ($ws>1): ?><a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page=1'); ?>" class="mvt-page-btn">1</a><?php if ($ws>2): ?><span class="text-muted small px-1">…</span><?php endif; ?><?php endif; ?>
-      <?php for ($pn=$ws;$pn<=$we;$pn++): ?><a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.$pn); ?>" class="mvt-page-btn<?php echo $pn===$page?' active':''; ?>"><?php echo $pn; ?></a><?php endfor; ?>
-      <?php if ($we<$totalPages): ?><?php if ($we<$totalPages-1): ?><span class="text-muted small px-1">…</span><?php endif; ?><a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.$totalPages); ?>" class="mvt-page-btn"><?php echo $totalPages; ?></a><?php endif; ?>
-      <a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.($page+1)); ?>" class="mvt-page-btn<?php echo $page<$totalPages?'':' disabled'; ?>">&#8250;</a>
+      <?php if ($page > 1): ?><a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.($page-1)); ?>" class="mvt-page-btn" aria-label="Halaman sebelumnya">&#8249;<span class="visually-hidden">Halaman sebelumnya</span></a><?php else: ?><span class="mvt-page-btn disabled" aria-disabled="true">&#8249;<span class="visually-hidden">Halaman sebelumnya</span></span><?php endif; ?>
+      <span class="mvt-page-btn active" aria-current="page">Halaman <?php echo $page; ?></span>
+      <?php if ($hasMore): ?><a href="<?php echo html_escape($baseUrl.'?'.$pQs.'&page='.($page+1)); ?>" class="mvt-page-btn" aria-label="Halaman berikutnya">&#8250;<span class="visually-hidden">Halaman berikutnya</span></a><?php else: ?><span class="mvt-page-btn disabled" aria-disabled="true">&#8250;<span class="visually-hidden">Halaman berikutnya</span></span><?php endif; ?>
     </div>
-    <?php endif; ?>
+    <span class="text-muted small">Baris <?php echo "{$pageFirstRow}–{$pageLastRow}"; ?> · <?php echo $hasMore ? 'masih ada transaksi berikutnya' : 'halaman terakhir untuk filter ini'; ?></span>
   </div>
   <?php endif; ?>
 </div>
 
 <script>
 (function () {
+  const filterForm = document.getElementById('mvt-filter-form');
+  const filterButton = document.getElementById('mvt-apply-btn');
+  const filterStatus = document.getElementById('mvt-filter-status');
+  function setPageLoading(message) {
+    if (filterStatus) filterStatus.textContent = message || 'Memuat data mutasi…';
+    if (filterForm) filterForm.setAttribute('aria-busy', 'true');
+    if (filterButton) { filterButton.disabled = true; filterButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Memuat'; }
+  }
+  if (filterForm) filterForm.addEventListener('submit', function () { setPageLoading(); });
+  document.querySelectorAll('.mvt-page-btn[href]').forEach(function (link) {
+    link.addEventListener('click', function () { setPageLoading('Memuat halaman mutasi…'); });
+  });
+
   // AJAX debounce on search
   const qInput = document.getElementById('mvt-q-input');
   if (qInput) {
@@ -510,38 +514,5 @@ $formatDivLabel = static function (array $r): string {
     });
   }
 
-  // Client-side type filter chips
-  const chips = document.querySelectorAll('.mvt-type-chip[data-mvt-type]');
-  const rows  = document.querySelectorAll('#mvt-table tbody tr[data-mvt-type]');
-  let activeType = 'ALL';
-
-  function applyFilter() {
-    const all = activeType === 'ALL';
-    rows.forEach(function (row) {
-      if (all || row.dataset.mvtType === activeType) {
-        row.classList.remove('mvt-row-hidden');
-      } else {
-        row.classList.add('mvt-row-hidden');
-      }
-    });
-    chips.forEach(function (chip) {
-      const isActive = chip.dataset.mvtType === activeType;
-      chip.style.opacity = isActive ? '1' : '.45';
-      chip.style.fontWeight = isActive ? '800' : '';
-      chip.style.transform = isActive ? 'scale(1.05)' : '';
-    });
-  }
-
-  chips.forEach(function (chip) {
-    chip.addEventListener('click', function () {
-      const t = chip.dataset.mvtType;
-      activeType = (activeType === t && t !== 'ALL') ? 'ALL' : t;
-      applyFilter();
-    });
-  });
-
-  // Highlight "Semua" chip by default
-  const allChip = document.getElementById('mvt-chip-all');
-  if (allChip) { allChip.style.fontWeight = '800'; }
 })();
 </script>

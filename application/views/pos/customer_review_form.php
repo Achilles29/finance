@@ -3,7 +3,11 @@ $review = is_array($review ?? null) ? $review : null;
 $result = is_array($result ?? null) ? $result : null;
 $isSubmitted = $review && (string)($review['review_status'] ?? '') === 'SUBMITTED';
 $isHidden = $review && (string)($review['review_status'] ?? '') === 'HIDDEN';
-$outletName = trim((string)($review['outlet_name'] ?? 'NAMUA Coffee & Eatery'));
+$businessProfile = is_array($business_profile ?? null) ? $business_profile : [];
+$businessName = trim((string)($businessProfile['display_name'] ?? ''));
+$businessName = $businessName !== '' ? $businessName : 'Finance';
+$outletName = trim((string)($review['outlet_name'] ?? $businessName));
+$outletName = $outletName !== '' ? $outletName : $businessName;
 ?>
 <!doctype html>
 <html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ulasan Pelanggan</title>

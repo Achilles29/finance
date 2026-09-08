@@ -1,11 +1,11 @@
 {
   "format": "finance-clean-install-baseline-policy",
   "version": 1,
-  "cutoff": "2026-09-06",
+  "cutoff": "2026-09-07",
   "schema": {
     "path": "sql/baseline/2026-09-05_clean_install_schema.sql",
-    "sha256": "d00b6ca1fa8e241bd349d07231113c1cdac2ad79cd08a66fcb337de8aab13c45",
-    "table_count": 286,
+    "sha256": "db8b02628b0c21e0c88a42a94f41335f614573661c418a3910cac5015d508fba",
+    "table_count": 296,
     "required_tables": [
       "auth_user",
       "auth_role",
@@ -13,6 +13,7 @@
       "auth_user_role",
       "aud_access_event",
       "ci_sessions",
+      "coffee_packaging_label_template",
       "sys_page",
       "sys_menu",
       "sys_schema_migration",
@@ -35,7 +36,16 @@
       "pay_payroll_period",
       "asset_item",
       "wa_report_schedule",
-      "tg_target"
+      "tg_target",
+      "sys_business_profile",
+      "sys_business_profile_audit",
+      "lic_installation",
+      "lic_license_cache",
+      "lic_feature",
+      "lic_feature_cache",
+      "lic_device_activation",
+      "lic_activation_audit",
+      "lic_runtime_audit"
     ],
     "forbidden_table_patterns": [
       "^backup_",
@@ -66,11 +76,11 @@
     },
     "post_apply_counts": {
       "sys_matrix_group": 20,
-      "sys_page": 207,
-      "sys_menu": 242,
+      "sys_page": 209,
+      "sys_menu": 244,
       "sys_page_alias": 10,
       "auth_role": 1,
-      "auth_role_permission": 207,
+      "auth_role_permission": 209,
       "auth_user": 0,
       "auth_user_role": 0
     },
@@ -100,6 +110,11 @@
     "2026-09-06b-component-formula-restore-action",
     "2026-09-06c-pos-mobile-reversal-step-up",
     "2026-09-06d-pos-mobile-reprint-step-up",
-    "2026-09-06e-activity-audit-foundation"
+    "2026-09-06e-activity-audit-foundation",
+    "2026-09-06f-pos-mobile-cashier-close-step-up",
+    "2026-09-06g-pos-mobile-reservation-refund-step-up",
+    "2026-09-06h-roastery-label-template-studio",
+    "2026-09-06i-a3-sidebar-task-oriented-layout",
+    "2026-09-07a-c2-c4-business-profile-license-runtime-foundation"
   ]
 }

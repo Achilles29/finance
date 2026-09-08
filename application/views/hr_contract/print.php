@@ -6,6 +6,9 @@ $verifyUrl = $verify_url ?? '';
 $ctx = $ctx ?? 'finance';
 $status = strtoupper((string)($row['status'] ?? 'DRAFT'));
 $backUrl = $back_url ?? site_url('hr-contracts/view/' . (int)($row['id'] ?? 0) . '?ctx=' . urlencode((string)$ctx));
+$businessProfile = is_array($business_profile ?? null) ? $business_profile : [];
+$businessName = trim((string)($businessProfile['legal_name'] ?? $businessProfile['display_name'] ?? ''));
+$businessName = $businessName !== '' ? $businessName : 'Finance';
 
 $qrCenterSize = 80;
 $qrFooterSize = 38;
@@ -138,7 +141,7 @@ $qrFooterUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=' . $qrFooterSi
 
   <div class="paper" style="margin-top:52px;">
     <div class="header">
-      <div class="brand">NAMUA COFFEE AND EATERY</div>
+      <div class="brand"><?php echo htmlspecialchars($businessName, ENT_QUOTES, 'UTF-8'); ?></div>
       <div class="sub">Dokumen Kontrak Pegawai Terverifikasi Sistem</div>
       <div class="title">PKWT • No: <?php echo htmlspecialchars((string)($row['contract_number'] ?? '-'), ENT_QUOTES, 'UTF-8'); ?></div>
     </div>

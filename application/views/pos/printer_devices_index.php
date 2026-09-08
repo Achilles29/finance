@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $deviceFilters = is_array($device_filters ?? null) ? $device_filters : [];
 $filterOptions = is_array($filter_options ?? null) ? $filter_options : [];
 $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets'] : [];

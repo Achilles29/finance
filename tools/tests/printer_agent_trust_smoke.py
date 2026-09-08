@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -14,6 +15,10 @@ CHECKER_PATH = ROOT / "tools" / "pos_printer_agent" / "check_saved_printers.py"
 CONFIG_EXAMPLE_PATH = ROOT / "tools" / "pos_printer_agent" / "config.example.json"
 README_PATH = ROOT / "tools" / "pos_printer_agent" / "README.md"
 REQUIREMENTS_PATH = ROOT / "tools" / "pos_printer_agent" / "requirements.txt"
+WINDOWS_INSTALLER_PATH = ROOT / "tools" / "pos_printer_agent" / "install_windows_task.bat"
+WINDOWS_UNINSTALLER_PATH = ROOT / "tools" / "pos_printer_agent" / "uninstall_windows_task.bat"
+LINUX_INSTALLER_PATH = ROOT / "tools" / "pos_printer_agent" / "install_linux_service.sh"
+LINUX_UNINSTALLER_PATH = ROOT / "tools" / "pos_printer_agent" / "uninstall_linux_service.sh"
 POS_AGENT_PATH = ROOT / "application" / "controllers" / "Pos_printer_agent.php"
 POS_PATH = ROOT / "application" / "controllers" / "Pos.php"
 LEGACY_GUIDE_PATH = ROOT / "application" / "views" / "pos" / "printer_guide.php"
@@ -155,6 +160,44 @@ def run_http_smoke(agent) -> None:
     assert_equal(len(offline_calls), 1, "offline allowlist safe_print call count")
 
 
+def run_lifecycle_smoke(agent) -> None:
+    current = [{"printer_code": "KASIR", "mac_address": "AABBCCDDEEFF", "python_port": 3010, "paper_width_mm": 80}]
+    changed = [{"printer_code": "KASIR", "mac_address": "AABBCCDDEEFF", "python_port": 3011, "paper_width_mm": 80}]
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_path = Path(temp_dir) / "config.json"
+        service = agent.PrinterService(
+            {
+                "agent_name": "TEST-AGENT",
+                "api": {"enabled": True, "refresh_seconds": 5},
+                "printers": current,
+            },
+            config_path=config_path,
+        )
+        service.started_ports = {3010: service.printers[0]}
+        service.fetch_printers_from_api = lambda: service.normalize_printers(changed, source="smoke")
+        service.refresh_printers_if_needed()
+        assert_true(service.restart_required, "connection change must require a controlled restart")
+        assert_true("Restart Local Printer Agent" in service.restart_reason, "restart reason is missing")
+        assert_equal(service.started_ports[3010]["python_port"], 3010, "old port must stay untouched until restart")
+        status = service.service_status()
+        assert_equal(status["state"], "restart_required", "health service state")
+
+        service.config["printers"] = current
+        service.write_config_atomically()
+        saved = config_path.read_text(encoding="utf-8")
+        assert_true('"printers"' in saved, "atomic runtime config was not written")
+
+    assert_equal(agent.AGENT_PROTOCOL_VERSION, 2, "agent protocol version")
+    service = agent.PrinterService({"api": {"enabled": False}, "printers": []})
+    service.validate_bootstrap_contract({"agent_contract": {"min_protocol": 1, "max_protocol": 2}})
+    try:
+        service.validate_bootstrap_contract({"agent_contract": {"min_protocol": 3, "max_protocol": 4}})
+    except agent.AgentError:
+        pass
+    else:
+        raise AssertionError("unsupported server protocol must fail closed")
+
+
 def run_source_smoke() -> None:
     agent_source = AGENT_PATH.read_text(encoding="utf-8")
     checker_source = CHECKER_PATH.read_text(encoding="utf-8")
@@ -175,7 +218,22 @@ def run_source_smoke() -> None:
     assert_true('"key_query_param"' not in config_example, "config example documents query key fallback")
     assert_true("allowed_origins" in readme_source, "agent README lacks allowed_origins")
     assert_true("X-Printer-Key" in readme_source, "agent README lacks header-only bootstrap key")
+    assert_true("POS_PRINTER_AGENT_KEYS" in readme_source, "agent README lacks per-agent pairing guidance")
     assert_true("flask-cors" not in requirements_source, "unused Flask CORS dependency remains")
+    for path, label in (
+        (WINDOWS_INSTALLER_PATH, "Windows service installer"),
+        (WINDOWS_UNINSTALLER_PATH, "Windows service uninstaller"),
+        (LINUX_INSTALLER_PATH, "Linux service installer"),
+        (LINUX_UNINSTALLER_PATH, "Linux service uninstaller"),
+    ):
+        assert_true(path.is_file(), f"{label} is missing")
+    assert_true("install_windows_task" in pos_source, "Windows service installer is not downloadable")
+    assert_true("install_linux_service" in pos_source, "Linux service installer is not downloadable")
+    assert_true("POS_PRINTER_AGENT_KEYS" in pos_agent_source, "per-agent pairing map is missing")
+    assert_true("POS_PRINTER_BOOTSTRAP_KEY_PREVIOUS" in pos_agent_source, "grace key rotation is missing")
+    assert_true("agent_contract" in pos_agent_source, "bootstrap does not advertise protocol contract")
+    assert_true("restart_required" in agent_source, "agent does not report controlled restart state")
+    assert_true("write_config_atomically" in agent_source, "agent config persistence is not atomic")
     assert_true("public function printer_bootstrap()" not in pos_source, "legacy Pos printer bootstrap remains")
     assert_true(
         "$route['pos/printers/bootstrap'] = 'pos_printer_agent/bootstrap';" in routes_source,
@@ -301,6 +359,7 @@ def main() -> int:
         return 1
     try:
         run_http_smoke(agent)
+        run_lifecycle_smoke(agent)
     except AssertionError as exc:
         print(f"FAIL: {exc}")
         return 1

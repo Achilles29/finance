@@ -29,23 +29,16 @@ $groups = [
     ],
 ];
 
-$buttonClass = [
-    'Master'      => static function (string $key) use ($activeTab): string {
-        return $activeTab === $key
-            ? 'btn btn-sm btn-info'
-            : 'btn btn-sm btn-outline-info';
-    },
-    'Operasional' => static function (string $key) use ($activeTab): string {
-        return $activeTab === $key
-            ? 'btn btn-sm btn-primary'
-            : 'btn btn-sm btn-outline-primary';
-    },
-];
+$tabClass = static function (string $key) use ($activeTab): string {
+    return 'component-workbench-tab' . ($activeTab === $key ? ' is-active' : '');
+};
 ?>
 
 <style>
+  .component-workbench-tabs { display:grid; grid-template-columns:88px minmax(0,1fr); align-items:start; gap:.5rem; margin-bottom:.42rem; }
+  .component-workbench-tabs__links { display:flex; gap:.42rem; min-width:0; overflow-x:auto; padding:.08rem .08rem .35rem; scrollbar-width:thin; }
   .component-workbench-group + .component-workbench-group {
-    margin-top: .55rem;
+    margin-top: .1rem;
   }
   .component-workbench-label {
     min-width: 88px;
@@ -54,7 +47,21 @@ $buttonClass = [
     letter-spacing: .04em;
     text-transform: uppercase;
     color: #7a6d62;
-    padding-top: .35rem;
+    padding-top: .38rem;
+  }
+  .component-workbench-tab {
+    display:inline-flex; flex:0 0 auto; align-items:center; min-height:32px;
+    border:1px solid #eadbd2; border-radius:9px; background:#fffaf7; color:#6e5147;
+    padding:.4rem .66rem; font-size:.76rem; font-weight:700; line-height:1.15;
+    text-decoration:none; transition:background .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease;
+  }
+  .component-workbench-tab:hover { border-color:#bc8270; background:#fff1e9; color:#5b2419; }
+  .component-workbench-tab:focus-visible { outline:3px solid rgba(165,80,53,.25); outline-offset:2px; }
+  .component-workbench-tab.is-active { border-color:#6a2d3c; background:linear-gradient(135deg,#6a2d3c,#8d4454); box-shadow:0 4px 10px rgba(106,45,60,.22); color:#fff; }
+  @media (max-width:575px) {
+    .component-workbench-tabs { grid-template-columns:1fr; gap:.1rem; }
+    .component-workbench-label { padding-top:0; }
+    .component-workbench-tabs__links { padding-bottom:.45rem; }
   }
   .component-action-stack {
     display: inline-flex;
@@ -87,15 +94,14 @@ $buttonClass = [
   }
 </style>
 
-<?php foreach ($groups as $group):
-    $btnFn = $buttonClass[$group['label']] ?? $stdBtn;
-?>
-  <div class="d-flex flex-wrap gap-2 align-items-start mb-2 component-workbench-group">
+<?php foreach ($groups as $group): ?>
+  <nav class="component-workbench-tabs component-workbench-group" aria-label="Navigasi Component <?php echo html_escape((string)$group['label']); ?>">
     <div class="component-workbench-label"><?php echo html_escape((string)$group['label']); ?></div>
-    <div class="d-flex flex-wrap gap-2">
+    <div class="component-workbench-tabs__links" role="list">
       <?php foreach ($group['links'] as $link): ?>
-        <a href="<?php echo $link['url']; ?>" class="<?php echo $btnFn((string)$link['key']); ?>"><?php echo html_escape((string)$link['label']); ?></a>
+        <?php $isActive = $activeTab === (string)$link['key']; ?>
+        <a href="<?php echo html_escape((string)$link['url']); ?>" class="<?php echo $tabClass((string)$link['key']); ?>"<?php echo $isActive ? ' aria-current="page"' : ''; ?>><?php echo html_escape((string)$link['label']); ?></a>
       <?php endforeach; ?>
     </div>
-  </div>
+  </nav>
 <?php endforeach; ?>

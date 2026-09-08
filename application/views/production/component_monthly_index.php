@@ -173,46 +173,6 @@ $countNegative = count(array_filter($rows, fn($r) => (float)($r['closing_qty'] ?
   ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
 ]); ?>
 
-<!-- Summary cards -->
-<div class="row g-2 mb-3">
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Komponen</div>
-      <div class="fw-bold fs-5"><?php echo $totalRows; ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Total In</div>
-      <div class="fw-bold fs-5 text-success"><?php echo $fmtC($totalIn); ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Total Out</div>
-      <div class="fw-bold fs-5 text-danger"><?php echo $fmtC($totalOut); ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Total Closing</div>
-      <div class="fw-bold fs-5"><?php echo $fmtC($totalClosing); ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Stok Minus</div>
-      <div class="fw-bold fs-5 <?php echo $countNegative > 0 ? 'text-danger' : 'text-secondary'; ?>"><?php echo $countNegative; ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Total Nilai</div>
-      <div class="fw-bold" style="font-size:.88rem">Rp <?php echo $fmtC($totalNilai); ?></div>
-    </div>
-  </div>
-</div>
-
 <!-- Filter -->
 <div class="card mb-3">
   <div class="card-body py-2">
@@ -258,6 +218,18 @@ $countNegative = count(array_filter($rows, fn($r) => (float)($r['closing_qty'] ?
     </form>
   </div>
 </div>
+
+<?php $this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan stok bulanan komponen',
+  'stock_summary_cards' => [
+    ['label' => 'Komponen', 'value' => number_format($totalRows), 'tone' => 'violet', 'icon' => 'ri-stack-line'],
+    ['label' => 'Total Masuk', 'value' => $fmtC($totalIn), 'tone' => 'aqua', 'icon' => 'ri-arrow-down-circle-line'],
+    ['label' => 'Total Keluar', 'value' => $fmtC($totalOut), 'tone' => 'blue', 'icon' => 'ri-arrow-up-circle-line'],
+    ['label' => 'Total Closing', 'value' => $fmtC($totalClosing), 'tone' => 'amber', 'icon' => 'ri-scales-3-line'],
+    ['label' => 'Stok Minus', 'value' => number_format($countNegative), 'tone' => $countNegative > 0 ? 'danger' : 'blue', 'icon' => 'ri-alarm-warning-line'],
+    ['label' => 'Total Nilai', 'value' => 'Rp ' . $fmtC($totalNilai), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+  ],
+]); ?>
 
 <!-- Table -->
 <div class="card">

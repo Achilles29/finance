@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $detail = is_array($detail ?? null) ? $detail : [];
 $component = is_array($detail['component'] ?? null) ? $detail['component'] : [];
 $summary = is_array($detail['summary'] ?? null) ? $detail['summary'] : [];

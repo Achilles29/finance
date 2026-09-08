@@ -54,16 +54,6 @@ $uniqueComponentCount = count($uniqueComponents);
 ?>
 
 <style>
-.lot-sum-card { border:1px solid #e8e0d4;border-radius:12px;background:#fff;padding:.6rem .85rem;height:100%; }
-.lot-sum-card .lbl { font-size:.66rem;color:#999;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap; }
-.lot-sum-card .val { font-size:.98rem;font-weight:800;color:#312729;line-height:1.25;margin-top:.1rem; }
-.lot-sum-card .sub { font-size:.66rem;color:#bbb;margin-top:.12rem; }
-.lot-sum-card.green  { border-color:#b5cca0;background:#f0f7ea; }
-.lot-sum-card.green .val { color:#2d6a0a; }
-.lot-sum-card.amber  { border-color:#e0cc88;background:#fdfaf0; }
-.lot-sum-card.amber .val { color:#7a5e00; }
-.lot-sum-card.slate  { border-color:#b8c8da;background:#f0f4f8; }
-.lot-sum-card.slate .val { color:#1a3a5a; }
 .component-lot-filter-card { border:1px solid rgba(226,212,200,.88);border-radius:16px;box-shadow:0 4px 14px rgba(58,38,30,.05); }
 .component-lot-table-card  { border:1px solid rgba(226,212,200,.88);border-radius:18px;box-shadow:0 14px 30px rgba(58,38,30,.06); }
 .lot-tbl-wrap { overflow:auto;max-height:72vh; }
@@ -99,61 +89,6 @@ $uniqueComponentCount = count($uniqueComponents);
     'location_type' => $selectedLoc,
   ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
 ]); ?>
-
-<!-- Summary cards — 6 cards -->
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="lot-sum-card green">
-      <div class="lbl">Lot Open</div>
-      <div class="val"><?php echo number_format($cntOpen, 0, ',', '.'); ?></div>
-      <div class="sub"><?php echo $cntClosed > 0 ? $cntClosed . ' closed' : ''; ?><?php echo $cntVoid > 0 ? ' · ' . $cntVoid . ' void' : ''; ?>&nbsp;</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="lot-sum-card amber">
-      <div class="lbl">Saldo Qty</div>
-      <div class="val"><?php echo number_format($qtyBalance, 2, ',', '.'); ?></div>
-      <div class="sub">tersisa di lot open</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="lot-sum-card slate">
-      <div class="lbl">Nilai Saldo</div>
-      <div class="val" style="font-size:.82rem">Rp <?php echo number_format($valueBalance, 0, ',', '.'); ?></div>
-      <div class="sub">lot open × unit cost</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="lot-sum-card">
-      <div class="lbl">Sudah Terpakai</div>
-      <div class="val"><?php echo number_format($qtyOutTotal, 2, ',', '.'); ?></div>
-      <div class="sub">total qty_out semua lot</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="lot-sum-card <?php echo $utilisasi >= 80 ? 'green' : ($utilisasi >= 50 ? 'amber' : ''); ?>">
-      <div class="lbl">Utilisasi</div>
-      <div class="val"><?php echo number_format($utilisasi, 1, ',', '.'); ?>%</div>
-      <div class="utilbar"><div class="utilbar-fill" style="width:<?php echo min(100, $utilisasi); ?>%"></div></div>
-      <div class="sub">qty out / qty in</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="lot-sum-card">
-      <div class="lbl">Top Divisi (Nilai)</div>
-      <?php if (empty($topDivisions)): ?>
-        <div class="val text-muted" style="font-size:.75rem">—</div>
-      <?php else: ?>
-        <?php foreach ($topDivisions as $dn => $dv): ?>
-          <div style="display:flex;justify-content:space-between;font-size:.68rem;line-height:1.7">
-            <span class="text-truncate me-1" style="max-width:72px"><?php echo html_escape($dn); ?></span>
-            <span class="fw-bold text-nowrap"><?php echo number_format($dv, 0, ',', '.'); ?></span>
-          </div>
-        <?php endforeach; ?>
-      <?php endif; ?>
-    </div>
-  </div>
-</div>
 
 <!-- Filter -->
 <div class="card mb-3 component-lot-filter-card border-0">
@@ -212,6 +147,25 @@ $uniqueComponentCount = count($uniqueComponents);
     </form>
   </div>
 </div>
+
+<?php
+$topLotDivision = '-';
+$topLotDivisionValue = 0.0;
+if (!empty($topDivisions)) {
+  $topLotDivision = (string)array_key_first($topDivisions);
+  $topLotDivisionValue = (float)($topDivisions[$topLotDivision] ?? 0);
+}
+$this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan lot FIFO komponen',
+  'stock_summary_cards' => [
+    ['label' => 'Lot Open', 'value' => number_format($cntOpen, 0, ',', '.'), 'detail' => $cntClosed . ' closed · ' . $cntVoid . ' void', 'tone' => 'violet', 'icon' => 'ri-stack-line'],
+    ['label' => 'Saldo Qty', 'value' => number_format($qtyBalance, 2, ',', '.'), 'detail' => 'tersisa di lot open', 'tone' => 'amber', 'icon' => 'ri-scales-3-line'],
+    ['label' => 'Nilai Saldo', 'value' => 'Rp ' . number_format($valueBalance, 0, ',', '.'), 'detail' => 'lot open × unit cost', 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+    ['label' => 'Sudah Terpakai', 'value' => number_format($qtyOutTotal, 2, ',', '.'), 'detail' => 'total qty_out semua lot', 'tone' => 'blue', 'icon' => 'ri-arrow-up-circle-line'],
+    ['label' => 'Utilisasi', 'value' => number_format($utilisasi, 1, ',', '.') . '%', 'detail' => 'qty out / qty in', 'tone' => 'amber', 'icon' => 'ri-speed-up-line'],
+    ['label' => 'Top Divisi', 'value' => $topLotDivision, 'detail' => $topLotDivisionValue > 0 ? 'Rp ' . number_format($topLotDivisionValue, 0, ',', '.') : 'belum ada nilai lot', 'tone' => 'aqua', 'icon' => 'ri-building-line'],
+  ],
+]); ?>
 
 <!-- Table -->
 <div class="card component-lot-table-card border-0">
@@ -346,4 +300,3 @@ $uniqueComponentCount = count($uniqueComponents);
   applyFilter(searchInput ? searchInput.value : '', 1);
 })();
 </script>
-

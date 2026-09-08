@@ -2,6 +2,7 @@
 $filters   = is_array($filters ?? null) ? $filters : [];
 $rows      = is_array($rows ?? null) ? $rows : [];
 $divisions = is_array($divisions ?? null) ? $divisions : [];
+$stockMeta = is_array($stock_meta ?? null) ? $stock_meta : [];
 $selectedMonth = (string)($filters['month'] ?? date('Y-m'));
 
 $locationFilterOptions = ['' => 'Semua Lokasi', 'REGULER' => 'Reguler', 'EVENT' => 'Event'];
@@ -54,13 +55,29 @@ $lotAvgCost = static function (array $ls): float {
   return $qty > 0 ? round((float)($ls['total_value'] ?? 0) / $qty, 6) : 0.0;
 };
 
-/* Summary stats */
-$totalComponents = count($rows);
-$totalNilai      = array_sum(array_column($rows, 'total_value'));
-$countBase       = count(array_filter($rows, fn($r) => strtoupper($r['component_type'] ?? '') === 'BASE'));
-$countPrepare    = count(array_filter($rows, fn($r) => strtoupper($r['component_type'] ?? '') === 'PREPARE'));
-$countNegative   = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand'] ?? 0) < 0));
-$countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand'] ?? 0) == 0));
+/* Summary stats are calculated before server-side pagination. */
+$totalComponents = (int)($stockMeta['total_rows'] ?? count($rows));
+$totalNilai      = (float)($stockMeta['total_value'] ?? array_sum(array_column($rows, 'total_value')));
+$countBase       = (int)($stockMeta['base_count'] ?? count(array_filter($rows, fn($r) => strtoupper($r['component_type'] ?? '') === 'BASE')));
+$countPrepare    = (int)($stockMeta['prepare_count'] ?? count(array_filter($rows, fn($r) => strtoupper($r['component_type'] ?? '') === 'PREPARE')));
+$countNegative   = (int)($stockMeta['negative_count'] ?? count(array_filter($rows, fn($r) => (float)($r['qty_on_hand'] ?? 0) < 0)));
+$countZero       = (int)($stockMeta['zero_count'] ?? count(array_filter($rows, fn($r) => (float)($r['qty_on_hand'] ?? 0) == 0)));
+$currentPage     = max(1, (int)($stockMeta['page'] ?? $filters['page'] ?? 1));
+$perPage         = max(0, (int)($stockMeta['per_page'] ?? $filters['per_page'] ?? 25));
+$maxPage         = max(1, (int)($stockMeta['max_page'] ?? 1));
+$rangeStart      = $totalComponents > 0 ? (($perPage > 0 ? (($currentPage - 1) * $perPage) : 0) + 1) : 0;
+$rangeEnd        = $totalComponents > 0 ? min($totalComponents, $rangeStart + count($rows) - 1) : 0;
+$paginationParams = [
+  'q' => trim((string)($filters['q'] ?? '')),
+  'month' => $selectedMonth,
+  'division_id' => (int)($filters['division_id'] ?? 0),
+  'location_type' => (string)($filters['location_type'] ?? ''),
+  'type' => (string)($filters['type'] ?? ''),
+  'per_page' => $perPage,
+];
+$buildPageUrl = static function (int $page) use ($paginationParams): string {
+  return site_url('production/component-stock') . '?' . http_build_query(array_merge($paginationParams, ['page' => $page]));
+};
 ?>
 
 <style>
@@ -189,46 +206,6 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
   ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
 ]); ?>
 
-<!-- Summary cards -->
-<div class="row g-2 mb-3">
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Komponen</div>
-      <div class="fw-bold fs-5"><?php echo $totalComponents; ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Base</div>
-      <div class="fw-bold fs-5 text-primary"><?php echo $countBase; ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Prepare</div>
-      <div class="fw-bold fs-5 text-warning"><?php echo $countPrepare; ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Stok Nol</div>
-      <div class="fw-bold fs-5 text-secondary"><?php echo $countZero; ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Stok Minus</div>
-      <div class="fw-bold fs-5 <?php echo $countNegative > 0 ? 'text-danger' : 'text-secondary'; ?>"><?php echo $countNegative; ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-4 col-md-2">
-    <div class="card card-body py-2 px-3 text-center h-100">
-      <div class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.04em">Total Nilai</div>
-      <div class="fw-bold" style="font-size:.88rem">Rp <?php echo $fmtCost($totalNilai); ?></div>
-    </div>
-  </div>
-</div>
-
 <!-- Filter -->
 <div class="card mb-3">
   <div class="card-body py-2">
@@ -277,6 +254,18 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
   </div>
 </div>
 
+<?php $this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan stok komponen',
+  'stock_summary_cards' => [
+    ['label' => 'Komponen', 'value' => number_format($totalComponents, 0, ',', '.'), 'tone' => 'violet', 'icon' => 'ri-stack-line'],
+    ['label' => 'Base', 'value' => number_format($countBase, 0, ',', '.'), 'tone' => 'aqua', 'icon' => 'ri-flask-line'],
+    ['label' => 'Prepare', 'value' => number_format($countPrepare, 0, ',', '.'), 'tone' => 'blue', 'icon' => 'ri-restaurant-2-line'],
+    ['label' => 'Stok Nol', 'value' => number_format($countZero, 0, ',', '.'), 'tone' => 'amber', 'icon' => 'ri-inbox-line'],
+    ['label' => 'Stok Minus', 'value' => number_format($countNegative, 0, ',', '.'), 'tone' => $countNegative > 0 ? 'danger' : 'blue', 'icon' => 'ri-alarm-warning-line'],
+    ['label' => 'Total Nilai', 'value' => 'Rp ' . $fmtCost($totalNilai), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+  ],
+]); ?>
+
 <!-- Table -->
 <div class="card">
   <div style="overflow:auto;max-height:70vh">
@@ -295,7 +284,7 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
       </thead>
       <tbody>
         <?php if (empty($rows)): ?>
-          <tr><td colspan="8" class="text-center text-muted py-4">Belum ada data stok komponen.</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-4" role="status" aria-live="polite">Belum ada data stok komponen pada filter ini.</td></tr>
         <?php else: ?>
           <?php foreach ($rows as $ri => $row): ?>
             <?php
@@ -408,9 +397,23 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
       </tbody>
     </table>
   </div>
-  <div class="card-footer py-1 d-flex justify-content-between align-items-center">
-    <span class="text-muted small" id="stockTableCount"><?php echo $totalComponents; ?> baris</span>
-    <span class="text-muted small" id="stockTablePager"></span>
+  <div class="card-footer py-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <span class="text-muted small" id="stockTableCount">
+      <?php if ($totalComponents <= 0): ?>Tidak ada baris
+      <?php elseif ($perPage <= 0): ?>Menampilkan semua <?php echo $totalComponents; ?> baris
+      <?php else: ?>Menampilkan <?php echo $rangeStart; ?>–<?php echo $rangeEnd; ?> dari <?php echo $totalComponents; ?> baris<?php endif; ?>
+    </span>
+    <?php if ($perPage > 0 && $maxPage > 1): ?>
+      <nav aria-label="Navigasi halaman stok komponen" class="d-flex align-items-center gap-2">
+        <?php if ($currentPage > 1): ?>
+          <a class="btn btn-sm btn-outline-secondary" href="<?php echo html_escape($buildPageUrl($currentPage - 1)); ?>">Sebelumnya</a>
+        <?php endif; ?>
+        <span class="text-muted small" aria-current="page">Halaman <?php echo $currentPage; ?> dari <?php echo $maxPage; ?></span>
+        <?php if ($currentPage < $maxPage): ?>
+          <a class="btn btn-sm btn-outline-secondary" href="<?php echo html_escape($buildPageUrl($currentPage + 1)); ?>">Berikutnya</a>
+        <?php endif; ?>
+      </nav>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -427,33 +430,5 @@ $countZero       = count(array_filter($rows, fn($r) => (float)($r['qty_on_hand']
     btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
   });
 
-  /* client-side pagination */
-  const perPageSel = document.getElementById('perPageSelect');
-  const table      = document.getElementById('stockTable');
-  const countEl    = document.getElementById('stockTableCount');
-  const pagerEl    = document.getElementById('stockTablePager');
-
-  function applyPagination() {
-    if (!table) return;
-    const allRows = Array.from(table.querySelectorAll('tbody tr.stock-row'));
-    const perPage = perPageSel ? parseInt(perPageSel.value, 10) || 0 : 0;
-    let shown = 0;
-    allRows.forEach((tr, i) => {
-      const hide = perPage > 0 && i >= perPage;
-      tr.style.display = hide ? 'none' : '';
-      /* hide child lot row too if parent is hidden */
-      const next = tr.nextElementSibling;
-      if (next && next.classList.contains('csl-child-row') && hide) {
-        next.classList.add('d-none');
-      }
-      if (!hide) shown++;
-    });
-    if (countEl) countEl.textContent = shown + ' dari ' + allRows.length + ' baris';
-    if (pagerEl) pagerEl.textContent = perPage > 0 && allRows.length > perPage
-      ? 'Menampilkan ' + shown + ' baris pertama' : '';
-  }
-
-  if (perPageSel) perPageSel.addEventListener('change', applyPagination);
-  applyPagination();
 })();
 </script>

@@ -2,6 +2,8 @@
 $baseUrl = site_url('inventory/stock/division/daily');
 $lotAuditBaseUrl = site_url('inventory/stock/division/lot');
 $genMonth = $month !== '' ? substr((string)$month, 0, 7) : date('Y-m');
+$windowStart = $genMonth . '-01';
+$windowEnd = date('Y-m-t', strtotime($windowStart));
 $buildLotUrl = static function (array $row) use ($lotAuditBaseUrl): string {
   $searchToken = trim((string)($row['profile_key'] ?? ''));
   if ($searchToken === '') { $searchToken = trim((string)($row['item_code'] ?? '')); }
@@ -357,27 +359,6 @@ $paginationQs = http_build_query($pParams);
 @media (max-width:991px)  { .sdd-filter-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } .sdd-filter-btn { grid-column: span 2; display:flex; gap:.4rem; } }
 @media (max-width:767px)  { .sdd-filter-grid { grid-template-columns: 1fr 1fr; } .sdd-filter-btn { grid-column: span 2; } }
 
-/* ── KPI ── */
-.sdd-kpi-row { display:grid; grid-template-columns:repeat(7,1fr); gap:.6rem; margin-bottom:1rem; }
-@media (max-width:1399px) { .sdd-kpi-row { grid-template-columns:repeat(4,1fr); } }
-@media (max-width:767px)  { .sdd-kpi-row { grid-template-columns:repeat(2,1fr); } }
-.sdd-kpi {
-  border-radius:14px; padding:1rem 1.15rem .9rem; color:#fff;
-  position:relative; overflow:hidden; box-shadow:0 4px 18px rgba(0,0,0,.13);
-}
-.sdd-kpi::before { content:''; position:absolute; right:-18px; bottom:-18px; width:80px; height:80px; border-radius:50%; background:rgba(255,255,255,.13); }
-.sdd-kpi::after  { content:''; position:absolute; right:14px; top:-22px; width:56px; height:56px; border-radius:50%; background:rgba(255,255,255,.09); }
-.sdd-kpi-icon { font-size:1.25rem; opacity:.8; margin-bottom:.35rem; display:block; }
-.sdd-kpi-val  { font-size:1.4rem; font-weight:800; line-height:1.1; }
-.sdd-kpi-sub  { font-size:.7rem; opacity:.75; margin-top:.1rem; }
-.sdd-kpi-lbl  { font-size:.68rem; opacity:.82; text-transform:uppercase; letter-spacing:.06em; margin-top:.2rem; }
-.sdd-kpi-1 { background:linear-gradient(135deg,#667eea,#764ba2); }
-.sdd-kpi-2 { background:linear-gradient(135deg,#0c7cba,#0fcdba); }
-.sdd-kpi-3 { background:linear-gradient(135deg,#11998e,#38ef7d); }
-.sdd-kpi-4 { background:linear-gradient(135deg,#e44d26,#f7b733); }
-.sdd-kpi-5 { background:linear-gradient(135deg,#1c7ed6,#74c0fc); }
-.sdd-kpi-6 { background:linear-gradient(135deg,#b22222,#e05252); }
-
 /* ── Table ── */
 .sdd-table-wrap {
   overflow-x:auto; overflow-y:auto; max-height:72vh;
@@ -437,7 +418,7 @@ $paginationQs = http_build_query($pParams);
 
 <div class="mb-3">
   <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-  <small class="text-muted">Rekap parent-child per barang divisi dalam rentang 1 bulan (expand untuk detail profil).</small>
+  <small class="text-muted">Rekap per bulan. Rentang tampilan opsional selalu dibatasi di dalam bulan yang dipilih.</small>
 </div>
 <div class="d-flex flex-wrap gap-2 mb-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'daily']); ?>
@@ -453,7 +434,7 @@ $paginationQs = http_build_query($pParams);
       <div class="sdd-filter-grid">
         <div>
           <label class="form-label mb-1">Bulan</label>
-          <input type="month" class="form-control form-control-sm" name="month" value="<?php echo html_escape($genMonth); ?>">
+          <input type="month" class="form-control form-control-sm" id="sddMonth" name="month" value="<?php echo html_escape($genMonth); ?>">
         </div>
         <div>
           <label class="form-label mb-1">Divisi</label>
@@ -490,12 +471,12 @@ $paginationQs = http_build_query($pParams);
           <input type="text" class="form-control form-control-sm" name="q" value="<?php echo html_escape((string)$q); ?>" placeholder="Item / material / profile / merk">
         </div>
         <div>
-          <label class="form-label mb-1">Dari</label>
-          <input type="date" class="form-control form-control-sm" name="date_from" value="<?php echo html_escape((string)$date_from); ?>">
+          <label class="form-label mb-1">Mulai Tampilan</label>
+          <input type="date" class="form-control form-control-sm" id="sddDateFrom" name="date_from" min="<?php echo html_escape($windowStart); ?>" max="<?php echo html_escape($windowEnd); ?>" value="<?php echo html_escape((string)$date_from); ?>">
         </div>
         <div>
-          <label class="form-label mb-1">Sampai</label>
-          <input type="date" class="form-control form-control-sm" name="date_to" value="<?php echo html_escape((string)$date_to); ?>">
+          <label class="form-label mb-1">Sampai Tampilan</label>
+          <input type="date" class="form-control form-control-sm" id="sddDateTo" name="date_to" min="<?php echo html_escape($windowStart); ?>" max="<?php echo html_escape($windowEnd); ?>" value="<?php echo html_escape((string)$date_to); ?>">
         </div>
         <div>
           <label class="form-label mb-1">/ Hal</label>
@@ -542,52 +523,43 @@ $paginationQs = http_build_query($pParams);
   syncDestinationOptions();
 })();
 </script>
+<script>
+(() => {
+  const month = document.getElementById('sddMonth');
+  const from = document.getElementById('sddDateFrom');
+  const to = document.getElementById('sddDateTo');
+  if (!month || !from || !to) return;
+  const syncWindow = () => {
+    if (!/^\d{4}-\d{2}$/.test(month.value)) return;
+    const start = `${month.value}-01`;
+    const [year, monthNumber] = month.value.split('-').map(Number);
+    const end = `${month.value}-${String(new Date(year, monthNumber, 0).getDate()).padStart(2, '0')}`;
+    [from, to].forEach((input) => {
+      input.min = start;
+      input.max = end;
+      if (input.value && input.value < start) input.value = start;
+      if (input.value && input.value > end) input.value = end;
+    });
+    if (from.value && to.value && from.value > to.value) to.value = from.value;
+  };
+  month.addEventListener('change', syncWindow);
+  syncWindow();
+})();
+</script>
 
-<!-- KPI Cards -->
 <?php if ($totalParentCount > 0): ?>
-<div class="sdd-kpi-row">
-  <div class="sdd-kpi sdd-kpi-1">
-    <span class="sdd-kpi-icon"><i class="ri ri-archive-line"></i></span>
-    <div class="sdd-kpi-val"><?php echo number_format($totalParentCount); ?></div>
-    <div class="sdd-kpi-lbl">Item Stok</div>
-  </div>
-  <div class="sdd-kpi sdd-kpi-2">
-    <span class="sdd-kpi-icon"><i class="ri ri-building-2-line"></i></span>
-    <div class="sdd-kpi-val"><?php echo number_format($summaryDivisionCount); ?></div>
-    <div class="sdd-kpi-lbl">Divisi Aktif</div>
-  </div>
-  <div class="sdd-kpi sdd-kpi-3">
-    <span class="sdd-kpi-icon"><i class="ri ri-arrow-down-circle-line"></i></span>
-    <div class="sdd-kpi-val"><?php echo number_format($summaryIn, 1, ',', '.'); ?></div>
-    <div class="sdd-kpi-sub"><?php echo number_format($summaryInPack, 1, ',', '.'); ?> pack</div>
-    <div class="sdd-kpi-lbl">Total Masuk (Isi)</div>
-  </div>
-  <div class="sdd-kpi sdd-kpi-4">
-    <span class="sdd-kpi-icon"><i class="ri ri-arrow-up-circle-line"></i></span>
-    <div class="sdd-kpi-val"><?php echo number_format($summaryOut, 1, ',', '.'); ?></div>
-    <div class="sdd-kpi-sub"><?php echo number_format($summaryOutPack, 1, ',', '.'); ?> pack</div>
-    <div class="sdd-kpi-lbl">Total Keluar (Isi)</div>
-  </div>
-  <div class="sdd-kpi sdd-kpi-5">
-    <span class="sdd-kpi-icon"><i class="ri ri-scales-3-line"></i></span>
-    <div class="sdd-kpi-val"><?php echo number_format($summaryClosing, 1, ',', '.'); ?></div>
-    <div class="sdd-kpi-sub"><?php echo number_format($summaryClosingPack, 1, ',', '.'); ?> pack</div>
-    <div class="sdd-kpi-lbl">Stok Akhir (Isi)</div>
-  </div>
-  <div class="sdd-kpi" style="background:linear-gradient(135deg,#7c3aed,#a855f7)">
-    <span class="sdd-kpi-icon"><i class="ri ri-money-dollar-circle-line"></i></span>
-    <div class="sdd-kpi-val" style="font-size:1.1rem">Rp <?php echo number_format($summaryValue, 0, ',', '.'); ?></div>
-    <div class="sdd-kpi-lbl">Total Nilai HPP</div>
-  </div>
-  <div class="sdd-kpi sdd-kpi-6">
-    <span class="sdd-kpi-icon"><i class="ri ri-fire-line"></i></span>
-    <div class="sdd-kpi-val"><?php echo number_format($summaryLosses, 1, ',', '.'); ?></div>
-    <?php if ($summaryAlertCount > 0): ?>
-      <div class="sdd-kpi-sub"><?php echo $summaryAlertCount; ?> item stok habis</div>
-    <?php endif; ?>
-    <div class="sdd-kpi-lbl">Losses (Waste+Spoilage+PL)</div>
-  </div>
-</div>
+  <?php $this->load->view('layout/_stock_summary_cards', [
+    'stock_summary_label' => 'Ringkasan snapshot stok bahan baku',
+    'stock_summary_cards' => [
+      ['label' => 'Item Stok', 'value' => number_format($totalParentCount), 'tone' => 'violet', 'icon' => 'ri-box-3-line'],
+      ['label' => 'Divisi Aktif', 'value' => number_format($summaryDivisionCount), 'tone' => 'aqua', 'icon' => 'ri-building-2-line'],
+      ['label' => 'Total Masuk', 'value' => number_format($summaryIn, 1, ',', '.'), 'detail' => number_format($summaryInPack, 1, ',', '.') . ' pack', 'tone' => 'blue', 'icon' => 'ri-arrow-down-circle-line'],
+      ['label' => 'Total Keluar', 'value' => number_format($summaryOut, 1, ',', '.'), 'detail' => number_format($summaryOutPack, 1, ',', '.') . ' pack', 'tone' => 'amber', 'icon' => 'ri-arrow-up-circle-line'],
+      ['label' => 'Stok Akhir', 'value' => number_format($summaryClosing, 1, ',', '.'), 'detail' => number_format($summaryClosingPack, 1, ',', '.') . ' pack', 'tone' => 'teal', 'icon' => 'ri-scales-3-line'],
+      ['label' => 'Total Nilai HPP', 'value' => 'Rp ' . number_format($summaryValue, 0, ',', '.'), 'tone' => 'violet', 'icon' => 'ri-money-dollar-circle-line'],
+      ['label' => 'Losses', 'value' => number_format($summaryLosses, 1, ',', '.'), 'detail' => $summaryAlertCount > 0 ? $summaryAlertCount . ' item stok habis' : 'Waste + spoilage + process loss', 'tone' => $summaryAlertCount > 0 ? 'danger' : 'amber', 'icon' => 'ri-fire-line'],
+    ],
+  ]); ?>
 <?php endif; ?>
 
 <!-- Table -->

@@ -107,12 +107,15 @@ $limitValue  = (int)($filters['limit'] ?? 200);
 </div>
 
 <?php if ($summaryRows > 0): ?>
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Baris Opname</div><div class="h5 mb-0"><?php echo number_format($summaryRows); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Divisi</div><div class="h5 mb-0"><?php echo number_format($summaryDivisions); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Closing (Isi)</div><div class="h5 mb-0"><?php echo number_format($summaryClosing, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Nilai Stok Closing</div><div class="h5 mb-0">Rp <?php echo number_format($summaryValue, 0, ',', '.'); ?></div></div></div></div>
-</div>
+<?php $this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan opname bahan baku',
+  'stock_summary_cards' => [
+    ['label' => 'Baris Opname', 'value' => number_format($summaryRows), 'tone' => 'violet', 'icon' => 'ri-file-list-3-line'],
+    ['label' => 'Divisi', 'value' => number_format($summaryDivisions), 'tone' => 'aqua', 'icon' => 'ri-building-2-line'],
+    ['label' => 'Total Closing', 'value' => number_format($summaryClosing, 2, ',', '.'), 'detail' => 'isi', 'tone' => 'amber', 'icon' => 'ri-scales-3-line'],
+    ['label' => 'Nilai Closing', 'value' => 'Rp ' . number_format($summaryValue, 0, ',', '.'), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+  ],
+]); ?>
 <?php endif; ?>
 
 <?php if (empty($rows)): ?>

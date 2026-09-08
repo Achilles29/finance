@@ -377,7 +377,7 @@ class Production_model extends CI_Model
         $this->db->insert($table, $rowData);
     }
 
-    public function component_stock_rows(array $filters, $limit = 200)
+    public function component_stock_rows(array $filters, $limit = 200, int $page = 1, ?array &$meta = null)
     {
         if ($this->db->table_exists('inv_component_monthly_stock')) {
             $targetMonth = trim((string)($filters['month'] ?? date('Y-m')));
@@ -426,8 +426,48 @@ class Production_model extends CI_Model
                 return ((int)($left['component_id'] ?? 0) <=> (int)($right['component_id'] ?? 0));
             });
 
-            if ($limit > 0 && count($rows) > $limit) {
-                $rows = array_slice($rows, 0, $limit);
+            $totalRows = count($rows);
+            $totalValue = 0.0;
+            $baseCount = 0;
+            $prepareCount = 0;
+            $negativeCount = 0;
+            $zeroCount = 0;
+            foreach ($rows as $row) {
+                $totalValue += (float)($row['total_value'] ?? 0);
+                $type = strtoupper(trim((string)($row['component_type'] ?? '')));
+                if ($type === 'BASE') {
+                    $baseCount++;
+                } elseif ($type === 'PREPARE') {
+                    $prepareCount++;
+                }
+                $qty = (float)($row['qty_on_hand'] ?? 0);
+                if ($qty < 0) {
+                    $negativeCount++;
+                } elseif ($qty == 0.0) {
+                    $zeroCount++;
+                }
+            }
+
+            $limit = max(0, (int)$limit);
+            $page = max(1, $page);
+            $maxPage = $limit > 0 ? max(1, (int)ceil($totalRows / $limit)) : 1;
+            $page = min($page, $maxPage);
+            if ($limit > 0) {
+                $rows = array_slice($rows, ($page - 1) * $limit, $limit);
+            }
+
+            if ($meta !== null) {
+                $meta = [
+                    'total_rows'     => $totalRows,
+                    'total_value'    => round($totalValue, 2),
+                    'base_count'     => $baseCount,
+                    'prepare_count'  => $prepareCount,
+                    'negative_count' => $negativeCount,
+                    'zero_count'     => $zeroCount,
+                    'page'           => $page,
+                    'per_page'       => $limit,
+                    'max_page'       => $maxPage,
+                ];
             }
 
             return $this->attach_component_lot_summaries($rows);

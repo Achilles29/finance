@@ -2,6 +2,8 @@
 $baseUrl = site_url('inventory/stock/warehouse/daily');
 $profileAuditBaseUrl = site_url('inventory/fifo-audit');
 $genMonth = $month !== '' ? substr((string)$month, 0, 7) : date('Y-m');
+$windowStart = $genMonth . '-01';
+$windowEnd = date('Y-m-t', strtotime($windowStart));
 $buildLotUrl = static function (array $row) use ($profileAuditBaseUrl): string {
   $searchToken = trim((string)($row['profile_key'] ?? ''));
   if ($searchToken === '') {
@@ -454,7 +456,7 @@ foreach ($monthlyRows as $row) {
 
 <div class="mb-2">
   <h4 class="mb-1"><i class="ri ri-calendar-check-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-  <small class="text-muted">Rekap parent-child per barang dalam rentang 1 bulan (expand untuk detail profil).</small>
+  <small class="text-muted">Rekap per bulan. Rentang tampilan opsional selalu dibatasi di dalam bulan yang dipilih.</small>
 </div>
 <div class="d-flex flex-wrap gap-2 mb-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'daily']); ?>
@@ -468,19 +470,19 @@ foreach ($monthlyRows as $row) {
     <form method="get" action="<?php echo $baseUrl; ?>" class="row g-2 align-items-end">
       <div class="col-md-2">
         <label class="form-label mb-1">Bulan</label>
-        <input type="month" class="form-control" name="month" value="<?php echo html_escape($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
+        <input type="month" class="form-control" id="swdMonth" name="month" value="<?php echo html_escape($month !== '' ? substr((string)$month, 0, 7) : date('Y-m')); ?>">
       </div>
       <div class="col-md-3">
         <label class="form-label mb-1">Cari</label>
         <input type="text" class="form-control" name="q" value="<?php echo html_escape((string)$q); ?>" placeholder="Item / profile / merk / keterangan">
       </div>
       <div class="col-md-2">
-        <label class="form-label mb-1">Dari Tanggal</label>
-        <input type="date" class="form-control" name="date_from" value="<?php echo html_escape((string)($date_from ?? '')); ?>">
+        <label class="form-label mb-1">Mulai Tampilan</label>
+        <input type="date" class="form-control" id="swdDateFrom" name="date_from" min="<?php echo html_escape($windowStart); ?>" max="<?php echo html_escape($windowEnd); ?>" value="<?php echo html_escape((string)($date_from ?? '')); ?>">
       </div>
       <div class="col-md-2">
-        <label class="form-label mb-1">Sampai Tanggal</label>
-        <input type="date" class="form-control" name="date_to" value="<?php echo html_escape((string)($date_to ?? '')); ?>">
+        <label class="form-label mb-1">Sampai Tampilan</label>
+        <input type="date" class="form-control" id="swdDateTo" name="date_to" min="<?php echo html_escape($windowStart); ?>" max="<?php echo html_escape($windowEnd); ?>" value="<?php echo html_escape((string)($date_to ?? '')); ?>">
       </div>
       <div class="col-md-1">
         <label class="form-label mb-1">Limit</label>
@@ -496,12 +498,16 @@ foreach ($monthlyRows as $row) {
   </div>
 </div>
 
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Profil Bulanan</div><div class="h5 mb-0"><?php echo number_format($summaryRows); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total In (Pack)</div><div class="h5 mb-0 text-success"><?php echo number_format($summaryInPack, 2, ',', '.'); ?></div><small class="text-muted">Isi: <?php echo number_format($summaryIn, 2, ',', '.'); ?></small></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Out (Pack)</div><div class="h5 mb-0 text-danger"><?php echo number_format($summaryOutPack, 2, ',', '.'); ?></div><small class="text-muted">Isi: <?php echo number_format($summaryOut, 2, ',', '.'); ?></small></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Nilai</div><div class="h5 mb-0"><?php echo number_format($summaryValue, 2, ',', '.'); ?></div></div></div></div>
-</div>
+<?php $this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan snapshot stok gudang',
+  'stock_summary_cards' => [
+    ['label' => 'Profil Bulanan', 'value' => number_format($summaryRows), 'tone' => 'violet', 'icon' => 'ri-archive-stack-line'],
+    ['label' => 'Total Masuk', 'value' => number_format($summaryInPack, 2, ',', '.'), 'detail' => 'Isi: ' . number_format($summaryIn, 2, ',', '.'), 'tone' => 'aqua', 'icon' => 'ri-arrow-down-circle-line'],
+    ['label' => 'Total Keluar', 'value' => number_format($summaryOutPack, 2, ',', '.'), 'detail' => 'Isi: ' . number_format($summaryOut, 2, ',', '.'), 'tone' => 'blue', 'icon' => 'ri-arrow-up-circle-line'],
+    ['label' => 'Stok Akhir', 'value' => number_format($summaryClosingPack, 2, ',', '.'), 'detail' => 'Isi: ' . number_format($summaryClosing, 2, ',', '.'), 'tone' => 'amber', 'icon' => 'ri-scales-3-line'],
+    ['label' => 'Total Nilai', 'value' => 'Rp ' . number_format($summaryValue, 2, ',', '.'), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+  ],
+]); ?>
 
 <div class="card">
   <div class="swd-sticky-head" id="swdStickyHead" aria-hidden="true"></div>
@@ -708,6 +714,29 @@ foreach ($monthlyRows as $row) {
       btn.textContent = willShow ? '-' : '+';
     });
   });
+})();
+</script>
+<script>
+(() => {
+  const month = document.getElementById('swdMonth');
+  const from = document.getElementById('swdDateFrom');
+  const to = document.getElementById('swdDateTo');
+  if (!month || !from || !to) return;
+  const syncWindow = () => {
+    if (!/^\d{4}-\d{2}$/.test(month.value)) return;
+    const start = `${month.value}-01`;
+    const [year, monthNumber] = month.value.split('-').map(Number);
+    const end = `${month.value}-${String(new Date(year, monthNumber, 0).getDate()).padStart(2, '0')}`;
+    [from, to].forEach((input) => {
+      input.min = start;
+      input.max = end;
+      if (input.value && input.value < start) input.value = start;
+      if (input.value && input.value > end) input.value = end;
+    });
+    if (from.value && to.value && from.value > to.value) to.value = from.value;
+  };
+  month.addEventListener('change', syncWindow);
+  syncWindow();
 })();
 </script>
 

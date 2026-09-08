@@ -3439,7 +3439,6 @@ class Whatsapp extends MY_Controller
             GROUP BY status, stock_commit_status
             ORDER BY total DESC
         ", [$date])->result_array();
-        $effectiveMutationFilter = $this->effectiveAccountMutationSqlFilter('l');
         $rows = $this->db->query("
             SELECT order_no, customer_name, service_type, status, stock_commit_status, grand_total, ordered_at
             FROM pos_order
@@ -3468,6 +3467,7 @@ class Whatsapp extends MY_Controller
         if (!$this->db->table_exists('fin_account_mutation_log')) {
             return ['title' => 'Kas Hari Ini ' . $this->waDateLabel($date), 'body' => 'Tabel mutasi rekening belum tersedia.'];
         }
+        $effectiveMutationFilter = $this->effectiveAccountMutationSqlFilter('l');
         $rows = $this->db->query("
             SELECT a.account_code, a.account_name,
                    COALESCE(SUM(CASE WHEN l.mutation_type = 'IN' THEN l.amount ELSE 0 END),0) AS total_in,

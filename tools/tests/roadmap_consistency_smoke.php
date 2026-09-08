@@ -101,6 +101,19 @@ for ($number = 1; $number <= 9; $number++) {
 }
 $check($missingUiWaves === [], 'control board missing UI wave master IDs: ' . implode(', ', $missingUiWaves));
 
+$uiWaveSection = $section($audit, '/^### 0\.4 Checklist rollout UI 8\.3\s*$/m', 3);
+$check($uiWaveSection !== '', 'A3 UI wave checklist cannot be resolved');
+$unclosedUiWaves = [];
+for ($number = 1; $number <= 9; $number++) {
+    $id = sprintf('AUD-A3-UI-%02d', $number);
+    if ($uiWaveSection === ''
+        || preg_match('/^\|\s*`' . preg_quote($id, '/') . '`[^\n]*\|\s*`CODE_PASS`\s*\|/m', $uiWaveSection) !== 1
+    ) {
+        $unclosedUiWaves[] = $id;
+    }
+}
+$check($unclosedUiWaves === [], 'A3 code-closure checklist still has unclosed waves: ' . implode(', ', $unclosedUiWaves));
+
 $boardLines = preg_split('/\n/', $board) ?: [];
 $phaseRows = [];
 foreach (range(0, 5) as $phaseNumber) {
@@ -120,6 +133,11 @@ $check($missingPhases === [], 'phase-state table missing phases: ' . implode(', 
 $check(
     isset($phaseRows['A3']) && preg_match('/(?<![A-Z_])DONE(?![A-Z_])/i', $phaseRows['A3']) !== 1,
     'A3 phase state must not be DONE'
+);
+$check(
+    isset($phaseRows['A3']) && strpos($phaseRows['A3'], '`CODE_PASS`') !== false
+        && strpos($phaseRows['A3'], '`CODE_COMPLETE_UAT_PENDING`') !== false,
+    'A3 phase must distinguish completed code from still-pending visual UAT'
 );
 
 $statusContracts = [
@@ -154,7 +172,7 @@ $expectedSqlPaths = array_map(static function (string $path): string {
     return basename($path);
 }, $sqlFiles);
 sort($expectedSqlPaths, SORT_STRING);
-$check(count($expectedSqlPaths) === 18, 'workspace must contain exactly 18 top-level sql/*.sql files');
+$check(count($expectedSqlPaths) === 23, 'workspace must contain exactly 23 top-level sql/*.sql files');
 
 $registerTable = [];
 $registerHeading = '';
@@ -215,6 +233,11 @@ $check($a3Section !== '', 'Fase A3 section cannot be resolved');
 $check(
     $a3Section !== '' && preg_match('/`?\[x\]`?\s+selesai\b/i', $a3Section) !== 1,
     'stale A3 [x] selesai claim is present'
+);
+$check(
+    $a3Section !== '' && strpos($a3Section, 'A3-CODE-CLOSED') !== false
+        && strpos($a3Section, 'UAT_PENDING') !== false,
+    'A3 closure marker and the remaining manual-UAT boundary are explicit'
 );
 
 $commercialParagraphs = preg_split('/\n\s*\n/', $commercial) ?: [];

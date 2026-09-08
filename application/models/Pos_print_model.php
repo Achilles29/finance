@@ -146,10 +146,14 @@ class Pos_print_model extends CI_Model
         // Branding printer saat ini sengaja satu sumber global. Outlet tetap
         // dibaca dari transaksi untuk data nota, bukan untuk menduplikasi logo/footer.
         $outletId = 0;
+        $businessProfile = $this->business_profile_fallback();
+        $profileFooter = trim((string)($businessProfile['document_footer'] ?? ''));
         $defaults = [
-            'title' => 'NAMUA COFFEE N EATERY',
-            'subtitle' => 'Jl. Magnolia, Desa Kabongan Kidul, Rembang',
-            'logo_url' => base_url('assets/img/logo.png'),
+            // Urutan sumber identitas: override printer/outlet -> profil usaha
+            // -> default produk. Data umum cetak yang telah ada tidak ditimpa.
+            'title' => (string)($businessProfile['display_name'] ?? 'Finance POS'),
+            'subtitle' => (string)($businessProfile['address'] ?? ''),
+            'logo_url' => (string)($businessProfile['logo_url'] ?? $this->default_logo_url()),
             'wifi_name' => '',
             'wifi_password' => '',
             'customer_voucher_limit' => 1,
@@ -158,7 +162,7 @@ class Pos_print_model extends CI_Model
             'customer_review_qr_enabled' => 0,
             'customer_review_message' => 'Bagikan ulasan Anda dengan scan QR berikut.',
             'header_lines' => ['ORDER CEPAT, SAJI HANGAT.'],
-            'footer_lines' => ['TERIMA KASIH SUDAH BERKUNJUNG'],
+            'footer_lines' => $profileFooter !== '' ? [$profileFooter] : ['TERIMA KASIH SUDAH BERKUNJUNG'],
         ];
 
         if (!$this->ready()) {
@@ -176,7 +180,7 @@ class Pos_print_model extends CI_Model
         $payload = $this->decode_payload((string)($row['general_payload'] ?? ''));
         $payload = array_merge($defaults, $payload);
         if (trim((string)$payload['logo_url']) === '') {
-            $payload['logo_url'] = base_url('assets/img/logo.png');
+            $payload['logo_url'] = (string)($businessProfile['logo_url'] ?? $this->default_logo_url());
         }
         $payload['logo_url'] = $this->normalize_logo_url_value((string)$payload['logo_url']);
         return ['row' => $row ?: null, 'payload' => $payload];
@@ -195,13 +199,14 @@ class Pos_print_model extends CI_Model
         // Mulai dari data tersimpan agar penyimpanan satu bagian tidak
         // mengosongkan branding atau data umum yang lain.
         $current = (array)($this->general_settings($outletId)['payload'] ?? []);
+        $businessProfile = $this->business_profile_fallback();
         $value = static function (string $key, $fallback = '') use ($data, $current) {
             return array_key_exists($key, $data) ? $data[$key] : ($current[$key] ?? $fallback);
         };
         $payload = [
-            'title' => trim((string)$value('title', 'NAMUA COFFEE N EATERY')),
+            'title' => trim((string)$value('title', (string)($businessProfile['display_name'] ?? 'Finance'))),
             'subtitle' => trim((string)$value('subtitle', '')),
-            'logo_url' => $this->normalize_logo_url_value(trim((string)$value('logo_url', base_url('assets/img/logo.png')))),
+            'logo_url' => $this->normalize_logo_url_value(trim((string)$value('logo_url', $this->default_logo_url()))),
             'wifi_name' => trim((string)$value('wifi_name', '')),
             'wifi_password' => trim((string)$value('wifi_password', '')),
             'customer_voucher_limit' => max(1, min(5, (int)$value('customer_voucher_limit', 1))),
@@ -216,7 +221,7 @@ class Pos_print_model extends CI_Model
             return ['ok' => false, 'message' => 'Nama outlet atau judul cetak wajib diisi.'];
         }
         if ($payload['logo_url'] === '') {
-            $payload['logo_url'] = base_url('assets/img/logo.png');
+            $payload['logo_url'] = $this->default_logo_url();
         }
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($json === false) {
@@ -251,11 +256,16 @@ class Pos_print_model extends CI_Model
             : ['ok' => false, 'message' => 'Gagal menambah tampilan umum cetak.'];
     }
 
+    public function default_logo_url(): string
+    {
+        return base_url('assets/img/logo.png');
+    }
+
     private function normalize_logo_url_value(string $logoUrl): string
     {
         $logoUrl = trim($logoUrl);
         if ($logoUrl === '') {
-            return base_url('assets/img/logo.png');
+            return $this->default_logo_url();
         }
 
         $ci = function_exists('get_instance') ? get_instance() : null;
@@ -264,10 +274,57 @@ class Pos_print_model extends CI_Model
         }
         if ($ci && isset($ci->posprinterpreviewservice) && is_object($ci->posprinterpreviewservice)
             && method_exists($ci->posprinterpreviewservice, 'normalizedLogoUrl')) {
-            return (string)$ci->posprinterpreviewservice->normalizedLogoUrl($logoUrl);
+            $logoUrl = (string)$ci->posprinterpreviewservice->normalizedLogoUrl($logoUrl);
         }
 
-        return $logoUrl;
+        return $this->is_managed_logo_url($logoUrl) ? $logoUrl : $this->default_logo_url();
+    }
+
+    /** Printer markers may only load a verified application-managed logo. */
+    private function is_managed_logo_url(string $logoUrl): bool
+    {
+        $parts = @parse_url(trim($logoUrl));
+        if (!is_array($parts)) {
+            return false;
+        }
+
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $currentHost = strtolower((string)parse_url(base_url(), PHP_URL_HOST));
+        if ($host !== '' && ($currentHost === '' || !hash_equals($currentHost, $host))) {
+            return false;
+        }
+
+        $path = rawurldecode((string)($parts['path'] ?? ''));
+        $basePath = trim((string)parse_url(base_url(), PHP_URL_PATH), '/');
+        if ($basePath !== '' && strpos(ltrim($path, '/'), $basePath . '/') === 0) {
+            $path = substr(ltrim($path, '/'), strlen($basePath) + 1);
+        }
+        $relativePath = ltrim(str_replace('\\', '/', $path), '/');
+        if (strpos($relativePath, '..') !== false || preg_match('~^(?:assets/img/logo\.png|assets/uploads/logo/logo\.png|assets/uploads/(?:pos-printer-logo|business-profile-logo)/[a-f0-9]{32}\.(?:png|jpe?g))$~i', $relativePath) !== 1) {
+            return false;
+        }
+
+        $root = rtrim(str_replace('\\', '/', (string)FCPATH), '/');
+        $realPath = realpath($root . '/' . $relativePath);
+        return $realPath !== false && is_file($realPath) && strpos(str_replace('\\', '/', $realPath), $root . '/') === 0;
+    }
+
+    /** Safe read-only fallback; unavailable schema must not affect printing. */
+    private function business_profile_fallback(): array
+    {
+        try {
+            if (!$this->db->table_exists('sys_business_profile')) {
+                return ['display_name' => 'Finance', 'address' => '', 'logo_url' => $this->default_logo_url(), 'document_footer' => ''];
+            }
+            $row = $this->db->select('display_name, address, logo_url, document_footer')->from('sys_business_profile')->where('id', 1)->limit(1)->get()->row_array();
+            $name = trim((string)($row['display_name'] ?? ''));
+            $address = trim((string)($row['address'] ?? ''));
+            $logo = trim((string)($row['logo_url'] ?? ''));
+            $footer = trim((string)($row['document_footer'] ?? ''));
+            return ['display_name' => $name !== '' ? $name : 'Finance', 'address' => $address, 'logo_url' => $logo !== '' ? $logo : $this->default_logo_url(), 'document_footer' => $footer];
+        } catch (Throwable $error) {
+            return ['display_name' => 'Finance', 'address' => '', 'logo_url' => $this->default_logo_url(), 'document_footer' => ''];
+        }
     }
 
     /**

@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $row = is_array($row ?? null) ? $row : null;
 $payload = is_array($payload ?? null) ? $payload : [];
 $previewPrinters = is_array($preview_printers ?? null) ? $preview_printers : [];

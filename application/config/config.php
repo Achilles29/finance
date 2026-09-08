@@ -401,11 +401,11 @@ $config['encryption_key'] = $finance_deployment_config->get(DeploymentConfig::EN
 $config['sess_driver'] = 'files';
 $config['sess_cookie_name'] = 'finance_session';
 $config['sess_samesite'] = 'Lax';
-$config['sess_expiration'] = 31536000;
+$config['sess_expiration'] = 43200;
 $config['sess_save_path'] = '/tmp/finance_ci_sessions';
 $config['sess_match_ip'] = FALSE;
-$config['sess_time_to_update'] = 7200;
-$config['sess_regenerate_destroy'] = FALSE;
+$config['sess_time_to_update'] = 300;
+$config['sess_regenerate_destroy'] = TRUE;
 
 /*
 |--------------------------------------------------------------------------

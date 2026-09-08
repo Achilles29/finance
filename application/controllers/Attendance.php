@@ -1049,7 +1049,7 @@ class Attendance extends MY_Controller
         }
 
         $this->render('attendance/meal_calendar', [
-            'title' => 'Estimasi Uang Makan',
+            'title' => 'Uang Makan Custom',
             'active_menu' => 'hr.att-meal-calendar',
             'filters' => $filters,
             'rows' => $rows,

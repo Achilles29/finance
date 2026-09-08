@@ -32,12 +32,19 @@ class Production extends MY_Controller
     {
         $this->require_permission('production.component.stock.index', 'view');
         $filters = $this->stock_filters();
-        $rows = $this->Production_model->component_stock_rows($filters, 500);
+        $stockMeta = [];
+        $rows = $this->Production_model->component_stock_rows(
+            $filters,
+            (int)$filters['per_page'],
+            (int)$filters['page'],
+            $stockMeta
+        );
 
         $this->render('production/component_stock_index', [
             'page_title'       => 'Stok Base/Prepare',
             'rows'             => $rows,
             'filters'          => $filters,
+            'stock_meta'       => $stockMeta,
             'location_options' => $this->location_options(),
             'divisions'        => $this->active_divisions(),
         ]);
@@ -3093,6 +3100,7 @@ class Production extends MY_Controller
         if (!in_array($perPage, [25, 50, 100, 200, 0], true)) {
             $perPage = 25;
         }
+        $page = max(1, (int)$this->input->get('page', true));
         return [
             'q'             => trim((string)$this->input->get('q', true)),
             'month'         => $month,
@@ -3100,6 +3108,7 @@ class Production extends MY_Controller
             'type'          => $this->normalize_component_type_filter($this->input->get('type', true)),
             'division_id'   => (int)$this->input->get('division_id', true),
             'per_page'      => $perPage,
+            'page'          => $page,
         ];
     }
 

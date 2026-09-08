@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $profileFilters = is_array($profile_filters ?? null) ? $profile_filters : [];
 $filterOptions = is_array($filter_options ?? null) ? $filter_options : [];
 $printers = is_array($filterOptions['printers'] ?? null) ? $filterOptions['printers'] : [];

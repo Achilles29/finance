@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $templateFilters = is_array($template_filters ?? null) ? $template_filters : [];
 ?>
 <style>

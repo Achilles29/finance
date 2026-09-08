@@ -679,83 +679,6 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
 };
 ?>
 
-<?php if ($summaryRows > 0): ?>
-<div class="row g-2 mb-3 mt-3">
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="card h-100 border-0 shadow-sm">
-      <div class="card-body p-3">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <span class="rounded-2 p-1" style="background:#e8f4fd"><i class="ri ri-box-3-line text-primary" style="font-size:1.1rem"></i></span>
-          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Baris Matrix</span>
-        </div>
-        <div class="fw-bold" style="font-size:1.05rem;color:#1565c0"><?php echo number_format($summaryRows, 0, ',', '.'); ?></div>
-        <div class="text-muted" style="font-size:.72rem"><?php echo number_format($summaryBase, 0, ',', '.'); ?> BASE  -  <?php echo number_format($summaryPrepare, 0, ',', '.'); ?> PREPARE</div>
-      </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="card h-100 border-0 shadow-sm">
-      <div class="card-body p-3">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <span class="rounded-2 p-1" style="background:#e8f5e9"><i class="ri ri-scales-3-line text-success" style="font-size:1.1rem"></i></span>
-          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Closing Qty</span>
-        </div>
-        <div class="fw-bold" style="font-size:1.05rem;color:#2e7d32"><?php echo number_format($summaryClosingQty, 2, ',', '.'); ?></div>
-        <div class="text-muted" style="font-size:.72rem"><?php echo $summaryPositive; ?> positif  -  <?php echo $summaryZero; ?> nol  -  <?php echo $summaryNegative; ?> minus</div>
-      </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="card h-100 border-0 shadow-sm">
-      <div class="card-body p-3">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <span class="rounded-2 p-1" style="background:#fff8e1"><i class="ri ri-exchange-funds-line text-warning" style="font-size:1.1rem"></i></span>
-          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Flow Bulan</span>
-        </div>
-        <div class="fw-bold" style="font-size:1.05rem;color:#f57f17">In <?php echo number_format($summaryInQty, 2, ',', '.'); ?></div>
-        <div class="text-muted" style="font-size:.72rem">Out <?php echo number_format($summaryOutQty, 2, ',', '.'); ?>  -  Adj <?php echo ($summaryAdjQty >= 0 ? '+' : '') . number_format($summaryAdjQty, 2, ',', '.'); ?></div>
-      </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="card h-100 border-0 shadow-sm">
-      <div class="card-body p-3">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <span class="rounded-2 p-1" style="background:#eaf1ff"><i class="ri ri-money-dollar-circle-line" style="font-size:1.1rem;color:#3949ab"></i></span>
-          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Nilai Stok</span>
-        </div>
-        <div class="fw-bold" style="font-size:1.05rem;color:#3949ab">Rp <?php echo number_format($summaryValue, 0, ',', '.'); ?></div>
-        <div class="text-muted" style="font-size:.72rem">Avg nilai per baris Rp <?php echo number_format($summaryRows > 0 ? ($summaryValue / $summaryRows) : 0, 0, ',', '.'); ?></div>
-      </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="card h-100 border-0 shadow-sm">
-      <div class="card-body p-3">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <span class="rounded-2 p-1" style="background:#fce4ec"><i class="ri ri-pie-chart-2-line text-danger" style="font-size:1.1rem"></i></span>
-          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Coverage Lokasi</span>
-        </div>
-        <div class="fw-bold" style="font-size:1.05rem;color:#c62828"><?php echo number_format($summaryReguler, 0, ',', '.'); ?> Reg</div>
-        <div class="text-muted" style="font-size:.72rem"><?php echo number_format($summaryEvent, 0, ',', '.'); ?> Event  -  usage rate <?php echo number_format($summaryUsageRate, 1, ',', '.'); ?>%</div>
-      </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="card h-100 border-0 shadow-sm">
-      <div class="card-body p-3">
-        <div class="d-flex align-items-center gap-2 mb-1">
-          <span class="rounded-2 p-1" style="background:#ede7f6"><i class="ri ri-building-line" style="font-size:1.1rem;color:#6a1b9a"></i></span>
-          <span class="text-muted" style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Top Divisi</span>
-        </div>
-        <div class="fw-bold" style="font-size:1rem;color:#6a1b9a"><?php echo html_escape($topDivisionName); ?></div>
-        <div class="text-muted" style="font-size:.72rem"><?php echo number_format($topDivisionShare, 1, ',', '.'); ?>%  -  Rp <?php echo number_format($topDivisionValue, 0, ',', '.'); ?></div>
-      </div>
-    </div>
-  </div>
-</div>
-<?php endif; ?>
-
 <div class="card mb-3">
   <div class="card-body">
     <form method="get" action="<?php echo site_url('production/component-daily'); ?>" class="row g-2 align-items-end">
@@ -803,6 +726,20 @@ $buildLotUrl = static function (array $row, string $status = 'ALL') use ($locati
     </form>
   </div>
 </div>
+
+<?php if ($summaryRows > 0): ?>
+  <?php $this->load->view('layout/_stock_summary_cards', [
+    'stock_summary_label' => 'Ringkasan daily matrix komponen',
+    'stock_summary_cards' => [
+      ['label' => 'Baris Matrix', 'value' => number_format($summaryRows, 0, ',', '.'), 'detail' => number_format($summaryBase, 0, ',', '.') . ' BASE · ' . number_format($summaryPrepare, 0, ',', '.') . ' PREPARE', 'tone' => 'violet', 'icon' => 'ri-box-3-line'],
+      ['label' => 'Closing Qty', 'value' => number_format($summaryClosingQty, 2, ',', '.'), 'detail' => $summaryPositive . ' positif · ' . $summaryZero . ' nol · ' . $summaryNegative . ' minus', 'tone' => $summaryNegative > 0 ? 'danger' : 'amber', 'icon' => 'ri-scales-3-line'],
+      ['label' => 'Flow Bulan', 'value' => 'In ' . number_format($summaryInQty, 2, ',', '.'), 'detail' => 'Out ' . number_format($summaryOutQty, 2, ',', '.') . ' · Adj ' . ($summaryAdjQty >= 0 ? '+' : '') . number_format($summaryAdjQty, 2, ',', '.'), 'tone' => 'blue', 'icon' => 'ri-exchange-funds-line'],
+      ['label' => 'Nilai Stok', 'value' => 'Rp ' . number_format($summaryValue, 0, ',', '.'), 'detail' => 'Rata-rata Rp ' . number_format($summaryValue / $summaryRows, 0, ',', '.'), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+      ['label' => 'Coverage Lokasi', 'value' => number_format($summaryReguler, 0, ',', '.') . ' Reg', 'detail' => number_format($summaryEvent, 0, ',', '.') . ' Event · usage ' . number_format($summaryUsageRate, 1, ',', '.') . '%', 'tone' => 'amber', 'icon' => 'ri-pie-chart-2-line'],
+      ['label' => 'Top Divisi', 'value' => $topDivisionName, 'detail' => number_format($topDivisionShare, 1, ',', '.') . '% · Rp ' . number_format($topDivisionValue, 0, ',', '.'), 'tone' => 'aqua', 'icon' => 'ri-building-line'],
+    ],
+  ]); ?>
+<?php endif; ?>
 
 <div class="card">
   <div class="card-body p-2">

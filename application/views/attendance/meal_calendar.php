@@ -124,8 +124,8 @@ $renderCell = static function (array $dailyRow): array {
 <div class="meal-calendar-wrap">
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
-      <h4 class="mb-0"><?php echo html_escape($title ?? 'Estimasi Uang Makan'); ?></h4>
-      <small class="text-muted">Rekap uang makan per pegawai per tanggal, dengan status sudah dibayar/belum.</small>
+      <h4 class="mb-0"><?php echo html_escape($title ?? 'Uang Makan Custom'); ?></h4>
+      <small class="text-muted">Rekap hak uang makan <strong>Custom</strong> per pegawai per tanggal, dengan status sudah dibayar/belum. Uang makan Bulanan ada pada payroll.</small>
     </div>
     <a href="<?php echo site_url('my/meal-ledger'); ?>" class="btn btn-outline-secondary">Ledger Uang Makan Saya</a>
   </div>
@@ -142,7 +142,7 @@ $renderCell = static function (array $dailyRow): array {
       </form>
 
       <div class="d-flex gap-2 flex-wrap mt-3">
-        <span class="legend-pill legend-earned">Hadir + Uang Makan</span>
+        <span class="legend-pill legend-earned">Hadir + Hak Uang Makan Custom</span>
         <span class="legend-pill legend-paid">Sudah Dicairkan</span>
         <span class="legend-pill legend-alpha">Alpha</span>
         <span class="legend-pill legend-off">Off / Libur / Tidak Ada Data</span>
@@ -152,8 +152,8 @@ $renderCell = static function (array $dailyRow): array {
 
   <div class="row g-3 mb-3">
     <div class="col-xl-3 col-md-6"><div class="summary-card p-3"><small class="text-muted d-block">Pegawai dalam rentang</small><div class="value"><?php echo (int)($summary['employee_count'] ?? 0); ?> Pegawai</div></div></div>
-    <div class="col-xl-3 col-md-6"><div class="summary-card p-3"><small class="text-muted d-block">Hari dapat uang makan</small><div class="value"><?php echo (int)($summary['meal_days'] ?? 0); ?> Hari</div></div></div>
-    <div class="col-xl-3 col-md-6"><div class="summary-card p-3"><small class="text-muted d-block">Total estimasi periode</small><div class="value">Rp <?php echo number_format((float)($summary['meal_total'] ?? 0), 0, ',', '.'); ?></div></div></div>
+    <div class="col-xl-3 col-md-6"><div class="summary-card p-3"><small class="text-muted d-block">Hari hak uang makan Custom</small><div class="value"><?php echo (int)($summary['meal_days'] ?? 0); ?> Hari</div></div></div>
+    <div class="col-xl-3 col-md-6"><div class="summary-card p-3"><small class="text-muted d-block">Total hak Custom periode</small><div class="value">Rp <?php echo number_format((float)($summary['meal_total'] ?? 0), 0, ',', '.'); ?></div></div></div>
     <div class="col-xl-3 col-md-6"><div class="summary-card p-3"><small class="text-muted d-block">Belum dicairkan</small><div class="value">Rp <?php echo number_format((float)($summary['unpaid_total'] ?? 0), 0, ',', '.'); ?></div></div></div>
   </div>
 

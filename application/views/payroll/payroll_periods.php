@@ -25,10 +25,15 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
   </div>
 </div>
 
-<ul class="nav nav-tabs mb-3">
-  <li class="nav-item"><a class="nav-link active" href="<?php echo site_url('payroll/payroll-periods'); ?>">Generate Payroll Period</a></li>
-  <li class="nav-item"><a class="nav-link" href="<?php echo site_url('payroll/salary-disbursements'); ?>">Generate Batch Pencairan Gaji</a></li>
-</ul>
+<?php
+$workspace_tabs = [
+  ['label' => 'Generate Payroll Period', 'url' => site_url('payroll/payroll-periods'), 'active' => true],
+  ['label' => 'Generate Batch Pencairan Gaji', 'url' => site_url('payroll/salary-disbursements'), 'active' => false],
+];
+$workspace_tab_label = 'Payroll';
+$workspace_tab_aria_label = 'Navigasi proses payroll';
+$this->load->view('layout/_workspace_tabs', get_defined_vars());
+?>
 
 <div class="card mb-3">
   <div class="card-header"><strong>Generate Payroll Period</strong></div>
@@ -329,11 +334,11 @@ $buildQuery = static function ($overrides = []) use ($periodFilters, $periodPg) 
 <div class="card">
   <div class="card-header">
     <strong>Breakdown Komponen Period #<?php echo $periodDetailId; ?></strong>
-    <div class="small text-muted mt-1">Selisih membandingkan THP kontrak tanpa uang makan dengan nilai gaji tetap yang benar-benar diperoleh dari absensi. Perbandingan tunggal tidak ditampilkan bila ada perubahan snapshot kontrak di dalam periode.</div>
+    <div class="small text-muted mt-1">Kolom uang makan adalah total hak. Pada period baru, mode Bulanan masuk THP final; mode Custom dibayar melalui batch Pencairan Uang Makan. Selisih membandingkan THP kontrak tanpa uang makan dengan nilai gaji tetap yang benar-benar diperoleh dari absensi.</div>
   </div>
   <div class="table-responsive">
     <table class="table table-sm table-striped mb-0">
-      <thead><tr><th>Pegawai</th><th class="text-end">Gaji Pokok</th><th class="text-end">Tunjangan</th><th class="text-end">U. Makan</th><th class="text-end">Lembur</th><th class="text-end">Adj (+)</th><th class="text-end">Kotor Riil</th><th class="text-end">Pot. Telat</th><th class="text-end">Pot. Alpha</th><th class="text-end">Adj (-) Lain</th><th class="text-end">Pot. Kasbon</th><th class="text-end">THP Kontrak<br><small>tanpa uang makan</small></th><th class="text-end">Riil Gaji Tetap<br><small>sesudah absensi</small></th><th class="text-end">Selisih Riil<br><small>vs kontrak</small></th><th class="text-end">Pembulatan</th><th class="text-end">THP Final</th></tr></thead>
+      <thead><tr><th>Pegawai</th><th class="text-end">Gaji Pokok</th><th class="text-end">Tunjangan</th><th class="text-end">U. Makan<br><small>total hak</small></th><th class="text-end">Lembur</th><th class="text-end">Adj (+)</th><th class="text-end">Kotor Riil</th><th class="text-end">Pot. Telat</th><th class="text-end">Pot. Alpha</th><th class="text-end">Adj (-) Lain</th><th class="text-end">Pot. Kasbon</th><th class="text-end">THP Kontrak<br><small>tanpa uang makan</small></th><th class="text-end">Riil Gaji Tetap<br><small>sesudah absensi</small></th><th class="text-end">Selisih Riil<br><small>vs kontrak</small></th><th class="text-end">Pembulatan</th><th class="text-end">THP Final</th></tr></thead>
       <tbody>
         <?php if(empty($periodBreakdownRows)): ?>
           <tr><td colspan="16" class="text-center text-muted py-3">Tidak ada breakdown.</td></tr>

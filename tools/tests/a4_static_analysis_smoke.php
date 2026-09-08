@@ -264,7 +264,7 @@ $result = a4StaticRun([
     '--error-format=json',
     '--no-progress',
     '--no-ansi',
-    '--memory-limit=1G',
+    '--memory-limit=2G',
     $root . '/' . $config['analysis']['scope_relative_path'],
 ], $root, $config['analysis']['timeout_seconds'], $config['analysis']['maximum_captured_bytes'], $analysisEnvironment);
 if ($result['timeout']) {
@@ -288,6 +288,9 @@ if (!is_array($report)
 $errors = $report['totals']['errors'] + $report['totals']['file_errors'];
 if ($result['code'] !== 0 || $errors !== 0) {
     fwrite(STDERR, 'A4 STATIC FAIL phpstan_exit=' . $result['code'] . ' errors=' . $errors . PHP_EOL);
+    foreach (array_slice((array)($report['errors'] ?? []), 0, 3) as $error) {
+        if (is_string($error)) fwrite(STDERR, 'GLOBAL ' . substr(preg_replace('/\s+/', ' ', $error), 0, 500) . PHP_EOL);
+    }
     $shown = 0;
     foreach ($report['files'] ?? [] as $path => $fileReport) {
         foreach ($fileReport['messages'] ?? [] as $message) {

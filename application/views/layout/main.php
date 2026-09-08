@@ -46,7 +46,10 @@ $globalNotifierConfig = [
     ],
   ],
 ];
-$this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
+$this->load->view('layout/header', [
+  'title' => $title ?? 'Finance',
+  'business_profile' => $business_profile ?? [],
+]);
 ?>
 <!-- Layout wrapper -->
 <div
@@ -107,7 +110,7 @@ $this->load->view('layout/header', ['title' => $title ?? 'Finance App']);
         <footer class="content-footer footer bg-footer-theme">
           <div class="container-xxl d-flex flex-wrap justify-content-between py-2 px-4 gap-2">
             <small class="text-muted">
-              &copy; <?= date('Y') ?> <span class="fw-semibold text-primary">Finance App</span>
+              &copy; <?= date('Y') ?> <span class="fw-semibold text-primary"><?= htmlspecialchars((string)($business_profile['display_name'] ?? 'Finance'), ENT_QUOTES, 'UTF-8') ?></span>
             </small>
             <small class="text-muted">v1.0.0</small>
           </div>

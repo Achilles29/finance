@@ -6345,14 +6345,1376 @@
   membuat `aud_access_event`, indeks, FK, page, sidebar, dan grant. Baseline
   clean-install, catalog, restore/rollback, health contract, dan policy count
   ikut diperbarui; tidak ada payload atau data transaksi yang dimigrasikan.
+- Staging apply (Batch 184): migration runner policy `upgrade` menghasilkan
+  **applied 1, skipped 9**. Tabel `aud_access_event`, page registry, menu
+  sidebar, serta grant view SUPERADMIN masing-masing ada satu dan terverifikasi
+  melalui query metadata-only.
 - Risiko sisa/batch berikutnya: page view sebelum migration tidak dapat
-  direkonstruksi. Perlu apply staging, akses beberapa halaman sebagai user
-  SUPERADMIN, lalu verifikasi menu, RBAC, event baru, serta korelasi transaksi.
+  direkonstruksi. Akses beberapa halaman sebagai user SUPERADMIN dan lakukan
+  satu transaksi untuk memverifikasi menu, RBAC, event baru, serta korelasinya.
 - Validasi akhir: PHP lint semua file PHP baru/berubah, migration catalog
   validate, smoke registry 12/12, clean-install baseline 18/18, catalog 38/38,
   legacy guard 19/19, dan quality gate `parallel` lulus (required 74/74,
-  development 4/4, release 1/1, preflight 1/1). Apply staging tidak dijalankan
-  karena proses CLI tidak memiliki pasangan credential option-file dan
-  database-name privat (`STAGING_BLOCKED_ENV`); probe DB read-only juga tidak
-  dapat tersambung. Tidak ada credential, konfigurasi database, atau data
-  runtime yang diubah untuk memaksa proses tersebut.
+  development 4/4, release 1/1, preflight 1/1). Migration staging kini sudah
+  diterapkan melalui runner resmi; credential tetap tidak dicetak, disalin, atau
+  dimasukkan ke konfigurasi aplikasi.
+
+## Batch 184 — Riwayat harga dari Purchase yang sudah lunas
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A2 / `AUD-A2-PUR-02`. Operasional Finance tidak menggunakan
+  Receipt Purchase sebagai tahapan wajib. Ketentuan Batch 182 yang hanya
+  membaca receipt `POSTED` membuat PO berstatus `PAID`, termasuk TISSUE POP UP,
+  tidak muncul di riwayat harga.
+- Perubahan utama: line pada PO `PAID` kini menjadi sumber riwayat harga per
+  profil item. Jika line yang sama memiliki receipt `POSTED`, receipt tetap
+  dipilih karena memakai kuantitas aktual dan baris PO ditekan agar tidak
+  duplikat. Ledger lama tanpa receipt line tetap fallback. Tidak ada stok, HPP
+  live, pembayaran, purchase, atau data historis yang ditulis/diubah.
+- File berubah: `Purchase_model.php`, view riwayat harga, smoke riwayat harga,
+  roadmap audit induk, dan log eksekusi ini.
+- Validasi: PHP lint tiga file PHP lulus; smoke riwayat harga **11/11**;
+  `git diff --check`; dan quality gate `parallel` lulus (required **74/74**,
+  development **4/4**, release **1/1**, preflight **1/1**).
+- Risiko sisa/batch berikutnya: UAT browser TISSUE POP UP dan satu PO `PAID`
+  lain diperlukan untuk membuktikan data staging. Harga hanya tetap aman
+  karena pencocokan menggunakan ID profil item, bukan sekadar nama bahan.
+
+## Batch 185 — Upload logo pada Tampilan Umum Printer POS
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A1/A5 / `AUD-A1-PRINT-01`. Halaman
+  `POS → Printer → Tampilan Umum` hanya menyediakan URL logo, sehingga customer
+  tidak mempunyai cara yang jelas dan aman untuk mengganti logo struk.
+- Perubahan utama: UI kini menampilkan logo aktif serta input unggah PNG/JPG
+  (maksimum 1 MB, 2048 × 2048). Logo tersimpan di
+  `assets/uploads/pos-printer-logo/` dengan nama acak; tanpa file baru,
+  konfigurasi logo lama tetap dipakai. Form save memakai CSRF scoped. Model
+  hanya menerima path logo aplikasi yang tervalidasi; URL luar/legacy yang
+  tidak aman kembali ke logo bawaan. Printer Agent tidak lagi mendapat marker
+  URL eksternal dari konfigurasi ini. File logo lama tidak dihapus.
+- File berubah: `Pos.php`, `Pos_print_model.php`,
+  `PosPrinterPreviewService.php`, view Printer General, smoke upload logo, dan
+  manifest/contract quality gate.
+- SQL/runtime: tidak ada migration atau SQL. Penggantian logo cukup dilakukan
+  dari UI oleh user dengan hak **edit** Printer General.
+- Validasi: `php -l` seluruh file PHP berubah; smoke logo 10/10; contract
+  quality gate 27/27; `git diff --check`; dan quality gate `parallel` lulus
+  (required **75/75**, development **4/4**, release **1/1**, preflight **1/1**).
+- Risiko sisa/batch berikutnya: lakukan UAT browser dengan satu PNG nyata,
+  lalu test cetak dari web dan APK/printer fisik. APK harus memakai
+  `print_segments` yang sudah disediakan API agar gambar benar-benar dicetak.
+  Lifecycle service, pairing, installer, rotasi secret, dan UAT fisik tetap
+  merupakan pekerjaan P0-09 terpisah.
+
+## Batch 185A — Perbaikan akses folder dan preview logo Printer General
+
+- Waktu/tanggal: 2026-09-06.
+- Masalah: PHP-FPM berjalan sebagai `www`, sedangkan induk
+  `assets/uploads/` saat ini dimiliki `root:root` mode `0775`. Ia tidak dapat
+  membuat subfolder baru sehingga upload menampilkan pesan folder tidak dapat
+  disiapkan. Preview juga baru merefleksikan logo tersimpan setelah reload.
+- Perubahan utama: folder runtime
+  `assets/uploads/pos-printer-logo/` disiapkan sebagai `www:www` mode `0775`
+  dan dibuktikan writable dari user PHP-FPM. UI sekarang membuat preview lokal
+  langsung saat PNG/JPG dipilih, mengembalikan preview logo aktif jika pilihan
+  dibatalkan, serta melepas object URL browser saat diganti/halaman ditutup.
+- SQL/runtime: tidak ada SQL. Pada server/customer baru, deployer harus
+  menyiapkan folder yang sama writable oleh user PHP-FPM; source aplikasi tidak
+  boleh mengandalkan kemampuan membuat folder dari parent yang root-owned.
+- Validasi: permission dicek langsung sebagai user `www`; lint PHP, smoke
+  upload logo, dan quality-gate contract dijalankan ulang.
+
+## Batch 186 — Reauth Tutup Kasir POS Mobile yang terikat sesi
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A1/A5 / `AUD-A1-POS-01`, `AUD-A1-STEP-01`, dan
+  `AUD-A5-MIG-01`. Menutup kasir mengunci shift dan kas; sebelumnya bearer APK
+  hanya membutuhkan token aktif serta izin edit sehingga perangkat yang
+  ditinggalkan berpotensi menutup sesi kasir aktif.
+- Perubahan utama: endpoint verify baru menerima password hanya untuk membuat
+  proof acak satu-kali selama 180 detik. Proof yang disimpan hanya hash dan
+  terikat pada token, user, terminal, aksi `CASHIER_CLOSE`, serta ID sesi kasir
+  tepatnya. Endpoint close mengonsumsi proof atomik sebelum daily recon,
+  writer, dan cetak; proof tidak diteruskan ke model. Kontrak bootstrap APK
+  menjadi versi 2 dan mengumumkan route/method aksi baru tanpa secret.
+- SQL/runtime: `2026-09-06f_pos_mobile_cashier_close_step_up.sql` diterapkan
+  melalui migration runner policy `upgrade` di staging: pertama `applied 1,
+  skipped 10`; replay `applied 0, skipped 11`. Migration hanya menambah kolom
+  target sesi, index konsumsi, dan enum proof; tidak mengubah order, kas,
+  pembayaran, stok, HPP, atau data historis. Baseline, catalog checksum,
+  restore drill, health check, dan legacy guard ikut diselaraskan menjadi 12
+  migration managed.
+- Validasi: lint PHP; smoke authorization POS Mobile, session binding, dan
+  proof reversal/reauth seluruhnya lulus (termasuk 29/29 smoke proof); validate
+  runner; query metadata staging untuk kolom/index/enum/ledger; health
+  post-install, catalog, baseline fingerprint, legacy inventory, dan restore
+  drill lulus. Quality gate parallel lulus required 75/75, development 4/4,
+  release 1/1, dan preflight 1/1 sebelum Batch 187 menambah guard inbox.
+- Risiko sisa/batch berikutnya: APK wajib mengadopsi kontrak versi 2: verify
+  password lalu kirim `step_up_proof` saat Tutup Kasir. UAT perangkat nyata
+  dan keputusan aksi mobile sensitif lain tetap diperlukan.
+
+## Batch 187 — Guard inbox Reservasi, Self Order, dan Online Food POS Mobile
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A1 / `AUD-A1-POS-01`. Endpoint inbox sudah dijaga di source,
+  tetapi belum memiliki regression khusus yang membuktikan urutan POST,
+  token, RBAC, outlet, dan writer.
+- Perubahan utama: reservation ID yang tidak ada kini mengembalikan 404 dan
+  berhenti sebelum writer. Smoke baru mengunci route serta urutan guard untuk
+  verify/reject Reservasi, Self Order, dan Online Food; detail inbox dibuktikan
+  memeriksa outlet dokumen kanonis sebelum mengirim payment/refund/void. Tidak
+  ada perubahan status order, stock commit, kas, HPP, data, atau kontrak APK.
+- A0 terkait: clone Git telah diubah dari shallow menjadi full history dengan
+  `git fetch --unshallow origin`, tanpa merge/reset/commit/push. Dua orphan
+  lokal kini dipertahankan sebagai ref `recovery/orphan-update-20260902` dan
+  `recovery/orphan-backup-20260903`. Remote divergen dan memuat backup runtime;
+  tidak diintegrasikan otomatis.
+- Validasi: lint controller dan test; smoke inbox 15/15; contract quality gate
+  27/27; `git diff --check` lulus. Quality gate penuh kemudian lulus pada
+  Batch 189.
+- Risiko sisa/batch berikutnya: merge/push remote membutuhkan keputusan
+  integrasi terpisah. UAT APK/browser/printer fisik, baseline izin per jabatan,
+  MFA, rollout UI, dan keputusan data historis tidak dapat disimpulkan dari
+  smoke source.
+
+## Batch 188 — Menutup baseline static analysis dan guard mutasi Landing Page
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A1/A4 / `AUD-A1-LANDING-01` dan `AUD-A4-TEST-01`. Landing Page
+  memiliki writer konfigurasi/konten yang ber-RBAC, tetapi belum memaksa method
+  dan CSRF scoped. Static analysis juga masih menyimpan baseline lama yang
+  menyamarkan error historis.
+- File berubah: controller dan view Landing Page; stubs/static policy A4;
+  beberapa source yang mempunyai error statis nyata; smoke Landing Page dan
+  browser; roadmap serta log ini.
+- Perubahan utama: 18 writer Landing Page kini wajib `POST` dan token CSRF
+  scoped yang dikirim form maupun AJAX. Token memakai random 256-bit session,
+  dibandingkan constant-time, dan request tidak sah berhenti sebelum writer.
+  PHPStan kini baseline 0; error nyata pada helper JSON Landing Page, variabel
+  WhatsApp, key duplikat Purchase Model, serta BOM view diperbaiki. Browser
+  smoke dibuktikan terhadap loopback runtime aktual.
+- Validasi: lint PHP file berubah; smoke Landing Page 24/24; browser runtime;
+  static analysis baseline 0; `git diff --check`; dan profile release lulus.
+- Risiko sisa/batch berikutnya: tidak ada data atau schema yang diubah. UAT
+  editor Landing Page dan perangkat nyata tetap terpisah.
+
+## Batch 189 — Quality gate staging penuh dan contract CLI staging
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A0/A4/A5. Dua probe database read-only sebelumnya gagal saat
+  dijalankan CLI karena proses CLI tidak otomatis menerima environment PHP-FPM
+  staging, bukan karena invariant database gagal.
+- File berubah: `tools/tests/finance_quality_gate.php`, contract smoke quality
+  gate, roadmap, dan log ini.
+- Perubahan utama: manifest probe staging menetapkan `CI_ENV=staging` secara
+  eksplisit pada child process sambil mewarisi environment proses. Dengan itu
+  probe memakai file konfigurasi privat staging yang sama tanpa mencetak atau
+  memasukkan credential ke source, command, atau log.
+- Validasi: lint dua file; contract quality gate 28/28; A2 database invariant
+  read-only lulus; RBAC scope staging lulus; kemudian profile `staging` penuh
+  lulus: required 77/77, development 4/4, release 1/1, runtime 2/2,
+  preflight 1/1, security 1/1, static 1/1, staging probe 3/3.
+- Risiko sisa/batch berikutnya: gate otomatis tidak menggantikan UAT browser
+  berbasis role, APK/device, printer fisik, atau keputusan integrasi Git dan
+  release customer. Tidak ada SQL atau data bisnis yang diubah oleh Batch 188–189.
+
+## Batch 190 — Reauth pengembalian DP Reservasi POS Mobile
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A1/A5 / `AUD-A1-POS-01`, `AUD-A1-STEP-01`, dan `AUD-A5-MIG-01`.
+  Penolakan reservasi dari APK telah memiliki POST, bearer, RBAC, dan scope
+  outlet, tetapi opsi `refund_deposit` dapat menjalankan pengembalian DP tanpa
+  reauth tambahan.
+- Perubahan utama: hanya pengembalian DP saat menolak reservasi yang sekarang
+  memerlukan password verify lebih dahulu. Verify menghasilkan proof acak
+  satu-kali 180 detik; yang tersimpan hanya hash dan proof terikat token, user,
+  terminal, aksi `RESERVATION_DEPOSIT_REFUND`, serta ID reservasi tepatnya.
+  Writer mengonsumsi proof secara atomik sebelum penolakan/pengembalian DP dan
+  membuang proof dari payload model. Penolakan reservasi tanpa pengembalian DP
+  mempertahankan alur APK sebelumnya. Kontrak bootstrap APK menjadi versi 3.
+- File berubah: `Pos_mobile.php`, `routes.php`, migration
+  `2026-09-06g_pos_mobile_reservation_refund_step_up.sql`, baseline dan policy
+  migration, contract restore/health/catalog, smoke proof POS Mobile, quality
+  gate, roadmap audit induk, serta log ini.
+- SQL/runtime: migration dikelola runner resmi dan telah diterapkan di staging
+  dengan policy `upgrade`: pertama `applied 1, skipped 11`; replay `applied 0,
+  skipped 12`. Ia hanya menambah `reservation_id`, enum aksi proof, dan index
+  konsumsi; tidak mengubah DP, reservasi, order, pembayaran, stok, HPP, atau
+  data historis.
+- Validasi: lint `Pos_mobile.php` dan routes lulus; smoke proof Refund DP
+  14/14 dan proof reversal POS Mobile 29/29; `git diff --check`; serta quality
+  gate `staging` penuh lulus: required 78/78, development 4/4, release 1/1,
+  runtime 2/2, preflight 1/1, security 1/1, static 1/1, dan probe read-only
+  staging 3/3.
+- Risiko sisa/batch berikutnya: APK harus membaca capability bootstrap versi 3
+  dan menjalankan verify password lalu mengirim `step_up_proof` ketika user
+  memilih pengembalian DP. APK lama hanya akan menerima `428 step_up_required`
+  pada aksi sempit itu; penolakan tanpa refund tetap berjalan. UAT perangkat
+  nyata, browser berbasis role, dan printer fisik masih diperlukan.
+
+## Batch 191 — Reauth refund DP Reservasi POS web
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: A1 / `AUD-A1-STEP-01`. POS web sudah memiliki CSRF dan permission
+  untuk menolak atau membatalkan reservasi, tetapi ketika opsi “kembalikan DP”
+  dipilih, writer dapat menjalankan `void_deposit` tanpa reauth tambahan.
+- Perubahan utama: hanya cabang refund DP kini membutuhkan password saat ini.
+  Password dikirim hanya ke endpoint verify CSRF-scoped, dibersihkan dari UI,
+  lalu berubah menjadi proof hash satu-kali 180 detik dalam session. Proof
+  terikat user, reservasi, serta aksi yang berbeda antara **tolak** dan
+  **batalkan**; proof refund order tidak dapat dipakai. Writer mengonsumsi proof
+  sebelum model dan tidak meneruskan password/proof ke model. Penolakan atau
+  pembatalan tanpa refund DP tetap memakai alur sebelumnya.
+- File berubah: `Pos.php`, `SensitiveActionStepUp.php`, routes, view Reservasi,
+  smoke reauth refund reservasi web, smoke transaksi POS, quality gate,
+  roadmap audit induk, dan log ini.
+- SQL/runtime: tidak ada SQL, migration, atau perubahan data. Tidak ada order,
+  DP, pembayaran, stok, HPP, atau jurnal yang diubah oleh batch ini.
+- Validasi: lint PHP seluruh file berubah; smoke refund reservasi web 13/13;
+  behavioral/source smoke CSRF transaksi POS 1.770 check; smoke reversal POS;
+  contract quality gate 28/28; `git diff --check`; dan quality gate `staging`
+  penuh lulus: required 79/79, development 4/4, release 1/1, runtime 2/2,
+  preflight 1/1, security 1/1, static 1/1, serta probe read-only staging 3/3.
+- Risiko sisa/batch berikutnya: UAT browser nyata perlu mencoba empat kondisi:
+  tolak tanpa refund, batalkan tanpa refund, tolak+refund, dan batalkan+refund;
+  proof salah/kedaluwarsa harus mendapat `428`. Baseline izin jabatan, MFA,
+  UAT APK/perangkat/printer, dan aksi mobile lain tetap terbuka.
+
+## Batch 192 — Roastery Label Studio: template, elemen, dan cetak seragam
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: penyempurnaan `/roastery/packaging-labels`. Sebelumnya Model 1 dan
+  Model 2 memakai renderer/editor cetak yang berbeda; template tidak dapat
+  disimpan sebagai aset yang dipakai ulang, dan preview note hanya menampilkan
+  tiga entri walaupun operator mengisi lebih banyak.
+- Perubahan utama: kedua model lama dipertahankan sebagai template awal
+  **Classic Portrait** dan **Retail Wide**, tetapi seluruh template kini memakai
+  satu kanvas, satu daftar elemen, serta satu mesin preview/cetak. Operator dapat
+  drag elemen langsung di kanvas, menampilkan/menyembunyikan tiap elemen, mengatur
+  ukuran label/kertas/jumlah label/margin/gap untuk template mana pun, lalu
+  menyimpan desain aktif sebagai template kustom. Semua tasting note yang diisi
+  (termasuk lima note) dirender di preview dan ikut disalin ke sheet cetak yang
+  sama.
+- File berubah: `Roastery.php`, `Coffee_packaging_label_model.php`, routes,
+  view Label Studio, migration `2026-09-06h_roastery_label_template_studio.sql`,
+  baseline/policy/catalog migration dan kontrak release, roadmap register SQL,
+  serta smoke test Label Studio.
+- SQL/runtime: migration resmi `2026-09-06h` telah dijalankan di staging dengan
+  policy `upgrade`: `applied 1, skipped 12`. Ia membuat tabel
+  `coffee_packaging_label_template` dan seed dua template sistem; tidak mengubah
+  atau menghapus label, produk, stok, HPP, order, maupun transaksi historis.
+  Probe read-only setelahnya membuktikan dua template aktif tersedia.
+- Validasi: lint semua PHP yang berubah; smoke Label Studio 9/9; migration
+  catalog/baseline/health/restore/rollback contracts; roadmap consistency 22/22;
+  `git diff --check`; lalu quality gate profile `release` lulus penuh: required
+  80/80, development 4/4, release 1/1, runtime 2/2, preflight 1/1, security
+  1/1, dan static 1/1.
+- Risiko sisa/batch berikutnya: perlu UAT visual operator pada browser nyata
+  untuk beberapa ukuran kertas/printer fisik, terutama bila artwork atau SVG
+  eksternal dipakai. Perpindahan template dengan perubahan yang belum disimpan
+  sengaja memuat ulang editor; operator perlu menyimpan label lebih dahulu jika
+  ingin mempertahankan modifikasi saat itu.
+
+## Batch 193 — Pemilih template Label Studio yang ringkas
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: menyederhanakan pemilihan template di `/roastery/packaging-labels`
+  agar tidak lagi memakai kartu-kartu lebar yang menghabiskan area editor.
+- Perubahan utama: template kini dipilih dari satu dropdown di bagian paling
+  atas editor. **Default — Classic Portrait** selalu berada di urutan pertama,
+  disusul Retail Wide dan template operator. Penyimpanan template kini membuka
+  dialog yang jelas dengan kolom **Nama template** wajib; prompt browser lama
+  telah dihapus. Dua template sistem yang sudah ada telah memiliki nama, jadi
+  tidak ada data template yang perlu diperbaiki.
+- File berubah: `Coffee_packaging_label_model.php`, view Label Studio, smoke
+  test Label Studio, dan log ini.
+- SQL/runtime: tidak ada SQL, migrasi, atau perubahan data. Tabel dan template
+  yang dibuat Batch 192 tetap dipakai apa adanya.
+- Validasi: lint PHP file berubah, smoke Label Studio, contract quality gate,
+  roadmap consistency, dan `git diff --check` pada perubahan batch ini.
+- Risiko sisa/batch berikutnya: operator perlu menyimpan label sebelum mengganti
+  dropdown template bila perubahan editor saat ini ingin dipertahankan. UAT
+  browser/perangkat dan printer fisik tetap diperlukan untuk desain akhir.
+
+## Batch 194 — A3.2 Riwayat Harga Item: state dan pagination operasional
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-02`. Halaman Riwayat Harga Item sudah membaca PO `PAID`
+  dengan benar, tetapi belum mempunyai state awal yang jelas, retry yang seragam,
+  atau cara melihat transaksi lama tanpa memilih batas data lebih besar dan
+  memuat ulang seluruh halaman.
+- Perubahan utama: endpoint read-only menerima offset yang dibatasi dan mengirim
+  `has_more`. UI kini memiliki state pilih item, memuat, kosong, dan gagal yang
+  jelas, tombol coba lagi, pembatalan request lama agar hasil pencarian/item
+  sebelumnya tidak menimpa pilihan terbaru, serta tombol “Muat transaksi
+  berikutnya” responsif. Grafik dan tabel menggunakan kumpulan transaksi yang
+  sama setelah halaman tambahan dimuat.
+- File berubah: `Purchase.php`, `Purchase_model.php`, view Riwayat Harga Item,
+  smoke riwayat harga, roadmap audit, dan log ini.
+- SQL/runtime: tidak ada SQL, migration, writer, atau perubahan data. Query
+  tetap hanya membaca sumber receipt POSTED, PO PAID, dan ledger historis.
+- Validasi: PHP lint file berubah; smoke riwayat harga 12/12; contract quality
+  gate 28/28; roadmap consistency 22/22; `git diff --check` pada scope batch;
+  serta quality gate `parallel` lulus dengan required 80/80, development 4/4,
+  dan release contract 1/1.
+- Risiko sisa/batch berikutnya: UAT browser nyata perlu mencoba item tanpa
+  riwayat, item dengan lebih dari satu halaman, mode HPP/Harga Pack, dan kondisi
+  koneksi gagal. Migrasi wave A3-UI-02 baru mencakup Master Component serta
+  Riwayat Harga; halaman operasional lain tetap bertahap.
+
+## Batch 195 — A3.2 Mutasi Stok Divisi: pagination server-side
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-02`. Halaman Mutasi Stok Divisi sebelumnya selalu
+  mengambil hingga 500 log ke PHP/browser lalu memotong array untuk pagination.
+  Ringkasan dan filter tipe juga hanya mencerminkan data yang sudah terambil.
+- Perubahan utama: controller kini meminta `per_page + 1` log saja dengan offset
+  terikat, membuang baris sentinel, dan menerbitkan `has_more` untuk navigasi
+  Sebelumnya/Berikutnya. View merender langsung halaman dari server, memberi
+  status saat filter/halaman dimuat, state kosong yang membantu operator kembali
+  ke filter benar, serta navigasi yang aksesibel. KPI dan ringkasan tipe diberi
+  label tegas sebagai **halaman aktif**, sehingga tidak mengklaim agregat global.
+- File berubah: `Purchase.php`, `Purchase_model.php`, view Mutasi Stok Divisi,
+  smoke pagination baru, manifest/contract quality gate, roadmap audit, dan log
+  ini.
+- SQL/runtime: tidak ada SQL, migration, writer, atau perubahan data. Endpoint
+  tetap menggunakan pembacaan `inv_stock_movement_log` saja.
+- Validasi: PHP lint file berubah; smoke pagination Mutasi Stok Divisi 5/5;
+  smoke A3 54/54 dan A2 matrix lulus; contract quality gate 28/28; `git diff
+  --check`; serta quality gate `parallel` lulus dengan required 81/81,
+  development 4/4, dan release contract 1/1.
+- Risiko sisa/batch berikutnya: UAT browser perlu mencoba page pertama/akhir,
+  halaman kosong setelah filter berubah, pencarian otomatis, serta 10/25/200
+  baris per halaman. Filter tipe global dapat ditambah sebagai batch terpisah
+  bila operator memerlukannya; batch ini sengaja tidak mengubah atau menyaring
+  data historis di luar halaman aktif.
+
+## Batch 196 — A3.4 POS Reservasi web: state daftar yang aman
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-04`. Daftar Reservasi POS web telah mempunyai filter
+  dan pagination, tetapi saat jaringan lambat/gagal operator hanya mendapat
+  toast; hasil request lama juga berpotensi menimpa filter atau tab terbaru.
+- Perubahan utama: daftar kini menunjukkan state **memuat**, **kosong**, dan
+  **gagal** yang jelas. State gagal menyediakan tombol coba lagi; hasil kosong
+  menjelaskan filter yang perlu diperiksa dan menyediakan reset filter. Request
+  daftar sebelumnya dibatalkan dan hasilnya diabaikan saat operator mengganti
+  tab/filter/halaman. Pagination mendapat label aksesibel dan status live.
+- File berubah: view `pos/reservation_index.php`, smoke baru
+  `a3_pos_reservation_ui_smoke.php`, smoke CSRF POS yang menyesuaikan helper
+  pembacaan opsional, manifest/contract quality gate, roadmap audit, dan log
+  ini.
+- SQL/runtime: tidak ada SQL, migration, schema, query writer, atau perubahan
+  data staging. `Pos_mobile.php`, route APK, model reservasi, DP, pembayaran,
+  stok, HPP, serta jurnal tidak disentuh.
+- Validasi: lint seluruh PHP berubah; smoke UI Reservasi 8/8; smoke reauth
+  refund DP Reservasi 13/13; smoke CSRF transaksi POS 1.770 check; contract
+  quality gate 28/28; roadmap consistency 22/22.
+- Review: PASS. Diff dibatasi pada pembacaan daftar dan kontrak test;
+  guard CSRF/reauth refund DP masih lulus. Tidak ada panggilan writer dari
+  fungsi refresh daftar.
+- Risiko sisa/batch berikutnya: perlu UAT browser pada koneksi lambat/gagal,
+  pindah cepat tab/filter, hasil kosong, serta desktop/mobile. Subwave berikut
+  A3-UI-04 adalah kasir POS web, self-order, dan online-food; POS Mobile/APK
+  tetap tidak disentuh kecuali ada kebutuhan eksplisit.
+
+## Batch 197 — A3.4 Kasir POS web: daftar order aktif yang tahan filter cepat
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-04`. Panel **Order Aktif Sesi Ini** langsung memuat
+  setiap ketikan dan menggunakan alert saat gagal, sehingga hasil lama dapat
+  muncul setelah filter terbaru dan mengganggu operator di layar kasir.
+- Perubahan utama: pencarian kini debounce 250 ms. Permintaan daftar lama
+  dibatalkan serta hasilnya diabaikan saat status/kata kunci/batas baris berubah.
+  Panel memberi state memuat, kosong dengan tombol bersihkan filter, dan gagal
+  dengan tombol coba lagi; status serta busy state dapat dibaca pembaca layar.
+- File berubah: view `pos/cashier_index.php`, smoke baru
+  `a3_pos_cashier_recent_ui_smoke.php`, manifest/contract quality gate,
+  roadmap audit, dan log ini.
+- SQL/runtime: tidak ada SQL, migration, schema, model, controller, writer,
+  atau data staging yang diubah. Perhitungan order, pembayaran, void, cetak,
+  stok, HPP, jurnal, route, dan `Pos_mobile.php` tidak disentuh.
+- Validasi: lint PHP; smoke daftar Order Aktif Kasir 9/9; smoke CSRF transaksi
+  POS 1.770 check; smoke handoff APK/web 28/28; contract quality gate 28/28.
+- Review: PASS. Diff hanya memperluas helper pembacaan agar mendukung cancel
+  request dan memperbarui panel daftar order. Refresh daftar tetap tidak punya
+  panggilan `postJson` maupun `postPosTransactionJson`.
+- Risiko sisa/batch berikutnya: UAT browser perlu menguji ketik cepat, tab
+  Draft/Confirmed/Semua, kondisi jaringan gagal, order kosong, dan pemilihan
+  order setelah refresh. Subwave A3-UI-04 berikutnya adalah self-order dan
+  online-food web; POS Mobile/APK tetap terisolasi.
+
+## Batch 198 — A3.4 Self Order web: daftar order yang tahan filter cepat
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-04`. Daftar Self Order sudah mempunyai filter, summary,
+  pagination, serta polling notifikasi, tetapi pencarian memanggil server setiap
+  ketikan dan error baca daftar dibuka sebagai modal yang mengganggu kasir.
+- Perubahan utama: pencarian diberi debounce 250 ms. Request daftar yang lama
+  dibatalkan dan hasil stale diabaikan saat filter/tab/halaman berubah. Tabel
+  kini punya state memuat, kosong dengan reset filter, gagal dengan coba lagi,
+  busy state, serta pagination yang lebih aksesibel. Polling order baru tetap
+  berjalan sesuai interval sebelumnya dan hanya meminta refresh daftar read-only.
+- File berubah: view `pos/self_order_orders.php`, smoke baru
+  `a3_pos_self_order_ui_smoke.php`, manifest/contract quality gate, roadmap
+  audit, dan log ini.
+- SQL/runtime: tidak ada SQL, migration, schema, model, controller, writer,
+  atau data staging yang diubah. Verifikasi, penolakan, pembayaran, printer,
+  runtime stock sync, HPP, stok, route, dan POS Mobile/APK tidak disentuh.
+- Validasi: lint PHP; smoke UI Self Order 10/10; CSRF transaksi POS 1.770
+  check; runtime sync CSRF 19/19; runtime-job binding 247/247; contract quality
+  gate 28/28.
+- Review: PASS. Refresh daftar hanya memanggil endpoint data `GET`; tidak
+  mempunyai `postJson` maupun `postPosTransactionJson`. Kontrak CSRF writer
+  dan runtime sync tetap lulus.
+- Risiko sisa/batch berikutnya: UAT browser perlu mencoba ketik cepat,
+  perubahan mode pembayaran/status/outlet/tanggal, pagination, daftar kosong,
+  jaringan gagal, notifikasi order baru, serta alur verifikasi dan penolakan.
+  Subwave terakhir A3-UI-04 adalah Online Food web; POS Mobile/APK tetap
+  terisolasi.
+
+## Batch 199 — A3.4 Online Food web: daftar order yang tahan filter cepat
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-04`. Daftar Online Food memiliki filter, summary,
+  pagination, dan polling order baru, tetapi pencarian masih mengirim request
+  pada setiap ketikan; kegagalan pembacaan daftar juga membuka modal yang
+  mengganggu fokus operator.
+- Perubahan utama: pencarian memakai debounce 250 ms. Request daftar lama
+  dibatalkan dan hasil stale diabaikan saat filter, tab, atau halaman berubah.
+  Daftar menampilkan state memuat, kosong dengan reset filter, gagal dengan
+  tombol coba lagi, busy state, serta pagination yang lebih aksesibel. Polling
+  notifikasi tetap berjalan dan hanya memicu refresh daftar read-only.
+- File berubah: view `pos/online_food_orders.php`, smoke baru
+  `a3_pos_online_food_ui_smoke.php`, manifest/contract quality gate, roadmap
+  audit, dan log ini.
+- SQL/runtime: tidak ada SQL, migration, schema, model, controller, writer,
+  atau data staging yang diubah. Verifikasi, penolakan, pembayaran, printer,
+  runtime stock sync, HPP, stok, route, dan POS Mobile/APK tidak disentuh.
+- Validasi: lint PHP; smoke UI Online Food 10/10; smoke tiga halaman POS web
+  sebelumnya (Self Order 10/10, Kasir 9/9, Reservasi 8/8); CSRF transaksi POS
+  1.770 check; runtime sync CSRF 19/19; runtime-job binding 247/247; contract
+  quality gate 28/28; konsistensi roadmap 22/22; A4 release preflight PASS
+  (0 temuan).
+- Review: PASS. Refresh daftar hanya memanggil endpoint data `GET`; tidak
+  memiliki `postJson` atau `postPosTransactionJson`. Guard CSRF writer dan
+  runtime sync tetap lulus. Rollout kode `A3-UI-04` kini lengkap untuk empat
+  daftar POS web yang menjadi scope wave ini.
+- Risiko sisa/batch berikutnya: lakukan UAT browser desktop/mobile pada filter
+  cepat, perubahan tab/outlet/tanggal, pagination, daftar kosong, koneksi
+  gagal, notifikasi order baru, lalu verifikasi/penolakan/pembayaran sesuai
+  hak akses. Berikutnya adalah `AUD-A3-UI-05` secara kecil dan terarah pada
+  inventory/production; POS Mobile/APK tetap diisolasi kecuali diminta.
+
+## Batch 200 — A3.5 Stok Komponen: pagination server-side yang jujur
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-05`. Opsi **Per Halaman** pada Stok Base/Prepare hanya
+  menyembunyikan baris setelah urutan awal di browser. Operator tidak dapat
+  membuka baris berikutnya, sedangkan ringkasan dan hasil filter berisiko
+  dibaca sebagai seluruh data.
+- Perubahan utama: controller menormalkan nomor halaman, model menghitung
+  total hasil filter lalu memilih hanya halaman yang diminta sebelum memuat
+  rincian lot. View sekarang mempunyai navigasi Sebelumnya/Berikutnya yang
+  aksesibel dan menampilkan rentang data yang benar. KPI (jumlah komponen,
+  BASE/PREPARE, minus, nol, dan nilai) tetap memakai total semua hasil filter,
+  bukan hanya baris halaman aktif. Pilihan **Semua** tetap tersedia secara
+  eksplisit.
+- File berubah: `Production.php`, `Production_model.php`, view
+  `production/component_stock_index.php`, smoke baru
+  `a3_component_stock_pagination_smoke.php`, manifest/contract quality gate,
+  roadmap audit, dan log ini.
+- SQL/runtime: tidak ada SQL, migration, schema, writer, koreksi stok, lot,
+  HPP, transaksi produksi, route, atau data staging yang diubah. Endpoint data
+  lama dan POS Mobile/APK tidak disentuh.
+- Validasi: lint PHP untuk controller, model, view, dan smoke; smoke pagination
+  Stok Komponen 9/9; contract quality gate 28/28. Preflight A4 dan konsistensi
+  roadmap dijalankan kembali pada review akhir batch.
+- Review: PASS secara source. Pagination lama berbasis hide/show browser sudah
+  dihapus; detail lot kini dipasang setelah page slice sehingga halaman yang
+  tidak dibuka tidak memuat kartu lotnya.
+- Risiko sisa/batch berikutnya: UAT browser perlu mencoba filter, halaman
+  terakhir, URL `page` sangat besar, perubahan Per Halaman, pilihan Semua, dan
+  expand lot pada tiap halaman. Lanjutkan `AUD-A3-UI-05` pada satu halaman
+  inventory/production berikutnya secara terarah.
+
+## Batch 201 — A3.5 Kontrak daftar stok: Gudang, Bahan Baku, dan Komponen
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-05`. Ketiga halaman stok sudah menampilkan domain yang
+  benar, tetapi pengalaman daftar berbeda: Gudang memakai limit tanpa halaman,
+  Bahan Baku punya pagination yang belum aksesibel sepenuhnya, dan Komponen
+  baru saja memperoleh pagination server-side.
+- Perubahan utama: Gudang kini mengelompokkan profil per item lalu menampilkan
+  halaman server-rendered dengan pilihan 25/50/100/200 baris, ringkasan dari
+  semua hasil filter, rentang item, serta tombol Sebelumnya/Berikutnya. Bahan
+  Baku memakai pilihan ukuran halaman yang sama dan navigasi aksesibel
+  (`aria-current`, tombol nonaktif yang bukan tautan). Komponen memperoleh
+  empty state yang sama jelasnya. Struktur kolom, istilah domain, dan detail
+  lot tetap dipertahankan agar tidak menyamarkan perbedaan bisnis ketiganya.
+- File berubah: `Purchase.php`, view `purchase/stock_warehouse_index.php`,
+  view `purchase/stock_division_index.php`, view
+  `production/component_stock_index.php`, smoke baru
+  `a3_stock_list_consistency_smoke.php`, manifest/contract quality gate,
+  roadmap audit, dan log ini.
+- SQL/runtime: tidak ada SQL, migration, schema, model writer, adjustment,
+  koreksi saldo, lot, HPP, transaksi, route, atau data staging yang diubah.
+  Gudang tetap membaca jendela source yang dibatasi 2.000 profil sebelum
+  pengelompokan agar satu item tidak terpecah antarhalaman; batas ini perlu
+  ditinjau hanya bila instalasi customer melampauinya.
+- Validasi: lint PHP; smoke konsistensi daftar stok 7/7; pagination Stok
+  Komponen 9/9; pagination mutasi divisi 5/5; riwayat harga purchase 12/12;
+  CSRF transaksi POS 1.770 check; contract quality gate 28/28. Konsistensi
+  roadmap, release preflight, dan diff check dijalankan pada review akhir.
+- Review: PASS. Semua perubahan berada pada reader/controller view dan markup
+  navigasi; tidak terdapat pemanggilan writer pada jalur daftar Gudang maupun
+  Bahan Baku.
+- Risiko sisa/batch berikutnya: UAT browser pada filter/tanggal, halaman
+  pertama/terakhir, ganti Per Halaman, expand profil/lot, hasil kosong,
+  desktop/mobile, dan data lebih dari 2.000 profil gudang. Lanjutkan
+  `AUD-A3-UI-05` ke halaman inventory/production lain setelah UAT ini.
+
+## Batch 202 — A3.5 Kontrak periode stok dan Daily Matrix
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-05`. Pemeriksaan kode menemukan Stok Gudang dan Stok
+  Bahan Baku Live menggunakan range tanggal pada reader snapshot bulanan.
+  Range tersebut dapat menyembunyikan saldo yang tidak mempunyai aktivitas
+  pada rentang itu. Daily Matrix juga memiliki Bulan dan range tanggal, tetapi
+  range belum dipaksa berada dalam bulan yang terlihat.
+- Perubahan utama: daftar stok live sekarang memakai **Bulan Snapshot**
+  tunggal, sama dengan Stok Komponen. Reader bulanan tidak lagi memfilter saldo
+  menurut `last_movement_date`; ia memilih snapshot terakhir sampai bulan
+  terpilih. Daily Matrix tetap memiliki Mulai/Sampai Tampilan karena berguna
+  untuk membaca sebagian hari, tetapi labelnya diperjelas dan UI, controller,
+  serta model membatasi tanggal itu ke dalam bulan aktif. Mutasi stok tetap
+  memakai range tanggal; rekonsiliasi tetap memakai cutoff tersendiri.
+- File berubah: `Purchase.php`, `Purchase_model.php`, view Stok Gudang dan
+  Bahan Baku Live, empat view Daily Matrix/snapshot, smoke baru
+  `a3_stock_period_contract_smoke.php`, pembaruan smoke konsistensi daftar,
+  manifest/contract quality gate, roadmap audit, dan log ini.
+- SQL/runtime/data: tidak ada SQL, migration, schema, query audit database,
+  koreksi data, adjustment, saldo, lot, HPP, atau transaksi yang dijalankan.
+  Perubahan hanya kontrak reader dan UI periode.
+- Validasi: lint seluruh PHP yang berubah; contract periode stok 9/9;
+  konsistensi daftar stok 7/7; contract quality gate 28/28. Regression
+  inventory, purchase, roadmap, release preflight, dan diff check dijalankan
+  pada review akhir.
+- Review: PASS secara source. Stok live tidak lagi memakai filter aktivitas
+  sebagai pengganti periode snapshot. Semua endpoint Daily Matrix yang relevan
+  melewati guard rentang bulanan; model juga memiliki pertahanan kedua bila
+  endpoint dipanggil langsung.
+- Risiko sisa/batch berikutnya: UAT browser perlu mencoba bulan berbeda,
+  range Daily Matrix sebelum/sesudah bulan aktif, bulan Februari, halaman
+  kosong, serta URL lama yang masih membawa `date_from/date_to` pada stok
+  live. Tahap lanjutan adalah merapikan satu shell kartu/filter bersama untuk
+  rumpun stok, tanpa mengubah kolom domain atau proses bisnis.
+
+## Batch 203 — A3.5 Shell card ringkasan stok yang seragam
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-05`. Setelah periode dan pagination diseragamkan,
+  ringkasan Gudang, Bahan Baku, dan Komponen masih memakai tiga gaya card yang
+  berbeda sehingga satu rumpun stok terlihat seperti halaman yang tidak saling
+  terkait.
+- Perubahan utama: dibuat partial read-only `_stock_summary_cards.php` sebagai
+  satu shell responsif untuk label, nilai, tone informasi/peringatan, dan
+  aksesibilitas ringkasan. Ketiga daftar stok live menggunakannya. Metrik
+  tetap sesuai domain: Gudang (profil/item/qty/nilai), Bahan Baku
+  (item/divisi/material/qty/nilai/perhatian), dan Komponen
+  (base/prepare/nol/minus/nilai).
+- File berubah: partial card ringkasan baru, tiga view daftar stok live,
+  pembaruan smoke konsistensi daftar, roadmap audit, dan log ini.
+- SQL/runtime/data: tidak ada SQL, migration, schema, query audit database,
+  perubahan data, saldo, lot, HPP, atau transaksi. Tidak ada controller/model
+  writer atau POS Mobile/APK yang disentuh.
+- Validasi: lint PHP; smoke konsistensi daftar 8/8; contract periode stok
+  9/9. Contract quality gate, roadmap, release preflight, dan diff check
+  dijalankan pada review akhir.
+- Review: PASS. Partial hanya menerima label/nilai hasil reader yang sudah
+  ada dan meng-escape seluruh teks; ia tidak menghitung ulang atau menulis
+  stok. Tampilan tetap responsif pada layar kecil.
+- Risiko sisa/batch berikutnya: UAT visual desktop/mobile perlu membandingkan
+  tiga halaman stok pada nilai nol, kondisi minus, dan angka nominal panjang.
+  Tahap berikutnya adalah menata filter shell/header secara sama tanpa
+  menghapus perbedaan kolom dan proses bisnis tiap domain.
+
+## Batch 204 — A3.5 Urutan dan warna ringkasan stok yang tegas
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-05`. Review visual menemukan kontrak Batch 203 masih
+  terlalu umum: kartu Komponen tampil sebelum filter, sementara kartu KPI
+  normal memakai warna biru/hijau/kuning yang berbeda-beda pada tiga halaman.
+- Perubahan utama: standar ditulis eksplisit pada roadmap: **Header/Tab →
+  Filter → Ringkasan hasil filter → Tabel/Pagination**. Kartu Komponen
+  dipindahkan setelah filter. Partial ringkasan kini hanya netral atau merah;
+  merah dipakai eksklusif saat stok minus/habis memerlukan tindakan.
+- File berubah: partial ringkasan, tiga view daftar stok live, smoke
+  konsistensi daftar, roadmap audit, dan log ini.
+- SQL/runtime/data: tidak ada SQL, migration, schema, query audit database,
+  atau perubahan data stok, lot, HPP, transaksi, controller/model writer, dan
+  POS Mobile/APK.
+- Validasi: lint semua PHP yang berubah; smoke konsistensi daftar 9/9;
+  contract periode stok 9/9; roadmap consistency 22 cek; quality-gate contract
+  28/28; dan diff check.
+- Review: **SUPERSEDED oleh Batch 205**. Susunan filter-kartu-tabel tetap
+  benar, tetapi keputusan kartu netral tidak memenuhi standar visual operator;
+  tidak ada reader, perhitungan KPI, izin, maupun data yang berubah.
+- Risiko sisa/batch berikutnya: UAT browser desktop/mobile tetap diperlukan
+  untuk angka panjang, hasil filter kosong, dan kondisi merah. Halaman
+  inventory/production lain dimigrasikan per rumpun setelah standar ini stabil.
+
+## Batch 205 — A3.5 Tab global dan kartu grafis stok
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-05`. Koreksi review UI: keseragaman harus berlaku
+  untuk seluruh strip tab Gudang, Bahan Baku, dan Component, bukan hanya tiga
+  daftar live. Kartu ringkasan juga harus memakai visual grafis seperti pola
+  Bahan Baku, bukan kartu netral.
+- Perubahan utama: partial ringkasan kini menjadi kartu gradien berikon dengan
+  enam warna KPI tetap (violet, aqua, biru, amber, teal, merah alert). Tiga
+  daftar live menerapkan urutan warna yang sama berdasarkan arti KPI. Partial
+  tab Gudang/Bahan Baku serta Component (termasuk filter Base/Prepare) kini
+  memakai strip responsif yang sama, active state eksplisit, fokus keyboard,
+  dan scroll horizontal pada mobile; semua halaman yang memanggil partial ini
+  ikut memperoleh tampilan tersebut.
+- File berubah: partial ringkasan, tiga view daftar stok live, tiga partial
+  tab, smoke konsistensi daftar, roadmap audit, dan log ini.
+- SQL/runtime/data: tidak ada SQL, migration, schema, query audit database,
+  atau perubahan data stok, lot, HPP, transaksi, controller/model writer, dan
+  POS Mobile/APK.
+- Validasi: lint PHP seluruh file yang berubah; smoke konsistensi daftar;
+  contract periode stok, roadmap, quality gate, dan diff check.
+- Review: PASS. Tab memakai partial shared sehingga perubahan berlaku ke semua
+  halaman pemakainya tanpa menduplikasi daftar route. Kartu hanya menerima
+  label/nilai hasil reader yang sudah ada; tidak menulis atau menghitung ulang
+  stok, lot, maupun HPP.
+- Risiko sisa/batch berikutnya: halaman tab yang mempunyai kartu KPI khusus
+  (misalnya adjustment, lot, dan daily matrix) masih membawa data/metriknya
+  sendiri; migrasi visual kartu itu dilakukan per jenis halaman tanpa
+  menyamakan metrik bisnis yang memang berbeda.
+
+## Batch 206 — A3.5 Ringkasan tab snapshot bulanan
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-05`. Tiga tab snapshot bulanan masih menggunakan tiga
+  bentuk KPI yang berbeda: Gudang berbentuk card polos, Bahan Baku memiliki
+  CSS lokal, dan Component menampilkan ringkasan sebelum filter.
+- Perubahan utama: Stok Bulanan/Snapshot Gudang, Bahan Baku, dan Component
+  memakai partial kartu grafis yang sama. Metrik tetap utuh sesuai domain;
+  detail pack/isi dipindahkan ke subteks kartu. Component Bulanan dipindahkan
+  ke urutan Filter → Ringkasan → Tabel. Merah pada Bahan Baku/Component hanya
+  aktif saat terdapat alert stok terkait.
+- File berubah: tiga view snapshot bulanan, smoke konsistensi daftar, roadmap
+  audit, dan log ini.
+- SQL/runtime/data: tidak ada SQL, migration, schema, query audit database,
+  atau perubahan data stok, lot, HPP, transaksi, controller/model writer, dan
+  POS Mobile/APK.
+- Validasi: lint PHP file berubah; smoke konsistensi daftar; contract periode,
+  roadmap, quality gate, serta diff check.
+- Review: PASS. Ketiga halaman hanya meneruskan nilai ringkasan yang sudah
+  dihitung view/reader; perubahan tidak menyentuh query, writer, stok, lot,
+  HPP, maupun izin.
+- Risiko sisa/batch berikutnya: Daily Matrix interaktif, Adjustment, Lot,
+  Opname, dan Mutasi tetap memakai kartu detail khusus. Migrasi berikutnya
+  perlu dikelompokkan per jenis tampilan agar kontrak AJAX/aksi tidak terganggu.
+
+## Batch 207 — A3.5 Daily Matrix Gudang, Bahan Baku, dan Component
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-05`. Tiga Daily Matrix memiliki kontrak pembacaan
+  berbeda, tetapi KPI-nya masih tidak konsisten: Gudang polos, Bahan Baku
+  memakai palet lokal, dan Component memakai card sebelum filter.
+- Perubahan utama: Gudang memakai kartu grafis dengan ID statistik AJAX tetap;
+  Bahan Baku memakai palet/ikon seragam dan kartu alert berganti merah hanya
+  ketika hasil AJAX mempunyai minus/habis; Component memakai partial bersama
+  setelah filter. Tidak ada selector data, endpoint, payload, atau writer
+  yang diubah.
+- File berubah: tiga view Daily Matrix, smoke konsistensi daftar, roadmap
+  audit, dan log ini.
+- SQL/runtime/data: tidak ada SQL, migration, schema, query audit database,
+  atau perubahan data stok, lot, HPP, transaksi, controller/model writer, dan
+  POS Mobile/APK.
+- Validasi: lint PHP file berubah; smoke konsistensi daftar 13/13; contract
+  periode stok 9/9. Quality gate/roadmap/diff akan diulang pada penutupan A3.
+- Review: PASS. Kontrak AJAX Daily Matrix dipertahankan; pembaruan hanya CSS,
+  markup kartu, dan class visual dari hasil yang sudah ada.
+- Risiko sisa/batch berikutnya: lanjutkan Lot/FIFO, Opname, Mutasi, dan
+  Adjustment sebagai rumpun operasional stok; tiap writer tetap diisolasi dari
+  pekerjaan UI.
+
+## Batch 208 — A3.5 Ringkasan tab operasional stok
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-UI-05`. Setelah daftar, snapshot, dan matrix ditata,
+  ringkasan pada enam tab operasional masih polos/lokal atau berada sebelum
+  filter.
+- Perubahan utama: Mutasi Gudang, Audit FIFO, Opname Bahan Baku, Audit Lot,
+  Mutasi Component, dan Lot Component memakai partial kartu grafis setelah
+  filter. Nilai/detail asal dipertahankan; hanya wrapper visual dan urutan
+  tampilan berubah.
+- File berubah: enam view operasional stok, smoke konsistensi daftar, roadmap
+  audit, dan log ini.
+- SQL/runtime/data: tidak ada SQL, migration, schema, query audit database,
+  atau perubahan data stok, lot, HPP, transaksi, controller/model writer, dan
+  POS Mobile/APK.
+- Validasi: lint PHP file berubah. Smoke, roadmap, quality gate, dan diff
+  akan dijalankan bersama penutupan rumpun ini.
+- Review: PASS. Ringkasan dipindahkan sesudah filter dan seluruh angka masih
+  berasal dari kalkulasi view yang sama; tidak ada query, writer, atau
+  endpoint aksi yang berubah.
+- Risiko sisa/batch berikutnya: Opname Gudang, Opname Component, Adjustment,
+  Reconcile, Batch, dan Stock Opening memiliki panel detail/writer khusus;
+  lanjutkan tanpa mengganti kontrak aksinya.
+
+## Batch 209 — A3 workspace lintas rumpun dan cleanup UI
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: memperluas `AUD-A3-IA-01` serta gelombang `AUD-A3-UI-05`–`09`
+  tanpa mengubah transaksi bisnis atau kontrak APK.
+- Ringkasan implementasi: dibuat primitive `layout/_workspace_tabs.php` dan
+  style global untuk halaman yang berpindah URL: responsif, scroll horizontal
+  pada layar kecil, active state, fokus keyboard, URL yang di-escape, dan
+  `aria-current`. Finance, laporan Purchase, Absensi, Payroll/Kasbon/Bonus,
+  Asset, Access Audit, Master Extra, dan Loyalty memakainya. Tab Bootstrap
+  yang benar-benar mengganti pane pada halaman yang sama tetap dipertahankan.
+- File berubah: `theme-custom.css`, partial workspace baru, partial navigasi
+  Finance/Purchase/Asset/Loyalty/Master, view rumpun Finance/Purchase/People/
+  Payroll/Asset/Access Audit, cleanup CSS stale Lot/Mutasi Component/Audit Lot,
+  smoke `a3_workspace_navigation_smoke.php`, manifest quality gate, roadmap,
+  dan log ini.
+- SQL/runtime/data: tidak ada SQL, migration, schema, query database, repair
+  data, saldo, stok, lot, HPP, transaksi, writer, route, permission resolver,
+  atau `Pos_mobile.php`/`Pos_model.php` yang diubah.
+- Validasi: lint semua PHP yang diubah; smoke workspace A3; smoke daftar dan
+  periode stok; smoke shell UI Finance; roadmap consistency; quality-gate
+  parallel; diff check.
+- Review: **CODE PASS.** Linked navigation tidak lagi menyamar sebagai
+  Bootstrap in-page tab; navigasi dan query yang sudah ada diteruskan apa
+  adanya. CSS stale dibuang hanya setelah source scan memastikan selector tidak
+  dipakai lagi.
+- Risiko sisa/batch berikutnya: visual UAT role utama desktop/mobile wajib
+  mencoba tab panjang, layar sempit, angka panjang, hasil kosong, filter,
+  pagination, dan aksi bisnis per rumpun. Itu bukti operasional, bukan alasan
+  untuk mengubah data staging atau memodifikasi kontrak POS Mobile/APK.
+
+## Batch 210 — A3 penataan sidebar berbasis tugas
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A3-IA-01` — akar sidebar masih memisahkan Kasir POS, Self
+  Order, Reservasi, dan Laporan POS; SDM/payroll, Menu Book, serta WhatsApp/
+  Telegram juga belum dikelompokkan menurut tugas pengguna.
+- Perubahan utama: migration terkelola menata `sys_menu` tanpa mengubah route,
+  page registry, permission, status aktif menu, atau data bisnis. Root menjadi
+  Dashboard; Penjualan & Pesanan; Pelanggan, Member & Promo; Pembelian &
+  Permintaan; Stok & Persediaan; Produk & Produksi; Keuangan; SDM & Payroll;
+  Aset; Master & Konfigurasi; Administrasi & Audit; Integrasi & Notifikasi.
+  POS memiliki empat rumpun jelas: Operasional Kasir, Channel & Antrean
+  Pesanan, Pengaturan POS & Printer, serta Laporan & Audit POS. Tree sidebar
+  juga tidak lagi mengirim grup kosong ke view bagi role yang tidak memiliki
+  leaf terotorisasi.
+- File berubah: `Menu_model`, migration
+  `2026-09-06i_a3_sidebar_task_oriented_layout.sql`, katalog migration,
+  smoke A3 IA, quality gate, roadmap audit, dan log ini.
+- SQL/runtime/data: SQL hanya menulis konfigurasi `sys_menu` (label,
+  `parent_id`, `sort_order`) dan lima group murni; tidak mengubah transaksi,
+  stok, lot, HPP, user, role, maupun permission. Migration berjalan di staging
+  melalui runner dan tercatat di ledger schema.
+- Validasi: lint PHP; smoke A3 IA 18/18; validasi katalog; runner `upgrade`
+  applied 1/skipped 13 lalu replay applied 0/skipped 14; postcheck staging
+  mendapat 12 root dan 0 collision urutan; quality gate penuh profil `parallel`
+  **PASS** (90 required, 4 development, 1 release, 1 preflight).
+- Review: **STAGING PASS.** Percobaan awal menghasilkan output ringkasan yang
+  tidak cocok dengan protokol runner setelah transaksi sudah commit; output itu
+  dihapus, checksum diperbarui, lalu replay idempoten mencatat ledger secara
+  benar. Tidak ada rollback atau perubahan data bisnis.
+- Risiko sisa/batch berikutnya: visual UAT desktop/mobile dengan akun Kasir,
+  Barista, HR, Finance, dan Superadmin. Struktur dapat disesuaikan kembali
+  melalui Manajemen Sidebar; perubahan berikutnya tetap tidak boleh mengubah
+  route atau RBAC tanpa batch khusus.
+
+## Batch 211 — Penutupan implementasi Fase A3 dan checklist anti-pengulangan
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: menutup ambiguitas status `AUD-A3-UI-00`–`09` tanpa mengulang
+  Inventory/Production yang telah selesai pada Batch 180 dan 200–208.
+- Hasil pemeriksaan: wave 1–4 telah memiliki primitive, shell, dan rollout POS
+  web; wave 5 sudah mencakup stok Gudang/Bahan Baku/Component, snapshot,
+  matrix, mutasi, FIFO, opname, audit lot, serta lot component; wave 6–8
+  memakai workspace responsif yang sudah diuji; wave 9 sudah membersihkan CSS
+  stale pada rumpun yang dimigrasikan. Tidak ditemukan alasan teknis untuk
+  mengulangnya sebagai pekerjaan UI umum.
+- File berubah: roadmap audit kanonis, smoke konsistensi roadmap, dan log ini.
+  Tidak ada controller, model, route, view bisnis, SQL, data transaksi, stok,
+  lot, HPP, POS Mobile, atau RBAC yang diubah.
+- Perubahan utama: fase A3 serta setiap wave UI 1–9 ditandai `CODE_PASS`.
+  Status fase kini `CODE_COMPLETE_UAT_PENDING`; checklist otomatis menolak
+  roadmap bila salah satu wave kembali terbuka tanpa batch temuan yang nyata.
+- Validasi: roadmap-consistency smoke; seluruh smoke A3 yang sudah terdaftar;
+  lint PHP; quality gate penuh profil `parallel`.
+- Review: **CODE PASS.** Implementasi A3 ditutup; visual UAT bukan dipalsukan
+  sebagai test otomatis. Satu-satunya sisa A3 adalah cek tampilan dan alur
+  nyata oleh Kasir/Barista, HR, Finance, dan Superadmin pada desktop/mobile.
+- Risiko sisa/batch berikutnya: temuan UAT yang dapat direproduksi dibuat
+  sebagai bug terpisah; jangan membuka ulang A3 atau mengulang Inventory hanya
+  karena status lama belum diperbarui.
+
+## Batch 212 — A1 login APK dan lifecycle sesi browser
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: P0 A1/A0 — login POS Mobile tidak mengaktifkan throttle akun/IP
+  yang sudah digunakan login web; sesi browser masih satu tahun dengan rotasi
+  ID dua jam dan membiarkan ID lama hidup.
+- Perubahan utama: login APK sekarang meneruskan IP request ke `Auth_model`,
+  sehingga limiter akun+IP, delay respons gagal, dan pencatatan gagal bersama
+  berlaku sebelum lookup terminal maupun penerbitan token. Sesi web dibatasi
+  12 jam, ID berotasi tiap lima menit, dan ID lama dihancurkan.
+- File berubah: `Pos_mobile.php`, `config.php`, smoke login mobile, smoke
+  runtime web, manifest quality gate, kontrak manifest, roadmap, dan log ini.
+  Tidak ada route, payload/response APK, schema, SQL, data transaksi, stok,
+  lot, HPP, role, permission, atau model POS yang diubah.
+- Validasi: lint PHP; smoke login mobile 6/6; throttle login auth 74/74;
+  runtime browser 23/23; secret deployment 39/39; authorization/scope/proof
+  POS Mobile regression; diff check; quality gate penuh profil `parallel`.
+- Review: **CODE PASS.** Respons gagal tetap generik sehingga tidak menjadi
+  oracle akun/terminal. Throttle berlangsung sebelum token mobile dibuat.
+  Batas sesi tidak memengaruhi bearer token APK dan tidak mengubah aturan login
+  role/scope.
+- Risiko sisa/batch berikutnya: sesi browser lama akan berakhir paling lambat
+  setelah 12 jam tidak aktif dan pengguna perlu login kembali. MFA tidak
+  dipaksakan sebelum kebijakan enrolment, recovery, serta kompatibilitas APK
+  disepakati; baseline izin dan UAT perangkat juga tetap terbuka.
+
+## Batch 213 — A2 riwayat rekening backdate: snapshot saldo bisnis
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A2-FIN-01` / `GAP-03` — daftar mutasi menggunakan urutan
+  posting yang benar, tetapi hasil yang difilter berdasarkan tanggal bisnis
+  dapat terlihat tidak berantai saat ada transaksi backdate.
+- Perubahan utama: halaman **Keuangan → Mutasi Rekening** sekarang, saat satu
+  rekening dipilih, menampilkan saldo bisnis per tanggal akhir filter. Nilai
+  dihitung read-only dari saldo awal catatan ledger ditambah seluruh mutasi
+  bertanggal bisnis sampai cut-off; ia sengaja tidak memakai kolom saldo
+  sesudah suatu baris posting. Snapshot membandingkan hasil seluruh ledger
+  dengan saldo aktif dan memberi peringatan bila tidak cocok. Kolom daftar
+  diperjelas menjadi “Sebelum/Sesudah Diposting”.
+- File berubah: `Purchase_model.php`, `Purchase.php`,
+  `purchase/finance_mutation_index.php`, smoke A2 account mutation, roadmap,
+  dan log ini.
+- SQL/runtime/data: tidak ada SQL, migration, rebuild, insert, update, atau
+  delete data. Tidak ada saldo, jurnal, periode, HPP, stok, atau transaksi
+  historis yang disentuh.
+- Validasi: PHP lint; smoke riwayat rekening 9/9; close/reopen periode
+  finance 707+55 check; matrix A2 inventory 12 smoke; quality gate penuh
+  `parallel` **PASS** (91 required, 4 development, 1 release, 1 preflight);
+  diff check.
+- Review: **CODE PASS.** Tanggal bisnis dan urutan posting kini dijelaskan
+  sebagai dua hal berbeda. Nilai cut-off memakai semua jurnal rekening agar
+  filter tampilan modul/IN-OUT tidak membuat snapshot parsial. Ketidakcocokan
+  hanya diperingatkan; sistem tidak menjalankan rebuild otomatis.
+- Risiko sisa/batch berikutnya: UAT finance dengan satu rekening yang punya
+  backdate masih diperlukan. Rebuild historis dan aturan uang makan payroll
+  tidak boleh dikerjakan sebelum acceptance pemilik/finance.
+
+## Batch 214 — A2 payroll uang makan bulanan dan custom
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A2-PAY-01` / `GAP-03` — kebijakan pemilik menetapkan rate
+  uang makan sebagai hak per hari: mode Bulanan dibayar bersama payroll;
+  mode Custom hanya dicatat sebagai hak dan dibayar melalui rentang pencairan
+  yang dapat harian, mingguan, atau lainnya.
+- Perubahan utama: perhitungan absensi, preview payroll, dan portal pegawai
+  kini mencatat hak harian pada kedua mode. `MONTHLY` masuk net/transfer
+  payroll; `CUSTOM` tidak masuk transfer gaji dan hanya dapat dipilih batch
+  Pencairan Uang Makan. Payroll result line serta slip baru memisahkan uang
+  makan Bulanan, hak Custom, settlement Custom, total hak, sudah dibayar, dan
+  sisa. Calendar/ledger pengguna juga hanya menampilkan item Custom agar
+  uang makan Bulanan tidak salah terbaca sebagai tagihan belum cair. Hak
+  Custom pada PH tetap dapat dibuat batch bila kebijakan PH mengizinkannya.
+- File berubah: model Attendance, Payroll Preview, My Portal, Payroll;
+  controller/view Calendar Uang Makan; settings attendance; view batch
+  pencairan, payroll period, salary disbursement, dan slip; smoke kontrak
+  baru serta manifest quality gate, roadmap, dan log ini.
+- SQL/runtime/data: tidak ada SQL atau migration baru. Tidak ada recalculation,
+  insert, update, delete, saldo rekening, jurnal, maupun data payroll
+  historis yang dijalankan. Periode historis mempertahankan snapshot lama.
+- Validasi: lint seluruh PHP yang berubah; smoke policy uang makan 7/7;
+  kontrak quality-gate 28/28; quality gate penuh `parallel` **PASS**
+  (92 required, 4 development, 1 release, 1 preflight).
+- Review: **CODE PASS.** `MONTHLY` dan `CUSTOM` dibedakan berdasarkan
+  snapshot kebijakan pada baris absensi, sehingga perubahan setting berikutnya
+  tidak memindahkan hak periode lama. Batch custom fail-closed bila snapshot
+  belum tersedia dan menolak kandidat bulanan.
+- Risiko sisa/batch berikutnya: lakukan UAT payroll periode baru untuk kedua
+  mode, lalu cek satu slip dan satu batch Custom bertanggal mingguan. Jangan
+  meregenerate periode yang sudah dibayar/ditutup demi mengubah data historis.
+
+## Batch 215 — A1 sinkronisasi APK POS dan kesiapan operasional
+
+- Waktu/tanggal: 2026-09-06.
+- Prioritas: `AUD-A1-POS-01` — client Flutter tertinggal dari capability
+  server versi 3 sehingga Void, Refund, Cetak Ulang, Tutup Kasir, dan refund
+  DP reservasi dapat gagal walaupun endpoint Finance sudah aman.
+- Perubahan utama: APK meminta password hanya pada dialog verifikasi, menerima
+  proof singkat satu-kali dari Finance, lalu mengirim proof pada aksi tepatnya;
+  password tidak masuk outbox atau penyimpanan lokal. Penolakan reservasi kini
+  memilih eksplisit apakah DP direfund. Kasir backup mendapat peringatan tegas
+  sebelum menutup sesi yang juga dipakai web. Outbox offline kini menandai
+  event 4xx sebagai BLOCKED tanpa menahan order independen, tetapi tetap
+  menjaga urutan event untuk order yang sama. Order confirm yang diterima
+  sesudah offline memperoleh antrean cetak Bluetooth lokal, retry bertahap
+  bila belum ada printer, dan tidak mencetak otomatis ulang pada hasil parsial.
+  Layar sempit memakai panel Order/Katalog/Keranjang agar alur kasir tablet
+  tidak lagi berupa tiga daftar panjang.
+- File berubah: project terpisah `pos_cashier_apk`: API client, local DB dan
+  sync service, cashier/order workspace/inbox, dialog proof, theme, native
+  Android identity/signing config, serta dokumentasi arsitektur/release.
+- SQL/runtime/data: tidak ada SQL, migration Finance, insert/update/delete
+  data transaksi, stok, HPP, kas, payment, maupun shift staging.
+- Validasi: PHP lint `Pos_mobile.php` dan `routes.php`; smoke Finance untuk
+  otorisasi mobile, proof reversal/cashier close, login throttle, scope inbox,
+  dan refund DP semuanya **PASS**. Diff APK bebas whitespace error.
+- Review: **CODE PASS, BUILD/UAT PENDING.** Staging tidak memiliki Flutter,
+  Dart, Java, `android/gradlew`, maupun wrapper JAR sehingga binary APK tidak
+  dapat dibangun di sini. Release sekarang fail-closed bila keystore belum
+  dipasang; build dan UAT perangkat nyata harus dikerjakan pada komputer
+  Flutter/Android sesuai `pos_cashier_apk/docs/release_build.md`.
+- Risiko sisa/batch berikutnya: jalankan `flutter analyze`, `flutter test`,
+  lalu build release dan UAT satu perangkat Android untuk online/offline,
+  printer, payment, inbox, dan seluruh proof. Fitur pengaturan/admin POS web
+  yang bukan alur kasir tetap dilakukan melalui web sampai ada keputusan scope
+  APK admin terpisah.
+
+## Batch 216 — A1 lifecycle dan pairing Printer Agent
+
+- Waktu/tanggal: 2026-09-07.
+- Prioritas: `AUD-A1-PRINT-01`. Agent lokal sudah memiliki trust boundary dan
+  upload logo aman, tetapi masih memakai key global, perubahan koneksi dapat
+  menyisakan endpoint lama, dan operator belum mempunyai lifecycle service
+  yang dapat dipasang/dilepas dengan jelas.
+- Ringkasan auditor/fixer: gunakan key unik per nama agent bila environment
+  private `POS_PRINTER_AGENT_KEYS` tersedia; key lama dapat berada sementara
+  pada `previous` saat rotasi. Map bersifat authoritative sehingga nama agent
+  yang tidak terdaftar ditolak. Instalasi lama tanpa map tetap kompatibel
+  melalui `POS_PRINTER_BOOTSTRAP_KEY` dan pasangan `..._PREVIOUS`.
+- File berubah: `Pos.php`, `Pos_printer_agent.php`, Panduan Printer,
+  `tools/pos_printer_agent/agent.py`, README/config example, script lifecycle
+  Windows/Linux, dan smoke Printer Agent.
+- Perubahan utama: endpoint bootstrap mengiklankan rentang protocol; agent
+  mengirim versi/protocol, memeriksa kompatibilitas, menyajikan status lokal
+  tanpa secret, merotasi log, serta menyimpan config refresh secara atomik.
+  Perubahan koneksi kini menandai `restart_required` dan tidak membuka port
+  baru/meninggalkan port lama dalam proses yang sama. UI meminta nama agent
+  sebelum mengunduh `config.json`, lalu menyediakan script Task Scheduler
+  Windows serta systemd Linux untuk install/uninstall. Tidak ada perubahan
+  transaksi, stok, HPP, kas, shift, schema, maupun SQL.
+- Validasi: `php -l` tiga PHP berubah **PASS**; `py_compile` **PASS**;
+  Printer Agent static/source dan HTTP/lifecycle smoke (venv A4) **PASS**;
+  smoke upload logo 10/10, binding printer mobile 32/32, contract quality-gate
+  28/28, roadmap consistency 26/26, quality gate `parallel` penuh **92
+  required / 4 development / 1 release PASS**, dan `git diff --check` **PASS**.
+- Hasil review: **CODE PASS / STAGING PASS.** Secret tidak dicatat ke source
+  atau log. Agent lama tetap dapat memakai bootstrap legacy sampai pairing
+  per-agent diprovision secara sadar.
+- Risiko sisa/batch berikutnya: admin server customer perlu memasang map key
+  privat pada PHP-FPM, lalu UAT satu Windows dan satu Linux/printer fisik:
+  pairing, start otomatis, restart setelah ubah port, test print, QR/logo,
+  dan recovery ketika printer atau jaringan putus. Pekerjaan installer/updater
+  customer menyeluruh tetap berada di A5/C3.
+
+## Batch 217 — Review sinkronisasi Finance dan Control Center
+
+- Waktu/tanggal: 2026-09-07.
+- Prioritas: C1–C4 sebelum productization Finance. Audit read-only terhadap
+  Control Center memastikan roadmap komersialisasi tidak mengklaim fondasi
+  vendor sebagai integrasi Finance yang sudah selesai.
+- Hasil: Control sudah menyediakan registry manifest/produk/edition/feature,
+  customer-instance, release/artifact private, delivery claim-once/receipt,
+  dan lisensi server Ed25519 generik. Kontrak heartbeat Finance selaras tetapi
+  pilot Finance pada Control telah diarsipkan; tidak ada instance aktif yang
+  boleh diasumsikan.
+- Gap yang dicatat: Finance belum punya manifest v2 atau katalog Control,
+  belum punya profil usaha/onboarding lokal, adapter release SemVer/installer/
+  receipt, maupun FeatureGate/verifier/lease cache/kontrak APK. Control saat
+  ini berorientasi lease/read-only untuk produk contoh; Finance harus
+  memisahkan hak pakai perpetual dari masa maintenance agar transaksi tidak
+  dibatasi setelah dukungan berakhir.
+- File berubah: roadmap komersialisasi `_28` dan execution log ini saja.
+  Tidak ada perubahan aplikasi Finance/Control, database, secret, SQL,
+  heartbeat, cron, lisensi aktif, maupun data customer/transaksi.
+- Tindak lanjut: mulai C1 dengan manifest Finance dan kontrak perpetual +
+  maintenance Control; C2/C3/C4 mengikuti urutan adopsi yang tercatat di
+  roadmap.
+
+## Batch 218 — C1 katalog Finance dan hak perpetual
+
+- Waktu/tanggal: 2026-09-07.
+- Prioritas: C1 — membuat satu katalog Finance yang dibaca Control Center dan
+  memisahkan hak menjalankan produk dari masa maintenance. Tidak ada
+  FeatureGate atau lisensi runtime Finance pada batch ini.
+- Ringkasan implementasi: `app-manifest.json` v2 mendefinisikan 28 feature,
+  4 edition (`STARTER_POS`, `OPERATIONS`, `CONTROL`, `ENTERPRISE`), 29
+  dependency, serta kapasitas outlet/terminal. Control mengimpor
+  `NAMUA_FINANCE` dari source allowlist sebagai draft terjejak. Migration
+  Control menambah dependency feature dan kolom `rights_model`,
+  `perpetual_granted_at`, serta `maintenance_ends_at`; policy Finance memakai
+  `PERPETUAL`, 365 hari maintenance default, dan `WARN_ONLY` agar berakhirnya
+  maintenance tidak menjadi read-only transaksi.
+- File berubah: `app-manifest.json`, package policy release Finance, roadmap
+  komersialisasi, laporan C1 ini, serta source/model/view/test/migration
+  Control Center. Registry source privat Control ditambah `NAMUA_FINANCE`.
+- SQL/runtime/data: migration Control
+  `20260907100000_c1_perpetual_maintenance_and_feature_dependencies.sql` telah
+  dijalankan setelah backup otomatis Control. Tidak ada SQL Finance, perubahan
+  schema/data Finance, customer, instance, activation, release, deployment,
+  transaksi, stok, HPP, kas, payroll, atau data runtime Finance.
+- Validasi: PHP lint; parser manifest 7/7; migration disposable; catalog
+  registry contract; delivery/licensing contract; security/static scan Control
+  PHP 8.4 (61/61); preflight release Finance; roadmap consistency; dan
+  quality-gate contract semuanya **PASS**. Query Control mengonfirmasi 28
+  feature, 4 edition, 29 dependency, `PERPETUAL`, maintenance 365 hari, dan
+  `WARN_ONLY`.
+- Hasil review: **STAGING PASS / CATALOG DRAFT READY.** Source Finance masih
+  dirty dan belum dapat menjadi release customer; import katalog tidak
+  mengubah runtime maupun data Finance.
+- Risiko sisa/batch berikutnya: finalkan add-on dan entitlement override per
+  customer, harga/EULA/SLA/data policy, lalu lanjut C2 profil usaha/onboarding
+  lokal. C3/C4 tetap tidak boleh dimulai sebagai enforcement sebelum release
+  Finance memiliki cutoff Git bersih dan C2 selesai.
+
+## Batch 219 — C2–C4 fondasi productization, delivery, dan lisensi aman
+
+- Waktu/tanggal: 2026-09-07 WIB.
+- Prioritas: C2–C4, dilakukan sebagai satu rangkaian metadata-only agar staging
+  tidak terkunci dan tidak mengubah transaksi, stok, HPP, kas, payroll, atau
+  data historis.
+- Ringkasan implementasi: C2 menambah `System > Profil Usaha & Tampilan` dengan
+  RBAC, CSRF, audit perubahan, identitas/locality, serta unggah logo PNG/JPG
+  tervalidasi. Printer memakai urutan override cetak/outlet -> profil usaha ->
+  fallback, tanpa menimpa konfigurasi POS lama. C3 menambah preflight sumber
+  Finance untuk Control Center dan plan installer read-only. C4 menambah
+  registry instalasi, cache entitlement, feature/device/audit, halaman lisensi,
+  dan `FeatureGate` yang defaultnya `AUDIT_ONLY`; tidak ada controller POS atau
+  transaksi yang diberi enforcement lisensi.
+- File berubah: migration managed `2026-09-07a`, baseline clean-install dan
+  policy/catalog migration, model/controller/view Profil Usaha dan Lisensi,
+  `Feature_gate`, fallback `Pos_print_model`, route System, manifest v2
+  `0.1.0-alpha.2`, tools C3, smoke C2/C4, dan kontrak A5 terkait.
+- SQL/runtime/data: migration Finance `2026-09-07a_c2_c4_business_profile_license_runtime_foundation.sql`
+  telah dijalankan melalui migration runner di staging: `applied=1`, kemudian
+  replay aman `applied=0/skipped=15`. Hanya tabel metadata, page/menu, dan
+  grant SUPERADMIN dibuat. Query pasca-run membuktikan 9/9 tabel, ledger 1,
+  2 page/menu, 2 grant SUPERADMIN, serta 0 override `ENFORCE`.
+- Validasi: lint seluruh PHP baru/berubah; catalog validate; baseline guard
+  18/18; C2/C4 smoke 10/10; migration catalog 43/43; schema fingerprint
+  43/43; legacy guard 19/19; post-install health contract 13/13; required
+  quality gate 93/93, development 4/4, release 1/1, serta preflight release
+  terpisah lulus. Preflight C3 dan install plan clean/upgrade lulus. Scoped
+  `git diff --check` batch lulus; global check masih melihat blank line pada
+  `docs/_NOTE2.md` yang telah dirty dan bukan bagian batch ini.
+- Hasil review: **STAGING PASS / FOUNDATION ONLY.** Staging tetap audit-only;
+  maintenance tidak mengunci transaksi. Worktree masih kotor sehingga preflight
+  dengan benar menolak artifact resmi.
+- Risiko sisa/batch berikutnya: C2 masih perlu replacement hardcode dan wizard
+  onboarding; C3 perlu commit/cutoff bersih, artifact signed, claim/receipt,
+  installer dan UAT upgrade; C4 perlu public-key verifier, aktivasi Control,
+  cache offline/grace, device/APK pairing, limit, dan enforcement bertahap
+  setelah pilot customer.
+
+## Batch 220 — C2 branding inti, onboarding admin, dan sidebar level 4
+
+- Waktu/tanggal: 2026-09-07 WIB.
+- Prioritas: rapikan navigasi sidebar level ke-4 terlebih dahulu, lalu tuntaskan
+  jalur inti branding customer, setup admin, dan fallback preview/cetak tanpa
+  mengubah struktur menu database, transaksi, outlet, atau konfigurasi printer
+  yang sudah dipakai.
+- Ringkasan implementasi: renderer sidebar sekarang memberi penanda kedalaman
+  dan level 4+ memakai font/ikon/padding ringkas agar tidak jatuh ke ukuran
+  bawaan tema. Profil Usaha menjadi sumber lokal untuk login, sidebar, footer,
+  QR ulasan pelanggan, label aset, cetak kontrak, dan metadata Menu Book.
+  Halaman Profil Usaha kini memandu admin dalam tiga langkah: identitas,
+  kontak/lokalitas, dan logo/footer dokumen. Printer memakai footer profil
+  hanya sebagai fallback; data outlet atau layout/general printer yang ada
+  tetap menang. Pengaturan Landing Page menampilkan nama profil sebagai konteks
+  dan tidak lagi menyediakan fallback URL/SEO Namua pada konfigurasi kosong.
+- File berubah: shell `MY_Controller`, Auth, sidebar/layout/theme, Profil
+  Usaha, POS print/preview, QR review, kontrak, aset, landing page, Menu Book,
+  dan smoke C2/C4.
+- SQL/runtime/data: tidak ada migration, query tulis, atau perubahan data pada
+  batch ini. Data transaksi, stok, HPP, payroll, outlet, printer, dan konten
+  marketing yang tersimpan tidak disentuh.
+- Validasi: PHP lint seluruh PHP yang berubah; C2/C4 commercial smoke 14/14;
+  Printer General logo smoke 10/10; A3 UI shell 54/54; A3 workspace navigation
+  11/11; A4.3 browser runtime 28/28 dengan Chrome lokal; scoped
+  `git diff --check` lulus.
+- Hasil review: **STAGING PASS / C2 CORE BRANDING READY.** Perubahan mengikuti
+  urutan override `outlet/layout printer -> Profil Usaha -> default netral`.
+- Risiko sisa/batch berikutnya: static Menu Book Namua adalah konten/template
+  customer (produk, gambar, sosial, dan narasi), bukan chrome aplikasi; jangan
+  diganti massal oleh nama profil. Sebelum C2 selesai perlu pemisahan template
+  menu/marketing, preset demo, pajak/service, integrasi, privacy/health, dan
+  install profile customer. C3/C4 tetap menunggu cutoff Git/artifact bersih dan
+  kontrak lisensi yang dapat diverifikasi.
+
+## Batch 221 — Pemulihan permission seluruh folder upload
+
+- Waktu/tanggal: 2026-09-08 WIB.
+- Prioritas: kegagalan unggah logo Profil Usaha `Folder logo usaha belum dapat
+  disiapkan`.
+- Temuan: PHP-FPM berjalan sebagai user `www`, namun `assets/uploads` dan
+  `uploads` beserta subfolder lama dimiliki `root:root` dengan mode `775`.
+  User `www` tidak memiliki hak tulis sehingga tidak dapat membuat folder baru.
+  Hanya `assets/uploads/pos-printer-logo` yang sebelumnya sudah writable.
+- Perubahan runtime: dibuat `assets/uploads/business-profile-logo` dengan
+  owner `www:www` dan mode `2775`. ACL `user:www:rwx` plus default ACL untuk
+  folder baru diterapkan pada seluruh directory di bawah `assets/uploads` dan
+  `uploads`; owner, isi, upload lama, backup, credential, serta data transaksi
+  tidak diubah atau dihapus.
+- Validasi: pemeriksaan PHP-FPM mengonfirmasi worker `www`; uji sebagai user
+  `www` menyatakan `READY` untuk seluruh path aktif: logo usaha/printer,
+  produk, aset (foto/evidence), coffee labels, produk legacy, dan WA tahun/bulan.
+- Hasil review: **RUNTIME PASS.** Unggah logo Profil Usaha sekarang dapat
+  membuat dan menulis folder tujuannya; inheritance ACL menjaga folder upload
+  baru berikutnya tetap writable untuk PHP-FPM tanpa menjadi world-writable.
+- Risiko sisa/batch berikutnya: lakukan unggah satu file PNG/JPG melalui UI
+  Profil Usaha sebagai acceptance test browser; bila server deploy baru dibuat,
+  installer C3 perlu menerapkan policy ACL yang sama untuk user pool PHP-FPM.
+
+## Batch 222 — Kejelasan penolakan login POS APK
+
+- Waktu/tanggal: 2026-09-08 WIB.
+- Prioritas: hilangkan pesan APK lama yang menyebut `Finance2` saat login ke
+  backend customer yang sebenarnya sudah dikonfigurasi sebagai URL sendiri.
+- Temuan: endpoint `https://pos.namuacoffee.com/pos-mobile/ping` sehat dan
+  mengarah ke aplikasi Finance ini. Penolakan `401` dari server sengaja generik
+  untuk tidak membocorkan apakah password atau device key yang salah. Akun
+  `fairus` aktif, terhubung ke employee, memiliki akses kasir, dan tidak sedang
+  terkena throttle; maka pemeriksaan tersisa adalah password serta kecocokan
+  device key dengan terminal aktif. Terminal Android `SAMSUNG` sudah ada,
+  namun metadata platform-nya masih `DESKTOP` dan perlu dirapikan lewat UI POS.
+- File berubah: APK `finance_api_client.dart`, `login_screen.dart`,
+  `cashier_screen.dart`, `incoming_orders_screen.dart`, dan komentar
+  `order_workspace_screen.dart`.
+- Perubahan utama: pesan login sekarang menyebut URL backend yang sedang
+  dipakai (mis. `https://pos.namuacoffee.com`), tanpa kata `Finance2`; semua
+  pesan lain yang tersisa juga memakai istilah POS netral.
+- Validasi: ping backend lulus, query registry/akses read-only lulus, tidak ada
+  lagi referensi `Finance2` dalam source APK, dan `git diff --check` lulus.
+  `dart format`/`dart analyze` belum dapat dijalankan di staging karena binary
+  Dart/Flutter tidak terpasang; lakukan build/analyze APK di mesin Android
+  development sebelum rilis.
+- Hasil review: **SOURCE PASS / DEVICE CONFIGURATION REQUIRED.** Tidak ada
+  data transaksi, token, maupun device key yang diubah.
+- Risiko sisa/batch berikutnya: pada APK buka Pengaturan dan salin Device Key
+  tepat ke terminal `SAMSUNG` di `POS > Outlet + Terminal`, pastikan terminal
+  aktif serta Android, lalu login ulang. Jangan menampilkan device key di chat
+  atau log.
+
+## Batch 223 — Perbaikan katalog, append order, dan cetak POS APK
+
+- Waktu/tanggal: 2026-09-08 WIB.
+- Prioritas: paket/bundle kosong di APK, item tambahan pada order tersimpan
+  tidak masuk, logo struk menjadi blok hitam, serta konfigurasi fisik printer
+  harus dimiliki perangkat APK.
+- Temuan: terdapat 9 bundle aktif dan berline di server; APK membawa filter
+  divisi produk terakhir ke tab Bundle sehingga seluruh bundle dapat tersaring.
+  Pemeriksaan event sinkron read-only menunjukkan line lama dari APK memakai
+  `order_line_id`, namun normalizer server hanya mengenali `id`; append order
+  lalu salah menilai line lama sebagai terhapus. Raster Android juga menganggap
+  pixel PNG transparan ber-RGB hitam sebagai tinta hitam.
+- File berubah: `Pos_model.php`; APK `cashier_screen.dart`,
+  `local_database.dart`, `pos_print_dispatcher.dart`,
+  `printer_settings_screen.dart`, dan `MainActivity.kt`.
+- Perubahan utama: tab Bundle selalu memulai tanpa filter divisi; server kini
+  menerima identitas line lama dari kontrak web maupun APK; bitmap transparan
+  dikomposit ke putih sebelum raster; setiap binding printer APK menyimpan
+  ukuran 58/80 mm serta karakter/baris secara lokal dan dispatcher menggunakan
+  nilai lokal tersebut, bukan nilai lebar/karakter dari database Finance.
+- SQL/runtime/data: tidak ada SQL Finance atau perubahan data transaksi.
+  SQLite APK naik dari versi 4 ke 5 dan hanya menambah kolom lokal
+  `chars_per_line` pada binding printer perangkat.
+- Validasi: PHP lint `Pos_model.php` dan `Pos_mobile.php`; POS mobile
+  authorization smoke lulus; POS transaction CSRF smoke lulus 1770/1770;
+  ping `pos.namuacoffee.com` lulus; scoped diff check lulus. Dart/Flutter dan
+  Gradle wrapper tidak tersedia di staging sehingga build APK harus dilakukan
+  pada mesin development Android.
+- Hasil review: **SOURCE PASS / BUILD APK REQUIRED.** Tidak ada stok, order,
+  pembayaran, token, atau konfigurasi printer server yang diubah.
+- Risiko sisa/batch berikutnya: pasang APK hasil build, buka ulang binding
+  printer untuk memilih ukuran kertas/karakter lokal, lalu uji bundle, append
+  order confirmed, dan logo PNG transparan pada printer fisik.
+
+## Batch 224 — C2 Menu Book customer tanpa mengubah desain lama
+
+- Waktu/tanggal: 2026-09-08 WIB.
+- Prioritas: lanjut roadmap non-APK; pisahkan konten tetap Namua dari katalog customer.
+- Diskusi/review: fixer tunggal sesuai arahan owner; desain lama harus tetap
+  tersedia, publikasi produk harus opt-in, tidak membaca order/stok/HPP.
+- File berubah: `application/libraries/Customer_publication.php`,
+  `application/models/Business_profile_model.php`,
+  `application/controllers/Business_profile.php`, `application/controllers/Menu_book.php`,
+  `application/views/system/business_profile.php`, `application/views/menu_book/customer.php`,
+  `tools/tests/c2_customer_publication_smoke.php`.
+- Perubahan utama: pilihan template customer/legacy/nonaktif pada Profil Usaha;
+  pilihan disimpan atomik dengan profil dan audit before/after; seluruh deep
+  link Menu Book mengikuti pilihan; input/tautan publik di-escape/divalidasi;
+  nilai template tidak dikenal tidak membuka konten legacy.
+- SQL/data: tidak ada migration/schema/query transaksi atau penggantian
+  pengaturan staging otomatis. Memakai `sys_app_config` yang sudah ada;
+  pengaturan baru hanya ditulis saat admin menyimpan formulir.
+- Validasi: PHP lint; 23 behavioral checks publikasi termasuk semua route,
+  output escaping, master-data-only, commit/audit dan rollback mock; foundation
+  C2/C4 14/14 PASS. Belum UAT browser nyata untuk pemilihan template.
+- Hasil review mandiri: CODE_PASS untuk batch; tidak menutup keseluruhan C2.
+- Risiko sisa: marketing/preset, locale menyeluruh, pajak/service/integrasi,
+  dan validasi identitas/URL pada customer nyata tetap terbuka.
+- Batch berikutnya: batas paket rilis dan runtime instalasi.
+
+## Batch 225 — A0/A5/C3 isolasi upload dan runtime instalasi
+
+- Waktu/tanggal: 2026-09-08 WIB.
+- Prioritas: logo yang tidak sengaja tracked berpotensi ikut paket karena
+  `assets/uploads/` belum termasuk deny-prefix wajib; folder buatan root
+  sebelumnya juga menyebabkan unggah gagal. Hook Composer masih memanggil
+  `sed` pada dependency development yang tidak selalu terpasang.
+- Diskusi/review: fixer tunggal; isolasi paket tidak boleh menghapus logo
+  runtime; pemeriksaan izin harus memakai user PHP-FPM, bukan root.
+- File berubah: `Upload_storage_policy.php`, controller/view Profil Usaha,
+  `tools/install/upload_storage.php`, `tools/install/finance_install_plan.php`,
+  `tools/install/composer_compat.php`, `composer.json`,
+  `tools/release/package_policy.json`, `tools/release/ReleasePackagePolicy.php`,
+  `tools/tests/c3_upload_storage_smoke.php`, `tools/tests/c3_composer_compat_smoke.php`,
+  `tools/tests/a4_release_artifact_contract_smoke.php`, manifest/contract quality gate.
+- Perubahan utama: delapan folder diperiksa melalui UI dan CLI; prepare hanya
+  membuat folder allowlist, menolak root/symlink, tanpa chmod/chown/delete
+  runtime. Upload serta catatan privat `docs/_NOTE*` dikecualikan dari paket;
+  file aslinya tetap dipertahankan. Plan upgrade tidak membuat
+  owner atau menanam reference seed. Hook Composer portabel, idempotent,
+  menolak symlink dan no-op pada install tanpa dependency development.
+- Validasi: storage 18/18 PASS sebagai root fixture, delapan folder nyata READY
+  melalui `runuser -u www -- php tools/install/upload_storage.php check`;
+  Composer hook 6/6 PASS; `composer validate --no-check-publish` valid;
+  post-install hook aktual `SKIPPED_NO_DEV_PACKAGE`; package contract 18/18 dan
+  artifact fixture 12/12 PASS; plan clean_install 16 migration dan upgrade 15.
+- Hasil review mandiri: CODE_PASS untuk perbaikan batch; installer tetap
+  plan-only, belum installer customer nyata. Composer sistem versi lama masih
+  mengeluarkan deprecation notice, tidak mengubah dependency lock/version.
+- Risiko sisa: public artifact/installer/rollback belum bisa disahkan;
+  worktree dirty dan Git lokal/origin masih divergen 37/150 pada HEAD
+  `d462d4a9cb39fcb74ff8e874549982a74fc33e15`. Tidak commit, push atau stash
+  perubahan pengguna. Control release-key provisioning masih spesifik produk
+  Penatausahaan; protokol artifact Finance perlu keputusan integrasi terpisah.
+- SQL/data: tidak ada SQL, DB/schema, atau permission runtime yang diubah;
+  folder staging sudah READY sehingga prepare tidak dijalankan.
+- Batch berikutnya: verifikasi signed entitlement Finance–Control.
+
+## Batch 226 — C4 verifikasi signed entitlement, tanpa enforcement
+
+- Waktu/tanggal: 2026-09-08 WIB.
+- Prioritas: flag VERIFIED dan baris feature_cache lokal tidak boleh menjadi
+  sumber pemberian hak fitur tanpa bukti tanda tangan penerbit.
+- Diskusi/review: fixer tunggal; baca kontrak aktual Control secara read-only
+  (`tools/process_license_issuance.php`, API/model activation dan public trust
+  provisioning). Tidak mengarang format token dan tidak memakai key produk lain.
+- File berubah: `application/libraries/Control_license_verifier.php`,
+  `application/models/License_runtime_model.php`, `application/libraries/Feature_gate.php`,
+  `application/controllers/License.php`, `application/views/system/license_index.php`,
+  `tools/tests/c4_control_license_verifier_smoke.php`, manifest/contract quality gate.
+- Perubahan utama: verifikasi Ed25519 atas konteks `NAMUA_LICENSE_V1` dan hash
+  byte payload asli; periksa produk, trust fingerprint/key-id, instance,
+  installation, public-key binding, lease/grace dan nilai entitlement.
+  Runtime membaca hak dari payload signed, bukan feature_cache. Trust/identity
+  deployment-owned di luar webroot. Flag SQL saja tidak bisa mengaktifkan mode
+  enforcement; default tetap AUDIT_ONLY.
+- Validasi: 26/26 behavioral tests memakai pasangan key fixture sekali pakai;
+  tamper signature/payload, key tidak dikenal/revoked, installation salah,
+  lease/grace boundary, maintenance berakhir, tanggal invalid dan forged flag
+  ditolak sesuai kontrak. Foundation C2/C4 14/14 PASS.
+- Hasil review mandiri: CODE_PASS verifier; bukan aktivasi/penjualan C4 selesai.
+- Risiko sisa: belum ada activation/polling/cache writer, anti-rollback state
+  lintas restart, Windows ACL/native guard, terminal pairing, atau enforcement
+  lintas endpoint. Tidak membuat key produksi, instance customer, mengubah
+  database Control, mengaktifkan lisensi, atau menyentuh APK.
+- Batch berikutnya: pemeriksaan regresi akhir, panduan, dan keputusan cutoff
+  release/penyelarasan artefak Control sebelum deployment customer.
+
+## Batch 227 — A4 validasi gabungan dan catatan handoff non-APK
+
+- Waktu/tanggal: 2026-09-08 WIB.
+- Prioritas: buktikan batch 224–226, perbarui dua roadmap utama tanpa centang
+  selesai palsu, dan berikan panduan setup yang bisa diikuti admin.
+- Diskusi/review: fixer tunggal; tes fixture bukan penerimaan perangkat nyata
+  atau aktivasi customer. APK tetap ditunda; tidak memperbaiki atau mengulang A3.
+- File berubah: kedua roadmap `_30`/`_28`, log ini,
+  `docs/customer_setup_and_release_guide.md`,
+  `tools/static/phpstan.neon`, `tools/tests/a4_static_analysis_smoke.php`,
+  manifest/contract quality gate dan tambahan fixture pada tes paket.
+- Perubahan utama: panduan membedakan pengaturan UI, admin server, instalasi
+  kosong versus upgrade **salinan** database lama, dan verifikasi lisensi yang
+  belum diaktifkan. PHPStan sebelumnya kehabisan memory 1G; menjadi satu worker
+  dengan batas 2G, tetap seluruh `application`, baseline nol, tidak menambah
+  ignore atau mengeluarkan file dari analisis. Error global tool kini terlihat.
+- Runtime: refresh basis advisory OSV dengan script bootstrap resmi project;
+  hanya cache scanner di `/var/lib/finance-a4-security` diperbarui, tidak ada
+  dependency aplikasi di-upgrade atau DB transaksi dibaca/ditulis.
+- Validasi akhir:
+  - PHP lint 24 file implementasi/tes yang disentuh: PASS.
+  - `finance_quality_gate.php --profile=release`: PASS; 97 required, 4
+    development, 1 release-config, 2 runtime fixture, 1 preflight, 1 security,
+    dan 1 static — total 107 entry. Probe DB staging sengaja tidak dijalankan.
+  - OSV: 3 sumber lock, 145 package, 0 advisory pada snapshot terbaru.
+  - PHPStan: seluruh application PASS, baseline_errors=0.
+  - Migration catalog validate: PASS, 16 managed/7 legacy unmanaged;
+    tidak ada migration baru untuk batch ini.
+  - Scoped diff check PASS. Whitespace lama pada `docs/_NOTE2.md` milik
+    pengguna tetap dibiarkan; file tersebut tidak diedit.
+  - Control release preflight: package_issues=0, worktree_clean=false,
+    artifact_publishable=false. Ini blokir penerbitan yang benar, bukan
+    alasan membuat artifact dari dirty tree.
+- Hasil review mandiri: batch kode/tes layak, tetapi C0, keseluruhan C2–C4,
+  C5, dan release customer belum selesai. UAT role/printer fisik belum lulus;
+  laporan SOURCE PASS APK lama tidak diubah menjadi APK siap jual.
+- Risiko sisa/batch berikutnya: persetujuan cutoff commit lokal terseleksi
+  tanpa merge/push, koordinasi delivery artefak Finance di Control, kemudian
+  installer nyata/upgrade-restore-rollback di salinan database. Harga/kontrak,
+  aktivasi resmi, dan pilot masih membutuhkan owner. Tidak ada commit/push,
+  deployment server utama, atau perubahan aplikasi/database Control pada batch ini.
+- Notifikasi: ringkasan batch dikirim ke grup Telegram melalui notifier
+  terkonfigurasi; log mengonfirmasi `notification sent` pada
+  2026-09-08 22:36:25 WIB. Pesan menyebut dengan jelas bahwa seluruh fase
+  belum selesai dan masih membutuhkan keputusan cutoff/delivery.
+
+## Batch 228 — C3 cutoff lokal dan verifikasi paket Finance–Control
+
+- Waktu/tanggal: 2026-09-09 WIB.
+- Prioritas: cutoff yang dapat dilacak dan format delivery sesuai Control,
+  bukan mengulang bug APK atau fase UI yang sudah dikerjakan.
+- Arahan owner: commit lokal terseleksi diperbolehkan; tanpa merge/push.
+  Komersialisasi APK boleh disentuh, bug operasional APK tetap ditunda.
+- Diskusi/review: fixer tunggal. Ditemukan klaim PHP manifest sampai 8.4
+  tidak sesuai kontrak PHP 8.1; importer Penatausahaan memakai migration PHP,
+  sedangkan Finance memakai katalog SQL. Kedua format tidak dicampur.
+- File batch: `app-manifest.json`, `tools/release/ControlReleaseBridge.php`,
+  `tools/release/control_release.php`, smoke test C3 dan registry quality gate,
+  test foundation C2/C4, kedua roadmap, log ini, `docs/control_release_delivery.md`.
+  Control: `tools/provision_release_signing_key.php` (allowlist produk terpisah),
+  `tools/verify_finance_release.php` (CLI read-only, tanpa DB).
+- Perubahan utama: versi source alpha.3 tanpa SQL/schema baru; metadata
+  runtime selaras. Verifikasi seluruh byte arsip/source, Ed25519 asli Control,
+  katalog managed/legacy SQL, baseline, runtime, dan batas paket. APK terpisah
+  serta release_ready=false. Tidak mengubah modul/aplikasi APK pada batch ini.
+- Cutoff awal: `d462d4a9cb39fcb74ff8e874549982a74fc33e15`.
+  Hasil cutoff, hash artefak dan validasi akhir menyusul di bagian hasil batch.
+- Perlindungan workspace: `docs/_NOTE2.md` dan upload lokal tidak dipilih
+  untuk commit. Backup file provisioning Control sebelum perubahan disimpan
+  di `/var/lib/finance-cutoff-20260909.JOMHzG/`. Control belum memiliki HEAD;
+  tidak membuat initial commit atas seluruh project Control.
+- Validasi implementasi: behavioral fixture C3, contract catalog Control,
+  lint dan quality gate; hasil akhir dicatat setelah checkout/build.
+- Risiko sisa: belum registrasi DB Control/publish, installer executable,
+  install/upgrade/rollback customer nyata, aktivasi/enforcement/UAT. Bukan
+  pernyataan C0–C5 atau APK selesai. Tidak menyentuh database transaksi.
+- Batch berikutnya: registrasi private artifact Finance di Control dan
+  installer Linux/upgrade salinan DB dengan rollback disposable.

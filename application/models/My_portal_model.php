@@ -847,9 +847,11 @@ class My_portal_model extends CI_Model
 
         $basicEst  = $basicDailyRate;
         $allowEst  = $allowanceDailyRate;
-        $mealEst   = ($mealMode === 'CUSTOM' && $phGetsMeal) ? $mealRate : 0.0;
+        $mealEst   = $phGetsMeal ? $mealRate : 0.0;
         $gross     = round($basicEst + $allowEst + $mealEst, 2);
-        $net       = $gross; // No deductions on PH
+        $net       = $mealMode === 'CUSTOM'
+            ? round($gross - $mealEst, 2)
+            : $gross; // No deductions on PH
 
         $manualAdj = $this->get_manual_adjustment_totals_by_date($employeeId, $date);
 
@@ -1211,12 +1213,10 @@ class My_portal_model extends CI_Model
         $isPayrollPaidDay = ($hasCompletedCheckout || $isHolidayPaidDay);
         $phGetsMealAllowance = (int)($policy['ph_gets_meal_allowance'] ?? 0) === 1;
         $mealEst = 0.0;
-        if ($mealMode === 'CUSTOM') {
-            if ($isPresentish && $effectiveCheckinTs > 0) {
-                $mealEst = $mealRate;
-            } elseif ($isHolidayPaidDay && $phGetsMealAllowance) {
-                $mealEst = $mealRate;
-            }
+        if ($isPresentish && $effectiveCheckinTs > 0) {
+            $mealEst = $mealRate;
+        } elseif ($isHolidayPaidDay && $phGetsMealAllowance) {
+            $mealEst = $mealRate;
         }
 
         if ($isPayrollPaidDay) {
@@ -1458,6 +1458,13 @@ class My_portal_model extends CI_Model
             ->join('pay_meal_disbursement md', 'md.id = mdl.disbursement_id', 'left')
             ->where('ad.employee_id', $employeeId)
             ->where('COALESCE(ad.meal_amount,0) >', 0);
+        // Monthly meal is settled together with salary, so the employee meal
+        // ledger only exposes CUSTOM rows that can be paid separately.
+        if (!$this->att_daily_has_field('meal_mode_snapshot')) {
+            $this->db->where('1 = 0', null, false);
+        } else {
+            $this->db->where("COALESCE(ad.meal_mode_snapshot, 'MONTHLY') = 'CUSTOM'", null, false);
+        }
 
         if (!empty($filters['date_start'])) {
             $this->db->where('ad.attendance_date >=', (string)$filters['date_start']);

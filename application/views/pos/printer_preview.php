@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $row = is_array($row ?? null) ? $row : [];
 $templates = is_array($templates ?? null) ? $templates : [];
 $selectedTemplate = is_array($selected_template ?? null) ? $selected_template : [];

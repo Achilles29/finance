@@ -547,9 +547,10 @@ function a511_run_drill(string $bundleDir, string $adminOption, string $evidence
         });
     }
     $managedIds = is_array($managedMigrations) ? array_column($managedMigrations, 'id') : [];
-    if ($managedIds !== ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation']) {
+    if ($managedIds !== ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation', '2026-09-06f-pos-mobile-cashier-close-step-up', '2026-09-06g-pos-mobile-reservation-refund-step-up', '2026-09-06h-roastery-label-template-studio', '2026-09-06i-a3-sidebar-task-oriented-layout', '2026-09-07a-c2-c4-business-profile-license-runtime-foundation']) {
         a511_fail('catalog_contract', 'Managed migration catalog contract is unsupported.');
     }
+    $managedMigrationCount = count($managedMigrations);
     $expectedRegistryRows = [];
     foreach ($managedMigrations as $managedMigration) {
         if (!is_array($managedMigration) || !is_string($managedMigration['id'] ?? null) || !is_string($managedMigration['sha256'] ?? null)
@@ -598,13 +599,13 @@ function a511_run_drill(string $bundleDir, string $adminOption, string $evidence
         if ($absent !== '0') a511_fail('registry_precondition', 'Restored backup unexpectedly contains the migration registry.');
         $migration = a511_json_tool([PHP_BINARY,$root.'/tools/db/migration_runner.php','apply','--policy=upgrade','--defaults-extra-file='.$targetOption,'--database-name-file='.$targetDatabaseNameFile],$timeout,$root);
         $replay = a511_json_tool([PHP_BINARY,$root.'/tools/db/migration_runner.php','apply','--policy=upgrade','--defaults-extra-file='.$targetOption,'--database-name-file='.$targetDatabaseNameFile],$timeout,$root);
-        if (($migration['applied'] ?? null) !== 10 || ($migration['skipped'] ?? null) !== 0 || ($replay['applied'] ?? null) !== 0 || ($replay['skipped'] ?? null) !== 10) {
+        if (($migration['applied'] ?? null) !== $managedMigrationCount || ($migration['skipped'] ?? null) !== 0 || ($replay['applied'] ?? null) !== 0 || ($replay['skipped'] ?? null) !== $managedMigrationCount) {
             a511_fail('registry_apply', 'Migration registry bootstrap or replay contract failed.');
         }
         $registryRowsRaw = a511_client($targetOption, "SELECT CONCAT(LOWER(HEX(migration_id)),'\\t',checksum_sha256) FROM sys_schema_migration ORDER BY BINARY migration_id;", $timeout, $target);
         $actualRegistryRows = $registryRowsRaw === '' ? [] : preg_split('/\R/', $registryRowsRaw);
         if ($actualRegistryRows !== $expectedRegistryRows) a511_fail('registry_verify', 'Managed migration ledger rows or checksums are invalid.');
-        $registryRows = 10;
+        $registryRows = $managedMigrationCount;
         $phases['registry'] = true;
         $fingerprint = a511_json_tool([PHP_BINARY,$root.'/tools/db/schema_fingerprint_probe.php','probe','--defaults-extra-file='.$targetOption,'--database-name-file='.$targetDatabaseNameFile],$timeout,$root);
         if (($fingerprint['candidate_eligible'] ?? null) !== 4 || ($fingerprint['candidate_total'] ?? null) !== 4
@@ -644,7 +645,7 @@ function a511_run_drill(string $bundleDir, string $adminOption, string $evidence
         'format'=>'finance-a5-disposable-restore','version'=>1,'run_id'=>$runId,'status'=>$status,
         'failure_code'=>$failureCode,'bundle'=>basename($bundleDir),'manifest_sha256'=>$manifestHash,
         'archive_sha256'=>$archiveHash,'migration_catalog_sha256'=>$catalogHash,'phases'=>$phases,
-        'registry'=>['state'=>$registryRows === 10 ? 'COMPATIBLE_V1' : 'not_verified','bootstrap_rows'=>$registryRows],
+        'registry'=>['state'=>$registryRows === $managedMigrationCount ? 'COMPATIBLE_V1' : 'not_verified','bootstrap_rows'=>$registryRows],
         'fingerprint'=>['candidate_eligible'=>$eligible,'candidate_total'=>4],
         'cleanup_verified'=>$phases['cleanup'],'duration_ms'=>(int)round((microtime(true)-$started)*1000),
     ];

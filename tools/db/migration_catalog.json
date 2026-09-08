@@ -177,6 +177,76 @@
         "clean_install",
         "upgrade"
       ]
+    },
+    {
+      "id": "2026-09-06f-pos-mobile-cashier-close-step-up",
+      "order": 2026090606,
+      "path": "sql/2026-09-06f_pos_mobile_cashier_close_step_up.sql",
+      "sha256": "a4d98b77bf4bdce364f74817e72b5967b7090216bd701326a028710733bbf637",
+      "dependencies": [
+        "2026-09-06d-pos-mobile-reprint-step-up"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    },
+    {
+      "id": "2026-09-06g-pos-mobile-reservation-refund-step-up",
+      "order": 2026090607,
+      "path": "sql/2026-09-06g_pos_mobile_reservation_refund_step_up.sql",
+      "sha256": "3ac1b4e2e2d1ebf3232b02a50ad13c74603f1750fa25d0668b5211220414bee0",
+      "dependencies": [
+        "2026-09-06f-pos-mobile-cashier-close-step-up"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    },
+    {
+      "id": "2026-09-06h-roastery-label-template-studio",
+      "order": 2026090608,
+      "path": "sql/2026-09-06h_roastery_label_template_studio.sql",
+      "sha256": "d17230ae0a8e2a4676bd50a5204faf280ae4f823cc596a0ddedddd654c09f6ae",
+      "dependencies": [
+        "2026-09-04c-a5-schema-migration-registry-foundation"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    },
+    {
+      "id": "2026-09-06i-a3-sidebar-task-oriented-layout",
+      "order": 2026090609,
+      "path": "sql/2026-09-06i_a3_sidebar_task_oriented_layout.sql",
+      "sha256": "f616f3da28a4915bce4d70da9aa632e8942f28ed386c361e42f6d4f01214bbbd",
+      "dependencies": [
+        "2026-09-05a-telegram-bot-foundation"
+      ],
+      "classification": "seed",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    },
+    {
+      "id": "2026-09-07a-c2-c4-business-profile-license-runtime-foundation",
+      "order": 2026090701,
+      "path": "sql/2026-09-07a_c2_c4_business_profile_license_runtime_foundation.sql",
+      "sha256": "e1a698a04419740150faca1281f4b21bf848fb40bd1207f27edae10a0792eca0",
+      "dependencies": [
+        "2026-09-06i-a3-sidebar-task-oriented-layout"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
     }
   ]
 }

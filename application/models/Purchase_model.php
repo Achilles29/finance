@@ -98,12 +98,13 @@ class Purchase_model extends CI_Model
     /**
      * Riwayat harga beli per item.
      *
-     * Receipt yang sudah POSTED adalah sumber utama karena merupakan bukti
-     * penerimaan barang. Ledger hanya dipakai untuk transaksi lama yang belum
+     * Alur purchase Finance yang berjalan menetapkan PO berstatus PAID sebagai
+     * bukti pembelian. Receipt POSTED, bila dipakai, memberi kuantitas aktual
+     * yang lebih rinci. Ledger hanya dipakai untuk transaksi lama yang belum
      * memiliki receipt line, agar data historis tidak hilang tetapi juga tidak
      * terhitung dua kali.
      */
-    public function get_item_price_history(int $itemId, int $limit = 20): array
+    public function get_item_price_history(int $itemId, int $limit = 20, int $offset = 0): array
     {
         $empty = ['rows' => [], 'total' => 0];
         if ($itemId <= 0) {
@@ -111,11 +112,15 @@ class Purchase_model extends CI_Model
         }
 
         $limit = min(200, max(5, $limit));
+        $offset = min(10000, max(0, $offset));
         $hasReceiptSource = $this->db->table_exists('pur_purchase_receipt')
             && $this->db->table_exists('pur_purchase_receipt_line')
             && $this->db->table_exists('pur_purchase_order_line');
+        $hasPurchaseOrderSource = $this->db->table_exists('pur_purchase_order')
+            && $this->db->table_exists('pur_purchase_order_line');
+        $hasPaymentPlanSource = $this->db->table_exists('pur_purchase_payment_plan');
         $hasLedgerSource = $this->db->table_exists('inv_stock_movement_log');
-        if (!$hasReceiptSource && !$hasLedgerSource) {
+        if (!$hasReceiptSource && !$hasPurchaseOrderSource && !$hasLedgerSource) {
             return $empty;
         }
 
@@ -170,6 +175,80 @@ class Purchase_model extends CI_Model
             $params[] = $itemId;
         }
 
+        // Receipt Purchase belum menjadi alur operasional utama. Karena itu,
+        // PO yang sudah PAID wajib terlihat sebagai riwayat harga. Bila suatu
+        // line sudah mempunyai receipt POSTED, gunakan receipt saja agar satu
+        // pembelian tidak tercatat dua kali dan HPP actual receipt tetap unggul.
+        if ($hasPurchaseOrderSource) {
+            $paidDateJoin = '';
+            $paidDateExpr = 'COALESCE(po.updated_at, po.request_date)';
+            if ($hasPaymentPlanSource) {
+                $paidDateJoin = "
+                    LEFT JOIN (
+                        SELECT purchase_order_id, MAX(payment_date) AS paid_date
+                        FROM pur_purchase_payment_plan
+                        WHERE status = 'PAID'
+                        GROUP BY purchase_order_id
+                    ) pp ON pp.purchase_order_id = po.id";
+                $paidDateExpr = 'COALESCE(pp.paid_date, po.updated_at, po.request_date)';
+            }
+
+            $postedReceiptExclusion = '';
+            if ($hasReceiptSource) {
+                $postedReceiptExclusion = "
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM pur_purchase_receipt_line receipt_line
+                      INNER JOIN pur_purchase_receipt receipt ON receipt.id = receipt_line.purchase_receipt_id
+                      WHERE receipt_line.purchase_order_line_id = pol.id
+                        AND receipt.status = 'POSTED'
+                  )";
+            }
+
+            $sources[] = "
+                SELECT
+                    pol.id AS id,
+                    {$paidDateExpr} AS movement_date,
+                    pol.item_id AS item_id,
+                    COALESCE(pol.snapshot_item_name, i.item_name, '') AS item_name,
+                    COALESCE(pol.snapshot_brand_name, pol.brand_name, '') AS brand,
+                    ROUND(
+                        pol.unit_price / NULLIF(
+                            COALESCE(
+                                NULLIF(pol.conversion_factor_to_content, 0),
+                                NULLIF(pol.content_per_buy, 0),
+                                1
+                            ),
+                            0
+                        ),
+                        6
+                    ) AS unit_cost,
+                    pol.unit_price AS price_per_buy,
+                    pol.qty_buy AS qty_buy_delta,
+                    pol.qty_content AS qty_content_delta,
+                    COALESCE(pol.snapshot_buy_uom_code, bu.code, bu.name, 'pack') AS buy_uom,
+                    COALESCE(pol.snapshot_content_uom_code, cu.code, cu.name, '') AS content_uom,
+                    COALESCE(
+                        NULLIF(pol.conversion_factor_to_content, 0),
+                        NULLIF(pol.content_per_buy, 0),
+                        0
+                    ) AS content_per_buy,
+                    d.name AS division_name,
+                    'PAID_PURCHASE_ORDER' AS source_type,
+                    po.po_no AS source_ref
+                FROM pur_purchase_order_line pol
+                INNER JOIN pur_purchase_order po ON po.id = pol.purchase_order_id
+                LEFT JOIN mst_item i ON i.id = pol.item_id
+                LEFT JOIN mst_operational_division d ON d.id = po.destination_division_id
+                LEFT JOIN mst_uom bu ON bu.id = pol.buy_uom_id
+                LEFT JOIN mst_uom cu ON cu.id = pol.content_uom_id
+                {$paidDateJoin}
+                WHERE po.status = 'PAID'
+                  AND pol.item_id = ?
+                  {$postedReceiptExclusion}";
+            $params[] = $itemId;
+        }
+
         if ($hasLedgerSource) {
             $sources[] = "
                 SELECT
@@ -204,7 +283,7 @@ class Purchase_model extends CI_Model
         $rows = $this->db->query(
             "SELECT * FROM ({$union}) price_history
              ORDER BY movement_date DESC, id DESC
-             LIMIT {$limit}",
+             LIMIT {$limit} OFFSET {$offset}",
             $params
         )->result_array();
 
@@ -696,6 +775,133 @@ class Purchase_model extends CI_Model
         $summary['rows_total'] = (int)($row['rows_total'] ?? 0);
 
         return $summary;
+    }
+
+    /**
+     * Returns a read-only account balance snapshot for a business-date cut-off.
+     *
+     * The mutation log stores balance_before/balance_after in append-only
+     * posting order. A user may, however, intentionally enter a permitted
+     * backdate. For an "as of business date" amount, use the ledger opening
+     * balance plus every signed mutation whose business date is at or before
+     * the selected cut-off. This deliberately does not reuse a row's
+     * balance_after, because that amount can include a transaction with a
+     * later business date that was posted earlier.
+     *
+     * Nothing in this method rebuilds a balance or changes a ledger row. The
+     * live-account comparison is only an integrity signal for the operator.
+     */
+    public function get_account_mutation_as_of_snapshot(int $accountId, string $asOfDate): array
+    {
+        $normalizedDate = $this->normalizeDate($asOfDate);
+        $snapshot = [
+            'available' => false,
+            'account_id' => $accountId,
+            'as_of_date' => $normalizedDate,
+            'message' => '',
+            'opening_balance' => 0.0,
+            'business_net_amount' => 0.0,
+            'business_mutation_count' => 0,
+            'business_balance' => 0.0,
+            'live_balance' => 0.0,
+            'ledger_expected_live_balance' => 0.0,
+            'latest_posted_balance' => null,
+            'latest_posted_at' => null,
+            'ledger_matches_live' => null,
+        ];
+
+        if ($accountId <= 0) {
+            $snapshot['message'] = 'Pilih satu rekening untuk melihat saldo per tanggal bisnis.';
+            return $snapshot;
+        }
+        if ($normalizedDate === null) {
+            $snapshot['message'] = 'Tanggal cut-off saldo bisnis tidak valid.';
+            return $snapshot;
+        }
+        if (!$this->db->table_exists('fin_company_account') || !$this->db->table_exists('fin_account_mutation_log')) {
+            $snapshot['message'] = 'Data rekening atau mutasi belum tersedia.';
+            return $snapshot;
+        }
+
+        $account = $this->db
+            ->select('id, account_code, account_name, current_balance')
+            ->from('fin_company_account')
+            ->where('id', $accountId)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$account) {
+            $snapshot['message'] = 'Rekening tidak ditemukan.';
+            return $snapshot;
+        }
+
+        $firstLedgerRow = $this->db
+            ->select('id, mutation_date, balance_before')
+            ->from('fin_account_mutation_log')
+            ->where('account_id', $accountId)
+            ->order_by('id', 'ASC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!$firstLedgerRow) {
+            $snapshot['message'] = 'Belum ada mutasi ledger untuk rekening ini; saldo historis per tanggal belum dapat dibuktikan.';
+            return $snapshot;
+        }
+
+        $businessTotals = $this->db
+            ->select('COUNT(*) AS mutation_count', false)
+            ->select("COALESCE(SUM(CASE WHEN mutation_type = 'IN' THEN amount ELSE -amount END), 0) AS net_amount", false)
+            ->from('fin_account_mutation_log')
+            ->where('account_id', $accountId)
+            ->where('mutation_date <=', $normalizedDate)
+            ->get()
+            ->row_array();
+
+        $ledgerTotals = $this->db
+            ->select("COALESCE(SUM(CASE WHEN mutation_type = 'IN' THEN amount ELSE -amount END), 0) AS net_amount", false)
+            ->from('fin_account_mutation_log')
+            ->where('account_id', $accountId)
+            ->get()
+            ->row_array();
+
+        $lastLedgerRow = $this->db
+            ->select('id, balance_after, created_at')
+            ->from('fin_account_mutation_log')
+            ->where('account_id', $accountId)
+            ->order_by('id', 'DESC')
+            ->limit(1)
+            ->get()
+            ->row_array();
+
+        $openingBalance = round((float)($firstLedgerRow['balance_before'] ?? 0), 2);
+        $businessNetAmount = round((float)($businessTotals['net_amount'] ?? 0), 2);
+        $ledgerNetAmount = round((float)($ledgerTotals['net_amount'] ?? 0), 2);
+        $businessBalance = round($openingBalance + $businessNetAmount, 2);
+        $expectedLiveBalance = round($openingBalance + $ledgerNetAmount, 2);
+        $liveBalance = round((float)($account['current_balance'] ?? 0), 2);
+        $lastPostedBalance = isset($lastLedgerRow['balance_after'])
+            ? round((float)$lastLedgerRow['balance_after'], 2)
+            : null;
+        $ledgerMatchesLive = abs($expectedLiveBalance - $liveBalance) < 0.01
+            && ($lastPostedBalance === null || abs($lastPostedBalance - $liveBalance) < 0.01);
+
+        return array_merge($snapshot, [
+            'available' => true,
+            'message' => '',
+            'account_code' => (string)($account['account_code'] ?? ''),
+            'account_name' => (string)($account['account_name'] ?? ''),
+            'opening_balance' => $openingBalance,
+            'opening_mutation_id' => (int)($firstLedgerRow['id'] ?? 0),
+            'opening_mutation_date' => (string)($firstLedgerRow['mutation_date'] ?? ''),
+            'business_net_amount' => $businessNetAmount,
+            'business_mutation_count' => (int)($businessTotals['mutation_count'] ?? 0),
+            'business_balance' => $businessBalance,
+            'live_balance' => $liveBalance,
+            'ledger_expected_live_balance' => $expectedLiveBalance,
+            'latest_posted_balance' => $lastPostedBalance,
+            'latest_posted_at' => (string)($lastLedgerRow['created_at'] ?? ''),
+            'ledger_matches_live' => $ledgerMatchesLive,
+        ]);
     }
 
     public function get_account_mutation_per_account_breakdown(string $dateFrom, string $dateTo, string $scope = 'all', string $mutationType = 'all', string $moduleFilter = 'all'): array
@@ -8848,7 +9054,7 @@ class Purchase_model extends CI_Model
         return $rows;
     }
 
-    public function list_stock_movements(string $scope, string $q, string $dateFrom, string $dateTo, ?int $divisionId, int $limit, ?string $destinationFilter = null): array
+    public function list_stock_movements(string $scope, string $q, string $dateFrom, string $dateTo, ?int $divisionId, int $limit, ?string $destinationFilter = null, int $offset = 0): array
     {
         if (!$this->db->table_exists('inv_stock_movement_log')) {
             return [];
@@ -8861,6 +9067,8 @@ class Purchase_model extends CI_Model
 
         $from = $this->normalizeDate($dateFrom);
         $to = $this->normalizeDate($dateTo);
+        $limit = min(1000, max(1, $limit));
+        $offset = min(100000, max(0, $offset));
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
         $hasDestinationType = $this->db->field_exists('destination_type', 'inv_stock_movement_log');
         $hasAdjustmentCategory = $this->db->field_exists('adjustment_category', 'inv_stock_movement_log');
@@ -8964,7 +9172,7 @@ class Purchase_model extends CI_Model
         return $this->db
             ->order_by('l.movement_date', 'DESC')
             ->order_by('l.id', 'DESC')
-            ->limit($limit)
+            ->limit($limit, $offset)
             ->get()
             ->result_array();
     }
@@ -10298,7 +10506,6 @@ class Purchase_model extends CI_Model
             'message' => 'Opening ' . $scopeLabel . ' berhasil disimpan dan diposting.',
             'data' => [
                 'stock_scope' => $stockScope,
-                'snapshot_id' => $snapshotId,
                 'snapshot_id' => $snapshotId,
                 'division_id' => $divisionId,
                 'destination_type' => $destinationType,
@@ -15762,29 +15969,27 @@ class Purchase_model extends CI_Model
         ];
     }
 
-    public function list_warehouse_stock(string $q, int $limit, string $dateFrom = '', string $dateTo = ''): array
+    public function list_warehouse_stock(string $q, int $limit, string $month = ''): array
     {
         if ($this->db->table_exists('inv_warehouse_monthly_stock')) {
-            return $this->list_warehouse_stock_monthly($q, $limit, $dateFrom, $dateTo);
+            return $this->list_warehouse_stock_monthly($q, $limit, $month);
         }
 
         return [];
     }
 
-    public function list_division_stock(string $q, int $limit, ?string $destinationFilter = null, string $dateFrom = '', string $dateTo = '', ?int $divisionId = null): array
+    public function list_division_stock(string $q, int $limit, ?string $destinationFilter = null, string $month = '', ?int $divisionId = null): array
     {
         if ($this->db->table_exists('inv_division_monthly_stock')) {
-            return $this->list_division_stock_monthly($q, $limit, $destinationFilter, $dateFrom, $dateTo, $divisionId);
+            return $this->list_division_stock_monthly($q, $limit, $destinationFilter, '', $month, $divisionId);
         }
 
         return [];
     }
 
-    private function list_warehouse_stock_monthly(string $q, int $limit, string $dateFrom = '', string $dateTo = '', bool $strictMonth = false): array
+    private function list_warehouse_stock_monthly(string $q, int $limit, string $month = '', bool $strictMonth = false): array
     {
-        $from = $this->normalizeDate($dateFrom);
-        $to = $this->normalizeDate($dateTo);
-        $targetMonth = date('Y-m-01', strtotime($to ?: date('Y-m-d')));
+        $targetMonth = $this->normalizeMonth($month) ?? date('Y-m-01');
         $latestMonthSubquery = '';
         if (!$strictMonth) {
             $latestMonthSubquery = $this->db
@@ -15794,8 +15999,6 @@ class Purchase_model extends CI_Model
                 ->group_by('identity_key')
                 ->get_compiled_select();
         }
-
-        $activityDateExpr = 'COALESCE(s.last_movement_date, DATE(s.updated_at), s.month_key)';
 
         $this->db
             ->select('s.id, "ITEM" AS stock_domain, s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id, i.item_code, i.item_name, m.material_code, m.material_name, s.profile_key, s.profile_name, s.profile_brand, s.profile_description', false)
@@ -15811,13 +16014,6 @@ class Purchase_model extends CI_Model
             $this->db->where('s.month_key', $targetMonth);
         } else {
             $this->db->join('(' . $latestMonthSubquery . ') lm', 'lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false);
-        }
-
-        if ($from !== null) {
-            $this->db->where($activityDateExpr . ' >= ' . $this->db->escape($from), null, false);
-        }
-        if ($to !== null) {
-            $this->db->where($activityDateExpr . ' <= ' . $this->db->escape($to), null, false);
         }
 
         if ($q !== '') {
@@ -15866,11 +16062,9 @@ class Purchase_model extends CI_Model
         return array_values($best);
     }
 
-    private function list_division_stock_monthly(string $q, int $limit, ?string $destinationFilter = null, string $dateFrom = '', string $dateTo = '', ?int $divisionId = null, bool $strictMonth = false): array
+    private function list_division_stock_monthly(string $q, int $limit, ?string $destinationFilter = null, string $dateFrom = '', string $month = '', ?int $divisionId = null, bool $strictMonth = false): array
     {
-        $from = $this->normalizeDate($dateFrom);
-        $to = $this->normalizeDate($dateTo);
-        $targetMonth = date('Y-m-01', strtotime($to ?: date('Y-m-d')));
+        $targetMonth = $this->normalizeMonth($month) ?? date('Y-m-01');
         $destinationFilter = $this->normalizeDestinationFilter($destinationFilter);
         $latestMonthSubquery = '';
         if (!$strictMonth) {
@@ -15906,8 +16100,6 @@ class Purchase_model extends CI_Model
                 WHEN 'GUDANG' THEN 'Gudang'
                 ELSE 'Reguler'
             END";
-        $activityDateExpr = 'COALESCE(s.last_movement_date, DATE(s.updated_at), s.month_key)';
-
         $this->db
             ->select('s.id, "ITEM" AS stock_domain, s.division_id, ' . $divisionCodeSelect . ', ' . $divisionNameSelect . ', s.item_id, COALESCE(s.material_id, i.material_id) AS material_id, s.buy_uom_id, s.content_uom_id', false)
             ->select('s.destination_type AS destination_type', false)
@@ -15932,12 +16124,6 @@ class Purchase_model extends CI_Model
             $this->db->join('(' . $latestMonthSubquery . ') lm', 'lm.division_id = s.division_id AND lm.destination_type = s.destination_type AND lm.identity_key = s.identity_key AND lm.month_key = s.month_key', 'inner', false);
         }
 
-        if ($from !== null) {
-            $this->db->where($activityDateExpr . ' >= ' . $this->db->escape($from), null, false);
-        }
-        if ($to !== null) {
-            $this->db->where($activityDateExpr . ' <= ' . $this->db->escape($to), null, false);
-        }
         if ($divisionId !== null && $divisionId > 0) {
             $this->db->where('s.division_id', $divisionId);
         }
@@ -24655,10 +24841,13 @@ class Purchase_model extends CI_Model
             $to = $defaultTo;
         }
 
+        // Month defines the accounting matrix. Dates are an optional display
+        // window inside that month, never an unrelated second period.
+        $from = min($defaultTo, max($defaultFrom, $from));
+        $to = min($defaultTo, max($defaultFrom, $to));
         if ($from > $to) {
-            $tmp = $from;
-            $from = $to;
-            $to = $tmp;
+            $from = $defaultFrom;
+            $to = $defaultTo;
         }
 
         return [

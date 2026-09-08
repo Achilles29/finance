@@ -92,8 +92,6 @@ if ($tab === 'recap' && $recapEmployeeId > 0) {
 
 <style>
   .ca-page-head small { max-width: 760px; display: inline-block; }
-  .ca-tabs .nav-link { border-radius: 999px; margin-right: .45rem; padding: .55rem 1rem; font-weight: 600; border: 1px solid rgba(122, 24, 36, .14); color: #7a1824; }
-  .ca-tabs .nav-link.active { background: linear-gradient(135deg, #b11226, #7a1824); color: #fff; border-color: transparent; box-shadow: 0 12px 30px rgba(122, 24, 36, .18); }
   .ca-filter-card, .ca-table-card, .ca-history-card, .ca-summary-card { border: 1px solid rgba(122, 24, 36, .08); box-shadow: 0 16px 34px rgba(85, 55, 35, .06); border-radius: 22px; overflow: hidden; }
   .ca-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
   .ca-summary-pill { background: linear-gradient(180deg, #fff, #fff8f5); border: 1px solid rgba(122, 24, 36, .08); border-radius: 18px; padding: 1rem 1.1rem; }
@@ -143,10 +141,15 @@ if ($tab === 'recap' && $recapEmployeeId > 0) {
 
 <div class="row g-3">
   <div class="col-12">
-    <ul class="nav nav-tabs mb-3 ca-tabs border-0">
-      <li class="nav-item"><a class="nav-link <?php echo $tab === 'transaction' ? 'active' : ''; ?>" href="<?php echo site_url('payroll/cash-advances?tab=transaction'); ?>">Transaksi Kasbon</a></li>
-      <li class="nav-item"><a class="nav-link <?php echo $tab === 'recap' ? 'active' : ''; ?>" href="<?php echo site_url('payroll/cash-advances?tab=recap'); ?>">Rekap Pegawai</a></li>
-    </ul>
+    <?php
+    $workspace_tabs = [
+      ['label' => 'Transaksi Kasbon', 'url' => site_url('payroll/cash-advances?tab=transaction'), 'active' => $tab === 'transaction'],
+      ['label' => 'Rekap Pegawai', 'url' => site_url('payroll/cash-advances?tab=recap'), 'active' => $tab === 'recap'],
+    ];
+    $workspace_tab_label = 'Kasbon';
+    $workspace_tab_aria_label = 'Pilih tampilan kasbon';
+    $this->load->view('layout/_workspace_tabs', get_defined_vars());
+    ?>
 
     <div class="card mb-3 ca-filter-card">
       <div class="card-body">

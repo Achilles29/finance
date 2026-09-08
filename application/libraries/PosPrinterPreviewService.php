@@ -15,8 +15,8 @@ class PosPrinterPreviewService
     public function defaultGeneralSettings(): array
     {
         return [
-            'title' => 'NAMUA COFFEE N EATERY',
-            'subtitle' => 'Jl. Magnolia, Desa Kabongan Kidul, Rembang',
+            'title' => 'Finance',
+            'subtitle' => '',
             'logo_url' => base_url('assets/img/logo.png'),
             'wifi_name' => '',
             'wifi_password' => '',
@@ -53,8 +53,8 @@ class PosPrinterPreviewService
         $general = array_merge($this->defaultGeneralSettings(), $generalSettings);
         $logoUrl = $this->normalizeLogoUrl((string)($general['logo_url'] ?? ''));
         return [
-            'title' => (string)($general['title'] ?? 'NAMUA COFFEE N EATERY'),
-            'subtitle' => (string)($general['subtitle'] ?? 'Jl. Magnolia, Desa Kabongan Kidul, Rembang'),
+            'title' => (string)($general['title'] ?? 'Finance'),
+            'subtitle' => (string)($general['subtitle'] ?? ''),
             'logo_url' => $logoUrl,
             'show_logo' => true,
             'show_header' => true,
@@ -582,7 +582,10 @@ class PosPrinterPreviewService
             return $rewritten;
         }
 
-        return $url;
+        // Direct-print agents must not fetch an arbitrary remote URL supplied
+        // by configuration. General Printer only persists application-managed
+        // files; retain a safe fallback for legacy or malformed values.
+        return base_url('assets/img/logo.png');
     }
 
     private function rewriteLegacyLogoUrl(string $url): string

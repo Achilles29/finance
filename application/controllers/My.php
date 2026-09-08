@@ -371,6 +371,7 @@ class My extends MY_Controller
             'verify_url' => site_url('hr-contracts/verify/' . (string)($row['verification_token'] ?? '')),
             'ctx' => 'my',
             'back_url' => $backUrl,
+            'business_profile' => $this->business_profile(),
         ]);
     }
 

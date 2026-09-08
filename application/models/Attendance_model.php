@@ -1093,6 +1093,19 @@ class Attendance_model extends CI_Model
         }
     }
 
+    /**
+     * The meal calendar is a payment ledger, not a duplicate payroll report.
+     * Only CUSTOM entitlements are payable through its batch workflow.
+     */
+    private function apply_custom_meal_calendar_mode_filter(string $alias = 'ad'): void
+    {
+        if (!$this->att_daily_has_field('meal_mode_snapshot')) {
+            $this->db->where('1 = 0', null, false);
+            return;
+        }
+        $this->db->where("COALESCE({$alias}.meal_mode_snapshot, 'MONTHLY') = 'CUSTOM'", null, false);
+    }
+
     public function count_meal_calendar_employees(array $filters): int
     {
         [$dateStart, $dateEnd] = $this->normalize_meal_calendar_dates(
@@ -1103,6 +1116,7 @@ class Attendance_model extends CI_Model
         $this->db->from('org_employee e')
             ->join('org_division d', 'd.id = e.division_id', 'left')
             ->join('att_daily ad', 'ad.employee_id = e.id AND ad.attendance_date >= ' . $this->db->escape($dateStart) . ' AND ad.attendance_date <= ' . $this->db->escape($dateEnd), 'inner', false);
+        $this->apply_custom_meal_calendar_mode_filter('ad');
         $this->apply_meal_calendar_filter_conditions($filters);
         $row = $this->db->select('COUNT(DISTINCT e.id) AS c', false)->get()->row_array();
         return (int)($row['c'] ?? 0);
@@ -1148,6 +1162,7 @@ class Attendance_model extends CI_Model
             ->limit($limit, $offset);
 
         $this->apply_meal_calendar_filter_conditions($filters);
+        $this->apply_custom_meal_calendar_mode_filter('ad');
         return $rows->get()->result_array();
     }
 
@@ -1180,6 +1195,7 @@ class Attendance_model extends CI_Model
             ->from('org_employee e')
             ->join('org_division d', 'd.id = e.division_id', 'left')
             ->join('att_daily ad', 'ad.employee_id = e.id AND ad.attendance_date >= ' . $this->db->escape($dateStart) . ' AND ad.attendance_date <= ' . $this->db->escape($dateEnd), 'inner', false);
+        $this->apply_custom_meal_calendar_mode_filter('ad');
         $this->apply_meal_calendar_filter_conditions($filters);
         $row = $row->get()->row_array() ?: [];
 
@@ -1230,7 +1246,9 @@ class Attendance_model extends CI_Model
             ->where_in('ad.employee_id', $cleanIds)
             ->where('ad.attendance_date >=', $dateStart)
             ->where('ad.attendance_date <=', $dateEnd)
-            ->get()->result_array();
+            ;
+        $this->apply_custom_meal_calendar_mode_filter('ad');
+        $rows = $rows->get()->result_array();
 
         $map = [];
         foreach ($rows as $row) {
@@ -4798,12 +4816,13 @@ class Attendance_model extends CI_Model
         $netAmount = 0.0;
 
         $mealAmount = 0.0;
-        if ($mealMode === 'CUSTOM') {
-            if ($isPresentish && $isCheckedIn) {
-                $mealAmount = $mealRate;
-            } elseif ($isHolidayPaidDay && $phGetsMealAllowance) {
-                $mealAmount = $mealRate;
-            }
+        // Both modes earn the same daily meal entitlement. The mode controls
+        // its settlement: MONTHLY is included in payroll, while CUSTOM is
+        // recorded for a separate meal-disbursement batch.
+        if ($isPresentish && $isCheckedIn) {
+            $mealAmount = $mealRate;
+        } elseif ($isHolidayPaidDay && $phGetsMealAllowance) {
+            $mealAmount = $mealRate;
         }
 
         if ($isPayrollPaidDay) {

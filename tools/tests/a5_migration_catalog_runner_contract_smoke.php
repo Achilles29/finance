@@ -100,14 +100,14 @@ $upgradeJson = json_decode(trim($upgrade['out']), true);
 $check($validate['code'] === 0 && $planA['code'] === 0 && $upgrade['code'] === 0, 'repository catalog validates and both DB-free policies plan successfully');
 $check($planA['out'] === $planB['out'], 'plan output is byte-for-byte deterministic');
 $plannedIds = array_column($planJson['migrations'] ?? [], 'id');
-$check($plannedIds === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05d-a5-clean-install-reference-seed', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation'], 'clean-install plan places both canonical reference seeds before additive Formula, POS Mobile proof, and activity audit migrations');
-$check(array_column($upgradeJson['migrations'] ?? [], 'id') === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation'], 'upgrade plan excludes only the clean-install-only navigation reference seed');
+$check($plannedIds === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05d-a5-clean-install-reference-seed', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation', '2026-09-06f-pos-mobile-cashier-close-step-up', '2026-09-06g-pos-mobile-reservation-refund-step-up', '2026-09-06h-roastery-label-template-studio', '2026-09-06i-a3-sidebar-task-oriented-layout', '2026-09-07a-c2-c4-business-profile-license-runtime-foundation'], 'clean-install plan includes the customer profile and audit-only license foundation after sidebar IA');
+$check(array_column($upgradeJson['migrations'] ?? [], 'id') === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation', '2026-09-06f-pos-mobile-cashier-close-step-up', '2026-09-06g-pos-mobile-reservation-refund-step-up', '2026-09-06h-roastery-label-template-studio', '2026-09-06i-a3-sidebar-task-oriented-layout', '2026-09-07a-c2-c4-business-profile-license-runtime-foundation'], 'upgrade plan excludes only the clean-install-only navigation reference seed');
 $check(
     count($catalog['legacy_unmanaged_sql'] ?? []) === 7
-        && count($catalog['migrations'] ?? []) === 11
+        && count($catalog['migrations'] ?? []) === 16
         && hash_file('sha256', $sqlPath) === ($catalog['migrations'][0]['sha256'] ?? '')
         && ($catalog['migrations'][0]['policies'] ?? []) === ['clean_install', 'upgrade'],
-    'catalog records eleven managed and seven explicit legacy SQL files plus exact foundation checksum and policies'
+    'catalog records sixteen managed and seven explicit legacy SQL files plus exact foundation checksum and policies'
 );
 $check(($catalog['migrations'][1]['dependencies'] ?? []) === [$catalog['migrations'][0]['id']], 'Telegram migration explicitly depends on the registry foundation');
 $check(($catalog['migrations'][2]['dependencies'] ?? []) === [$catalog['migrations'][1]['id']], 'Telegram guide migration explicitly depends on the Telegram foundation');
@@ -152,6 +152,38 @@ $check(
         && ($catalog['migrations'][10]['dependencies'] ?? []) === ['2026-09-04c-a5-schema-migration-registry-foundation']
         && ($catalog['migrations'][10]['policies'] ?? []) === ['clean_install', 'upgrade'],
     'activity audit foundation is managed after the migration registry foundation'
+);
+$check(
+    ($catalog['migrations'][11]['id'] ?? '') === '2026-09-06f-pos-mobile-cashier-close-step-up'
+        && ($catalog['migrations'][11]['dependencies'] ?? []) === ['2026-09-06d-pos-mobile-reprint-step-up']
+        && ($catalog['migrations'][11]['policies'] ?? []) === ['clean_install', 'upgrade'],
+    'POS Mobile cashier-close proof migration is managed after the immutable reprint proof schema'
+);
+$check(
+    ($catalog['migrations'][12]['id'] ?? '') === '2026-09-06g-pos-mobile-reservation-refund-step-up'
+        && ($catalog['migrations'][12]['dependencies'] ?? []) === ['2026-09-06f-pos-mobile-cashier-close-step-up']
+        && ($catalog['migrations'][12]['policies'] ?? []) === ['clean_install', 'upgrade'],
+    'POS Mobile reservation-deposit-refund proof migration is managed after the cashier-close proof schema'
+);
+$check(
+    ($catalog['migrations'][13]['id'] ?? '') === '2026-09-06h-roastery-label-template-studio'
+        && ($catalog['migrations'][13]['dependencies'] ?? []) === ['2026-09-04c-a5-schema-migration-registry-foundation']
+        && ($catalog['migrations'][13]['policies'] ?? []) === ['clean_install', 'upgrade'],
+    'Roastery Label Studio template migration is managed after the migration registry foundation'
+);
+$check(
+    ($catalog['migrations'][14]['id'] ?? '') === '2026-09-06i-a3-sidebar-task-oriented-layout'
+        && ($catalog['migrations'][14]['dependencies'] ?? []) === ['2026-09-05a-telegram-bot-foundation']
+        && ($catalog['migrations'][14]['classification'] ?? '') === 'seed'
+        && ($catalog['migrations'][14]['policies'] ?? []) === ['clean_install', 'upgrade'],
+    'task-oriented sidebar layout is a managed seed after the Telegram navigation foundation'
+);
+$check(
+    ($catalog['migrations'][15]['id'] ?? '') === '2026-09-07a-c2-c4-business-profile-license-runtime-foundation'
+        && ($catalog['migrations'][15]['dependencies'] ?? []) === ['2026-09-06i-a3-sidebar-task-oriented-layout']
+        && ($catalog['migrations'][15]['classification'] ?? '') === 'schema'
+        && ($catalog['migrations'][15]['policies'] ?? []) === ['clean_install', 'upgrade'],
+    'commercial profile and audit-only licensing foundation is a managed additive schema migration'
 );
 $allPaths = array_merge($catalog['legacy_unmanaged_sql'] ?? [], array_column($catalog['migrations'] ?? [], 'path'));
 $check(count(array_filter($allPaths, static function ($path): bool { return strpos((string)$path, '/_old/') !== false; })) === 0, 'catalog does not enroll archived SQL');

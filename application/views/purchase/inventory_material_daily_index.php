@@ -1,5 +1,8 @@
 <?php
 $initialMonth = (string)($month ?? date('Y-m'));
+$initialMonth = preg_match('/^\d{4}-\d{2}$/', substr($initialMonth, 0, 7)) ? substr($initialMonth, 0, 7) : date('Y-m');
+$initialWindowStart = $initialMonth . '-01';
+$initialWindowEnd = date('Y-m-t', strtotime($initialWindowStart));
 $generateUrl = site_url('inventory/stock/opname/generate');
 $lotAuditBaseUrl = site_url('inventory/stock/division/lot');
 $adjustmentStoreUrl = site_url('inventory/stock/adjustment/store');
@@ -914,15 +917,18 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
   }
   .pmd-kpi-card::before { width: 80px; height: 80px; right: -18px; top: -18px; }
   .pmd-kpi-card::after  { width: 50px; height: 50px; right: 16px;  bottom: -14px; }
+  .pmd-kpi-card > * { position:relative; z-index:1; }
+  .pmd-kpi-icon { display:block; min-height:1.25rem; font-size:1.25rem; line-height:1; opacity:.82; }
   .pmd-kpi-label { font-size: .67rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .88; }
   .pmd-kpi-value { font-size: 1.5rem; font-weight: 900; line-height: 1.15; margin-top: .16rem; }
   .pmd-kpi-sub   { font-size: .7rem; opacity: .82; margin-top: .1rem; }
-  .pmd-kpi-1 { background: linear-gradient(135deg,#4a1529 0%,#7a2d45 100%); }
-  .pmd-kpi-2 { background: linear-gradient(135deg,#134e4a 0%,#0d9488 100%); }
-  .pmd-kpi-3 { background: linear-gradient(135deg,#3b0764 0%,#7c3aed 100%); }
-  .pmd-kpi-4 { background: linear-gradient(135deg,#7f1d1d 0%,#dc2626 100%); }
-  .pmd-kpi-5 { background: linear-gradient(135deg,#14532d 0%,#16a34a 100%); }
-  .pmd-kpi-6 { background: linear-gradient(135deg,#78350f 0%,#d97706 100%); }
+  .pmd-kpi-1 { background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); }
+  .pmd-kpi-2 { background:linear-gradient(135deg,#0c7cba 0%,#0fcdba 100%); }
+  .pmd-kpi-3 { background:linear-gradient(135deg,#134e5e 0%,#38b2a3 100%); }
+  .pmd-kpi-4 { background:linear-gradient(135deg,#e06c00 0%,#f7b733 100%); }
+  .pmd-kpi-card.is-danger { background:linear-gradient(135deg,#b22222 0%,#e05252 100%); }
+  .pmd-kpi-5 { background:linear-gradient(135deg,#1c7ed6 0%,#74c0fc 100%); }
+  .pmd-kpi-6 { background:linear-gradient(135deg,#e06c00 0%,#f7b733 100%); }
 
   /* ── Sparkline (surprise) ────────────────────────────────── */
   .pmd-sparkline-wrap {
@@ -1061,12 +1067,12 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
         <input type="text" id="pmdQ" class="form-control" value="<?php echo html_escape($initialQ); ?>" placeholder="Material, profile, merk, divisi">
       </div>
       <div class="pmd-filter-field pmd-filter-date">
-        <label>Dari Tanggal</label>
-        <input type="date" id="pmdDateFrom" class="form-control" value="<?php echo html_escape($initialDateFrom); ?>">
+        <label>Mulai Tampilan</label>
+        <input type="date" id="pmdDateFrom" class="form-control" min="<?php echo html_escape($initialWindowStart); ?>" max="<?php echo html_escape($initialWindowEnd); ?>" value="<?php echo html_escape($initialDateFrom); ?>">
       </div>
       <div class="pmd-filter-field pmd-filter-date-to">
-        <label>Sampai Tanggal</label>
-        <input type="date" id="pmdDateTo" class="form-control" value="<?php echo html_escape($initialDateTo); ?>">
+        <label>Sampai Tampilan</label>
+        <input type="date" id="pmdDateTo" class="form-control" min="<?php echo html_escape($initialWindowStart); ?>" max="<?php echo html_escape($initialWindowEnd); ?>" value="<?php echo html_escape($initialDateTo); ?>">
       </div>
       <div class="pmd-filter-field pmd-filter-limit">
         <label>Limit</label>
@@ -1082,31 +1088,37 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
 
 <div class="pmd-kpi-row mb-2">
   <div class="pmd-kpi-card pmd-kpi-1">
+    <span class="pmd-kpi-icon" aria-hidden="true"><i class="ri ri-archive-stack-line"></i></span>
     <div class="pmd-kpi-label">Total Profil</div>
     <div id="pmdStatProfiles" class="pmd-kpi-value">0</div>
     <div class="pmd-kpi-sub"><span id="pmdStatDivisions">0</span> divisi</div>
   </div>
   <div class="pmd-kpi-card pmd-kpi-2">
+    <span class="pmd-kpi-icon" aria-hidden="true"><i class="ri ri-flask-line"></i></span>
     <div class="pmd-kpi-label">Material</div>
     <div id="pmdStatMaterials" class="pmd-kpi-value">0</div>
     <div class="pmd-kpi-sub">jenis bahan baku</div>
   </div>
   <div class="pmd-kpi-card pmd-kpi-3">
+    <span class="pmd-kpi-icon" aria-hidden="true"><i class="ri ri-money-dollar-circle-line"></i></span>
     <div class="pmd-kpi-label">Nilai Sisa</div>
     <div id="pmdStatValue" class="pmd-kpi-value" style="font-size:1.08rem">0,00</div>
     <div class="pmd-kpi-sub">HPP stok aktif</div>
   </div>
-  <div class="pmd-kpi-card pmd-kpi-4">
+  <div id="pmdStatAlertCard" class="pmd-kpi-card pmd-kpi-4">
+    <span class="pmd-kpi-icon" aria-hidden="true"><i class="ri ri-alarm-warning-line"></i></span>
     <div class="pmd-kpi-label">Stok Alert</div>
     <div id="pmdStatAlert" class="pmd-kpi-value">0</div>
     <div class="pmd-kpi-sub">minus / habis</div>
   </div>
   <div class="pmd-kpi-card pmd-kpi-5">
+    <span class="pmd-kpi-icon" aria-hidden="true"><i class="ri ri-arrow-down-circle-line"></i></span>
     <div class="pmd-kpi-label">Total Masuk (isi)</div>
     <div id="pmdStatIn" class="pmd-kpi-value" style="font-size:1.08rem">0,00</div>
     <div class="pmd-kpi-sub">periode ini</div>
   </div>
   <div class="pmd-kpi-card pmd-kpi-6">
+    <span class="pmd-kpi-icon" aria-hidden="true"><i class="ri ri-arrow-up-circle-line"></i></span>
     <div class="pmd-kpi-label">Total Keluar (isi)</div>
     <div id="pmdStatOut" class="pmd-kpi-value" style="font-size:1.08rem">0,00</div>
     <div class="pmd-kpi-sub">adj: <span id="pmdStatAdj">0,00</span></div>
@@ -1481,8 +1493,29 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     }
   }
 
+  function syncMonthWindowInputs(){
+    var monthEl = document.getElementById('pmdMonth');
+    var fromEl = document.getElementById('pmdDateFrom');
+    var toEl = document.getElementById('pmdDateTo');
+    var monthText = monthEl ? String(monthEl.value || '') : '';
+    if (!/^\d{4}-\d{2}$/.test(monthText) || !fromEl || !toEl) { return; }
+    var start = monthText + '-01';
+    var parts = monthText.split('-');
+    var end = monthText + '-' + String(new Date(Number(parts[0]), Number(parts[1]), 0).getDate()).padStart(2, '0');
+    [fromEl, toEl].forEach(function(input){
+      input.min = start;
+      input.max = end;
+      if (input.value && input.value < start) { input.value = start; }
+      if (input.value && input.value > end) { input.value = end; }
+    });
+    if (fromEl.value && toEl.value && fromEl.value > toEl.value) {
+      toEl.value = fromEl.value;
+    }
+  }
+
   function readFilters(){
     state.month = document.getElementById('pmdMonth').value || '';
+    syncMonthWindowInputs();
     state.division_id = parseInt(document.getElementById('pmdDivision').value || '0', 10);
     if (!Number.isFinite(state.division_id) || state.division_id < 0) { state.division_id = 0; }
     state.destination = document.getElementById('pmdDestination').value || 'ALL';
@@ -2315,6 +2348,7 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
     document.getElementById('pmdStatMaterials').textContent = Object.keys(materialSet).length.toLocaleString('id-ID');
     document.getElementById('pmdStatValue').textContent     = money(totalValue);
     document.getElementById('pmdStatAlert').textContent     = alertCount.toLocaleString('id-ID');
+    document.getElementById('pmdStatAlertCard').classList.toggle('is-danger', alertCount > 0);
     document.getElementById('pmdStatIn').textContent        = num(totalIn);
     document.getElementById('pmdStatOut').textContent       = num(totalOut);
     document.getElementById('pmdStatAdj').textContent       = (totalAdj >= 0 ? '+' : '') + num(totalAdj);
@@ -2975,6 +3009,8 @@ $destinationGuardMap = is_array($destination_guard_map ?? null) ? $destination_g
       loadData();
     }
   });
+
+  document.getElementById('pmdMonth').addEventListener('change', syncMonthWindowInputs);
 
   if (tableWrap && tableHeadWrap) {
     tableWrap.addEventListener('scroll', function(){

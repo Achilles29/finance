@@ -68,11 +68,6 @@ $formatClock = static function ($datetime): string {
 };
 ?>
 <style>
-  .pending-status-tabs .nav-link {
-    border-radius: 999px;
-    padding: .45rem .95rem;
-    font-weight: 600;
-  }
   .pending-table-wrap {
     max-height: 72vh;
     overflow: auto;
@@ -155,16 +150,20 @@ $formatClock = static function ($datetime): string {
   <span class="text-muted small">Total: <?php echo (int)$pg['total']; ?></span>
 </div>
 
-<ul class="nav nav-pills pending-status-tabs mb-3 gap-2">
-  <?php foreach ($statusTabs as $statusTab): ?>
-    <?php $isActiveTab = strtoupper((string)($filters['status'] ?? 'PENDING')) === $statusTab; ?>
-    <li class="nav-item">
-      <a class="nav-link <?php echo $isActiveTab ? 'active' : 'text-dark border'; ?>" href="<?php echo site_url('attendance/pending-requests?' . $buildQuery(['status' => $statusTab, 'page' => 1])); ?>">
-        <?php echo html_escape(ucfirst(strtolower($statusTab))); ?>
-      </a>
-    </li>
-  <?php endforeach; ?>
-</ul>
+<?php
+$workspace_tabs = [];
+foreach ($statusTabs as $statusTab) {
+  $isActiveTab = strtoupper((string)($filters['status'] ?? 'PENDING')) === $statusTab;
+  $workspace_tabs[] = [
+    'label' => ucfirst(strtolower((string)$statusTab)),
+    'url' => site_url('attendance/pending-requests?' . $buildQuery(['status' => $statusTab, 'page' => 1])),
+    'active' => $isActiveTab,
+  ];
+}
+$workspace_tab_label = 'Status';
+$workspace_tab_aria_label = 'Filter status pengajuan absensi';
+$this->load->view('layout/_workspace_tabs', get_defined_vars());
+?>
 
 <div class="card mb-3">
   <div class="card-body">

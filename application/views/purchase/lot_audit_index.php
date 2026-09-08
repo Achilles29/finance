@@ -217,27 +217,11 @@ foreach ($rows as $row) {
 ?>
 
 <style>
-  .lot-audit-summary-card,
   .lot-audit-filter-card,
   .lot-audit-table-card {
     border:1px solid rgba(226,212,200,.88);
     border-radius:22px;
     box-shadow:0 14px 30px rgba(58,38,30,.06);
-  }
-  .lot-audit-summary-card .card-body {
-    padding:.9rem 1rem;
-  }
-  .lot-audit-summary-label {
-    font-size:.72rem;
-    text-transform:uppercase;
-    letter-spacing:.04em;
-    color:#8a7a72;
-    margin-bottom:.16rem;
-  }
-  .lot-audit-summary-value {
-    font-size:1.2rem;
-    font-weight:900;
-    color:#312729;
   }
   .lot-audit-ref-links {
     display:flex;
@@ -382,11 +366,14 @@ $this->load->view('purchase/_division_stock_generate_btn', [
   </div>
 </div>
 
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-4"><div class="card lot-audit-summary-card"><div class="card-body"><div class="lot-audit-summary-label">Jumlah Lot</div><div class="lot-audit-summary-value"><?php echo number_format($summaryLotCount); ?></div></div></div></div>
-  <div class="col-6 col-md-4"><div class="card lot-audit-summary-card"><div class="card-body"><div class="lot-audit-summary-label">Qty Balance Total</div><div class="lot-audit-summary-value"><?php echo number_format($summaryBalance, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-4"><div class="card lot-audit-summary-card"><div class="card-body"><div class="lot-audit-summary-label">Nilai Estimasi</div><div class="lot-audit-summary-value">Rp <?php echo number_format($summaryValue, 2, ',', '.'); ?></div></div></div></div>
-</div>
+<?php $this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan audit lot',
+  'stock_summary_cards' => [
+    ['label' => 'Jumlah Lot', 'value' => number_format($summaryLotCount), 'tone' => 'violet', 'icon' => 'ri-stack-line'],
+    ['label' => 'Qty Balance Total', 'value' => number_format($summaryBalance, 2, ',', '.'), 'tone' => 'amber', 'icon' => 'ri-scales-3-line'],
+    ['label' => 'Nilai Estimasi', 'value' => 'Rp ' . number_format($summaryValue, 2, ',', '.'), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+  ],
+]); ?>
 
 <div class="card lot-audit-table-card">
   <div class="table-responsive">

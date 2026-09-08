@@ -24,10 +24,17 @@ $expectedRequired = [
     'a1-access-simulator',
     'a1-public-review',
     'a1-review-admin-csrf',
+    'a1-landing-page-mutation-guard',
+    'printer-general-logo-upload',
+    'roastery-label-template-studio',
     'a1-finance-period-close-csrf',
     'a1-finance-period-close-reopen-atomic',
     'a1-pos-reversal-step-up',
     'a1-pos-mobile-reversal-step-up',
+    'a1-pos-mobile-incoming-scope',
+    'a1-pos-mobile-login-throttle',
+    'a1-pos-mobile-reservation-refund-step-up',
+    'a1-pos-reservation-refund-step-up',
     'a1-component-adjustment-step-up',
     'a1-stock-adjustment-step-up',
     'a1-component-batch-step-up',
@@ -43,10 +50,27 @@ $expectedRequired = [
     'a1-product-bundle-revision-audit',
     'a2-matrix',
     'a2-account-mutation-history',
+    'a2-payroll-meal-mode',
     'purchase-item-price-history',
     'activity-audit',
+    'c2-c4-commercial-foundation',
+    'c2-customer-publication',
+    'c3-upload-storage',
+    'c3-composer-compat',
+    'c3-control-release-bridge',
+    'c4-control-license-verifier',
     'a3-finance-ui-shell',
+    'a3-division-movement-pagination',
+    'a3-pos-reservation-ui',
+    'a3-pos-cashier-recent-ui',
+    'a3-pos-self-order-ui',
+    'a3-pos-online-food-ui',
+    'a3-component-stock-pagination',
+    'a3-stock-list-consistency',
+    'a3-stock-period-contract',
+    'a3-workspace-navigation',
     'a3-navigation-registry',
+    'a3-sidebar-information-architecture',
     'a3-page-alias-registry',
     'a3-route-collision',
     'a3-sidebar-favorite-registry',
@@ -129,12 +153,20 @@ $check(
     'Printer Agent runtime is pinned to the A4 venv Python executable'
 );
 $check(
-    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 87,
+    count(array_unique(array_merge($requiredIds, $developmentIds, $releaseIds, $runtimeIds, $preflightIds, $securityIds, $staticIds, $stagingIds))) === 110,
     'all automated manifest IDs are unique'
 );
 $check(
     $stagingIds === ['a2-database-invariant-probe', 'a1-rbac-scope-staging', 'a5-runtime-compatibility-staging'],
     'staging adds read-only A2, RBAC scope, and A5.14 runtime compatibility probes'
+);
+$check(
+    array_column($manifestA['staging'], 'env') === [
+        ['CI_ENV' => 'staging'],
+        ['CI_ENV' => 'staging'],
+        ['CI_ENV' => 'staging'],
+    ],
+    'staging probes explicitly load the non-production staging configuration contract'
 );
 
 foreach (['parallel', 'release', 'staging'] as $profile) {

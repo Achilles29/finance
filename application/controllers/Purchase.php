@@ -675,6 +675,10 @@ class Purchase extends MY_Controller
         $range = $this->resolveDateRange('', $dateFromRaw, $dateToRaw);
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
+        // The snapshot uses every ledger row of one account up to this
+        // business-date cut-off. It intentionally ignores list-only filters
+        // such as module/type so its value remains a complete account amount.
+        $accountAsOfSnapshot = $this->Purchase_model->get_account_mutation_as_of_snapshot($accountId, $dateTo);
 
         $perPage = $this->mutation_per_page();
         $page = max(1, (int)$this->input->get('page', true));
@@ -695,6 +699,7 @@ class Purchase extends MY_Controller
             'filter_module' => $moduleFilter,
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
+            'account_as_of_snapshot' => $accountAsOfSnapshot,
             'month' => $range['month'],
             'purchase_mutation_csrf_token' => $this->purchase_mutation_csrf(),
         ];
@@ -733,24 +738,24 @@ class Purchase extends MY_Controller
         }
 
         $q = trim((string)$this->input->get('q', true));
-        $dateFrom = trim((string)$this->input->get('date_from', true));
-        $dateTo = trim((string)$this->input->get('date_to', true));
-        $range = $this->resolveDateRange('', $dateFrom, $dateTo);
-        $dateFrom = $range['date_from'];
-        $dateTo = $range['date_to'];
+        $month = $this->normalizeStockSnapshotMonth((string)$this->input->get('month', true));
         $limit = (int)$this->input->get('limit', true);
-        if ($limit <= 0 || $limit > 500) {
-            $limit = 500;
+        if (!in_array($limit, [25, 50, 100, 200], true)) {
+            $limit = 100;
         }
+        $page = max(1, (int)$this->input->get('page', true));
 
         $data = [
             'title' => 'Stok Gudang',
             'active_menu' => 'purchase.stock.warehouse',
             'q' => $q,
-            'date_from' => $dateFrom,
-            'date_to' => $dateTo,
+            'month' => $month,
             'limit' => $limit,
-            'rows' => $this->Purchase_model->list_warehouse_stock($q, $limit, $dateFrom, $dateTo),
+            'page' => $page,
+            // Parent items are grouped and paginated in the read-only view.
+            // Load a bounded source window first so a profile cannot be split
+            // across pages before its parent total is calculated.
+            'rows' => $this->Purchase_model->list_warehouse_stock($q, 2000, $month),
         ];
 
         $this->render('purchase/stock_warehouse_index', $data);
@@ -2051,7 +2056,7 @@ class Purchase extends MY_Controller
         if ($fromDestination === '') { $fromDestination = 'ALL'; }
         if ($toDestination === '') { $toDestination = 'ALL'; }
         $limit = (int)$this->input->get('limit', true);
-        if ($limit <= 0 || $limit > 500) {
+        if (!in_array($limit, [25, 50, 100, 200], true)) {
             $limit = 100;
         }
 
@@ -2386,7 +2391,7 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
-        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $range = $this->resolveMonthlyDateWindow($month, $dateFrom, $dateTo);
         $month = $range['month'];
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
@@ -2419,7 +2424,7 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
-        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $range = $this->resolveMonthlyDateWindow($month, $dateFrom, $dateTo);
         $month = $range['month'];
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
@@ -2483,13 +2488,9 @@ class Purchase extends MY_Controller
         }
         $divisionId = (int)$this->input->get('division_id', true);
         $destinationFilter = $this->normalizeDestinationForDivisionFilter($destinationFilter, $divisionId, $destinationGuardMap);
-        $dateFrom = trim((string)$this->input->get('date_from', true));
-        $dateTo = trim((string)$this->input->get('date_to', true));
-        $range = $this->resolveDateRange('', $dateFrom, $dateTo);
-        $dateFrom = $range['date_from'];
-        $dateTo = $range['date_to'];
+        $month = $this->normalizeStockSnapshotMonth((string)$this->input->get('month', true));
         $limit = (int)$this->input->get('limit', true);
-        if ($limit <= 0 || $limit > 500) {
+        if (!in_array($limit, [25, 50, 100, 200], true)) {
             $limit = 100;
         }
         $page = max(1, (int)$this->input->get('page', true));
@@ -2498,8 +2499,7 @@ class Purchase extends MY_Controller
             $q,
             2000,
             $destinationFilter,
-            $dateFrom,
-            $dateTo,
+            $month,
             $divisionId > 0 ? $divisionId : null
         );
         if (!$includeZero) {
@@ -2515,8 +2515,7 @@ class Purchase extends MY_Controller
             'q' => $q,
             'destination' => $destinationFilter,
             'division_id' => $divisionId,
-            'date_from' => $dateFrom,
-            'date_to' => $dateTo,
+            'month' => $month,
             'limit' => $limit,
             'page' => $page,
             'include_zero' => $includeZero,
@@ -2545,7 +2544,25 @@ class Purchase extends MY_Controller
         if ($destinationFilter === '') { $destinationFilter = 'ALL'; }
         $perPage = (int)$this->input->get('per_page', true);
         if ($perPage < 10 || $perPage > 200) { $perPage = 25; }
-        $page = max(1, (int)$this->input->get('page', true));
+        $maxPage = max(1, (int)floor(100000 / $perPage) + 1);
+        $page = min($maxPage, max(1, (int)$this->input->get('page', true)));
+        $offset = ($page - 1) * $perPage;
+        // Fetch one extra row only. The page no longer pulls the previous
+        // fixed 500-row result set into PHP/browser just to paginate it.
+        $rows = $this->Purchase_model->list_stock_movements(
+            'DIVISION',
+            $q,
+            $dateFrom,
+            $dateTo,
+            $divisionId > 0 ? $divisionId : null,
+            $perPage + 1,
+            $destinationFilter,
+            $offset
+        );
+        $hasMore = count($rows) > $perPage;
+        if ($hasMore) {
+            array_pop($rows);
+        }
 
         $data = [
             'title'        => 'Log Bahan Baku',
@@ -2557,8 +2574,9 @@ class Purchase extends MY_Controller
             'destination'  => $destinationFilter,
             'per_page'     => $perPage,
             'page'         => $page,
+            'has_more'     => $hasMore,
             'divisions'    => $this->Purchase_model->list_active_operational_divisions(),
-            'rows'         => $this->Purchase_model->list_stock_movements('DIVISION', $q, $dateFrom, $dateTo, $divisionId > 0 ? $divisionId : null, 500, $destinationFilter),
+            'rows'         => $rows,
         ];
 
         $this->render('purchase/stock_division_movement_index', $data);
@@ -2576,7 +2594,7 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
-        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $range = $this->resolveMonthlyDateWindow($month, $dateFrom, $dateTo);
         $month = $range['month'];
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
@@ -3405,7 +3423,7 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
-        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $range = $this->resolveMonthlyDateWindow($month, $dateFrom, $dateTo);
         $month = $range['month'];
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
@@ -3443,7 +3461,7 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
-        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $range = $this->resolveMonthlyDateWindow($month, $dateFrom, $dateTo);
         $month = $range['month'];
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
@@ -3820,7 +3838,7 @@ class Purchase extends MY_Controller
         $q = trim((string)$this->input->get('q', true));
         $dateFrom = trim((string)$this->input->get('date_from', true));
         $dateTo = trim((string)$this->input->get('date_to', true));
-        $range = $this->resolveDateRange($month, $dateFrom, $dateTo);
+        $range = $this->resolveMonthlyDateWindow($month, $dateFrom, $dateTo);
         $month = $range['month'];
         $dateFrom = $range['date_from'];
         $dateTo = $range['date_to'];
@@ -4348,6 +4366,38 @@ class Purchase extends MY_Controller
         ];
     }
 
+    /**
+     * A daily matrix can display part of a month, but its visible range may
+     * never escape the selected month. The month is the accounting context;
+     * the dates are only a display window inside it.
+     */
+    private function resolveMonthlyDateWindow(string $month, string $dateFrom, string $dateTo): array
+    {
+        $monthNorm = $this->normalizeStockSnapshotMonth($month);
+        $monthStart = $monthNorm . '-01';
+        $monthEnd = date('Y-m-t', strtotime($monthStart));
+        $range = $this->resolveDateRange($monthNorm, $dateFrom, $dateTo);
+
+        $from = min($monthEnd, max($monthStart, (string)$range['date_from']));
+        $to = min($monthEnd, max($monthStart, (string)$range['date_to']));
+        if ($from > $to) {
+            $from = $monthStart;
+            $to = $monthEnd;
+        }
+
+        return [
+            'month' => $monthNorm,
+            'date_from' => $from,
+            'date_to' => $to,
+        ];
+    }
+
+    private function normalizeStockSnapshotMonth(string $month): string
+    {
+        $month = trim($month);
+        return preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month) ? $month : date('Y-m');
+    }
+
     private function buildDivisionDestinationGuardMap(array $divisions): array
     {
         $map = [];
@@ -4822,19 +4872,28 @@ class Purchase extends MY_Controller
         $this->require_permission(self::PAGE_ORDER, 'view');
         $itemId = max(0, (int)$this->input->get('item_id', true));
         $limit  = min(200, max(5, (int)($this->input->get('limit', true) ?: 20)));
+        $offset = min(10000, max(0, (int)$this->input->get('offset', true)));
         $mode   = in_array($this->input->get('mode', true), ['hpp', 'buy'], true)
                 ? $this->input->get('mode', true) : 'hpp';
 
         if ($itemId <= 0) {
-            $this->jsonOk(['rows' => [], 'meta' => ['total' => 0]]);
+            $this->jsonOk(['rows' => [], 'meta' => ['total' => 0, 'limit' => $limit, 'offset' => $offset, 'has_more' => false]]);
             return;
         }
 
-        $history = $this->Purchase_model->get_item_price_history($itemId, $limit);
+        $history = $this->Purchase_model->get_item_price_history($itemId, $limit, $offset);
+        $returned = count($history['rows']);
+        $total = (int)$history['total'];
 
         $this->jsonOk([
             'rows' => $history['rows'],
-            'meta' => ['total' => $history['total'], 'limit' => $limit, 'mode' => $mode],
+            'meta' => [
+                'total' => $total,
+                'limit' => $limit,
+                'offset' => $offset,
+                'has_more' => ($offset + $returned) < $total,
+                'mode' => $mode,
+            ],
         ]);
     }
 

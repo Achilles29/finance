@@ -40,6 +40,9 @@ class MY_Controller extends CI_Controller
     /** Mencegah lebih dari satu pemulihan scope sesi lama dalam satu request. */
     private $division_scope_recovery_attempted = false;
 
+    /** Profil usaha dibaca sekali per request untuk shell dan dokumen aplikasi. */
+    private $business_profile_for_request = null;
+
     public function __construct()
     {
         parent::__construct();
@@ -415,6 +418,11 @@ class MY_Controller extends CI_Controller
         $data['current_user'] = $this->current_user;
         $data['user_perms']   = $this->user_perms;
         $data['sidebar_favorite_csrf_token'] = $this->sidebar_favorite_csrf();
+        // Identitas customer bersifat data lokal. Controller/detail page tetap
+        // dapat mengirim override eksplisit bila memang memiliki snapshot sendiri.
+        if (!isset($data['business_profile'])) {
+            $data['business_profile'] = $this->business_profile();
+        }
 
         // Load sidebar data otomatis (kecuali sudah diset manual oleh controller)
         if (!isset($data['sidebar_main'])) {
@@ -430,6 +438,42 @@ class MY_Controller extends CI_Controller
         $this->record_page_access((string)($data['active_menu'] ?? ''));
 
         return $this->load->view('layout/main', $data, $return);
+    }
+
+    /**
+     * Sumber identitas customer yang aman untuk UI. Kegagalan atau schema lama
+     * tidak boleh menggagalkan halaman operasional; fallback tetap netral.
+     */
+    protected function business_profile(): array
+    {
+        if (is_array($this->business_profile_for_request)) {
+            return $this->business_profile_for_request;
+        }
+
+        $fallback = [
+            'display_name' => 'Finance',
+            'short_name' => '',
+            'address' => '',
+            'phone' => '',
+            'email' => '',
+            'website_url' => '',
+            'logo_url' => '',
+            'document_footer' => '',
+            'timezone' => 'Asia/Jakarta',
+            'locale' => 'id_ID',
+            'currency_code' => 'IDR',
+        ];
+
+        try {
+            $this->load->model('Business_profile_model');
+            $profile = $this->Business_profile_model->profile();
+            $this->business_profile_for_request = array_merge($fallback, is_array($profile) ? $profile : []);
+        } catch (Throwable $error) {
+            log_message('error', 'Business profile read failed; neutral application identity is used.');
+            $this->business_profile_for_request = $fallback;
+        }
+
+        return $this->business_profile_for_request;
     }
 
     /**

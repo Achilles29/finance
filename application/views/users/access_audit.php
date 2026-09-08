@@ -53,11 +53,19 @@ $scopeLabel = static function (array $scope, array $roles, bool $superadmin = fa
     <div class="alert alert-danger" role="alert">Akses terblokir: akun nonaktif, belum memiliki role aktif, atau scope divisinya konflik. Kolom izin tetap menampilkan hasil perhitungan role untuk membantu pemeriksaan.</div>
     <?php endif; ?>
     <p class="small text-muted">Hasil dihitung dari konfigurasi terbaru. Izin halaman tetap tunduk pada pemeriksaan dokumen, outlet/terminal perangkat, sesi kasir, dan persetujuan transaksi. Tabel ini tidak menjalankan transaksi atau login sebagai pengguna tersebut.</p>
-    <nav class="mb-3" aria-label="Bagian simulasi akses"><ul class="nav nav-pills gap-2">
-      <?php foreach (['access' => 'Akses Efektif', 'changes' => 'Perbandingan', 'roles' => 'Role & Scope', 'baseline' => 'Baseline Paket'] as $key => $label): ?>
-      <li class="nav-item"><a class="nav-link <?= $tab === $key ? 'active' : '' ?>" <?= $tab === $key ? 'aria-current="page"' : '' ?> href="<?= $escape($url(['tab' => $key, 'page' => 1, 'module' => $key === 'baseline' ? '' : $module])) ?>"><?= $escape($label) ?></a></li>
-      <?php endforeach; ?>
-    </ul></nav>
+    <?php
+    $workspace_tabs = [];
+    foreach (['access' => 'Akses Efektif', 'changes' => 'Perbandingan', 'roles' => 'Role & Scope', 'baseline' => 'Baseline Paket'] as $key => $label) {
+      $workspace_tabs[] = [
+        'label' => $label,
+        'url' => $url(['tab' => $key, 'page' => 1, 'module' => $key === 'baseline' ? '' : $module]),
+        'active' => $tab === $key,
+      ];
+    }
+    $workspace_tab_label = 'Audit Akses';
+    $workspace_tab_aria_label = 'Bagian simulasi akses';
+    include APPPATH . 'views/layout/_workspace_tabs.php';
+    ?>
     <?php if ($tab === 'roles'): ?>
       <form method="get" action="<?= base_url($path) ?>" class="card card-body">
         <input type="hidden" name="preview" value="1"><input type="hidden" name="tab" value="changes">

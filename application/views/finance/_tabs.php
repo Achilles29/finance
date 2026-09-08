@@ -1,18 +1,20 @@
 <?php
 $active = (string)($finance_tab_active ?? '');
+$workspace_tabs = [
+  ['label' => 'Utang', 'url' => site_url('finance/utang'), 'active' => $active === 'payable'],
+  ['label' => 'Piutang', 'url' => site_url('finance/piutang'), 'active' => $active === 'receivable'],
+  ['label' => 'Pihak Luar', 'url' => site_url('finance/relasi'), 'active' => $active === 'party'],
+  ['label' => 'Keuangan Harian', 'url' => site_url('finance-reports/daily-overview'), 'active' => $active === 'daily-overview'],
+  ['label' => 'Estimasi Keuangan', 'url' => site_url('finance-reports/financial-estimation'), 'active' => $active === 'financial-estimation'],
+  ['label' => 'Rekap Rekening', 'url' => site_url('finance-reports/rekap-rekening-harian'), 'active' => $active === 'bank-daily-recap'],
+  ['label' => 'Posisi Kas', 'url' => site_url('finance-reports/cash-position'), 'active' => $active === 'cash-position'],
+  ['label' => 'Brankas Harian', 'url' => site_url('finance-reports/cash-vault-daily'), 'active' => $active === 'cash-vault'],
+  ['label' => 'Rekonsiliasi Kas', 'url' => site_url('finance-reports/cash-reconciliation'), 'active' => $active === 'cash-reconciliation'],
+  ['label' => 'Rekon Pendapatan', 'url' => site_url('finance-reports/revenue-reconciliation'), 'active' => $active === 'revenue-reconciliation'],
+  ['label' => 'Tutup Periode', 'url' => site_url('finance-reports/period-close'), 'active' => $active === 'period-close'],
+  ['label' => 'Target Keuangan', 'url' => site_url('finance-reports/targets'), 'active' => $active === 'target-plan'],
+];
+$workspace_tab_label = 'Keuangan';
+$workspace_tab_aria_label = 'Navigasi workspace keuangan';
 ?>
-
-<div class="d-flex flex-wrap gap-2 mb-3">
-  <a href="<?php echo site_url('finance/utang'); ?>" class="btn btn-sm <?php echo $active === 'payable' ? 'btn-primary' : 'btn-outline-primary'; ?>">Utang</a>
-  <a href="<?php echo site_url('finance/piutang'); ?>" class="btn btn-sm <?php echo $active === 'receivable' ? 'btn-primary' : 'btn-outline-primary'; ?>">Piutang</a>
-  <a href="<?php echo site_url('finance/relasi'); ?>" class="btn btn-sm <?php echo $active === 'party' ? 'btn-primary' : 'btn-outline-primary'; ?>">Pihak Luar</a>
-  <a href="<?php echo site_url('finance-reports/daily-overview'); ?>" class="btn btn-sm <?php echo $active === 'daily-overview' ? 'btn-primary' : 'btn-outline-primary'; ?>">Keuangan Harian</a>
-  <a href="<?php echo site_url('finance-reports/financial-estimation'); ?>" class="btn btn-sm <?php echo $active === 'financial-estimation' ? 'btn-primary' : 'btn-outline-primary'; ?>">Estimasi Keuangan</a>
-  <a href="<?php echo site_url('finance-reports/rekap-rekening-harian'); ?>" class="btn btn-sm <?php echo $active === 'bank-daily-recap' ? 'btn-primary' : 'btn-outline-primary'; ?>">Rekap Rekening Harian</a>
-  <a href="<?php echo site_url('finance-reports/cash-position'); ?>" class="btn btn-sm <?php echo $active === 'cash-position' ? 'btn-primary' : 'btn-outline-primary'; ?>">Posisi Kas & Eksposur</a>
-  <a href="<?php echo site_url('finance-reports/cash-vault-daily'); ?>" class="btn btn-sm <?php echo $active === 'cash-vault' ? 'btn-primary' : 'btn-outline-primary'; ?>">Brankas Harian</a>
-  <a href="<?php echo site_url('finance-reports/cash-reconciliation'); ?>" class="btn btn-sm <?php echo $active === 'cash-reconciliation' ? 'btn-primary' : 'btn-outline-primary'; ?>">Rekonsiliasi Kas</a>
-  <a href="<?php echo site_url('finance-reports/revenue-reconciliation'); ?>" class="btn btn-sm <?php echo $active === 'revenue-reconciliation' ? 'btn-primary' : 'btn-outline-primary'; ?>">Rekonsiliasi Pendapatan</a>
-  <a href="<?php echo site_url('finance-reports/period-close'); ?>" class="btn btn-sm <?php echo $active === 'period-close' ? 'btn-primary' : 'btn-outline-primary'; ?>">Tutup Periode</a>
-  <a href="<?php echo site_url('finance-reports/targets'); ?>" class="btn btn-sm <?php echo $active === 'target-plan' ? 'btn-primary' : 'btn-outline-primary'; ?>">Target Keuangan</a>
-</div>
+<?php $this->load->view('layout/_workspace_tabs', get_defined_vars()); ?>

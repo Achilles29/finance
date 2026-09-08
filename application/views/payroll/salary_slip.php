@@ -13,6 +13,9 @@ $disbursementDate = (string)($line['disbursement_date'] ?? '-');
 $basic = (float)($line['basic_total'] ?? 0);
 $allowance = (float)($line['allowance_total'] ?? 0);
 $meal = (float)($line['meal_total'] ?? 0);
+$hasMealModeBreakdown = !empty($line['meal_mode_breakdown_available']);
+$mealMonthly = (float)($line['meal_monthly_total'] ?? 0);
+$mealCustom = (float)($line['meal_custom_total'] ?? 0);
 $overtime = (float)($line['overtime_total'] ?? 0);
 $manualAdd = (float)($line['manual_addition_total'] ?? 0);
 
@@ -25,13 +28,18 @@ $manualDedOther = max(0, round($manualDedTotal - $cashCut, 2));
 $mealPaidTotal = (float)($line['meal_paid_total'] ?? 0);
 $mealPaidDays = (int)($line['meal_paid_days'] ?? 0);
 $mealPaidDeduction = (float)($line['meal_paid_deduction'] ?? 0);
+$mealCustomSettlement = $hasMealModeBreakdown ? $mealCustom : 0.0;
+$mealCustomRemaining = $hasMealModeBreakdown
+    ? max(0, round($mealCustom - $mealPaidTotal, 2))
+    : 0.0;
 
 $gross = (float)($line['gross_pay'] ?? ($basic + $allowance + $meal + $overtime + $manualAdd));
 $thpFullSystem = (float)($line['net_pay_raw'] ?? (($line['net_pay'] ?? 0) - ($line['rounding_adjustment'] ?? 0)));
 $rounding = (float)($line['rounding_adjustment'] ?? 0);
 $transfer = (float)($line['transfer_amount'] ?? ($line['net_pay'] ?? 0));
+$totalEntitlement = round($transfer + $mealCustom, 2);
 
-$deductionSubtotal = round($lateDed + $alphaDed + $manualDedOther + $cashCut + $mealPaidDeduction, 2);
+$deductionSubtotal = round($lateDed + $alphaDed + $manualDedOther + $cashCut + $mealPaidDeduction + $mealCustomSettlement, 2);
 $thpFullCalculated = round($gross - $deductionSubtotal, 2);
 $reconcile = round($thpFullSystem - $thpFullCalculated, 2);
 if (abs($reconcile) <= 0.009) {
@@ -138,7 +146,14 @@ $logoUrl = base_url('assets/img/logo.png');
         <tbody>
           <tr><td>Gaji Pokok</td><td class="text-end"><?php echo number_format($basic,2,',','.'); ?></td></tr>
           <tr><td>Tunjangan</td><td class="text-end"><?php echo number_format($allowance,2,',','.'); ?></td></tr>
-          <tr><td>Uang Makan (Hak Periode)</td><td class="text-end"><?php echo number_format($meal,2,',','.'); ?></td></tr>
+          <?php if ($hasMealModeBreakdown): ?>
+            <tr><td>Uang Makan Bulanan (masuk payroll)</td><td class="text-end"><?php echo number_format($mealMonthly,2,',','.'); ?></td></tr>
+            <?php if ($mealCustom > 0): ?>
+              <tr><td>Uang Makan Custom (hak, dibayar terpisah)</td><td class="text-end"><?php echo number_format($mealCustom,2,',','.'); ?></td></tr>
+            <?php endif; ?>
+          <?php else: ?>
+            <tr><td>Uang Makan (Hak Periode)</td><td class="text-end"><?php echo number_format($meal,2,',','.'); ?></td></tr>
+          <?php endif; ?>
           <tr><td>Lembur</td><td class="text-end"><?php echo number_format($overtime,2,',','.'); ?></td></tr>
           <tr><td>Tambahan Manual (+)</td><td class="text-end"><?php echo number_format($manualAdd,2,',','.'); ?></td></tr>
           <tr class="sum"><td>Gaji Kotor (Gross)</td><td class="text-end"><?php echo number_format($gross,2,',','.'); ?></td></tr>
@@ -147,6 +162,9 @@ $logoUrl = base_url('assets/img/logo.png');
           <tr><td>Potongan Alpha</td><td class="text-end"><?php echo number_format($alphaDed,2,',','.'); ?></td></tr>
           <tr><td>Pengurangan Manual (-) Lain</td><td class="text-end"><?php echo number_format($manualDedOther,2,',','.'); ?></td></tr>
           <tr><td>Potongan Kasbon</td><td class="text-end"><?php echo number_format($cashCut,2,',','.'); ?></td></tr>
+          <?php if ($mealCustomSettlement > 0): ?>
+            <tr><td>Uang Makan Custom (dibayar melalui batch terpisah)</td><td class="text-end"><?php echo number_format($mealCustomSettlement,2,',','.'); ?></td></tr>
+          <?php endif; ?>
           <?php if ($mealPaidDeduction > 0): ?>
             <tr>
               <td>Potongan Uang Makan (sudah dibayar<?php echo $mealPaidDays > 0 ? (' ' . $mealPaidDays . ' hari') : ''; ?>)</td>
@@ -160,10 +178,19 @@ $logoUrl = base_url('assets/img/logo.png');
           <?php endif; ?>
           <tr><td>Pembulatan</td><td class="text-end"><?php echo number_format($rounding,2,',','.'); ?></td></tr>
           <tr class="sum good"><td>Transfer Akhir</td><td class="text-end"><?php echo number_format($transfer,2,',','.'); ?></td></tr>
+          <?php if ($hasMealModeBreakdown && $mealCustom > 0): ?>
+            <tr><td>Total Hak Pegawai (transfer + uang makan custom)</td><td class="text-end"><?php echo number_format($totalEntitlement,2,',','.'); ?></td></tr>
+            <tr><td>Uang Makan Custom Sudah Dibayar<?php echo $mealPaidDays > 0 ? (' (' . $mealPaidDays . ' hari)') : ''; ?></td><td class="text-end"><?php echo number_format($mealPaidTotal,2,',','.'); ?></td></tr>
+            <tr class="<?php echo $mealCustomRemaining > 0 ? 'recon' : ''; ?>"><td>Sisa Uang Makan Custom</td><td class="text-end"><?php echo number_format($mealCustomRemaining,2,',','.'); ?></td></tr>
+          <?php endif; ?>
         </tbody>
       </table>
       <div class="note">
-        Uang makan yang sudah dicairkan ditampilkan sebagai komponen pengurang agar slip konsisten dengan transfer final. Nilai transfer tetap mengikuti snapshot payroll saat batch difinalisasi.
+        <?php if ($hasMealModeBreakdown): ?>
+          Uang makan Bulanan sudah termasuk transfer payroll. Uang makan Custom adalah hak terpisah dan dibayar melalui menu Pencairan Uang Makan; nilainya tidak mengurangi hak pegawai dan tidak masuk transfer gaji.
+        <?php else: ?>
+          Slip historis belum memiliki snapshot pemisahan mode uang makan. Nilai transfer tetap mengikuti snapshot payroll saat batch difinalisasi.
+        <?php endif; ?>
       </div>
     </div>
   </div>

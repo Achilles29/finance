@@ -244,6 +244,12 @@ final class PosMobileSmokeDb
             || $table === 'pos_mobile_sensitive_action_proof';
     }
 
+    public function field_exists(string $field, string $table): bool
+    {
+        return $table === 'pos_mobile_sensitive_action_proof'
+            && $field === 'cashier_session_id';
+    }
+
     public function select(string $fields): self
     {
         return $this;
@@ -1337,6 +1343,21 @@ $boundHeaders = [
     'X-Pos-Mobile-Device-Key' => $boundDeviceKey,
 ];
 
+function pos_mobile_cashier_close_proof_row(string $proof, int $cashierSessionId, int $terminalId): array
+{
+    return [
+        'proof_hash' => hash('sha256', $proof),
+        'mobile_token_id' => 41,
+        'user_id' => 42,
+        'terminal_id' => $terminalId,
+        'action' => 'CASHIER_CLOSE',
+        'order_id' => 0,
+        'cashier_session_id' => $cashierSessionId,
+        'expires_at' => date('Y-m-d H:i:s', strtotime('+1 day')),
+        'consumed_at' => null,
+    ];
+}
+
 $bootstrapFixture = [
     'outlets' => [
         ['id' => 71, 'outlet_name' => 'Outlet A'],
@@ -1541,13 +1562,19 @@ pos_mobile_smoke_expect(
     'bearer bootstrap scopes defaults, bootstrap/filter options, sessions, and markers while preserving non-scope/payment data'
 );
 pos_mobile_smoke_expect(
-    ($sensitiveActionContract['version'] ?? null) === 1
+    ($sensitiveActionContract['version'] ?? null) === 3
         && ($sensitiveActionContract['proof_ttl_seconds'] ?? null) === 180
         && (($sensitiveActionContract['actions']['VOID']['verify_route'] ?? '') === 'pos-mobile/orders/reversal-step-up/verify')
         && (($sensitiveActionContract['actions']['REFUND']['submit_method'] ?? '') === 'POST')
         && (($sensitiveActionContract['actions']['ORDER_REPRINT']['verify_route'] ?? '') === 'pos-mobile/orders/reprint-step-up/verify')
         && (($sensitiveActionContract['actions']['ORDER_REPRINT']['submit_route'] ?? '') === 'pos-mobile/orders/reprint-targets/{order_id}')
-        && (($sensitiveActionContract['actions']['ORDER_REPRINT']['submit_method'] ?? '') === 'POST'),
+        && (($sensitiveActionContract['actions']['ORDER_REPRINT']['submit_method'] ?? '') === 'POST')
+        && (($sensitiveActionContract['actions']['CASHIER_CLOSE']['verify_route'] ?? '') === 'pos-mobile/cashier/close-step-up/verify')
+        && (($sensitiveActionContract['actions']['CASHIER_CLOSE']['submit_route'] ?? '') === 'pos-mobile/cashier/close')
+        && (($sensitiveActionContract['actions']['CASHIER_CLOSE']['submit_method'] ?? '') === 'POST')
+        && (($sensitiveActionContract['actions']['RESERVATION_DEPOSIT_REFUND']['verify_route'] ?? '') === 'pos-mobile/reservations/reject-step-up/verify')
+        && (($sensitiveActionContract['actions']['RESERVATION_DEPOSIT_REFUND']['submit_route'] ?? '') === 'pos-mobile/reservations/reject/{reservation_id}')
+        && (($sensitiveActionContract['actions']['RESERVATION_DEPOSIT_REFUND']['submit_method'] ?? '') === 'POST'),
     'bearer bootstrap exposes a server-owned non-secret capability contract for every proof-required APK action'
 );
 pos_mobile_smoke_expect(
@@ -3003,11 +3030,40 @@ $model->activeSession = $matchingCashierSession;
 $model->closeSessionResult = ['ok' => true, 'shift_id' => 901, 'report' => [], 'summary' => []];
 $controller->cashier_close();
 pos_mobile_smoke_expect(
+    $output->status === 428
+        && $model->findActiveSessionCalls === 1
+        && $model->reconCalls === 0
+        && $model->closeSessionCalls === 0
+        && $model->shiftClosePrintCalls === 0,
+    'cashier_close bearer requires a fresh cashier-close proof before recon, close, or printing'
+);
+
+$matchingCloseProof = str_repeat('a', 64);
+[$controller, $auth, $output, $model, $printModel, $db] = pos_mobile_smoke_controller(
+    ['__superadmin__' => true],
+    true,
+    0,
+    ['outlet_id' => 71, 'terminal_id' => 501, 'actual_cash' => 100000, 'step_up_proof' => $matchingCloseProof],
+    $boundHeaders,
+    $tokenRows,
+    'POST',
+    $activeTerminalRows,
+    null,
+    [$matchingCashierSession],
+    [],
+    ['state' => 'GLOBAL', 'division_id' => null],
+    [pos_mobile_cashier_close_proof_row($matchingCloseProof, 801, 501)]
+);
+$model->activeSession = $matchingCashierSession;
+$model->closeSessionResult = ['ok' => true, 'shift_id' => 901, 'report' => [], 'summary' => []];
+$controller->cashier_close();
+pos_mobile_smoke_expect(
     $output->status === 200
         && $model->reconCalls === 1
         && $model->closeSessionCalls === 1
-        && $model->shiftClosePrintCalls === 1,
-    'cashier_close accepts matching active session A/A'
+        && $model->shiftClosePrintCalls === 1
+        && $db->mobileProofUpdates >= 1,
+    'cashier_close consumes a one-time proof bound to matching active session A/A'
 );
 
 [$controller, $auth, $output, $model] = pos_mobile_smoke_controller(
@@ -3097,15 +3153,21 @@ pos_mobile_smoke_expect(
     'bearer session_status reports owner terminal and origin device for backup mode'
 );
 
-[$controller, $auth, $output, $model] = pos_mobile_smoke_controller(
+$backupCloseProof = str_repeat('b', 64);
+[$controller, $auth, $output, $model, $printModel, $db] = pos_mobile_smoke_controller(
     ['__superadmin__' => true],
     true,
     0,
-    ['outlet_id' => 71, 'terminal_id' => 501, 'actual_cash' => 100000],
+    ['outlet_id' => 71, 'terminal_id' => 501, 'actual_cash' => 100000, 'step_up_proof' => $backupCloseProof],
     $boundHeaders,
     $tokenRows,
     'POST',
-    $activeTerminalRows
+    $activeTerminalRows,
+    null,
+    [],
+    [],
+    ['state' => 'GLOBAL', 'division_id' => null],
+    [pos_mobile_cashier_close_proof_row($backupCloseProof, 801, 501)]
 );
 $model->activeSession = $backupCashierSession;
 $model->closeSessionResult = ['ok' => true, 'shift_id' => 901, 'report' => [], 'summary' => []];

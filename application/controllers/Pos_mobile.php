@@ -47,7 +47,15 @@ class Pos_mobile extends CI_Controller
             return;
         }
 
-        $user = $this->Auth_model->attempt_login($identifier, $password);
+        // Samakan boundary login APK dengan login web: Auth_model hanya
+        // mengaktifkan throttle per akun/IP saat konteks IP diberikan.
+        // Respons tetap generik agar username, terminal, maupun permission
+        // tidak dapat dipakai untuk enumerasi akun dari perangkat mobile.
+        $user = $this->Auth_model->attempt_login(
+            $identifier,
+            $password,
+            (string)$this->input->ip_address()
+        );
         if (!$user) {
             $this->json_error('Kredensial atau perangkat tidak valid.', 401);
             return;
@@ -395,7 +403,7 @@ class Pos_mobile extends CI_Controller
     private function mobile_sensitive_action_contract(): array
     {
         return [
-            'version' => 1,
+            'version' => 3,
             'proof_ttl_seconds' => self::MOBILE_REVERSAL_STEP_UP_TTL_SECONDS,
             'actions' => [
                 'VOID' => [
@@ -411,6 +419,16 @@ class Pos_mobile extends CI_Controller
                 'ORDER_REPRINT' => [
                     'verify_route' => 'pos-mobile/orders/reprint-step-up/verify',
                     'submit_route' => 'pos-mobile/orders/reprint-targets/{order_id}',
+                    'submit_method' => 'POST',
+                ],
+                'CASHIER_CLOSE' => [
+                    'verify_route' => 'pos-mobile/cashier/close-step-up/verify',
+                    'submit_route' => 'pos-mobile/cashier/close',
+                    'submit_method' => 'POST',
+                ],
+                'RESERVATION_DEPOSIT_REFUND' => [
+                    'verify_route' => 'pos-mobile/reservations/reject-step-up/verify',
+                    'submit_route' => 'pos-mobile/reservations/reject/{reservation_id}',
                     'submit_method' => 'POST',
                 ],
             ],
@@ -440,6 +458,38 @@ class Pos_mobile extends CI_Controller
 
         if ($reportError) {
             $this->json_error('Schema verifikasi ulang POS Mobile belum siap. Jalankan updater aplikasi terlebih dahulu.', 503);
+        }
+        return false;
+    }
+
+    private function mobile_cashier_close_step_up_schema_ready(bool $reportError = true): bool
+    {
+        if (
+            $this->db->table_exists('pos_mobile_auth_token')
+            && $this->db->table_exists('pos_mobile_sensitive_action_proof')
+            && $this->db->field_exists('cashier_session_id', 'pos_mobile_sensitive_action_proof')
+        ) {
+            return true;
+        }
+
+        if ($reportError) {
+            $this->json_error('Schema verifikasi ulang Tutup Kasir POS Mobile belum siap. Jalankan updater aplikasi terlebih dahulu.', 503);
+        }
+        return false;
+    }
+
+    private function mobile_reservation_refund_step_up_schema_ready(bool $reportError = true): bool
+    {
+        if (
+            $this->db->table_exists('pos_mobile_auth_token')
+            && $this->db->table_exists('pos_mobile_sensitive_action_proof')
+            && $this->db->field_exists('reservation_id', 'pos_mobile_sensitive_action_proof')
+        ) {
+            return true;
+        }
+
+        if ($reportError) {
+            $this->json_error('Schema verifikasi ulang pengembalian DP reservasi belum siap. Jalankan updater aplikasi terlebih dahulu.', 503);
         }
         return false;
     }
@@ -542,6 +592,178 @@ class Pos_mobile extends CI_Controller
             ]);
     }
 
+    /**
+     * Tutup kasir mengunci satu cashier session/shift, bukan order. Simpan
+     * target pada kolom khusus agar proof tidak dapat dipakai pada VOID,
+     * REFUND, atau aksi order lain.
+     */
+    private function issue_mobile_cashier_close_step_up(int $cashierSessionId, $password): array
+    {
+        if (!is_array($this->mobileUser) || !$this->mobile_cashier_close_step_up_schema_ready(false)) {
+            return ['ok' => false, 'status' => 503, 'message' => 'Schema verifikasi ulang Tutup Kasir POS Mobile belum siap.'];
+        }
+
+        $tokenId = max(0, (int)($this->mobileUser['id'] ?? 0));
+        $userId = max(0, (int)($this->mobileUser['user_id'] ?? 0));
+        $terminalId = max(0, (int)($this->mobileUser['terminal_id'] ?? 0));
+        if (
+            $tokenId <= 0 || $userId <= 0 || $terminalId <= 0 || $cashierSessionId <= 0
+            || !is_string($password) || $password === '' || strlen($password) > 72
+        ) {
+            return ['ok' => false, 'status' => 422, 'message' => 'Data verifikasi ulang tidak valid.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $token = $this->db
+            ->select('id, user_id, expires_at, revoked_at, step_up_failure_window_at, step_up_failure_count, step_up_locked_until')
+            ->from('pos_mobile_auth_token')
+            ->where('id', $tokenId)
+            ->where('user_id', $userId)
+            ->where('revoked_at IS NULL', null, false)
+            ->where('expires_at >=', $now)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!is_array($token) || (int)($token['id'] ?? 0) !== $tokenId) {
+            return ['ok' => false, 'status' => 401, 'message' => 'Token mobile tidak valid atau sudah kedaluwarsa.'];
+        }
+
+        $lockedUntil = trim((string)($token['step_up_locked_until'] ?? ''));
+        if ($lockedUntil !== '' && $lockedUntil > $now) {
+            return ['ok' => false, 'status' => 429, 'message' => 'Terlalu banyak verifikasi gagal. Tunggu sebentar lalu coba lagi.'];
+        }
+
+        $user = $this->db
+            ->select('id, password_hash')
+            ->from('auth_user')
+            ->where('id', $userId)
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        $valid = is_array($user) && !empty($user['password_hash'])
+            && password_verify($password, (string)$user['password_hash']);
+        if (!$valid) {
+            $this->record_mobile_order_reversal_step_up_failure($token, $now);
+            return ['ok' => false, 'status' => 403, 'message' => 'Verifikasi ulang tidak berhasil.'];
+        }
+
+        $proof = bin2hex(random_bytes(32));
+        $created = $this->db->insert('pos_mobile_sensitive_action_proof', [
+            'proof_hash' => hash('sha256', $proof),
+            'mobile_token_id' => $tokenId,
+            'user_id' => $userId,
+            'terminal_id' => $terminalId,
+            'action' => 'CASHIER_CLOSE',
+            'order_id' => 0,
+            'cashier_session_id' => $cashierSessionId,
+            'expires_at' => date('Y-m-d H:i:s', time() + self::MOBILE_REVERSAL_STEP_UP_TTL_SECONDS),
+            'ip_address' => substr((string)$this->input->ip_address(), 0, 64),
+        ]);
+        if (!$created) {
+            return ['ok' => false, 'status' => 503, 'message' => 'Verifikasi ulang Tutup Kasir POS Mobile belum dapat disiapkan.'];
+        }
+
+        $this->db
+            ->where('id', $tokenId)
+            ->where('user_id', $userId)
+            ->update('pos_mobile_auth_token', [
+                'step_up_failure_window_at' => null,
+                'step_up_failure_count' => 0,
+                'step_up_locked_until' => null,
+                'updated_at' => $now,
+            ]);
+
+        return ['ok' => true, 'proof' => $proof, 'expires_in_seconds' => self::MOBILE_REVERSAL_STEP_UP_TTL_SECONDS];
+    }
+
+    /**
+     * A reservation rejection is normally operational. It becomes a financial
+     * reversal only when the caller also asks to return a paid deposit, so the
+     * proof is required solely for that narrow path and is bound to the exact
+     * reservation rather than an unrelated POS order.
+     */
+    private function issue_mobile_reservation_refund_step_up(int $reservationId, $password): array
+    {
+        if (!is_array($this->mobileUser) || !$this->mobile_reservation_refund_step_up_schema_ready(false)) {
+            return ['ok' => false, 'status' => 503, 'message' => 'Schema verifikasi ulang pengembalian DP reservasi belum siap.'];
+        }
+
+        $tokenId = max(0, (int)($this->mobileUser['id'] ?? 0));
+        $userId = max(0, (int)($this->mobileUser['user_id'] ?? 0));
+        $terminalId = max(0, (int)($this->mobileUser['terminal_id'] ?? 0));
+        if (
+            $tokenId <= 0 || $userId <= 0 || $terminalId <= 0 || $reservationId <= 0
+            || !is_string($password) || $password === '' || strlen($password) > 72
+        ) {
+            return ['ok' => false, 'status' => 422, 'message' => 'Data verifikasi ulang tidak valid.'];
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $token = $this->db
+            ->select('id, user_id, expires_at, revoked_at, step_up_failure_window_at, step_up_failure_count, step_up_locked_until')
+            ->from('pos_mobile_auth_token')
+            ->where('id', $tokenId)
+            ->where('user_id', $userId)
+            ->where('revoked_at IS NULL', null, false)
+            ->where('expires_at >=', $now)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        if (!is_array($token) || (int)($token['id'] ?? 0) !== $tokenId) {
+            return ['ok' => false, 'status' => 401, 'message' => 'Token mobile tidak valid atau sudah kedaluwarsa.'];
+        }
+
+        $lockedUntil = trim((string)($token['step_up_locked_until'] ?? ''));
+        if ($lockedUntil !== '' && $lockedUntil > $now) {
+            return ['ok' => false, 'status' => 429, 'message' => 'Terlalu banyak verifikasi gagal. Tunggu sebentar lalu coba lagi.'];
+        }
+
+        $user = $this->db
+            ->select('id, password_hash')
+            ->from('auth_user')
+            ->where('id', $userId)
+            ->where('is_active', 1)
+            ->limit(1)
+            ->get()
+            ->row_array();
+        $valid = is_array($user) && !empty($user['password_hash'])
+            && password_verify($password, (string)$user['password_hash']);
+        if (!$valid) {
+            $this->record_mobile_order_reversal_step_up_failure($token, $now);
+            return ['ok' => false, 'status' => 403, 'message' => 'Verifikasi ulang tidak berhasil.'];
+        }
+
+        $proof = bin2hex(random_bytes(32));
+        $created = $this->db->insert('pos_mobile_sensitive_action_proof', [
+            'proof_hash' => hash('sha256', $proof),
+            'mobile_token_id' => $tokenId,
+            'user_id' => $userId,
+            'terminal_id' => $terminalId,
+            'action' => 'RESERVATION_DEPOSIT_REFUND',
+            'order_id' => 0,
+            'cashier_session_id' => null,
+            'reservation_id' => $reservationId,
+            'expires_at' => date('Y-m-d H:i:s', time() + self::MOBILE_REVERSAL_STEP_UP_TTL_SECONDS),
+            'ip_address' => substr((string)$this->input->ip_address(), 0, 64),
+        ]);
+        if (!$created) {
+            return ['ok' => false, 'status' => 503, 'message' => 'Verifikasi ulang pengembalian DP reservasi belum dapat disiapkan.'];
+        }
+
+        $this->db
+            ->where('id', $tokenId)
+            ->where('user_id', $userId)
+            ->update('pos_mobile_auth_token', [
+                'step_up_failure_window_at' => null,
+                'step_up_failure_count' => 0,
+                'step_up_locked_until' => null,
+                'updated_at' => $now,
+            ]);
+
+        return ['ok' => true, 'proof' => $proof, 'expires_in_seconds' => self::MOBILE_REVERSAL_STEP_UP_TTL_SECONDS];
+    }
+
     private function consume_mobile_order_reversal_step_up(string $action, int $orderId, array $payload): bool
     {
         if (!is_array($this->mobileUser)) {
@@ -589,6 +811,86 @@ class Pos_mobile extends CI_Controller
             ]);
         if ($this->db->affected_rows() !== 1) {
             $this->json_error('Verifikasi ulang diperlukan sebelum aksi ini.', 428, ['step_up_required' => true]);
+            return false;
+        }
+        return true;
+    }
+
+    private function consume_mobile_cashier_close_step_up(int $cashierSessionId, array $payload): bool
+    {
+        if (!is_array($this->mobileUser)) {
+            return true;
+        }
+        if (!$this->mobile_cashier_close_step_up_schema_ready()) {
+            return false;
+        }
+
+        $proof = $payload['step_up_proof'] ?? null;
+        $tokenId = max(0, (int)($this->mobileUser['id'] ?? 0));
+        $userId = max(0, (int)($this->mobileUser['user_id'] ?? 0));
+        $terminalId = max(0, (int)($this->mobileUser['terminal_id'] ?? 0));
+        if (
+            !is_string($proof) || preg_match('/\A[0-9a-f]{64}\z/D', $proof) !== 1
+            || $tokenId <= 0 || $userId <= 0 || $terminalId <= 0 || $cashierSessionId <= 0
+        ) {
+            $this->json_error('Verifikasi ulang diperlukan sebelum menutup kasir.', 428, ['step_up_required' => true]);
+            return false;
+        }
+
+        $this->db
+            ->where('proof_hash', hash('sha256', $proof))
+            ->where('mobile_token_id', $tokenId)
+            ->where('user_id', $userId)
+            ->where('terminal_id', $terminalId)
+            ->where('action', 'CASHIER_CLOSE')
+            ->where('cashier_session_id', $cashierSessionId)
+            ->where('expires_at >=', date('Y-m-d H:i:s'))
+            ->where('consumed_at IS NULL', null, false)
+            ->update('pos_mobile_sensitive_action_proof', [
+                'consumed_at' => date('Y-m-d H:i:s'),
+            ]);
+        if ($this->db->affected_rows() !== 1) {
+            $this->json_error('Verifikasi ulang diperlukan sebelum menutup kasir.', 428, ['step_up_required' => true]);
+            return false;
+        }
+        return true;
+    }
+
+    private function consume_mobile_reservation_refund_step_up(int $reservationId, array $payload): bool
+    {
+        if (!is_array($this->mobileUser)) {
+            return true;
+        }
+        if (!$this->mobile_reservation_refund_step_up_schema_ready()) {
+            return false;
+        }
+
+        $proof = $payload['step_up_proof'] ?? null;
+        $tokenId = max(0, (int)($this->mobileUser['id'] ?? 0));
+        $userId = max(0, (int)($this->mobileUser['user_id'] ?? 0));
+        $terminalId = max(0, (int)($this->mobileUser['terminal_id'] ?? 0));
+        if (
+            !is_string($proof) || preg_match('/\A[0-9a-f]{64}\z/D', $proof) !== 1
+            || $tokenId <= 0 || $userId <= 0 || $terminalId <= 0 || $reservationId <= 0
+        ) {
+            $this->json_error('Verifikasi ulang diperlukan sebelum mengembalikan DP reservasi.', 428, ['step_up_required' => true]);
+            return false;
+        }
+
+        $this->db
+            ->where('proof_hash', hash('sha256', $proof))
+            ->where('mobile_token_id', $tokenId)
+            ->where('user_id', $userId)
+            ->where('terminal_id', $terminalId)
+            ->where('action', 'RESERVATION_DEPOSIT_REFUND')
+            ->where('reservation_id', $reservationId)
+            ->where('expires_at >=', date('Y-m-d H:i:s'))
+            ->where('consumed_at IS NULL', null, false)
+            ->update('pos_mobile_sensitive_action_proof', [
+                'consumed_at' => date('Y-m-d H:i:s'),
+            ]);
+        if ($this->db->affected_rows() !== 1) {
+            $this->json_error('Verifikasi ulang diperlukan sebelum mengembalikan DP reservasi.', 428, ['step_up_required' => true]);
             return false;
         }
         return true;
@@ -1173,6 +1475,38 @@ class Pos_mobile extends CI_Controller
         $this->verify_mobile_reservation((int)$id);
     }
 
+    public function reservation_reject_step_up_verify(): void
+    {
+        if (!$this->require_mobile_post()) {
+            return;
+        }
+        if (!$this->authorize_mobile(true)) {
+            return;
+        }
+        if (!is_array($this->mobileUser)) {
+            $this->json_error('Verifikasi ulang pengembalian DP reservasi membutuhkan token perangkat aktif.', 401);
+            return;
+        }
+        if (!$this->mobile_permission('pos.reservation.index', 'edit')) {
+            return;
+        }
+
+        $payload = $this->request_payload();
+        $reservationId = max(0, (int)($payload['reservation_id'] ?? 0));
+        if ($reservationId <= 0 || !$this->mobile_reservation_outlet_allowed($reservationId)) {
+            return;
+        }
+        $result = $this->issue_mobile_reservation_refund_step_up($reservationId, $payload['password'] ?? null);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
+    }
+
     public function reservation_reject($id): void
     {
         if (!$this->require_mobile_post()) {
@@ -1188,13 +1522,20 @@ class Pos_mobile extends CI_Controller
             return;
         }
         $payload = $this->request_payload();
+        $refundDeposit = !empty($payload['refund_deposit']);
+        if ($refundDeposit && is_array($this->mobileUser)) {
+            if (!$this->consume_mobile_reservation_refund_step_up((int)$id, $payload)) {
+                return;
+            }
+            unset($payload['step_up_proof']);
+        }
         $this->load->model('Pos_reservation_model');
         $result = $this->Pos_reservation_model->reject_reservation(
             (int)$id,
             $this->current_actor_employee_id(),
             $this->current_actor_user_id(),
             trim((string)($payload['reason'] ?? '')),
-            !empty($payload['refund_deposit'])
+            $refundDeposit
         );
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menolak reservasi.'), 422);
@@ -1390,6 +1731,39 @@ class Pos_mobile extends CI_Controller
             return;
         }
         $result = $this->issue_mobile_order_reversal_step_up('ORDER_REPRINT', $orderId, $payload['password'] ?? null);
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
+    }
+
+    public function cashier_close_step_up_verify(): void
+    {
+        if (!$this->require_mobile_post()) {
+            return;
+        }
+        if (!$this->authorize_mobile(true)) {
+            return;
+        }
+        if (!is_array($this->mobileUser)) {
+            $this->json_error('Verifikasi ulang Tutup Kasir POS Mobile membutuhkan token perangkat aktif.', 401);
+            return;
+        }
+        if (!$this->mobile_permission($this->mobile_order_workspace_page_code('edit'), 'edit')) {
+            return;
+        }
+
+        $sessionContext = $this->mobile_cashier_session_context(true);
+        $cashierSessionId = max(0, (int)($sessionContext['session']['id'] ?? 0));
+        if (empty($sessionContext['ok']) || $cashierSessionId <= 0) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $result = $this->issue_mobile_cashier_close_step_up($cashierSessionId, $payload['password'] ?? null);
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
             return;
@@ -1967,11 +2341,17 @@ class Pos_mobile extends CI_Controller
         if (!$this->mobile_permission($this->mobile_order_workspace_page_code('edit'), 'edit')) {
             return;
         }
+        $payload = $this->request_payload();
         if (is_array($this->mobileUser)) {
             $sessionContext = $this->mobile_cashier_session_context(true);
             if (empty($sessionContext['ok'])) {
                 return;
             }
+            $cashierSessionId = max(0, (int)($sessionContext['session']['id'] ?? 0));
+            if (!$this->consume_mobile_cashier_close_step_up($cashierSessionId, $payload)) {
+                return;
+            }
+            unset($payload['step_up_proof']);
         }
         $reconStatus = $this->Pos_model->daily_recon_gate_status('CLOSE');
         if (!empty($reconStatus['enabled']) && empty($reconStatus['complete'])) {
@@ -1980,7 +2360,7 @@ class Pos_mobile extends CI_Controller
             ]);
             return;
         }
-        $result = $this->Pos_model->close_cashier_session($this->request_payload(), $this->current_actor_employee_id());
+        $result = $this->Pos_model->close_cashier_session($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menutup kasir POS.'), 422);
             return;
@@ -2709,9 +3089,11 @@ class Pos_mobile extends CI_Controller
         }
         $this->load->model('Pos_reservation_model');
         $reservation = $this->Pos_reservation_model->find_reservation($reservationId);
-        return $reservation
-            ? $this->mobile_document_outlet_allowed((int)($reservation['outlet_id'] ?? 0))
-            : true;
+        if (!$reservation) {
+            $this->json_error('Reservasi tidak ditemukan.', 404);
+            return false;
+        }
+        return $this->mobile_document_outlet_allowed((int)($reservation['outlet_id'] ?? 0));
     }
 
     private function mobile_reservation_filters(): array

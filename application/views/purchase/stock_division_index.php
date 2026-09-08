@@ -1,7 +1,7 @@
 <?php
 $baseUrl = site_url('inventory/stock/division');
 $lotAuditBaseUrl = site_url('inventory/stock/division/lot');
-$genMonth = !empty($date_from ?? '') ? date('Y-m', strtotime((string)$date_from)) : date('Y-m');
+$genMonth = preg_match('/^\d{4}-\d{2}$/', (string)($month ?? '')) ? (string)$month : date('Y-m');
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $destinationValue = strtoupper(trim((string)($destination ?? 'ALL')));
 if ($destinationValue === '') {
@@ -207,8 +207,7 @@ $pParams = ['limit' => $perPage];
 if (!empty($q)) $pParams['q'] = $q;
 if ((int)($division_id ?? 0) > 0) $pParams['division_id'] = (int)$division_id;
 if ($destinationValue !== 'ALL') $pParams['destination'] = $destinationValue;
-if (!empty($date_from)) $pParams['date_from'] = $date_from;
-if (!empty($date_to)) $pParams['date_to'] = $date_to;
+$pParams['month'] = $genMonth;
 if ($includeZeroValue) $pParams['include_zero'] = 1;
 $paginationQs = http_build_query($pParams);
 ?>
@@ -236,44 +235,6 @@ $paginationQs = http_build_query($pParams);
   .dv-filter-grid { grid-template-columns: 1fr 1fr; }
   .dv-filter-btn-wrap { grid-column: span 2; }
 }
-
-/* ── KPI cards ── */
-.dv-kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.6rem; margin-bottom: 1rem; }
-@media (max-width: 1199px) { .dv-kpi-row { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 575px)  { .dv-kpi-row { grid-template-columns: repeat(2, 1fr); } }
-.dv-kpi {
-  border-radius: 14px;
-  padding: 1rem 1.15rem 0.9rem;
-  color: #fff;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 4px 18px rgba(0,0,0,.13);
-}
-.dv-kpi::before {
-  content: '';
-  position: absolute;
-  right: -18px; bottom: -18px;
-  width: 80px; height: 80px;
-  border-radius: 50%;
-  background: rgba(255,255,255,.13);
-}
-.dv-kpi::after {
-  content: '';
-  position: absolute;
-  right: 14px; top: -22px;
-  width: 56px; height: 56px;
-  border-radius: 50%;
-  background: rgba(255,255,255,.09);
-}
-.dv-kpi-icon { font-size: 1.25rem; opacity: .8; margin-bottom: .35rem; display: block; }
-.dv-kpi-val  { font-size: 1.55rem; font-weight: 800; line-height: 1.1; }
-.dv-kpi-lbl  { font-size: .68rem; opacity: .82; text-transform: uppercase; letter-spacing: .06em; margin-top: .2rem; }
-.dv-kpi-1 { background: linear-gradient(135deg,#667eea 0%,#764ba2 100%); }
-.dv-kpi-2 { background: linear-gradient(135deg,#0c7cba 0%,#0fcdba 100%); }
-.dv-kpi-3 { background: linear-gradient(135deg,#1c7ed6 0%,#74c0fc 100%); }
-.dv-kpi-4 { background: linear-gradient(135deg,#e06c00 0%,#f7b733 100%); }
-.dv-kpi-5 { background: linear-gradient(135deg,#134e5e 0%,#38b2a3 100%); }
-.dv-kpi-6 { background: linear-gradient(135deg,#b22222 0%,#e05252 100%); }
 
 /* ── Table scroll / sticky ── */
 .dv-table-wrap {
@@ -383,7 +344,7 @@ $paginationQs = http_build_query($pParams);
 
 <div class="mb-3">
   <h4 class="mb-1"><i class="ri ri-store-2-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-  <small class="text-muted">Posisi stok divisi operasional per profile purchase.</small>
+  <small class="text-muted">Posisi stok bahan baku per divisi pada akhir bulan snapshot yang dipilih.</small>
 </div>
 <div class="d-flex flex-wrap gap-2 mb-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'DIVISION', 'active_tab' => 'stock']); ?>
@@ -439,16 +400,16 @@ $paginationQs = http_build_query($pParams);
           </select>
         </div>
         <div>
-          <label class="form-label mb-1">Dari</label>
-          <input type="date" class="form-control form-control-sm" name="date_from" value="<?php echo html_escape((string)($date_from ?? '')); ?>">
+          <label class="form-label mb-1">Bulan Snapshot</label>
+          <input type="month" class="form-control form-control-sm" name="month" value="<?php echo html_escape($genMonth); ?>">
         </div>
         <div>
-          <label class="form-label mb-1">Sampai</label>
-          <input type="date" class="form-control form-control-sm" name="date_to" value="<?php echo html_escape((string)($date_to ?? '')); ?>">
-        </div>
-        <div>
-          <label class="form-label mb-1">/ Hal</label>
-          <input type="number" min="10" max="500" class="form-control form-control-sm" name="limit" value="<?php echo $perPage; ?>">
+          <label class="form-label mb-1">Per Halaman</label>
+          <select class="form-select form-select-sm" name="limit">
+            <?php foreach ([25, 50, 100, 200] as $pageSize): ?>
+              <option value="<?php echo $pageSize; ?>" <?php echo $perPage === $pageSize ? 'selected' : ''; ?>><?php echo $pageSize; ?> baris</option>
+            <?php endforeach; ?>
+          </select>
         </div>
         <div class="dv-filter-btn-wrap" style="display:flex;gap:.4rem;">
           <button type="submit" class="btn btn-sm btn-outline-primary w-100">Terapkan</button>
@@ -500,45 +461,21 @@ $paginationQs = http_build_query($pParams);
 })();
 </script>
 
-<!-- KPI Cards -->
-<?php if ($totalParentCount > 0): ?>
-<div class="dv-kpi-row">
-  <div class="dv-kpi dv-kpi-1">
-    <span class="dv-kpi-icon"><i class="ri ri-archive-line"></i></span>
-    <div class="dv-kpi-val"><?php echo number_format($totalParentCount); ?></div>
-    <div class="dv-kpi-lbl">Item Stok</div>
-  </div>
-  <div class="dv-kpi dv-kpi-2">
-    <span class="dv-kpi-icon"><i class="ri ri-building-2-line"></i></span>
-    <div class="dv-kpi-val"><?php echo number_format($summaryDivisionCount); ?></div>
-    <div class="dv-kpi-lbl">Divisi Aktif</div>
-  </div>
-  <div class="dv-kpi dv-kpi-3">
-    <span class="dv-kpi-icon"><i class="ri ri-flask-line"></i></span>
-    <div class="dv-kpi-val"><?php echo number_format($summaryUniqueMaterialCount); ?></div>
-    <div class="dv-kpi-lbl">Material Unik</div>
-  </div>
-  <div class="dv-kpi dv-kpi-4">
-    <span class="dv-kpi-icon"><i class="ri ri-scales-3-line"></i></span>
-    <div class="dv-kpi-val"><?php echo number_format($summaryQtyContent, 1, ',', '.'); ?></div>
-    <div class="dv-kpi-lbl">Total Qty Isi</div>
-  </div>
-  <div class="dv-kpi dv-kpi-5">
-    <span class="dv-kpi-icon"><i class="ri ri-money-dollar-circle-line"></i></span>
-    <div class="dv-kpi-val" style="font-size:1.2rem">Rp <?php echo number_format($summaryTotalValue, 0, ',', '.'); ?></div>
-    <div class="dv-kpi-lbl">Total Nilai HPP</div>
-  </div>
-  <div class="dv-kpi dv-kpi-6">
-    <span class="dv-kpi-icon"><i class="ri ri-error-warning-line"></i></span>
-    <div class="dv-kpi-val"><?php echo number_format($summaryAlertCount); ?></div>
-    <div class="dv-kpi-lbl">Stok Habis / Minus</div>
-  </div>
-</div>
-<?php endif; ?>
+<?php $this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan stok bahan baku',
+  'stock_summary_cards' => [
+    ['label' => 'Item Stok', 'value' => number_format($totalParentCount, 0, ',', '.'), 'tone' => 'violet', 'icon' => 'ri-box-3-line'],
+    ['label' => 'Divisi Aktif', 'value' => number_format($summaryDivisionCount, 0, ',', '.'), 'tone' => 'aqua', 'icon' => 'ri-building-2-line'],
+    ['label' => 'Material Unik', 'value' => number_format($summaryUniqueMaterialCount, 0, ',', '.'), 'tone' => 'blue', 'icon' => 'ri-flask-line'],
+    ['label' => 'Total Qty Isi', 'value' => number_format($summaryQtyContent, 1, ',', '.'), 'tone' => 'amber', 'icon' => 'ri-scales-3-line'],
+    ['label' => 'Total Nilai HPP', 'value' => 'Rp ' . number_format($summaryTotalValue, 0, ',', '.'), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+    ['label' => 'Stok Habis / Minus', 'value' => number_format($summaryAlertCount, 0, ',', '.'), 'tone' => $summaryAlertCount > 0 ? 'danger' : 'blue', 'icon' => 'ri-alarm-warning-line'],
+  ],
+]); ?>
 
 <!-- Table -->
 <div class="card">
-  <div class="dv-table-wrap">
+  <div class="dv-table-wrap" role="region" aria-label="Daftar stok bahan baku">
     <table class="table table-striped table-hover mb-0 dv-stock-table" id="dvStockTable">
       <thead>
         <tr>
@@ -556,7 +493,7 @@ $paginationQs = http_build_query($pParams);
       </thead>
       <tbody>
         <?php if (empty($parentRows)): ?>
-          <tr><td colspan="10" class="text-center text-muted py-4">Belum ada data stok divisi.</td></tr>
+          <tr><td colspan="10" class="text-center text-muted py-4" role="status">Belum ada data stok bahan baku pada filter ini.</td></tr>
         <?php else: ?>
           <?php foreach ($parentRows as $idx => $parent): ?>
             <?php
@@ -690,7 +627,7 @@ $paginationQs = http_build_query($pParams);
       ?>
     </span>
     <?php if ($totalPages > 1): ?>
-    <div class="dv-pagination">
+    <nav class="dv-pagination" aria-label="Navigasi halaman stok bahan baku">
       <?php
         $prevPage = $currentPage - 1;
         $nextPage = $currentPage + 1;
@@ -711,20 +648,28 @@ $paginationQs = http_build_query($pParams);
           }
         }
       ?>
-      <a href="<?php echo html_escape($prevUrl); ?>" class="dv-page-btn<?php echo $showPrev ? '' : ' is-disabled'; ?>">&#8249;</a>
+      <?php if ($showPrev): ?>
+        <a href="<?php echo html_escape($prevUrl); ?>" class="dv-page-btn" aria-label="Halaman sebelumnya">&#8249;</a>
+      <?php else: ?>
+        <span class="dv-page-btn is-disabled" aria-disabled="true">&#8249;</span>
+      <?php endif; ?>
       <?php if ($winStart > 1): ?>
         <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=1'); ?>" class="dv-page-btn">1</a>
         <?php if ($winStart > 2): ?><span class="dv-page-info px-1">…</span><?php endif; ?>
       <?php endif; ?>
       <?php for ($pn = $winStart; $pn <= $winEnd; $pn++): ?>
-        <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=' . $pn); ?>" class="dv-page-btn<?php echo $pn === $currentPage ? ' is-active' : ''; ?>"><?php echo $pn; ?></a>
+        <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=' . $pn); ?>" class="dv-page-btn<?php echo $pn === $currentPage ? ' is-active' : ''; ?>"<?php echo $pn === $currentPage ? ' aria-current="page"' : ''; ?>><?php echo $pn; ?></a>
       <?php endfor; ?>
       <?php if ($winEnd < $totalPages): ?>
         <?php if ($winEnd < $totalPages - 1): ?><span class="dv-page-info px-1">…</span><?php endif; ?>
         <a href="<?php echo html_escape($baseUrl . '?' . $paginationQs . '&page=' . $totalPages); ?>" class="dv-page-btn"><?php echo $totalPages; ?></a>
       <?php endif; ?>
-      <a href="<?php echo html_escape($nextUrl); ?>" class="dv-page-btn<?php echo $showNext ? '' : ' is-disabled'; ?>">&#8250;</a>
-    </div>
+      <?php if ($showNext): ?>
+        <a href="<?php echo html_escape($nextUrl); ?>" class="dv-page-btn" aria-label="Halaman berikutnya">&#8250;</a>
+      <?php else: ?>
+        <span class="dv-page-btn is-disabled" aria-disabled="true">&#8250;</span>
+      <?php endif; ?>
+    </nav>
     <?php endif; ?>
   </div>
   <?php endif; ?>

@@ -22,7 +22,6 @@ $reportDetailBaseUrl = site_url('purchase-orders/report/detail');
   .pur-report-kpi-label { font-size: .75rem; color: #6c7a89; text-transform: uppercase; letter-spacing: .06em; }
   .pur-report-table th { white-space: nowrap; font-size: .74rem; }
   .pur-report-table td { font-size: .78rem; vertical-align: middle; }
-  .pur-report-tablink { font-weight: 700; }
   .pur-filter-row .form-label { font-size: .78rem; font-weight: 700; margin-bottom: .35rem; }
   .pur-filter-actions { display: flex; gap: .5rem; align-items: end; justify-content: flex-end; }
   .pur-summary-card { height: 100%; }
@@ -174,32 +173,39 @@ $reportDetailBaseUrl = site_url('purchase-orders/report/detail');
   </div>
 </div>
 
-<ul class="nav nav-pills gap-2 mb-3">
-  <li class="nav-item">
-    <a class="nav-link pur-report-tablink <?php echo $reportTab === 'ringkasan' ? 'active' : ''; ?>"
-       href="<?php echo site_url('purchase-orders/report') . '?' . http_build_query([
-         'report_tab' => 'ringkasan',
-         'date_from' => $dateFrom,
-         'date_to' => $dateTo,
-         'status' => $status,
-         'purchase_type_id' => $purchaseTypeId,
-         'detail_date' => $detailDate,
-         'detail_purchase_type_id' => $detailPurchaseTypeId,
-       ]); ?>">Ringkasan</a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link pur-report-tablink <?php echo $reportTab === 'matrix' ? 'active' : ''; ?>"
-       href="<?php echo site_url('purchase-orders/report') . '?' . http_build_query([
-         'report_tab' => 'matrix',
-         'date_from' => $dateFrom,
-         'date_to' => $dateTo,
-         'status' => $status,
-         'purchase_type_id' => $purchaseTypeId,
-         'detail_date' => $detailDate,
-         'detail_purchase_type_id' => $detailPurchaseTypeId,
-       ]); ?>">Matrix</a>
-  </li>
-</ul>
+<?php
+$workspace_tabs = [
+  [
+    'label' => 'Ringkasan',
+    'active' => $reportTab === 'ringkasan',
+    'url' => site_url('purchase-orders/report') . '?' . http_build_query([
+      'report_tab' => 'ringkasan',
+      'date_from' => $dateFrom,
+      'date_to' => $dateTo,
+      'status' => $status,
+      'purchase_type_id' => $purchaseTypeId,
+      'detail_date' => $detailDate,
+      'detail_purchase_type_id' => $detailPurchaseTypeId,
+    ]),
+  ],
+  [
+    'label' => 'Matrix',
+    'active' => $reportTab === 'matrix',
+    'url' => site_url('purchase-orders/report') . '?' . http_build_query([
+      'report_tab' => 'matrix',
+      'date_from' => $dateFrom,
+      'date_to' => $dateTo,
+      'status' => $status,
+      'purchase_type_id' => $purchaseTypeId,
+      'detail_date' => $detailDate,
+      'detail_purchase_type_id' => $detailPurchaseTypeId,
+    ]),
+  ],
+];
+$workspace_tab_label = 'Tampilan';
+$workspace_tab_aria_label = 'Pilih tampilan laporan purchase';
+$this->load->view('layout/_workspace_tabs', get_defined_vars());
+?>
 
 <?php if ($reportTab === 'ringkasan'): ?>
 <div class="row g-2 mb-3">

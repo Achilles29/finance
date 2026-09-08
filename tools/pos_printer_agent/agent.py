@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import platform
 import re
@@ -40,6 +41,11 @@ except Exception:
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG = BASE_DIR / "config.json"
 DEFAULT_LOG = BASE_DIR / "agent.log"
+AGENT_VERSION = "1.2.0"
+# Protocol is deliberately independent from the application release number.
+# A server advertises its supported range in bootstrap; a newer server can then
+# fail safely instead of silently sending a shape an old local agent misreads.
+AGENT_PROTOCOL_VERSION = 2
 
 
 class AgentError(Exception):
@@ -56,8 +62,10 @@ def load_config(path: Path) -> Dict[str, Any]:
 def setup_logging(config: Dict[str, Any], verbose: bool = False) -> None:
     log_path = Path(config.get("log_file") or DEFAULT_LOG)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    max_bytes = max(64 * 1024, int(config.get("log_max_bytes", 2 * 1024 * 1024) or 2 * 1024 * 1024))
+    backup_count = max(1, min(10, int(config.get("log_backup_count", 3) or 3)))
     handlers = [
-        logging.FileHandler(log_path, encoding="utf-8"),
+        RotatingFileHandler(log_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"),
         logging.StreamHandler(sys.stdout),
     ]
     logging.basicConfig(
@@ -114,6 +122,7 @@ def create_printer_app(
     printer: Dict[str, Any],
     safe_print: Callable[..., None],
     config: Optional[Dict[str, Any]] = None,
+    status_provider: Optional[Callable[[], Dict[str, Any]]] = None,
 ) -> Flask:
     """Build one local printer app without constructing PrinterService or using a DB."""
     allowed_origins = allowed_browser_origins(config)
@@ -138,6 +147,7 @@ def create_printer_app(
 
     @app.get("/health")
     def health():
+        status = status_provider() if status_provider is not None else {}
         return jsonify({
             "status": "success",
             "data": {
@@ -145,6 +155,9 @@ def create_printer_app(
                 "printer_code": printer_code,
                 "python_port": printer_port,
                 "mac_address": printer_mac,
+                "agent_version": AGENT_VERSION,
+                "agent_protocol_version": AGENT_PROTOCOL_VERSION,
+                "service": status,
             }
         })
 
@@ -197,9 +210,17 @@ class PrinterService:
         self.physical_printer_locks: Dict[str, threading.RLock] = {}
         self.physical_printer_locks_guard = threading.Lock()
         self.last_refresh_at = 0.0
+        self.started_at = time.time()
+        self.restart_required = False
+        self.restart_reason = ""
 
     def run(self) -> int:
-        logging.info("Printer service start | host=%s", self.hostname)
+        logging.info(
+            "Printer service start | host=%s | version=%s | protocol=%s",
+            self.hostname,
+            AGENT_VERSION,
+            AGENT_PROTOCOL_VERSION,
+        )
         printers = self.ensure_printers_loaded()
         if not printers:
             raise AgentError("Tidak ada printer aktif yang bisa dijalankan.")
@@ -222,6 +243,17 @@ class PrinterService:
             )
         logging.info("Validasi selesai. Jalankan tanpa --once untuk mode service.")
         return 0
+
+    def service_status(self) -> Dict[str, Any]:
+        """Non-secret state exposed only on the local loopback health endpoint."""
+        return {
+            "state": "restart_required" if self.restart_required else "ready",
+            "agent_name": self.hostname,
+            "uptime_seconds": max(0, int(time.time() - self.started_at)),
+            "restart_required": self.restart_required,
+            "restart_reason": self.restart_reason if self.restart_required else "",
+            "active_printer_count": len(self.started_ports),
+        }
 
     def ensure_printers_loaded(self) -> List[Dict[str, Any]]:
         enabled = bool(self.api.get("enabled", True))
@@ -291,13 +323,16 @@ class PrinterService:
             url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
             req = urllib.request.Request(url)
             req.add_header("Accept", "application/json")
-            req.add_header("User-Agent", "CorePrinterLocalService/1.0")
+            req.add_header("User-Agent", "FinancePrinterLocalService/" + AGENT_VERSION)
+            req.add_header("X-Printer-Agent-Version", AGENT_VERSION)
+            req.add_header("X-Printer-Agent-Protocol", str(AGENT_PROTOCOL_VERSION))
             if api_key:
                 req.add_header("X-Printer-Key", api_key)
             try:
                 raw = self.fetch_url_text(req, timeout=timeout)
                 decoded = json.loads((raw or "").lstrip("\ufeff").strip())
                 if isinstance(decoded, dict):
+                    self.validate_bootstrap_contract(decoded)
                     status = str(decoded.get("status") or "").lower()
                     if status and status != "success":
                         raise AgentError(str(decoded.get("message") or "bootstrap error"))
@@ -310,6 +345,27 @@ class PrinterService:
             except Exception as exc:
                 attempts.append(f"{candidate}: {exc}")
         raise AgentError(" ; ".join(attempts) or "bootstrap gagal")
+
+    def validate_bootstrap_contract(self, decoded: Dict[str, Any]) -> None:
+        contract = decoded.get("agent_contract")
+        # Older Finance instances did not advertise this field. Keep those
+        # installations working; a newer server can explicitly set a minimum
+        # protocol when it ships a breaking bootstrap format.
+        if contract is None:
+            return
+        if not isinstance(contract, dict):
+            raise AgentError("Kontrak bootstrap printer tidak valid.")
+        try:
+            min_protocol = int(contract.get("min_protocol", 1) or 1)
+            max_protocol = int(contract.get("max_protocol", AGENT_PROTOCOL_VERSION) or AGENT_PROTOCOL_VERSION)
+        except (TypeError, ValueError):
+            raise AgentError("Versi kontrak bootstrap printer tidak valid.")
+        if min_protocol > max_protocol or not (min_protocol <= AGENT_PROTOCOL_VERSION <= max_protocol):
+            raise AgentError(
+                "Versi Local Printer Agent tidak cocok dengan server "
+                f"(agent protocol {AGENT_PROTOCOL_VERSION}; server mendukung {min_protocol}-{max_protocol}). "
+                "Unduh paket agent terbaru dari Finance lalu restart service."
+            )
 
     def start_printer_servers(self, printers: List[Dict[str, Any]]) -> None:
         for printer in printers:
@@ -337,9 +393,29 @@ class PrinterService:
         try:
             rows = self.fetch_printers_from_api()
             if rows:
+                if self.started_ports and self.printer_signature(rows) != self.printer_signature(self.printers):
+                    self.restart_required = True
+                    self.restart_reason = (
+                        "Koneksi printer berubah di Finance. Restart Local Printer Agent "
+                        "agar port lama dilepas dan konfigurasi baru dipakai."
+                    )
+                    logging.warning(self.restart_reason)
+                    return
                 self.sync_printers(rows, source="api-refresh")
         except Exception as exc:
             logging.warning("Refresh printer API gagal: %s", exc)
+
+    @staticmethod
+    def printer_signature(rows: List[Dict[str, Any]]) -> tuple:
+        return tuple(sorted(
+            (
+                str(row.get("printer_code") or "").strip().upper(),
+                str(row.get("mac") or row.get("mac_address") or "").strip().upper(),
+                int(row.get("python_port") or 0),
+                int(row.get("paper_width_mm") or 80),
+            )
+            for row in rows
+        ))
 
     def sync_printers(self, rows: List[Dict[str, Any]], source: str = "api") -> None:
         normalized = self.normalize_printers(rows, source=source)
@@ -384,14 +460,39 @@ class PrinterService:
                 }
                 for printer in self.printers
             ]
-            with self.config_path.open("w", encoding="utf-8") as fh:
-                json.dump(self.config, fh, ensure_ascii=False, indent=2)
-                fh.write("\n")
+            self.write_config_atomically()
         except Exception as exc:
             logging.warning("Gagal menulis ulang config lokal: %s", exc)
 
+    def write_config_atomically(self) -> None:
+        if self.config_path is None:
+            return
+        target = self.config_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name("." + target.name + ".tmp")
+        fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(self.config, fh, ensure_ascii=False, indent=2)
+                fh.write("\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(str(temporary), str(target))
+            try:
+                os.chmod(str(target), 0o600)
+            except OSError:
+                # Windows does not support POSIX permissions; the agent still
+                # keeps the atomic replacement property there.
+                pass
+        finally:
+            if temporary.exists():
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
+
     def start_flask_server(self, printer: Dict[str, Any]) -> None:
-        app = create_printer_app(printer, self.safe_print, self.config)
+        app = create_printer_app(printer, self.safe_print, self.config, self.service_status)
 
         app.run(host="127.0.0.1", port=int(printer["python_port"]), debug=False, use_reloader=False)
 
@@ -965,12 +1066,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="POS printer local service")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="Path config.json")
     parser.add_argument("--once", action="store_true", help="Validasi config dan printer bootstrap lalu keluar")
+    parser.add_argument("--version", action="store_true", help="Tampilkan versi agent dan protocol lalu keluar")
     parser.add_argument("--verbose", action="store_true", help="Log lebih detail")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.version:
+        print(f"Finance POS Printer Agent {AGENT_VERSION} (protocol {AGENT_PROTOCOL_VERSION})")
+        return 0
     try:
         config = load_config(Path(args.config))
         setup_logging(config, args.verbose)

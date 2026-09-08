@@ -53,6 +53,26 @@ $check(
         && strpos($model, "if (\$mutationDate > date('Y-m-d'))") !== false,
     'mutation writers continue to reject future dates and dates inside a closed finance period'
 );
+$check(
+    strpos($model, 'function get_account_mutation_as_of_snapshot') !== false
+        && strpos($model, "->where('mutation_date <=', \$normalizedDate)") !== false
+        && strpos($model, "CASE WHEN mutation_type = 'IN' THEN amount ELSE -amount END") !== false
+        && strpos($model, '$businessBalance = round($openingBalance + $businessNetAmount, 2);') !== false,
+    'as-of business balance is read-only, calculated from ledger opening plus signed business-date mutations'
+);
+$check(
+    strpos($model, '$ledgerMatchesLive = abs($expectedLiveBalance - $liveBalance) < 0.01') !== false
+        && strpos($view, 'Saldo bisnis per') !== false
+        && strpos($view, 'Snapshot ini selalu memakai seluruh jurnal rekening') !== false
+        && strpos($view, 'jangan melakukan rebuild otomatis') !== false,
+    'selected account exposes a separate as-of snapshot and warns instead of rebuilding a mismatched ledger'
+);
+$check(
+    strpos($controller, 'get_account_mutation_as_of_snapshot($accountId, $dateTo)') !== false
+        && strpos($view, 'Sebelum Diposting') !== false
+        && strpos($view, 'Sesudah Diposting') !== false,
+    'controller supplies the business-date cut-off and the list labels posting-time balances explicitly'
+);
 
 if ($failures !== []) {
     fwrite(STDERR, count($failures) . ' A2 account mutation history check(s) failed.' . PHP_EOL);

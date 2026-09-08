@@ -29,10 +29,15 @@ $buildQuery = static function ($overrides = []) use ($filters, $pg) {
   </div>
 </div>
 
-<ul class="nav nav-tabs mb-3">
-  <li class="nav-item"><a class="nav-link" href="<?php echo site_url('payroll/payroll-periods'); ?>">Generate Payroll Period</a></li>
-  <li class="nav-item"><a class="nav-link active" href="<?php echo site_url('payroll/salary-disbursements'); ?>">Generate Batch Pencairan Gaji</a></li>
-</ul>
+<?php
+$workspace_tabs = [
+  ['label' => 'Generate Payroll Period', 'url' => site_url('payroll/payroll-periods'), 'active' => false],
+  ['label' => 'Generate Batch Pencairan Gaji', 'url' => site_url('payroll/salary-disbursements'), 'active' => true],
+];
+$workspace_tab_label = 'Payroll';
+$workspace_tab_aria_label = 'Navigasi proses payroll';
+$this->load->view('layout/_workspace_tabs', get_defined_vars());
+?>
 
 <div class="alert alert-info py-2 px-3 mb-3 small">
   Periksa detail payroll period lebih dulu di halaman terpisah, lalu generate batch pencairan di halaman ini.
@@ -305,7 +310,7 @@ $buildQuery = static function ($overrides = []) use ($filters, $pg) {
   </div>
   <div class="table-responsive">
     <table class="table table-sm table-striped mb-0">
-      <thead><tr><th>Pegawai</th><th>Rek Tujuan</th><th class="text-end">Pokok</th><th class="text-end">Tunjangan</th><th class="text-end">U. Makan</th><th class="text-end">Lembur</th><th class="text-end">Adj (+)</th><th class="text-end">Kotor Riil</th><th class="text-end">Pot. Telat</th><th class="text-end">Pot. Alpha</th><th class="text-end">Adj (-) Lain</th><th class="text-end">Pot. Kasbon</th><th class="text-end">THP Riil</th><th class="text-end">Pembulatan</th><th class="text-end">THP Final</th><th>Status</th><th>Ref</th><th>Paid At</th><th class="text-center">Cetak Slip</th></tr></thead>
+      <thead><tr><th>Pegawai</th><th>Rek Tujuan</th><th class="text-end">Pokok</th><th class="text-end">Tunjangan</th><th class="text-end">U. Makan<br><small>total hak</small></th><th class="text-end">Lembur</th><th class="text-end">Adj (+)</th><th class="text-end">Kotor Riil</th><th class="text-end">Pot. Telat</th><th class="text-end">Pot. Alpha</th><th class="text-end">Adj (-) Lain</th><th class="text-end">Pot. Kasbon</th><th class="text-end">THP Riil</th><th class="text-end">Pembulatan</th><th class="text-end">THP Final</th><th>Status</th><th>Ref</th><th>Paid At</th><th class="text-center">Cetak Slip</th></tr></thead>
       <tbody>
       <?php if (empty($detailLineBreakdown)): ?><tr><td colspan="19" class="text-center text-muted py-3">Tidak ada baris detail.</td></tr><?php else: foreach($detailLineBreakdown as $l): ?>
       <?php

@@ -23,10 +23,17 @@ function finance_quality_gate_manifest(): array
             ['id' => 'a1-access-simulator', 'file' => 'access_simulator_smoke.php'],
             ['id' => 'a1-public-review', 'file' => 'public_customer_review_smoke.php'],
             ['id' => 'a1-review-admin-csrf', 'file' => 'customer_review_admin_csrf_smoke.php'],
+            ['id' => 'a1-landing-page-mutation-guard', 'file' => 'landing_page_mutation_guard_smoke.php'],
+            ['id' => 'printer-general-logo-upload', 'file' => 'printer_general_logo_upload_smoke.php'],
+            ['id' => 'roastery-label-template-studio', 'file' => 'roastery_label_template_studio_smoke.php'],
             ['id' => 'a1-finance-period-close-csrf', 'file' => 'finance_period_close_csrf_smoke.php'],
             ['id' => 'a1-finance-period-close-reopen-atomic', 'file' => 'finance_period_close_reopen_atomic_smoke.php'],
             ['id' => 'a1-pos-reversal-step-up', 'file' => 'pos_reversal_step_up_smoke.php'],
             ['id' => 'a1-pos-mobile-reversal-step-up', 'file' => 'pos_mobile_reversal_step_up_smoke.php'],
+            ['id' => 'a1-pos-mobile-incoming-scope', 'file' => 'pos_mobile_incoming_scope_smoke.php'],
+            ['id' => 'a1-pos-mobile-login-throttle', 'file' => 'pos_mobile_login_throttle_smoke.php'],
+            ['id' => 'a1-pos-mobile-reservation-refund-step-up', 'file' => 'pos_mobile_reservation_refund_step_up_smoke.php'],
+            ['id' => 'a1-pos-reservation-refund-step-up', 'file' => 'pos_reservation_refund_step_up_smoke.php'],
             ['id' => 'a1-component-adjustment-step-up', 'file' => 'component_adjustment_step_up_smoke.php'],
             ['id' => 'a1-stock-adjustment-step-up', 'file' => 'stock_adjustment_step_up_smoke.php'],
             ['id' => 'a1-component-batch-step-up', 'file' => 'component_batch_step_up_smoke.php'],
@@ -42,10 +49,27 @@ function finance_quality_gate_manifest(): array
             ['id' => 'a1-product-bundle-revision-audit', 'file' => 'master_relation_product_bundle_revision_audit_smoke.php'],
             ['id' => 'a2-matrix', 'file' => 'a2_inventory_transaction_matrix_smoke.php'],
             ['id' => 'a2-account-mutation-history', 'file' => 'a2_account_mutation_history_smoke.php'],
+            ['id' => 'a2-payroll-meal-mode', 'file' => 'payroll_meal_mode_contract_smoke.php'],
             ['id' => 'purchase-item-price-history', 'file' => 'purchase_item_price_history_smoke.php'],
             ['id' => 'activity-audit', 'file' => 'activity_audit_smoke.php'],
+            ['id' => 'c2-c4-commercial-foundation', 'file' => 'c2_c4_commercial_foundation_smoke.php'],
+            ['id' => 'c2-customer-publication', 'file' => 'c2_customer_publication_smoke.php'],
+            ['id' => 'c3-upload-storage', 'file' => 'c3_upload_storage_smoke.php'],
+            ['id' => 'c3-composer-compat', 'file' => 'c3_composer_compat_smoke.php'],
+            ['id' => 'c3-control-release-bridge', 'file' => 'c3_control_release_bridge_smoke.php'],
+            ['id' => 'c4-control-license-verifier', 'file' => 'c4_control_license_verifier_smoke.php'],
             ['id' => 'a3-finance-ui-shell', 'file' => 'a3_finance_ui_shell_smoke.php'],
+            ['id' => 'a3-division-movement-pagination', 'file' => 'a3_division_movement_pagination_smoke.php'],
+            ['id' => 'a3-pos-reservation-ui', 'file' => 'a3_pos_reservation_ui_smoke.php'],
+            ['id' => 'a3-pos-cashier-recent-ui', 'file' => 'a3_pos_cashier_recent_ui_smoke.php'],
+            ['id' => 'a3-pos-self-order-ui', 'file' => 'a3_pos_self_order_ui_smoke.php'],
+            ['id' => 'a3-pos-online-food-ui', 'file' => 'a3_pos_online_food_ui_smoke.php'],
+            ['id' => 'a3-component-stock-pagination', 'file' => 'a3_component_stock_pagination_smoke.php'],
+            ['id' => 'a3-stock-list-consistency', 'file' => 'a3_stock_list_consistency_smoke.php'],
+            ['id' => 'a3-stock-period-contract', 'file' => 'a3_stock_period_contract_smoke.php'],
+            ['id' => 'a3-workspace-navigation', 'file' => 'a3_workspace_navigation_smoke.php'],
             ['id' => 'a3-navigation-registry', 'file' => 'a3_navigation_registry_smoke.php'],
+            ['id' => 'a3-sidebar-information-architecture', 'file' => 'a3_sidebar_information_architecture_smoke.php'],
             ['id' => 'a3-page-alias-registry', 'file' => 'a3_page_alias_registry_smoke.php'],
             ['id' => 'a3-route-collision', 'file' => 'a3_route_collision_smoke.php'],
             ['id' => 'a3-sidebar-favorite-registry', 'file' => 'a3_sidebar_favorite_registry_smoke.php'],
@@ -119,12 +143,23 @@ function finance_quality_gate_manifest(): array
             ['id' => 'a4-static-analysis-runtime', 'file' => 'a4_static_analysis_smoke.php'],
         ],
         'staging' => [
-            ['id' => 'a2-database-invariant-probe', 'file' => 'a2_database_invariant_probe.php'],
-            ['id' => 'a1-rbac-scope-staging', 'file' => '../db/rbac_scope_staging_probe.php'],
+            [
+                'id' => 'a2-database-invariant-probe',
+                'file' => 'a2_database_invariant_probe.php',
+                // CLI has no PHP-FPM environment.  The read-only staging probes
+                // must deliberately load the private staging connection contract.
+                'env' => ['CI_ENV' => 'staging'],
+            ],
+            [
+                'id' => 'a1-rbac-scope-staging',
+                'file' => '../db/rbac_scope_staging_probe.php',
+                'env' => ['CI_ENV' => 'staging'],
+            ],
             [
                 'id' => 'a5-runtime-compatibility-staging',
                 'file' => '../release/runtime_compatibility_check.php',
                 'args' => ['--staging'],
+                'env' => ['CI_ENV' => 'staging'],
             ],
         ],
     ];
@@ -215,10 +250,35 @@ function finance_quality_gate_resolve_command(array $test, string $path): array
         }
     }
 
-    return ['ok' => true, 'command' => array_merge($runtime, [$path], $args), 'error' => ''];
+    $environment = [];
+    if (isset($test['env'])) {
+        if (!is_array($test['env'])) {
+            return ['ok' => false, 'command' => [], 'environment' => [], 'error' => 'test env must be an array'];
+        }
+        foreach ($test['env'] as $name => $value) {
+            if (!is_string($name)
+                || preg_match('/^[A-Z][A-Z0-9_]*$/', $name) !== 1
+                || !is_string($value)
+                || $value === ''
+                || strpos($value, "\0") !== false
+                || strpos($value, "\n") !== false
+                || strpos($value, "\r") !== false
+            ) {
+                return ['ok' => false, 'command' => [], 'environment' => [], 'error' => 'test env contains an invalid value'];
+            }
+            $environment[$name] = $value;
+        }
+    }
+
+    return [
+        'ok' => true,
+        'command' => array_merge($runtime, [$path], $args),
+        'environment' => $environment,
+        'error' => '',
+    ];
 }
 
-function finance_quality_gate_run_process(array $command, string $cwd, int $timeoutSeconds): array
+function finance_quality_gate_run_process(array $command, string $cwd, int $timeoutSeconds, array $environment = []): array
 {
     $escaped = array_map('escapeshellarg', $command);
     $descriptors = [
@@ -226,7 +286,14 @@ function finance_quality_gate_run_process(array $command, string $cwd, int $time
         1 => ['pipe', 'w'],
         2 => ['pipe', 'w'],
     ];
-    $process = proc_open(implode(' ', $escaped), $descriptors, $pipes, $cwd);
+    $childEnvironment = getenv();
+    if (!is_array($childEnvironment)) {
+        $childEnvironment = [];
+    }
+    foreach ($environment as $name => $value) {
+        $childEnvironment[$name] = $value;
+    }
+    $process = proc_open(implode(' ', $escaped), $descriptors, $pipes, $cwd, $childEnvironment);
     if (!is_resource($process)) {
         return ['exit_code' => 1, 'timed_out' => false, 'output' => 'Unable to start fresh quality-gate process.'];
     }
@@ -310,7 +377,12 @@ function finance_quality_gate_run_tier(
             $failed[] = $test['id'];
             continue;
         }
-        $result = finance_quality_gate_run_process($resolved['command'], $root, $timeoutSeconds);
+        $result = finance_quality_gate_run_process(
+            $resolved['command'],
+            $root,
+            $timeoutSeconds,
+            $resolved['environment'] ?? []
+        );
         if ($result['exit_code'] === 0) {
             echo 'PASS ' . $test['id'] . PHP_EOL;
             continue;

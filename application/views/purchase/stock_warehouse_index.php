@@ -1,10 +1,7 @@
 <?php
 $baseUrl = site_url('inventory/stock/warehouse');
 $profileAuditBaseUrl = site_url('inventory/fifo-audit');
-$genMonth = date('Y-m');
-if (!empty($date_from ?? '')) {
-  $genMonth = date('Y-m', strtotime((string)$date_from));
-}
+$genMonth = preg_match('/^\d{4}-\d{2}$/', (string)($month ?? '')) ? (string)$month : date('Y-m');
 $rowsData = is_array($rows ?? null) ? $rows : [];
 $isChildNonPositive = static function (array $row): bool {
   return round((float)($row['qty_content_balance'] ?? 0), 4) <= 0.0001;
@@ -130,6 +127,20 @@ foreach ($parentRows as $parentRow) {
   $summaryTotalValue += (float)($parentRow['total_value'] ?? 0);
 }
 $summaryItemCount = count($parentRows);
+$perPage = max(25, min(200, (int)($limit ?? 100)));
+$currentPage = max(1, (int)($page ?? 1));
+$totalParentCount = count($parentRows);
+$totalPages = $totalParentCount > 0 ? (int)ceil($totalParentCount / $perPage) : 1;
+$currentPage = min($currentPage, $totalPages);
+$parentRows = array_slice($parentRows, ($currentPage - 1) * $perPage, $perPage);
+$paginationParams = [
+  'q' => trim((string)($q ?? '')),
+  'month' => $genMonth,
+  'limit' => $perPage,
+];
+$buildPageUrl = static function (int $targetPage) use ($baseUrl, $paginationParams): string {
+  return $baseUrl . '?' . http_build_query(array_merge($paginationParams, ['page' => $targetPage]));
+};
 ?>
 
 <style>
@@ -294,17 +305,23 @@ $summaryItemCount = count($parentRows);
     text-transform: uppercase;
     color: #9a6f60;
   }
+  .wh-pagination {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .4rem;
+  }
 </style>
 
 <div class="mb-2">
   <h4 class="mb-1"><i class="ri ri-building-2-line page-title-icon"></i><?php echo html_escape($title); ?></h4>
-  <small class="text-muted">Posisi stok gudang per profile purchase (nama, merk, keterangan, ukuran/UOM).</small>
+  <small class="text-muted">Posisi stok gudang per profile purchase pada akhir bulan snapshot yang dipilih.</small>
 </div>
 <div class="d-flex flex-wrap gap-2 mb-2">
   <?php $this->load->view('purchase/_stock_group_tabs', ['tab_scope' => 'WAREHOUSE', 'active_tab' => 'stock']); ?>
 </div>
 <?php $this->load->view('purchase/_warehouse_stock_generate_btn', [
-  'warehouse_action_params' => ['month' => $genMonth, 'date_from' => (string)($date_from ?? '')],
+  'warehouse_action_params' => ['month' => $genMonth],
 ]); ?>
 
 <div class="card mb-3">
@@ -315,16 +332,16 @@ $summaryItemCount = count($parentRows);
         <input type="text" class="form-control" name="q" value="<?php echo html_escape((string)$q); ?>" placeholder="Item / Profile / Merk / Keterangan / Profile Key">
       </div>
       <div class="col-md-2">
-        <label class="form-label mb-1">Dari Tanggal</label>
-        <input type="date" class="form-control" name="date_from" value="<?php echo html_escape((string)($date_from ?? '')); ?>">
+        <label class="form-label mb-1">Bulan Snapshot</label>
+        <input type="month" class="form-control" name="month" value="<?php echo html_escape($genMonth); ?>">
       </div>
       <div class="col-md-2">
-        <label class="form-label mb-1">Sampai Tanggal</label>
-        <input type="date" class="form-control" name="date_to" value="<?php echo html_escape((string)($date_to ?? '')); ?>">
-      </div>
-      <div class="col-md-2">
-        <label class="form-label mb-1">Limit</label>
-        <input type="number" min="1" max="500" class="form-control" name="limit" value="<?php echo (int)$limit; ?>">
+        <label class="form-label mb-1">Per Halaman</label>
+        <select class="form-select" name="limit">
+          <?php foreach ([25, 50, 100, 200] as $pageSize): ?>
+            <option value="<?php echo $pageSize; ?>" <?php echo $perPage === $pageSize ? 'selected' : ''; ?>><?php echo $pageSize; ?> baris</option>
+          <?php endforeach; ?>
+        </select>
       </div>
       <div class="col-md-2 d-flex gap-2">
         <button type="submit" class="btn btn-outline-primary w-100">Filter</button>
@@ -334,16 +351,19 @@ $summaryItemCount = count($parentRows);
   </div>
 </div>
 
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Profile</div><div class="h5 mb-0"><?php echo number_format($summaryProfiles); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Item</div><div class="h5 mb-0"><?php echo number_format($summaryItemCount); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Qty Isi Total</div><div class="h5 mb-0"><?php echo number_format($summaryQtyContent, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Nilai</div><div class="h5 mb-0"><?php echo number_format($summaryTotalValue, 2, ',', '.'); ?></div></div></div></div>
-</div>
+<?php $this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan stok gudang',
+  'stock_summary_cards' => [
+    ['label' => 'Profil', 'value' => number_format($summaryProfiles, 0, ',', '.'), 'tone' => 'violet', 'icon' => 'ri-archive-stack-line'],
+    ['label' => 'Item', 'value' => number_format($summaryItemCount, 0, ',', '.'), 'tone' => 'aqua', 'icon' => 'ri-shopping-bag-3-line'],
+    ['label' => 'Total Qty Isi', 'value' => number_format($summaryQtyContent, 2, ',', '.'), 'tone' => 'blue', 'icon' => 'ri-scales-3-line'],
+    ['label' => 'Total Nilai', 'value' => 'Rp ' . number_format($summaryTotalValue, 2, ',', '.'), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+  ],
+]); ?>
 
 <div class="card">
   <div class="wh-sticky-head" id="whStickyHead" aria-hidden="true"></div>
-  <div class="table-responsive wh-table-wrap">
+  <div class="table-responsive wh-table-wrap" role="region" aria-label="Daftar stok gudang">
     <table class="table table-striped table-hover mb-0 wh-stock-table" id="whStockTable">
       <thead>
         <tr>
@@ -362,7 +382,7 @@ $summaryItemCount = count($parentRows);
       </thead>
       <tbody>
         <?php if (empty($parentRows)): ?>
-          <tr><td colspan="11" class="text-center text-muted py-4">Belum ada data stok gudang.</td></tr>
+          <tr><td colspan="11" class="text-center text-muted py-4" role="status">Belum ada data stok gudang pada filter ini.</td></tr>
         <?php else: ?>
           <?php foreach ($parentRows as $idx => $parent): ?>
             <?php
@@ -481,6 +501,27 @@ $summaryItemCount = count($parentRows);
         <?php endif; ?>
       </tbody>
     </table>
+  </div>
+  <div class="card-footer py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <span class="text-muted small">
+      <?php if ($totalParentCount <= 0): ?>Tidak ada item
+      <?php else:
+        $fromRow = ($currentPage - 1) * $perPage + 1;
+        $toRow = min($currentPage * $perPage, $totalParentCount);
+        echo 'Item ' . $fromRow . '–' . $toRow . ' dari ' . $totalParentCount;
+      endif; ?>
+    </span>
+    <?php if ($totalPages > 1): ?>
+      <nav class="wh-pagination" aria-label="Navigasi halaman stok gudang">
+        <?php if ($currentPage > 1): ?>
+          <a class="btn btn-sm btn-outline-secondary" href="<?php echo html_escape($buildPageUrl($currentPage - 1)); ?>">Sebelumnya</a>
+        <?php endif; ?>
+        <span class="text-muted small" aria-current="page">Halaman <?php echo $currentPage; ?> dari <?php echo $totalPages; ?></span>
+        <?php if ($currentPage < $totalPages): ?>
+          <a class="btn btn-sm btn-outline-secondary" href="<?php echo html_escape($buildPageUrl($currentPage + 1)); ?>">Berikutnya</a>
+        <?php endif; ?>
+      </nav>
+    <?php endif; ?>
   </div>
 </div>
 

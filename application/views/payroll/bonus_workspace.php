@@ -288,8 +288,6 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
 
 <style>
   .bonus-hero { background: radial-gradient(circle at top left, rgba(177,18,38,.14), transparent 42%), linear-gradient(135deg, #fff8f5 0%, #ffffff 62%, #fff3ef 100%); border: 1px solid rgba(122,24,36,.08); border-radius: 28px; box-shadow: 0 20px 48px rgba(122,24,36,.08); }
-  .bonus-pill-nav .nav-link { border-radius: 999px; border: 1px solid rgba(122,24,36,.14); color: #7a1824; font-weight: 700; padding: .62rem 1rem; }
-  .bonus-pill-nav .nav-link.active { background: linear-gradient(135deg, #b11226, #7a1824); color: #fff; border-color: transparent; box-shadow: 0 12px 28px rgba(122,24,36,.18); }
   .bonus-card { border: 1px solid rgba(122,24,36,.08); border-radius: 22px; box-shadow: 0 16px 34px rgba(89,57,41,.06); }
   .bonus-kpi-grid { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:1rem; }
   .bonus-kpi { padding:1rem 1.1rem; border-radius:20px; border:1px solid rgba(122,24,36,.08); background:linear-gradient(180deg,#fff,#fff7f4); }
@@ -388,17 +386,22 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
   </div>
 </div>
 
-<ul class="nav nav-pills bonus-pill-nav gap-2 mb-4">
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'overview' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'overview']); ?>">Ringkasan</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'rules' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'rules']); ?>">Kebijakan Bonus</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'weights' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'weights']); ?>">Bobot Global</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'employee_daily' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'employee_daily']); ?>">Bonus Harian Pegawai</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'penalties' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'penalties']); ?>">Penalti</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'peer' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'peer']); ?>">Penilaian 360</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'service' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'service']); ?>">Metric Layanan</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'monthly' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'monthly']); ?>">Rekap Bulanan</a></li>
-  <li class="nav-item"><a class="nav-link <?php echo $tab === 'guide' ? 'active' : ''; ?>" href="<?php echo $buildUrl(['tab' => 'guide']); ?>">Panduan</a></li>
-</ul>
+<?php
+$workspace_tabs = [
+  ['label' => 'Ringkasan', 'url' => $buildUrl(['tab' => 'overview']), 'active' => $tab === 'overview'],
+  ['label' => 'Kebijakan Bonus', 'url' => $buildUrl(['tab' => 'rules']), 'active' => $tab === 'rules'],
+  ['label' => 'Bobot Global', 'url' => $buildUrl(['tab' => 'weights']), 'active' => $tab === 'weights'],
+  ['label' => 'Bonus Harian Pegawai', 'url' => $buildUrl(['tab' => 'employee_daily']), 'active' => $tab === 'employee_daily'],
+  ['label' => 'Penalti', 'url' => $buildUrl(['tab' => 'penalties']), 'active' => $tab === 'penalties'],
+  ['label' => 'Penilaian 360', 'url' => $buildUrl(['tab' => 'peer']), 'active' => $tab === 'peer'],
+  ['label' => 'Metrik Layanan', 'url' => $buildUrl(['tab' => 'service']), 'active' => $tab === 'service'],
+  ['label' => 'Rekap Bulanan', 'url' => $buildUrl(['tab' => 'monthly']), 'active' => $tab === 'monthly'],
+  ['label' => 'Panduan', 'url' => $buildUrl(['tab' => 'guide']), 'active' => $tab === 'guide'],
+];
+$workspace_tab_label = 'Bonus';
+$workspace_tab_aria_label = 'Navigasi workspace bonus pegawai';
+$this->load->view('layout/_workspace_tabs', get_defined_vars());
+?>
 
 <?php if ($tab === 'overview'): ?>
   <div class="bonus-kpi-grid mb-4">
@@ -2793,7 +2796,5 @@ $renderPager = static function (array $pg, callable $urlBuilder, string $pagePar
     resetPenaltyEventForm();
   })();
 </script>
-
-
 
 

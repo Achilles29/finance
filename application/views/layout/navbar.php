@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * layout/navbar.php
  */

@@ -15,13 +15,17 @@ $poSrTabs = [
 
 <style>
   .po-sr-nav {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    align-items: start;
     gap: .5rem;
     margin-bottom: 1rem;
   }
+  .po-sr-nav-label { padding-top:.45rem; color:#7a6d62; font-size:.72rem; font-weight:800; letter-spacing:.055em; text-transform:uppercase; }
+  .po-sr-nav-list { display:flex; gap:.42rem; min-width:0; overflow-x:auto; padding:.08rem .08rem .35rem; scrollbar-width:thin; }
   .po-sr-nav .po-sr-nav-link {
     display: inline-flex;
+    flex:0 0 auto;
     align-items: center;
     gap: .45rem;
     border-radius: 10px;
@@ -43,6 +47,7 @@ $poSrTabs = [
     color: #fff;
     box-shadow: 0 8px 18px rgba(159, 33, 65, .18);
   }
+  .po-sr-nav .po-sr-nav-link:focus-visible { outline:3px solid rgba(159,33,65,.24); outline-offset:2px; }
   .po-sr-nav .po-sr-dot {
     width: .58rem;
     height: .58rem;
@@ -55,13 +60,18 @@ $poSrTabs = [
     background: #fff;
     opacity: .95;
   }
+  @media (max-width:575px) { .po-sr-nav { grid-template-columns:1fr; gap:.1rem; } .po-sr-nav-label { padding-top:0; } .po-sr-nav-list { padding-bottom:.45rem; } }
 </style>
 
-<div class="nav nav-pills gap-2 po-sr-nav">
+<nav class="po-sr-nav" aria-label="Navigasi Purchase dan Store Request">
+  <span class="po-sr-nav-label">Purchase</span>
+  <div class="po-sr-nav-list" role="list">
   <?php foreach ($poSrTabs as $tab): ?>
-    <a href="<?php echo $tab['url']; ?>" class="po-sr-nav-link <?php echo $poSrActive === $tab['key'] ? 'is-active' : ''; ?>">
+    <?php $isActive = $poSrActive === $tab['key']; ?>
+    <a href="<?php echo html_escape((string)$tab['url']); ?>" class="po-sr-nav-link <?php echo $isActive ? 'is-active' : ''; ?>"<?php echo $isActive ? ' aria-current="page"' : ''; ?>>
       <span class="po-sr-dot" aria-hidden="true"></span>
       <span><?php echo html_escape($tab['label']); ?></span>
     </a>
   <?php endforeach; ?>
-</div>
+  </div>
+</nav>

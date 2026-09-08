@@ -57,12 +57,15 @@ foreach ($rowsData as $row) {
   </div>
 </div>
 
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Baris Mutasi</div><div class="h5 mb-0"><?php echo number_format($summaryRows); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Masuk</div><div class="h5 mb-0 text-success"><?php echo number_format($summaryIn, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Keluar</div><div class="h5 mb-0 text-danger"><?php echo number_format($summaryOut, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Nilai</div><div class="h5 mb-0"><?php echo number_format($summaryValue, 2, ',', '.'); ?></div></div></div></div>
-</div>
+<?php $this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan mutasi stok gudang',
+  'stock_summary_cards' => [
+    ['label' => 'Baris Mutasi', 'value' => number_format($summaryRows), 'tone' => 'violet', 'icon' => 'ri-arrow-left-right-line'],
+    ['label' => 'Total Masuk', 'value' => number_format($summaryIn, 2, ',', '.'), 'tone' => 'aqua', 'icon' => 'ri-arrow-down-circle-line'],
+    ['label' => 'Total Keluar', 'value' => number_format($summaryOut, 2, ',', '.'), 'tone' => 'blue', 'icon' => 'ri-arrow-up-circle-line'],
+    ['label' => 'Total Nilai', 'value' => 'Rp ' . number_format($summaryValue, 2, ',', '.'), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+  ],
+]); ?>
 
 <div class="card">
   <div class="card-body pb-0">

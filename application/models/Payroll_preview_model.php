@@ -438,6 +438,7 @@ class Payroll_preview_model extends CI_Model
         $allowanceLateTreatment = strtoupper((string)($policy['allowance_late_treatment'] ?? 'FULL_IF_PRESENT'));
         $enableLateDeduction = (int)($policy['enable_late_deduction'] ?? 1) === 1;
         $enableAlphaDeduction = (int)($policy['enable_alpha_deduction'] ?? 1) === 1;
+        $phGetsMealAllowance = (int)($policy['ph_gets_meal_allowance'] ?? 0) === 1;
         $lateDeductionPerMinute = (float)($policy['late_deduction_per_minute'] ?? 0);
         $alphaDeductionPerDay = (float)($policy['alpha_deduction_per_day'] ?? 0);
         $attendanceMode = strtoupper((string)($policy['attendance_calc_mode'] ?? 'DAILY'));
@@ -478,7 +479,9 @@ class Payroll_preview_model extends CI_Model
         $grossAmount = 0.0;
         $netAmount = 0.0;
 
-        if ($mealMode === 'CUSTOM' && $isPresentish && $checkinTs > 0) {
+        if ($isPresentish && $checkinTs > 0) {
+            $mealAmount = $mealRate;
+        } elseif ($isHolidayPaidDay && $phGetsMealAllowance) {
             $mealAmount = $mealRate;
         }
 

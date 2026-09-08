@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $filters = is_array($filters ?? null) ? $filters : [];
 $paymentMethods = is_array($payment_methods ?? null) ? $payment_methods : [];
 ?>

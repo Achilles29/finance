@@ -1,6 +1,11 @@
 <?php
 $station = is_array($station ?? null) ? $station : [];
 $stationUrl = trim((string)($station_url ?? ''));
+$businessProfile = is_array($business_profile ?? null) ? $business_profile : [];
+$businessName = trim((string)($businessProfile['display_name'] ?? ''));
+$businessName = $businessName !== '' ? $businessName : 'Finance';
+$outletName = trim((string)($station['outlet_name'] ?? $businessName));
+$outletName = $outletName !== '' ? $outletName : $businessName;
 ?>
 <!doctype html>
 <html lang="id">
@@ -14,7 +19,7 @@ $stationUrl = trim((string)($station_url ?? ''));
 </head>
 <body>
 <div class="controls"><div><strong>QR Ulasan Pelanggan</strong><br><small><?= html_escape((string)($station['station_name'] ?? '')) ?></small></div><button onclick="window.print()">Cetak QR</button></div>
-<main class="sheet"><article class="poster"><div class="eyebrow">NAMUA Coffee & Eatery</div><h1>Bagaimana pengalaman Anda hari ini?</h1><p>Scan QR ini untuk memberi ulasan dan bergabung sebagai Member Namua agar tidak ketinggalan poin dan voucher.</p><div class="qr-frame"><div class="poster-qr" id="station-review-qr" data-qr-url="<?= html_escape($stationUrl) ?>" role="img" aria-label="QR ulasan pelanggan"></div></div><div class="scan">SCAN UNTUK ULASAN & MEMBER</div><div class="station"><strong><?= html_escape((string)($station['station_name'] ?? 'QR Ulasan')) ?></strong><?= html_escape((string)($station['outlet_name'] ?? 'NAMUA Coffee & Eatery')) ?><p class="tiny"><?= html_escape($stationUrl) ?></p></div></article></main>
+<main class="sheet"><article class="poster"><div class="eyebrow"><?= html_escape($businessName) ?></div><h1>Bagaimana pengalaman Anda hari ini?</h1><p>Scan QR ini untuk memberi ulasan dan bergabung sebagai member <?= html_escape($businessName) ?> agar tidak ketinggalan poin dan voucher.</p><div class="qr-frame"><div class="poster-qr" id="station-review-qr" data-qr-url="<?= html_escape($stationUrl) ?>" role="img" aria-label="QR ulasan pelanggan"></div></div><div class="scan">SCAN UNTUK ULASAN & MEMBER</div><div class="station"><strong><?= html_escape((string)($station['station_name'] ?? 'QR Ulasan')) ?></strong><?= html_escape($outletName) ?><p class="tiny"><?= html_escape($stationUrl) ?></p></div></article></main>
 <script src="<?= base_url('assets/vendor/qrcodejs/qrcode.min.js') ?>"></script>
 <script src="<?= base_url('assets/js/pos-local-qr.js') ?>?v=20260825g"></script>
 <script>

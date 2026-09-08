@@ -4,6 +4,9 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 class Landing_page extends MY_Controller
 {
     private const PAGE_CODE = 'landing_page.index';
+    private const MUTATION_CSRF_SESSION_KEY = 'landing_page_mutation_csrf';
+    private const MUTATION_CSRF_FORM_FIELD = 'landing_page_mutation_csrf';
+    private const MUTATION_CSRF_HEADER = 'X-Landing-Page-Csrf';
 
     public function __construct()
     {
@@ -30,6 +33,7 @@ class Landing_page extends MY_Controller
             'galleries'          => $this->lp->get_gallery(true),
             'embeds'             => $this->lp->get_embed(true),
             'links'              => $this->lp->get_links(true),
+            'landing_page_mutation_csrf' => $this->landing_page_mutation_csrf(),
         ];
         $this->render('landing_page/index', $data);
     }
@@ -39,6 +43,9 @@ class Landing_page extends MY_Controller
     public function config_update(): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
 
         $text_fields = [
             'hero_title', 'hero_subtitle', 'hero_image',
@@ -89,6 +96,9 @@ class Landing_page extends MY_Controller
     public function menu_store(): void
     {
         $this->require_permission(self::PAGE_CODE, 'create');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         $productId = (int)$this->input->post('product_id', true);
         $product = $this->lp->find_product($productId);
         if (!$product || (int)$product['is_active'] !== 1) {
@@ -117,6 +127,9 @@ class Landing_page extends MY_Controller
     public function menu_delete(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_product($id)) { $this->json_error('Produk tidak ditemukan.', 404); return; }
         $this->lp->remove_product_from_landing($id);
         $this->json_ok(['message' => 'Produk disembunyikan dari landing page.']);
@@ -125,6 +138,9 @@ class Landing_page extends MY_Controller
     public function menu_toggle(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_product($id)) { $this->json_error('Produk tidak ditemukan.', 404); return; }
         $new = $this->lp->toggle_landing_product($id);
         $this->json_ok(['message' => 'Status tampil produk berhasil diubah.', 'is_active' => $new]);
@@ -148,11 +164,62 @@ class Landing_page extends MY_Controller
         return implode(',', array_values($ids));
     }
 
+    private function json_ok(array $data = [], int $statusCode = 200): void
+    {
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => true] + $data, JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function json_error(string $message, int $statusCode = 422, array $data = []): void
+    {
+        $this->output
+            ->set_status_header($statusCode)
+            ->set_content_type('application/json')
+            ->set_output(json_encode(['ok' => false, 'message' => $message] + $data, JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    private function landing_page_mutation_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::MUTATION_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::MUTATION_CSRF_SESSION_KEY, $token);
+        }
+        return $token;
+    }
+
+    private function require_landing_mutation(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->json_error('Metode request tidak diizinkan.', 405);
+            return false;
+        }
+
+        $provided = trim((string)$this->input->get_request_header(self::MUTATION_CSRF_HEADER, true));
+        if ($provided === '') {
+            $provided = trim((string)$this->input->post(self::MUTATION_CSRF_FORM_FIELD, true));
+        }
+        $expected = $this->landing_page_mutation_csrf();
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $provided) !== 1
+            || !hash_equals($expected, $provided)
+        ) {
+            $this->json_error('Permintaan Landing Page tidak valid.', 403);
+            return false;
+        }
+        return true;
+    }
+
     // ── GALLERY ───────────────────────────────────────────────────────
 
     public function gallery_store(): void
     {
         $this->require_permission(self::PAGE_CODE, 'create');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         $input = $this->_gallery_input();
         if ($input['image'] === '') { $this->json_error('URL gambar tidak boleh kosong.', 422); return; }
 
@@ -166,6 +233,9 @@ class Landing_page extends MY_Controller
     public function gallery_update(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_gallery($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
 
         $input = $this->_gallery_input();
@@ -179,6 +249,9 @@ class Landing_page extends MY_Controller
     public function gallery_delete(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'delete');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_gallery($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
         $this->lp->delete_gallery($id);
         $this->json_ok(['message' => 'Foto gallery berhasil dihapus.']);
@@ -187,6 +260,9 @@ class Landing_page extends MY_Controller
     public function gallery_toggle(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_gallery($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
         $new = $this->lp->toggle_gallery($id);
         $this->json_ok(['message' => 'Status berhasil diubah.', 'is_active' => $new]);
@@ -195,6 +271,9 @@ class Landing_page extends MY_Controller
     public function gallery_reorder(): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         $body = json_decode(file_get_contents('php://input'), true);
         $ids  = array_filter(array_map('intval', (array)($body['ids'] ?? [])));
         if (empty($ids)) { $this->json_error('Data urutan tidak valid.', 422); return; }
@@ -216,6 +295,9 @@ class Landing_page extends MY_Controller
     public function embed_store(): void
     {
         $this->require_permission(self::PAGE_CODE, 'create');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         $input = $this->_embed_input();
         if (trim($input['embed_html']) === '') { $this->json_error('Kode embed tidak boleh kosong.', 422); return; }
 
@@ -229,6 +311,9 @@ class Landing_page extends MY_Controller
     public function embed_update(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_embed($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
 
         $input = $this->_embed_input();
@@ -242,6 +327,9 @@ class Landing_page extends MY_Controller
     public function embed_delete(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'delete');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_embed($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
         $this->lp->delete_embed($id);
         $this->json_ok(['message' => 'Embed berhasil dihapus.']);
@@ -250,6 +338,9 @@ class Landing_page extends MY_Controller
     public function embed_toggle(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_embed($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
         $new = $this->lp->toggle_embed($id);
         $this->json_ok(['message' => 'Status berhasil diubah.', 'is_active' => $new]);
@@ -270,6 +361,9 @@ class Landing_page extends MY_Controller
     public function links_store(): void
     {
         $this->require_permission(self::PAGE_CODE, 'create');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         $input = $this->_link_input();
         if ($input['label'] === '') { $this->json_error('Label tidak boleh kosong.', 422); return; }
         if ($input['url']   === '') { $this->json_error('URL tidak boleh kosong.', 422);   return; }
@@ -284,6 +378,9 @@ class Landing_page extends MY_Controller
     public function links_update(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_link($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
 
         $input = $this->_link_input();
@@ -298,6 +395,9 @@ class Landing_page extends MY_Controller
     public function links_delete(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'delete');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_link($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
         $this->lp->delete_link($id);
         $this->json_ok(['message' => 'Link berhasil dihapus.']);
@@ -306,6 +406,9 @@ class Landing_page extends MY_Controller
     public function links_toggle(int $id): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         if ($id <= 0 || !$this->lp->find_link($id)) { $this->json_error('Data tidak ditemukan.', 404); return; }
         $new = $this->lp->toggle_link($id);
         $this->json_ok(['message' => 'Status berhasil diubah.', 'is_active' => $new]);
@@ -314,6 +417,9 @@ class Landing_page extends MY_Controller
     public function links_reorder(): void
     {
         $this->require_permission(self::PAGE_CODE, 'edit');
+        if (!$this->require_landing_mutation()) {
+            return;
+        }
         $body = json_decode(file_get_contents('php://input'), true);
         $ids  = array_filter(array_map('intval', (array)($body['ids'] ?? [])));
         if (empty($ids)) { $this->json_error('Data urutan tidak valid.', 422); return; }

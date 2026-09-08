@@ -20,15 +20,16 @@ $buildUrl = static function (string $type) use ($baseUrl, $filters): string {
 };
 ?>
 
-<div class="d-flex flex-wrap gap-2 align-items-start component-workbench-group"
-     style="margin-top:.45rem; padding-top:.45rem; border-top:1px solid #e9e3dc;">
+<nav class="component-workbench-tabs component-workbench-group" aria-label="Filter tipe Component"
+     style="margin-top:.1rem; padding-top:.45rem; border-top:1px solid #e9e3dc;">
   <span class="component-workbench-label">Tipe</span>
-  <div class="d-flex flex-wrap gap-2">
+  <div class="component-workbench-tabs__links" role="list">
     <?php foreach ($tabs as $typeValue => $label): ?>
+      <?php $isActive = $activeType === (string)$typeValue; ?>
       <a href="<?php echo html_escape($buildUrl((string)$typeValue)); ?>"
-         class="btn btn-sm <?php echo $activeType === (string)$typeValue ? 'btn-dark' : 'btn-outline-secondary'; ?>">
+         class="component-workbench-tab<?php echo $isActive ? ' is-active' : ''; ?>"<?php echo $isActive ? ' aria-current="page"' : ''; ?>>
         <?php echo html_escape((string)$label); ?>
       </a>
     <?php endforeach; ?>
   </div>
-</div>
+</nav>

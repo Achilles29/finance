@@ -53,7 +53,10 @@ function web_boundary_load_config(string $root, string $environment): array
         . 'echo json_encode(['
         . '"cookie_secure" => $config["cookie_secure"] ?? null, '
         . '"cookie_httponly" => $config["cookie_httponly"] ?? null, '
-        . '"cookie_samesite" => $config["cookie_samesite"] ?? null'
+        . '"cookie_samesite" => $config["cookie_samesite"] ?? null, '
+        . '"sess_expiration" => $config["sess_expiration"] ?? null, '
+        . '"sess_time_to_update" => $config["sess_time_to_update"] ?? null, '
+        . '"sess_regenerate_destroy" => $config["sess_regenerate_destroy"] ?? null'
         . ']);',
         var_export($root . '/system/', true),
         var_export($resolverPath, true),
@@ -101,6 +104,18 @@ web_boundary_check(
 web_boundary_check(
     preg_match('~\$config\[["\']cookie_samesite["\']\]\s*=\s*["\']Lax["\']\s*;~', $configSource) === 1,
     'cookie_samesite is not explicitly Lax'
+);
+web_boundary_check(
+    preg_match('~\$config\[["\']sess_expiration["\']\]\s*=\s*43200\s*;~', $configSource) === 1,
+    'session expiration is not bounded to twelve hours'
+);
+web_boundary_check(
+    preg_match('~\$config\[["\']sess_time_to_update["\']\]\s*=\s*300\s*;~', $configSource) === 1,
+    'session identifier rotation is not bounded to five minutes'
+);
+web_boundary_check(
+    preg_match('~\$config\[["\']sess_regenerate_destroy["\']\]\s*=\s*TRUE\s*;~i', $configSource) === 1,
+    'rotated session identifiers are not destroyed'
 );
 web_boundary_check(
     preg_match('/Access-Control-Allow-/i', $configSource) === 0,
@@ -158,6 +173,18 @@ foreach (['development' => false, 'production' => true] as $environment => $secu
     web_boundary_check(
         ($snapshot['cookie_samesite'] ?? null) === 'Lax',
         "{$environment} SameSite boundary is not Lax"
+    );
+    web_boundary_check(
+        ($snapshot['sess_expiration'] ?? null) === 43200,
+        "{$environment} session expiration is not twelve hours"
+    );
+    web_boundary_check(
+        ($snapshot['sess_time_to_update'] ?? null) === 300,
+        "{$environment} session identifier rotation is not five minutes"
+    );
+    web_boundary_check(
+        ($snapshot['sess_regenerate_destroy'] ?? null) === true,
+        "{$environment} rotated session identifier is not destroyed"
     );
 }
 

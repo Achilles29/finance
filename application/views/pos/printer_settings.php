@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $payload = is_array($payload ?? null) ? $payload : [];
 ?>
 <style>

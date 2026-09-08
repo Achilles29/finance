@@ -1066,6 +1066,9 @@ class Payroll_model extends CI_Model
         if ($periodEnd < $periodStart) {
             return ['ok' => false, 'message' => 'Periode akhir tidak boleh kurang dari periode awal.'];
         }
+        if (!$this->att_daily_has_field('meal_mode_snapshot')) {
+            return ['ok' => false, 'message' => 'Snapshot mode uang makan belum tersedia. Perbarui schema sebelum membuat batch uang makan custom.'];
+        }
 
         $candidates = $this->db->select('
                 ad.id AS att_daily_id,
@@ -1085,7 +1088,16 @@ class Payroll_model extends CI_Model
             ->where('ad.attendance_date >=', $periodStart)
             ->where('ad.attendance_date <=', $periodEnd)
             ->where('COALESCE(ad.meal_amount,0) >', 0)
-            ->where('ad.checkin_at IS NOT NULL', null, false)
+            // A monthly entitlement is settled in payroll. Only explicitly
+            // snapshotted CUSTOM attendance can enter this separate batch.
+            ->where("COALESCE(ad.meal_mode_snapshot, 'MONTHLY') = 'CUSTOM'", null, false)
+            ->group_start()
+                ->where('ad.checkin_at IS NOT NULL', null, false)
+                // A HOLIDAY row reaches this point only when policy granted a
+                // positive meal amount, so it is a valid custom entitlement
+                // even though it has no physical check-in.
+                ->or_where('ad.attendance_status', 'HOLIDAY')
+            ->group_end()
             ->where('dup_h.id IS NULL', null, false)
             ->group_by('ad.id')
             ->order_by('ad.attendance_date', 'ASC')
@@ -1512,6 +1524,14 @@ class Payroll_model extends CI_Model
             return ['ok' => false, 'message' => 'Payroll period sudah punya batch gaji aktif. VOID/hapus batch dulu sebelum regenerate.'];
         }
 
+        // The attendance row is the authoritative policy snapshot. Old rows
+        // without the field are treated as MONTHLY so they cannot be paid
+        // again through a new custom-disbursement workflow.
+        $mealModeExpr = $this->att_daily_has_field('meal_mode_snapshot')
+            ? "COALESCE(ad.meal_mode_snapshot, 'MONTHLY')"
+            : "'MONTHLY'";
+        $mealMonthlySelect = "SUM(CASE WHEN $mealModeExpr = 'MONTHLY' THEN COALESCE(ad.meal_amount,0) ELSE 0 END) AS meal_monthly_total";
+        $mealCustomSelect = "SUM(CASE WHEN $mealModeExpr = 'CUSTOM' THEN COALESCE(ad.meal_amount,0) ELSE 0 END) AS meal_custom_total";
         $rows = $this->db->select("
                 ad.employee_id,
                 e.employee_code,
@@ -1524,6 +1544,8 @@ class Payroll_model extends CI_Model
                 SUM(COALESCE(ad.basic_amount,0)) AS basic_total,
                 SUM(COALESCE(ad.allowance_amount,0)) AS allowance_total,
                 SUM(COALESCE(ad.meal_amount,0)) AS meal_total,
+                $mealMonthlySelect,
+                $mealCustomSelect,
                 SUM(COALESCE(ad.overtime_pay,0)) AS overtime_total,
                 SUM(COALESCE(ad.manual_addition_amount,0)) AS manual_addition_total,
                 SUM(COALESCE(ad.late_deduction_amount,0)) AS late_deduction_total,
@@ -1569,6 +1591,8 @@ class Payroll_model extends CI_Model
             $basicTotal = round((float)($r['basic_total'] ?? 0), 2);
             $allowanceTotal = round((float)($r['allowance_total'] ?? 0), 2);
             $mealTotal = round((float)($r['meal_total'] ?? 0), 2);
+            $mealMonthlyTotal = round((float)($r['meal_monthly_total'] ?? 0), 2);
+            $mealCustomTotal = round((float)($r['meal_custom_total'] ?? 0), 2);
             $overtimeTotal = round((float)($r['overtime_total'] ?? 0), 2);
             $manualAdditionTotal = round((float)($r['manual_addition_total'] ?? 0), 2);
             $lateDeductionTotal = round((float)($r['late_deduction_total'] ?? 0), 2);
@@ -1639,6 +1663,8 @@ class Payroll_model extends CI_Model
                     'basic_total' => $basicTotal,
                     'allowance_total' => $allowanceTotal,
                     'meal_total' => $mealTotal,
+                    'meal_monthly_total' => $mealMonthlyTotal,
+                    'meal_custom_total' => $mealCustomTotal,
                     'overtime_total' => $overtimeTotal,
                     'manual_addition_total' => $manualAdditionTotal,
                     'late_deduction_total' => $lateDeductionTotal,
@@ -1680,13 +1706,15 @@ class Payroll_model extends CI_Model
         $lines = [
             ['code' => 'BASIC', 'name' => 'Gaji Pokok', 'type' => 'EARNING', 'amount' => (float)($s['basic_total'] ?? 0)],
             ['code' => 'ALLOWANCE', 'name' => 'Tunjangan', 'type' => 'EARNING', 'amount' => (float)($s['allowance_total'] ?? 0)],
-            ['code' => 'MEAL', 'name' => 'Uang Makan', 'type' => 'EARNING', 'amount' => (float)($s['meal_total'] ?? 0)],
+            ['code' => 'MEAL_MONTHLY', 'name' => 'Uang Makan (masuk payroll)', 'type' => 'EARNING', 'amount' => (float)($s['meal_monthly_total'] ?? 0)],
+            ['code' => 'MEAL_CUSTOM', 'name' => 'Uang Makan (hak, bayar terpisah)', 'type' => 'EARNING', 'amount' => (float)($s['meal_custom_total'] ?? 0)],
             ['code' => 'OVERTIME', 'name' => 'Lembur', 'type' => 'EARNING', 'amount' => (float)($s['overtime_total'] ?? 0)],
             ['code' => 'MANUAL_ADD', 'name' => 'Penyesuaian (+)', 'type' => 'EARNING', 'amount' => (float)($s['manual_addition_total'] ?? 0)],
             ['code' => 'LATE_DED', 'name' => 'Potongan Telat', 'type' => 'DEDUCTION', 'amount' => (float)($s['late_deduction_total'] ?? 0)],
             ['code' => 'ALPHA_DED', 'name' => 'Potongan Alpha', 'type' => 'DEDUCTION', 'amount' => (float)($s['alpha_deduction_total'] ?? 0)],
             ['code' => 'MANUAL_DED', 'name' => 'Penyesuaian (-) Lain', 'type' => 'DEDUCTION', 'amount' => (float)($s['manual_deduction_other_total'] ?? 0)],
             ['code' => 'CASH_ADV_DED', 'name' => 'Potongan Kasbon', 'type' => 'DEDUCTION', 'amount' => (float)($s['cash_advance_cut_total'] ?? 0)],
+            ['code' => 'MEAL_CUSTOM_SETTLEMENT', 'name' => 'Uang Makan (dibayar melalui batch custom)', 'type' => 'DEDUCTION', 'amount' => (float)($s['meal_custom_total'] ?? 0)],
             ['code' => 'ROUNDING', 'name' => 'Pembulatan', 'type' => 'EARNING', 'amount' => (float)($s['rounding_adjustment'] ?? 0)],
         ];
         $now = date('Y-m-d H:i:s');
@@ -2687,6 +2715,7 @@ class Payroll_model extends CI_Model
                 p.period_code,
                 p.period_start,
                 p.period_end,
+                r.id AS payroll_result_id,
                 r.employee_id,
                 r.employee_code_snapshot,
                 r.employee_name_snapshot,
@@ -2750,6 +2779,29 @@ class Payroll_model extends CI_Model
             $row['net_pay'] = (float)($row['net_pay'] ?? 0);
         }
 
+        $row['meal_monthly_total'] = 0.0;
+        $row['meal_custom_total'] = 0.0;
+        $row['meal_mode_breakdown_available'] = false;
+        if ($this->db->table_exists('pay_payroll_result_line') && !empty($row['payroll_result_id'])) {
+            $mealModeRows = $this->db
+                ->select('line_code, amount')
+                ->from('pay_payroll_result_line')
+                ->where('payroll_result_id', (int)$row['payroll_result_id'])
+                ->where_in('line_code', ['MEAL_MONTHLY', 'MEAL_CUSTOM'])
+                ->get()
+                ->result_array();
+            foreach ($mealModeRows as $mealModeRow) {
+                $code = strtoupper(trim((string)($mealModeRow['line_code'] ?? '')));
+                if ($code === 'MEAL_MONTHLY') {
+                    $row['meal_monthly_total'] = round((float)($mealModeRow['amount'] ?? 0), 2);
+                    $row['meal_mode_breakdown_available'] = true;
+                } elseif ($code === 'MEAL_CUSTOM') {
+                    $row['meal_custom_total'] = round((float)($mealModeRow['amount'] ?? 0), 2);
+                    $row['meal_mode_breakdown_available'] = true;
+                }
+            }
+        }
+
         $row['meal_paid_total'] = 0.0;
         $row['meal_paid_days'] = 0;
         $row['meal_paid_deduction'] = 0.0;
@@ -2771,7 +2823,12 @@ class Payroll_model extends CI_Model
                 ->get()->row_array() ?: [];
             $row['meal_paid_total'] = round((float)($mealPaid['paid_total'] ?? 0), 2);
             $row['meal_paid_days'] = (int)($mealPaid['day_count'] ?? 0);
-            $row['meal_paid_deduction'] = round(min((float)$row['meal_total'], (float)$row['meal_paid_total']), 2);
+            // Legacy slips have no mode split. Preserve their old display
+            // convention; new payroll lines explicitly settle CUSTOM meal
+            // entitlement outside the salary transfer.
+            if (empty($row['meal_mode_breakdown_available'])) {
+                $row['meal_paid_deduction'] = round(min((float)$row['meal_total'], (float)$row['meal_paid_total']), 2);
+            }
         }
 
         return $row;

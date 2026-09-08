@@ -561,6 +561,42 @@ html.layout-navbar-fixed .layout-content-navbar .content-wrapper {
     opacity: 0.84;
 }
 
+/* Level 4+ dahulu jatuh kembali ke ukuran bawaan Materio karena selector
+ * legacy berhenti pada level ketiga. Renderer kini memberi data-depth dan
+ * level ini sengaja dipadatkan agar pohon yang panjang tetap mudah dipindai. */
+#layout-menu .menu-item[data-sidebar-depth="2"] > .menu-sub,
+#layout-menu .menu-item[data-sidebar-depth="3"] > .menu-sub {
+    margin: 0.04rem 0 0.08rem 0.3rem;
+    padding: 0.04rem 0 0.04rem 0.4rem;
+    border-left: 1px dotted rgba(255, 214, 201, 0.44);
+}
+
+#layout-menu .menu-item[data-sidebar-depth="3"] > .menu-link {
+    align-items: flex-start;
+    min-height: 1.82rem;
+    margin: 0.02rem 0.04rem 0.02rem 0;
+    padding: 0.29rem 0.46rem 0.29rem 0.58rem;
+    border-radius: 8px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: rgba(255, 225, 213, 0.94) !important;
+    background: rgba(255, 245, 240, 0.025);
+    border: 1px solid rgba(255, 229, 220, 0.035);
+}
+
+#layout-menu .menu-item[data-sidebar-depth="3"] > .menu-link .menu-icon {
+    flex: 0 0 auto;
+    font-size: 0.72rem !important;
+    margin-top: 0.06rem;
+    margin-right: 0.38rem !important;
+    opacity: 0.76;
+}
+
+#layout-menu .menu-item[data-sidebar-depth="3"] > .menu-link > div.flex-grow-1 {
+    overflow-wrap: anywhere;
+}
+
 #layout-menu .menu-sub .menu-item > .menu-link:hover {
     background: rgba(255, 255, 255, 0.09) !important;
     color: #ffffff !important;
@@ -1551,6 +1587,70 @@ html.layout-navbar-fixed .container-p-y:not([class^=pt-]):not([class*=" pt-"]) {
     gap: 0.5rem;
 }
 
+/* Linked workspaces use normal navigation semantics (not ARIA tab widgets).
+ * This shell keeps long module menus usable on a phone without creating a
+ * second routing/permission source in JavaScript. */
+.finance-workspace-tabs {
+    display: grid;
+    grid-template-columns: 7rem minmax(0, 1fr);
+    align-items: start;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+}
+
+.finance-workspace-tabs__label {
+    padding-top: 0.45rem;
+    color: var(--finance-ui-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+}
+
+.finance-workspace-tabs__list {
+    display: flex;
+    gap: 0.42rem;
+    min-width: 0;
+    overflow-x: auto;
+    padding: 0.08rem 0.08rem 0.38rem;
+    scrollbar-width: thin;
+}
+
+.finance-workspace-tabs__link {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    min-height: 2.15rem;
+    border: 1px solid var(--finance-ui-border);
+    border-radius: 0.625rem;
+    background: var(--finance-ui-surface-muted);
+    color: var(--finance-ui-text);
+    padding: 0.42rem 0.7rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.15;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.finance-workspace-tabs__link:hover {
+    border-color: color-mix(in srgb, var(--finance-ui-primary) 48%, var(--finance-ui-border));
+    background: color-mix(in srgb, var(--finance-ui-primary) 7%, var(--finance-ui-surface));
+    color: var(--finance-ui-primary);
+}
+
+.finance-workspace-tabs__link.is-active {
+    border-color: var(--finance-ui-primary);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--finance-ui-primary) 84%, #452028), var(--finance-ui-primary));
+    box-shadow: 0 5px 12px color-mix(in srgb, var(--finance-ui-primary) 24%, transparent);
+    color: #fff;
+}
+
+.finance-workspace-tabs__link:focus-visible {
+    outline: 3px solid var(--finance-ui-focus-ring);
+    outline-offset: 2px;
+}
+
 .finance-card {
     background: var(--finance-ui-surface);
     border-color: var(--finance-ui-border);
@@ -1744,6 +1844,15 @@ html.layout-navbar-fixed .container-p-y:not([class^=pt-]):not([class*=" pt-"]) {
 
     .finance-filter-control {
         max-width: none;
+    }
+
+    .finance-workspace-tabs {
+        grid-template-columns: 1fr;
+        gap: 0.1rem;
+    }
+
+    .finance-workspace-tabs__label {
+        padding-top: 0;
     }
 
     .finance-page-shell #sidebar-tree-root .sidebar-sortable-list {

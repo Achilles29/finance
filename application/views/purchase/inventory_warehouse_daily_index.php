@@ -1,5 +1,8 @@
 <?php
 $initialMonth = (string)($month ?? date('Y-m'));
+$initialMonth = preg_match('/^\d{4}-\d{2}$/', substr($initialMonth, 0, 7)) ? substr($initialMonth, 0, 7) : date('Y-m');
+$initialWindowStart = $initialMonth . '-01';
+$initialWindowEnd = date('Y-m-t', strtotime($initialWindowStart));
 $profileAuditBaseUrl = site_url('inventory/fifo-audit');
 $adjustmentStoreUrl = site_url('inventory/stock/adjustment/store');
 $adjustmentPostBaseUrl = site_url('inventory/stock/adjustment/post');
@@ -610,13 +613,20 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     padding: 2rem 1rem;
   }
   .pwd-stat-card {
-    border: 1px solid #ead9cf;
-    border-radius: 14px;
-    background: #fff;
-    padding: 0.6rem 0.78rem;
+    min-height:116px; position:relative; overflow:hidden; border:0; border-radius:14px;
+    color:#fff; padding:.9rem 1rem; box-shadow:0 4px 18px rgba(0,0,0,.13);
   }
-  .pwd-stat-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8d6b64; font-weight: 800; }
-  .pwd-stat-value { margin-top: 0.22rem; font-size: 1.25rem; font-weight: 800; color: #5f2432; }
+  .pwd-stat-card::before,.pwd-stat-card::after { content:''; position:absolute; border-radius:50%; background:rgba(255,255,255,.12); }
+  .pwd-stat-card::before { width:80px; height:80px; right:-18px; bottom:-18px; }
+  .pwd-stat-card::after { width:56px; height:56px; right:14px; top:-22px; background:rgba(255,255,255,.09); }
+  .pwd-stat-card > * { position:relative; z-index:1; }
+  .pwd-stat-card.is-violet { background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); }
+  .pwd-stat-card.is-aqua { background:linear-gradient(135deg,#0c7cba 0%,#0fcdba 100%); }
+  .pwd-stat-card.is-blue { background:linear-gradient(135deg,#1c7ed6 0%,#74c0fc 100%); }
+  .pwd-stat-card.is-teal { background:linear-gradient(135deg,#134e5e 0%,#38b2a3 100%); }
+  .pwd-stat-icon { display:block; min-height:1.25rem; font-size:1.25rem; line-height:1; opacity:.82; }
+  .pwd-stat-label { margin-top:.42rem; font-size:.68rem; text-transform:uppercase; letter-spacing:.07em; font-weight:800; opacity:.85; }
+  .pwd-stat-value { margin-top:.18rem; font-size:1.38rem; font-weight:800; line-height:1.15; overflow-wrap:anywhere; }
   .pwd-modal-card {
     border: 1px solid #e9d9d1;
     border-radius: 12px;
@@ -663,12 +673,12 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
         <input type="text" id="pwdQ" class="form-control" value="<?php echo html_escape($initialQ); ?>" placeholder="Item, bahan baku, profile, merk">
       </div>
       <div class="col-6 col-md-2">
-        <label class="form-label mb-1">Dari Tanggal</label>
-        <input type="date" id="pwdDateFrom" class="form-control" value="<?php echo html_escape($initialDateFrom); ?>">
+        <label class="form-label mb-1">Mulai Tampilan</label>
+        <input type="date" id="pwdDateFrom" class="form-control" min="<?php echo html_escape($initialWindowStart); ?>" max="<?php echo html_escape($initialWindowEnd); ?>" value="<?php echo html_escape($initialDateFrom); ?>">
       </div>
       <div class="col-6 col-md-2">
-        <label class="form-label mb-1">Sampai Tanggal</label>
-        <input type="date" id="pwdDateTo" class="form-control" value="<?php echo html_escape($initialDateTo); ?>">
+        <label class="form-label mb-1">Sampai Tampilan</label>
+        <input type="date" id="pwdDateTo" class="form-control" min="<?php echo html_escape($initialWindowStart); ?>" max="<?php echo html_escape($initialWindowEnd); ?>" value="<?php echo html_escape($initialDateTo); ?>">
       </div>
       <div class="col-6 col-md-1">
         <label class="form-label mb-1">Limit</label>
@@ -684,11 +694,11 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
   </div>
 </div>
 
-<div class="row g-2 mb-2">
-  <div class="col-6 col-md-3"><div class="pwd-stat-card"><div class="pwd-stat-label">Profil</div><div id="pwdStatProfiles" class="pwd-stat-value">0</div></div></div>
-  <div class="col-6 col-md-3"><div class="pwd-stat-card"><div class="pwd-stat-label">Item</div><div id="pwdStatItems" class="pwd-stat-value">0</div></div></div>
-  <div class="col-6 col-md-3"><div class="pwd-stat-card"><div class="pwd-stat-label">Bahan Baku</div><div id="pwdStatMaterials" class="pwd-stat-value">0</div></div></div>
-  <div class="col-6 col-md-3"><div class="pwd-stat-card"><div class="pwd-stat-label">Nilai Sisa</div><div id="pwdStatValue" class="pwd-stat-value">0,00</div></div></div>
+<div class="row g-2 mb-3" aria-label="Ringkasan daily matrix gudang">
+  <div class="col-6 col-md-3"><div class="pwd-stat-card is-violet"><span class="pwd-stat-icon" aria-hidden="true"><i class="ri ri-archive-stack-line"></i></span><div class="pwd-stat-label">Profil</div><div id="pwdStatProfiles" class="pwd-stat-value">0</div></div></div>
+  <div class="col-6 col-md-3"><div class="pwd-stat-card is-aqua"><span class="pwd-stat-icon" aria-hidden="true"><i class="ri ri-shopping-bag-3-line"></i></span><div class="pwd-stat-label">Item</div><div id="pwdStatItems" class="pwd-stat-value">0</div></div></div>
+  <div class="col-6 col-md-3"><div class="pwd-stat-card is-blue"><span class="pwd-stat-icon" aria-hidden="true"><i class="ri ri-flask-line"></i></span><div class="pwd-stat-label">Bahan Baku</div><div id="pwdStatMaterials" class="pwd-stat-value">0</div></div></div>
+  <div class="col-6 col-md-3"><div class="pwd-stat-card is-teal"><span class="pwd-stat-icon" aria-hidden="true"><i class="ri ri-money-dollar-circle-line"></i></span><div class="pwd-stat-label">Nilai Sisa</div><div id="pwdStatValue" class="pwd-stat-value">0,00</div></div></div>
 </div>
 
 <div class="card pwd-board-card">
@@ -1049,8 +1059,29 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
     }
   }
 
+  function syncMonthWindowInputs(){
+    var monthEl = document.getElementById('pwdMonth');
+    var fromEl = document.getElementById('pwdDateFrom');
+    var toEl = document.getElementById('pwdDateTo');
+    var monthText = monthEl ? String(monthEl.value || '') : '';
+    if (!/^\d{4}-\d{2}$/.test(monthText) || !fromEl || !toEl) { return; }
+    var start = monthText + '-01';
+    var parts = monthText.split('-');
+    var end = monthText + '-' + String(new Date(Number(parts[0]), Number(parts[1]), 0).getDate()).padStart(2, '0');
+    [fromEl, toEl].forEach(function(input){
+      input.min = start;
+      input.max = end;
+      if (input.value && input.value < start) { input.value = start; }
+      if (input.value && input.value > end) { input.value = end; }
+    });
+    if (fromEl.value && toEl.value && fromEl.value > toEl.value) {
+      toEl.value = fromEl.value;
+    }
+  }
+
   function readFilters(){
     state.month = document.getElementById('pwdMonth').value || '';
+    syncMonthWindowInputs();
     state.q = document.getElementById('pwdQ').value || '';
     state.date_from = document.getElementById('pwdDateFrom').value || '';
     state.date_to = document.getElementById('pwdDateTo').value || '';
@@ -2168,6 +2199,8 @@ if ($initialLimit <= 0 || $initialLimit > 1000) {
       loadData();
     }
   });
+
+  document.getElementById('pwdMonth').addEventListener('change', syncMonthWindowInputs);
 
   matrixShell.addEventListener('click', function(ev){
     var toggle = ev.target && ev.target.closest ? ev.target.closest('[data-action="toggle-group"]') : null;

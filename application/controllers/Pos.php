@@ -16,6 +16,8 @@ class Pos extends MY_Controller
     private const POS_AVAILABILITY_QUEUE_CSRF_FORM_FIELD = 'pos_availability_queue_csrf';
     private const CUSTOMER_REVIEW_CSRF_SESSION_KEY = 'pos_customer_review_csrf';
     private const CUSTOMER_REVIEW_CSRF_HEADER = 'X-Pos-Review-Csrf';
+    private const POS_PRINTER_GENERAL_CSRF_SESSION_KEY = 'pos_printer_general_csrf';
+    private const POS_PRINTER_GENERAL_CSRF_FORM_FIELD = 'pos_printer_general_csrf';
 
     public function __construct()
     {
@@ -1015,6 +1017,41 @@ class Pos extends MY_Controller
         );
     }
 
+    /**
+     * Returning a reservation deposit voids a financial receipt. Keep that
+     * proof separate from ordinary POS refunds and bind it to both the exact
+     * reservation and the close decision (reject versus cancel).
+     */
+    public function reservation_refund_step_up_verify()
+    {
+        if (!$this->require_pos_transaction_csrf()) {
+            return;
+        }
+        $payload = $this->request_payload();
+        $closeMode = strtoupper(trim((string)($payload['close_mode'] ?? '')));
+        $stepUpAction = $this->reservation_deposit_refund_step_up_action($closeMode);
+        if ($stepUpAction === null) {
+            $this->json_error('Aksi verifikasi ulang reservasi tidak valid.', 422);
+            return;
+        }
+        $this->require_permission('pos.reservation.index', $closeMode === 'CANCEL' ? 'delete' : 'edit');
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->issue(
+            $this->current_actor_user_id(),
+            $stepUpAction,
+            $payload['reservation_id'] ?? null,
+            $payload['password'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang tidak berhasil.'), (int)($result['status'] ?? 403));
+            return;
+        }
+        $this->json_ok([
+            'step_up_proof' => (string)$result['proof'],
+            'expires_in_seconds' => (int)$result['expires_in_seconds'],
+        ]);
+    }
+
     public function reservation_reject($id)
     {
         $this->require_permission('pos.reservation.index', 'edit');
@@ -1022,12 +1059,17 @@ class Pos extends MY_Controller
             return;
         }
         $payload = $this->request_payload();
+        $refundDeposit = !empty($payload['refund_deposit']);
+        if ($refundDeposit && !$this->consume_reservation_deposit_refund_step_up((int)$id, 'REJECT', $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $result = $this->Pos_reservation_model->reject_reservation(
             (int)$id,
             $this->current_actor_employee_id(),
             $this->current_actor_user_id(),
             trim((string)($payload['reason'] ?? '')),
-            !empty($payload['refund_deposit'])
+            $refundDeposit
         );
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal menolak reservasi.'), 422);
@@ -1043,12 +1085,17 @@ class Pos extends MY_Controller
             return;
         }
         $payload = $this->request_payload();
+        $refundDeposit = !empty($payload['refund_deposit']);
+        if ($refundDeposit && !$this->consume_reservation_deposit_refund_step_up((int)$id, 'CANCEL', $payload)) {
+            return;
+        }
+        unset($payload['step_up_proof']);
         $result = $this->Pos_reservation_model->cancel_reservation(
             (int)$id,
             $this->current_actor_employee_id(),
             $this->current_actor_user_id(),
             trim((string)($payload['reason'] ?? '')),
-            !empty($payload['refund_deposit'])
+            $refundDeposit
         );
         if (!($result['ok'] ?? false)) {
             $this->json_error((string)($result['message'] ?? 'Gagal membatalkan reservasi.'), 422);
@@ -1841,10 +1888,20 @@ public function self_order_tables_print()
         $outletId = 0;
         if ($this->input->method() === 'post') {
             $this->require_printer_config_permission('pos.printer.general', 'edit');
-            $result = $this->Pos_print_model->save_general_settings([
+            if (!$this->require_printer_general_csrf()) {
+                return;
+            }
+
+            $logoUpload = $this->store_printer_general_logo_upload();
+            if (!($logoUpload['ok'] ?? false)) {
+                $this->session->set_flashdata('error', (string)($logoUpload['message'] ?? 'Logo tidak dapat diunggah.'));
+                redirect('pos/printers/general');
+                return;
+            }
+
+            $settings = [
                 'title' => $this->input->post('title', false),
                 'subtitle' => $this->input->post('subtitle', false),
-                'logo_url' => $this->input->post('logo_url', false),
                 'wifi_name' => $this->input->post('wifi_name', false),
                 'wifi_password' => $this->input->post('wifi_password', false),
                 'customer_voucher_limit' => $this->input->post('customer_voucher_limit', false),
@@ -1854,7 +1911,12 @@ public function self_order_tables_print()
                 'customer_review_message' => $this->input->post('customer_review_message', false),
                 'header_lines' => preg_split('/\r?\n/', trim((string)$this->input->post('header_lines', false))),
                 'footer_lines' => preg_split('/\r?\n/', trim((string)$this->input->post('footer_lines', false))),
-            ]);
+            ];
+            if (!empty($logoUpload['logo_url'])) {
+                $settings['logo_url'] = (string)$logoUpload['logo_url'];
+            }
+
+            $result = $this->Pos_print_model->save_general_settings($settings);
             if ($result['ok'] ?? false) {
                 $this->session->set_flashdata('success', 'Tampilan umum cetak berhasil disimpan dan akan dipakai semua cetakan yang relevan.');
             } else {
@@ -1870,6 +1932,7 @@ public function self_order_tables_print()
             'general' => $this->Pos_print_model->general_settings($outletId),
             'printer_options' => $this->Pos_print_model->options(),
             'can_edit' => $this->printer_config_can('pos.printer.general', 'edit'),
+            'printer_general_csrf_token' => $this->printer_general_csrf(),
         ]);
     }
 
@@ -2180,6 +2243,7 @@ public function self_order_tables_print()
         $this->load->view('pos/customer_review_station_print', [
             'station' => $station,
             'station_url' => $this->Pos_customer_review_model->station_url($station),
+            'business_profile' => $this->business_profile(),
         ]);
     }
 
@@ -2682,7 +2746,12 @@ public function self_order_tables_print()
 
         $file = $files[$key];
         if ($key === 'config_json') {
-            $content = $this->build_printer_agent_config_json(trim((string)$this->input->get('agent_name', true)));
+            try {
+                $content = $this->build_printer_agent_config_json(trim((string)$this->input->get('agent_name', true)));
+            } catch (RuntimeException $exception) {
+                show_error(html_escape($exception->getMessage()), 503, 'Konfigurasi Printer Agent belum siap');
+                return;
+            }
             $this->output
                 ->set_content_type('application/json')
                 ->set_header('Content-Disposition: attachment; filename="' . $file['filename'] . '"')
@@ -5760,6 +5829,102 @@ public function self_order_tables_print()
         $this->require_permission($this->printer_config_permission_page($pageCode), $action);
     }
 
+    private function printer_general_csrf(): string
+    {
+        $token = (string)$this->session->userdata(self::POS_PRINTER_GENERAL_CSRF_SESSION_KEY);
+        if (preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::POS_PRINTER_GENERAL_CSRF_SESSION_KEY, $token);
+        }
+
+        return $token;
+    }
+
+    private function require_printer_general_csrf(): bool
+    {
+        if ($this->input->method(true) !== 'POST') {
+            $this->output->set_header('Allow: POST');
+            show_error('Metode request tidak diizinkan.', 405, 'Method Not Allowed');
+            return false;
+        }
+
+        $providedToken = trim((string)$this->input->post(self::POS_PRINTER_GENERAL_CSRF_FORM_FIELD, false));
+        $sessionToken = (string)$this->session->userdata(self::POS_PRINTER_GENERAL_CSRF_SESSION_KEY);
+        if (
+            preg_match('/\A[0-9a-f]{64}\z/D', $providedToken) !== 1
+            || preg_match('/\A[0-9a-f]{64}\z/D', $sessionToken) !== 1
+            || !hash_equals($sessionToken, $providedToken)
+        ) {
+            show_error('Sesi formulir tampilan cetak tidak valid. Muat ulang halaman lalu coba kembali.', 403, 'Akses Ditolak');
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Menyimpan hanya gambar logo yang berasal dari formulir Printer General.
+     * File lama tidak dihapus agar perubahan branding yang keliru tetap dapat
+     * dipulihkan manual oleh administrator bila diperlukan.
+     */
+    private function store_printer_general_logo_upload(): array
+    {
+        $file = $_FILES['logo_file'] ?? null;
+        if (!is_array($file) || (int)($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return ['ok' => true];
+        }
+        if ((int)($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return ['ok' => false, 'message' => 'Unggah logo gagal. Pilih kembali file PNG atau JPG yang ukurannya tidak lebih dari 1 MB.'];
+        }
+
+        $uploadPath = rtrim(FCPATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'assets/uploads/pos-printer-logo';
+        if (!is_dir($uploadPath) && !@mkdir($uploadPath, 0775, true) && !is_dir($uploadPath)) {
+            return ['ok' => false, 'message' => 'Folder logo cetak belum dapat disiapkan. Hubungi administrator server.'];
+        }
+        if (!is_writable($uploadPath)) {
+            return ['ok' => false, 'message' => 'Folder logo cetak tidak dapat ditulis. Hubungi administrator server.'];
+        }
+
+        $config = [
+            'upload_path' => $uploadPath,
+            'allowed_types' => 'png|jpg|jpeg',
+            'max_size' => 1024,
+            'max_width' => 2048,
+            'max_height' => 2048,
+            'encrypt_name' => true,
+            'file_ext_tolower' => true,
+            'remove_spaces' => true,
+        ];
+        $this->load->library('upload', $config, 'printer_general_logo_upload');
+        $uploader = $this->printer_general_logo_upload;
+        if (!$uploader->do_upload('logo_file')) {
+            return ['ok' => false, 'message' => 'Logo harus berupa PNG atau JPG, maksimal 1 MB dan 2048 × 2048 piksel.'];
+        }
+
+        $upload = (array)$uploader->data();
+        $fullPath = (string)($upload['full_path'] ?? '');
+        $imageInfo = $fullPath !== '' ? @getimagesize($fullPath) : false;
+        $imageType = is_array($imageInfo) ? (int)($imageInfo[2] ?? 0) : 0;
+        if (!in_array($imageType, [IMAGETYPE_PNG, IMAGETYPE_JPEG], true)) {
+            // Hanya hapus file yang baru saja ditulis pada request ini dan gagal
+            // verifikasi isi gambar; tidak menyentuh logo atau data lama.
+            if ($fullPath !== '' && is_file($fullPath)) {
+                @unlink($fullPath);
+            }
+            return ['ok' => false, 'message' => 'Isi file bukan gambar PNG atau JPG yang valid.'];
+        }
+
+        $fileName = basename((string)($upload['file_name'] ?? ''));
+        if ($fileName === '') {
+            return ['ok' => false, 'message' => 'Nama file logo tidak valid.'];
+        }
+
+        return [
+            'ok' => true,
+            'logo_url' => base_url('assets/uploads/pos-printer-logo/' . rawurlencode($fileName)),
+        ];
+    }
+
     private function stock_live_filters(): array
     {
         $status = strtoupper(trim((string)$this->input->get('status', true)));
@@ -6654,6 +6819,38 @@ public function self_order_tables_print()
         return true;
     }
 
+    private function reservation_deposit_refund_step_up_action(string $closeMode): ?string
+    {
+        if ($closeMode === 'REJECT') {
+            return 'RESERVATION_REJECT_DEPOSIT_REFUND';
+        }
+        if ($closeMode === 'CANCEL') {
+            return 'RESERVATION_CANCEL_DEPOSIT_REFUND';
+        }
+        return null;
+    }
+
+    private function consume_reservation_deposit_refund_step_up(int $reservationId, string $closeMode, array $payload): bool
+    {
+        $stepUpAction = $this->reservation_deposit_refund_step_up_action($closeMode);
+        if ($stepUpAction === null) {
+            $this->json_error('Aksi pengembalian DP reservasi tidak valid.', 422);
+            return false;
+        }
+        $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
+        $result = $this->sensitiveactionstepup->consume(
+            $this->current_actor_user_id(),
+            $stepUpAction,
+            $reservationId,
+            $payload['step_up_proof'] ?? null
+        );
+        if (!($result['ok'] ?? false)) {
+            $this->json_error((string)($result['message'] ?? 'Verifikasi ulang diperlukan sebelum mengembalikan DP reservasi.'), (int)($result['status'] ?? 428), ['step_up_required' => true]);
+            return false;
+        }
+        return true;
+    }
+
     private function consume_order_reprint_step_up(int $orderId, array $payload): bool
     {
         $this->load->library('SensitiveActionStepUp', null, 'sensitiveactionstepup');
@@ -6821,8 +7018,12 @@ public function self_order_tables_print()
             'check_saved_printers' => ['filename' => 'check_saved_printers.py', 'path' => $base . 'check_saved_printers.py'],
             'detect_py' => ['filename' => 'detect_printers.py', 'path' => $base . 'detect_printers.py'],
             'run_windows' => ['filename' => 'run_windows.bat', 'path' => $base . 'run_windows.bat'],
+            'install_windows_task' => ['filename' => 'install_windows_task.bat', 'path' => $base . 'install_windows_task.bat'],
+            'uninstall_windows_task' => ['filename' => 'uninstall_windows_task.bat', 'path' => $base . 'uninstall_windows_task.bat'],
             'detect_windows' => ['filename' => 'detect_windows.bat', 'path' => $base . 'detect_windows.bat'],
             'run_linux' => ['filename' => 'run_linux.sh', 'path' => $base . 'run_linux.sh'],
+            'install_linux_service' => ['filename' => 'install_linux_service.sh', 'path' => $base . 'install_linux_service.sh'],
+            'uninstall_linux_service' => ['filename' => 'uninstall_linux_service.sh', 'path' => $base . 'uninstall_linux_service.sh'],
             'detect_linux' => ['filename' => 'detect_linux.sh', 'path' => $base . 'detect_linux.sh'],
             'config_example' => ['filename' => 'config.example.json', 'path' => $base . 'config.example.json'],
             'config_json' => ['filename' => 'config.json', 'path' => ''],
@@ -6840,7 +7041,7 @@ public function self_order_tables_print()
             return;
         }
 
-        $temporaryBase = tempnam(sys_get_temp_dir(), 'namua_printer_agent_');
+        $temporaryBase = tempnam(sys_get_temp_dir(), 'finance_printer_agent_');
         if ($temporaryBase === false) {
             show_error('Paket printer belum bisa dibuat karena folder sementara server tidak tersedia.', 500);
             return;
@@ -6876,7 +7077,7 @@ public function self_order_tables_print()
 
         $this->output
             ->set_content_type('application/zip')
-            ->set_header('Content-Disposition: attachment; filename="namua-pos-printer-agent.zip"')
+            ->set_header('Content-Disposition: attachment; filename="finance-pos-printer-agent.zip"')
             ->set_output($content);
     }
 
@@ -6893,11 +7094,13 @@ public function self_order_tables_print()
                 'enabled' => true,
                 'base_url' => rtrim(base_url(), '/'),
                 'endpoint' => '/pos/printers/bootstrap',
-                'key' => trim((string)getenv('POS_PRINTER_BOOTSTRAP_KEY')),
+                'key' => $this->printer_agent_current_key($agentName),
                 'agent_name_param' => 'agent_name',
                 'refresh_seconds' => 30,
                 'timeout_seconds' => 8,
             ],
+            'log_max_bytes' => 2097152,
+            'log_backup_count' => 3,
             'logo' => [
                 'mode' => 'esc_star',
                 'threshold' => 180,
@@ -6929,8 +7132,9 @@ public function self_order_tables_print()
 
     private function verify_printer_agent_key(): bool
     {
-        $expectedKey = trim((string)getenv('POS_PRINTER_BOOTSTRAP_KEY'));
-        if ($expectedKey === '') {
+        $agentName = $this->normalise_printer_agent_name((string)$this->input->get('agent_name', true));
+        $expectedKeys = $this->printer_agent_expected_keys($agentName);
+        if (empty($expectedKeys)) {
             $this->output
                 ->set_status_header(503)
                 ->set_content_type('application/json')
@@ -6942,7 +7146,14 @@ public function self_order_tables_print()
         }
 
         $providedKey = trim((string)$this->input->get_request_header('X-Printer-Key', true));
-        if ($providedKey === '' || !hash_equals($expectedKey, $providedKey)) {
+        $isValid = false;
+        foreach ($expectedKeys as $expectedKey) {
+            if ($providedKey !== '' && hash_equals($expectedKey, $providedKey)) {
+                $isValid = true;
+                break;
+            }
+        }
+        if (!$isValid) {
             $this->output
                 ->set_status_header(403)
                 ->set_content_type('application/json')
@@ -6953,6 +7164,60 @@ public function self_order_tables_print()
             return false;
         }
         return true;
+    }
+
+    private function printer_agent_current_key(string $agentName): string
+    {
+        $keys = $this->printer_agent_expected_keys($this->normalise_printer_agent_name($agentName));
+        if (empty($keys)) {
+            throw new RuntimeException('POS Printer Agent belum dipasangkan dengan key pada server. Hubungi administrator server untuk melengkapi environment PHP-FPM.');
+        }
+        return (string)$keys[0];
+    }
+
+    private function printer_agent_expected_keys(string $agentName): array
+    {
+        $configured = trim((string)getenv('POS_PRINTER_AGENT_KEYS'));
+        if ($configured !== '') {
+            $decoded = json_decode($configured, true);
+            if (!is_array($decoded) || $agentName === '' || !array_key_exists($agentName, $decoded)) {
+                return [];
+            }
+            $record = $decoded[$agentName];
+            if (is_string($record)) {
+                $record = ['current' => $record];
+            }
+            if (!is_array($record)) {
+                return [];
+            }
+            return $this->printer_agent_non_empty_keys([
+                $record['current'] ?? '',
+                $record['previous'] ?? '',
+            ]);
+        }
+
+        return $this->printer_agent_non_empty_keys([
+            getenv('POS_PRINTER_BOOTSTRAP_KEY'),
+            getenv('POS_PRINTER_BOOTSTRAP_KEY_PREVIOUS'),
+        ]);
+    }
+
+    private function printer_agent_non_empty_keys(array $values): array
+    {
+        $keys = [];
+        foreach ($values as $value) {
+            $value = trim((string)$value);
+            if ($value !== '') {
+                $keys[] = $value;
+            }
+        }
+        return array_values(array_unique($keys));
+    }
+
+    private function normalise_printer_agent_name(string $value): string
+    {
+        $value = strtoupper(trim($value));
+        return preg_match('/^[A-Z0-9][A-Z0-9_.-]{0,79}$/', $value) ? $value : '';
     }
 
     private function pos_app_config_value(string $key, string $default = ''): string

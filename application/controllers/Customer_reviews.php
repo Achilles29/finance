@@ -8,6 +8,7 @@ class Customer_reviews extends CI_Controller
     {
         parent::__construct();
         $this->load->model('Pos_customer_review_model');
+        $this->load->model('Business_profile_model');
         $this->load->library(['CustomerReviewGuard', 'CustomerReviewInput']);
         $this->output->set_header('Cache-Control: private, no-store');
         $this->output->set_header('Referrer-Policy: no-referrer');
@@ -99,6 +100,7 @@ class Customer_reviews extends CI_Controller
             'token' => $token,
             'result' => $result,
             'form_guard' => (string)($guard['token'] ?? ''),
+            'business_profile' => $this->business_profile(),
         ]);
     }
 
@@ -112,6 +114,18 @@ class Customer_reviews extends CI_Controller
             'station_code' => $code,
             'result' => $result,
             'form_guard' => (string)($guard['token'] ?? ''),
+            'business_profile' => $this->business_profile(),
         ]);
+    }
+
+    /** Public forms may use only display data; schema failure stays neutral. */
+    private function business_profile(): array
+    {
+        try {
+            $profile = $this->Business_profile_model->profile();
+            return is_array($profile) ? $profile : [];
+        } catch (Throwable $error) {
+            return [];
+        }
     }
 }

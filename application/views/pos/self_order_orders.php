@@ -51,6 +51,9 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     border:1px dashed rgba(189,170,154,.6); border-radius:16px; padding:1.4rem; text-align:center;
     color:#8b7a70; background:#fffaf6;
   }
+  .self-order-table-region.is-loading .self-order-table { opacity:.48; pointer-events:none; transition:opacity .16s ease; }
+  .self-order-list-state { border:1px solid rgba(224,209,198,.82); border-radius:16px; padding:.9rem 1rem; color:#78655d; background:#fffdfb; text-align:center; }
+  .self-order-list-state.is-error { border-color:#efb7bc; color:#9e2936; background:#fff5f5; }
   .self-order-status-chip, .self-order-payment-chip {
     display:inline-flex; align-items:center; gap:.3rem; padding:.22rem .58rem; border-radius:999px;
     font-size:.72rem; font-weight:800; white-space:nowrap;
@@ -173,7 +176,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
 
         <div class="self-order-summary-grid mb-3" id="self_order_summary_grid"></div>
 
-        <div class="table-responsive">
+        <div class="table-responsive self-order-table-region" id="self_order_table_region" aria-busy="false">
           <table class="table table-sm align-middle table-hover self-order-table">
             <thead>
               <tr>
@@ -188,10 +191,11 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
             <tbody id="self_order_body"></tbody>
           </table>
         </div>
-        <div id="self_order_empty_state" class="self-order-empty d-none">Belum ada order self order pada filter ini.</div>
+        <div id="self_order_empty_state" class="self-order-empty d-none" role="status" aria-live="polite">Belum ada order self order pada filter ini.</div>
+        <div id="self_order_list_state" class="self-order-list-state d-none mt-3" role="status" aria-live="polite"></div>
         <div class="d-flex justify-content-between align-items-center mt-3">
-          <small id="self_order_pagination_info" class="text-muted"></small>
-          <div class="d-flex gap-1" id="self_order_pagination"></div>
+          <small id="self_order_pagination_info" class="text-muted" aria-live="polite"></small>
+          <div class="d-flex gap-1" id="self_order_pagination" aria-label="Navigasi halaman self order"></div>
         </div>
       </div>
     </div>
@@ -349,6 +353,9 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   let verifyBusy = false;
   let rejectRow = null;
   let rejectBusy = false;
+  let listSearchTimer = null;
+  let listRequestController = null;
+  let listRequestId = 0;
   const orderDetailCache = new Map();
   let incomingPollBusy = false;
   let incomingBaselineReady = false;
@@ -401,8 +408,8 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       .replace(/'/g, '&#039;');
   }
 
-  function getJson(url) {
-    return fetch(url, { credentials: 'same-origin' }).then(async (res) => {
+  function getJson(url, signal = null) {
+    return fetch(url, { credentials: 'same-origin', signal, headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(async (res) => {
       const text = await res.text();
       let json = null;
       try { json = JSON.parse(text); } catch (e) { json = null; }
@@ -609,7 +616,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     host.querySelectorAll('[data-payment-tab]').forEach((btn) => btn.addEventListener('click', () => {
       state.payment_tab = btn.dataset.paymentTab || 'ALL';
       state.page = 1;
-      loadRows().catch((e) => showInfoModal(e.message));
+      loadRows();
     }));
   }
 
@@ -624,7 +631,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     host.querySelectorAll('[data-status-tab]').forEach((btn) => btn.addEventListener('click', () => {
       state.status_tab = btn.dataset.statusTab || 'ALL';
       state.page = 1;
-      loadRows().catch((e) => showInfoModal(e.message));
+      loadRows();
     }));
   }
 
@@ -772,11 +779,11 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     const pager = document.getElementById('self_order_pagination');
     pager.innerHTML = Array.from({ length: totalPages }, (_, idx) => {
       const currentPage = idx + 1;
-      return `<button type="button" class="btn btn-sm ${currentPage === page ? 'btn-dark' : 'btn-outline-secondary'}" data-page="${currentPage}">${currentPage}</button>`;
+      return `<button type="button" class="btn btn-sm ${currentPage === page ? 'btn-dark' : 'btn-outline-secondary'}" data-page="${currentPage}" aria-label="Halaman ${currentPage}" ${currentPage === page ? 'aria-current="page"' : ''}>${currentPage}</button>`;
     }).join('');
     pager.querySelectorAll('[data-page]').forEach((btn) => btn.addEventListener('click', () => {
       state.page = Number(btn.dataset.page || 1);
-      loadRows().catch((e) => showInfoModal(e.message));
+      loadRows();
     }));
   }
 
@@ -786,6 +793,8 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     if (!Array.isArray(rows) || !rows.length) {
       body.innerHTML = '';
       empty.classList.remove('d-none');
+      empty.innerHTML = '<strong>Belum ada order self order pada filter ini.</strong><div class="small mt-1">Periksa mode pembayaran, status, rentang tanggal, outlet, atau pencarian.</div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-self-order-clear>Bersihkan filter</button>';
+      empty.querySelector('[data-self-order-clear]')?.addEventListener('click', resetListFilters);
       return;
     }
     empty.classList.add('d-none');
@@ -852,7 +861,46 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     }));
   }
 
+  function setListState(type = '', message = '', retry = false) {
+    const region = document.getElementById('self_order_table_region');
+    const box = document.getElementById('self_order_list_state');
+    const empty = document.getElementById('self_order_empty_state');
+    if (!region || !box) return;
+    region.classList.toggle('is-loading', type === 'loading');
+    region.setAttribute('aria-busy', type === 'loading' ? 'true' : 'false');
+    box.className = `self-order-list-state mt-3 ${type ? `is-${type}` : 'd-none'}`;
+    if (type === 'loading' && empty) empty.classList.add('d-none');
+    if (!type) {
+      box.innerHTML = '';
+      return;
+    }
+    const spinner = type === 'loading' ? '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>' : '';
+    const retryButton = retry ? '<button type="button" class="btn btn-sm btn-outline-danger ms-2" data-self-order-retry>Coba lagi</button>' : '';
+    box.innerHTML = `${spinner}${escapeHtml(message)}${retryButton}`;
+    box.querySelector('[data-self-order-retry]')?.addEventListener('click', () => loadRows());
+  }
+
+  function resetListFilters() {
+    state.q = '';
+    state.outlet_id = 0;
+    state.payment_tab = 'ALL';
+    state.status_tab = 'NEEDS_VERIFY';
+    state.date_from = '<?php echo date('Y-m-d'); ?>';
+    state.date_to = '<?php echo date('Y-m-d'); ?>';
+    state.page = 1;
+    state.limit = 20;
+    document.getElementById('self_order_q').value = '';
+    document.getElementById('self_order_outlet_id').value = '0';
+    document.getElementById('self_order_date_from').value = state.date_from;
+    document.getElementById('self_order_date_to').value = state.date_to;
+    document.getElementById('self_order_limit').value = String(state.limit);
+    loadRows();
+  }
+
   async function loadRows() {
+    const requestId = ++listRequestId;
+    if (listRequestController) listRequestController.abort();
+    listRequestController = window.AbortController ? new AbortController() : null;
     const qs = new URLSearchParams();
     qs.set('q', state.q || '');
     qs.set('outlet_id', String(state.outlet_id || 0));
@@ -862,13 +910,34 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     qs.set('date_to', state.date_to || '');
     qs.set('page', String(state.page || 1));
     qs.set('limit', String(state.limit || 20));
-    const json = await getJson('<?php echo site_url('pos/self-order/orders/data'); ?>?' + qs.toString());
-    summaryCounts = Object.assign({ ALL: 0, NEEDS_VERIFY: 0, WAITING_PAYMENT: 0, ACTIVE_CASHIER: 0, PAID_ORDER: 0, REJECTED: 0 }, json.counts || {});
-    renderPaymentTabs();
-    renderStatusTabs();
-    renderSummaryGrid();
-    renderRows(Array.isArray(json.rows) ? json.rows : []);
-    renderPager(json.meta || {});
+    setListState('loading', 'Memuat order self order...');
+    try {
+      const json = await getJson(
+        '<?php echo site_url('pos/self-order/orders/data'); ?>?' + qs.toString(),
+        listRequestController ? listRequestController.signal : null
+      );
+      if (requestId !== listRequestId) return;
+      summaryCounts = Object.assign({ ALL: 0, NEEDS_VERIFY: 0, WAITING_PAYMENT: 0, ACTIVE_CASHIER: 0, PAID_ORDER: 0, REJECTED: 0 }, json.counts || {});
+      setListState();
+      renderPaymentTabs();
+      renderStatusTabs();
+      renderSummaryGrid();
+      renderRows(Array.isArray(json.rows) ? json.rows : []);
+      renderPager(json.meta || {});
+    } catch (error) {
+      if (error && error.name === 'AbortError') return;
+      if (requestId !== listRequestId) return;
+      setListState('error', error.message || 'Order self order tidak dapat dimuat.', true);
+    } finally {
+      if (requestId === listRequestId) {
+        listRequestController = null;
+        const region = document.getElementById('self_order_table_region');
+        if (region) {
+          region.classList.remove('is-loading');
+          region.setAttribute('aria-busy', 'false');
+        }
+      }
+    }
   }
 
   async function pollIncomingOrders() {
@@ -910,7 +979,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
         const newest = newRows[0] || {};
         const tableLabel = String(newest.table_no || '').trim() !== '' ? ` | ${newest.table_no}` : '';
         showToast(`Order baru masuk: ${newest.order_no || 'SELF-ORDER'}${tableLabel}`, 'info');
-        loadRows().catch((e) => showInfoModal(e.message));
+        loadRows();
       }
     } catch (e) {
       // polling failure should not disturb cashier
@@ -1129,43 +1198,31 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     q.addEventListener('input', () => {
       state.q = q.value;
       state.page = 1;
-      loadRows().catch((e) => showInfoModal(e.message));
+      clearTimeout(listSearchTimer);
+      listSearchTimer = setTimeout(() => loadRows(), 250);
     });
     outlet.addEventListener('change', () => {
       state.outlet_id = Number(outlet.value || 0);
       state.page = 1;
-      loadRows().catch((e) => showInfoModal(e.message));
+      loadRows();
     });
     dateFrom.addEventListener('change', () => {
       state.date_from = dateFrom.value;
       state.page = 1;
-      loadRows().catch((e) => showInfoModal(e.message));
+      loadRows();
     });
     dateTo.addEventListener('change', () => {
       state.date_to = dateTo.value;
       state.page = 1;
-      loadRows().catch((e) => showInfoModal(e.message));
+      loadRows();
     });
     limit.addEventListener('change', () => {
       state.limit = Number(limit.value || 20);
       state.page = 1;
-      loadRows().catch((e) => showInfoModal(e.message));
+      loadRows();
     });
     document.getElementById('self_order_reset_filter').addEventListener('click', () => {
-      state.q = '';
-      state.outlet_id = 0;
-      state.payment_tab = 'ALL';
-      state.status_tab = 'NEEDS_VERIFY';
-      state.date_from = '<?php echo date('Y-m-d'); ?>';
-      state.date_to = '<?php echo date('Y-m-d'); ?>';
-      state.page = 1;
-      state.limit = 20;
-      q.value = '';
-      outlet.value = '0';
-      dateFrom.value = state.date_from;
-      dateTo.value = state.date_to;
-      limit.value = String(state.limit);
-      loadRows().catch((e) => showInfoModal(e.message));
+      resetListFilters();
     });
     const verifyDestination = document.getElementById('self_order_verify_destination');
     if (verifyDestination) {
@@ -1181,7 +1238,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   renderSummaryGrid();
   document.addEventListener('pointerdown', unlockNotifyAudio, { once: true, passive: true });
   document.addEventListener('keydown', unlockNotifyAudio, { once: true });
-  loadRows().catch((e) => showInfoModal(e.message));
+  loadRows();
   pollIncomingOrders();
   window.setInterval(pollIncomingOrders, 12000);
 })();

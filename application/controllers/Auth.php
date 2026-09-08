@@ -15,6 +15,7 @@ class Auth extends CI_Controller
     {
         parent::__construct();
         $this->load->model('Auth_model');
+        $this->load->model('Business_profile_model');
         $this->load->helper(['url', 'form']);
         $this->load->library(['session', 'form_validation']);
     }
@@ -37,9 +38,12 @@ class Auth extends CI_Controller
             redirect($target);
         }
 
+        $businessProfile = $this->Business_profile_model->profile();
+        $businessName = trim((string)($businessProfile['display_name'] ?? '')) ?: 'Finance';
         $data = [
-            'title'     => 'Login — Finance App',
+            'title'     => 'Login — ' . $businessName,
             'error_msg' => $this->session->flashdata('login_error'),
+            'business_profile' => $businessProfile,
         ];
 
         $this->load->view('auth/login', $data);

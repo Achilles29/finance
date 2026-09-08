@@ -159,12 +159,15 @@ foreach ($issues as $issueRow) {
   </div>
 </div>
 
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Dokumen FIFO</div><div class="h5 mb-0"><?php echo number_format($summaryIssueCount); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Line Alokasi</div><div class="h5 mb-0"><?php echo number_format($summaryLineCount); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Qty</div><div class="h5 mb-0"><?php echo number_format($summaryQty, 2, ',', '.'); ?></div></div></div></div>
-  <div class="col-6 col-md-3"><div class="card"><div class="card-body py-2"><div class="small text-muted">Total Cost</div><div class="h5 mb-0">Rp <?php echo number_format($summaryCost, 2, ',', '.'); ?></div></div></div></div>
-</div>
+<?php $this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan audit FIFO',
+  'stock_summary_cards' => [
+    ['label' => 'Dokumen FIFO', 'value' => number_format($summaryIssueCount), 'tone' => 'violet', 'icon' => 'ri-file-list-3-line'],
+    ['label' => 'Line Alokasi', 'value' => number_format($summaryLineCount), 'tone' => 'aqua', 'icon' => 'ri-layout-grid-line'],
+    ['label' => 'Total Qty', 'value' => number_format($summaryQty, 2, ',', '.'), 'tone' => 'amber', 'icon' => 'ri-scales-3-line'],
+    ['label' => 'Total Cost', 'value' => 'Rp ' . number_format($summaryCost, 2, ',', '.'), 'tone' => 'teal', 'icon' => 'ri-money-dollar-circle-line'],
+  ],
+]); ?>
 
 <div class="card">
   <div class="card-body pb-0">

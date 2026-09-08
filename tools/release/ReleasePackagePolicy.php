@@ -63,7 +63,7 @@ final class ReleasePackagePolicy
             'include_roots' => ['application/', 'assets/', 'docs/', 'scripts/', 'sql/', 'system/', 'tools/', 'wa-engine/'],
             'include_files' => ['.htaccess', '.user.ini', 'README.md', 'composer.lock', 'composer.json', 'index.php', 'license.txt', 'readme.rst'],
             'deny_exact' => ['application/controllers/Audit.php', 'application/libraries/AuditRoadmapReader.php', 'docs/_NOTE.md'],
-            'deny_prefixes' => ['application/cache/', 'application/logs/', 'application/views/audit/', 'backup/', 'docs/2026-', 'docs/_old/', 'output/', 'sql/_old/', 'tmp/', 'uploads/', 'vendor/'],
+            'deny_prefixes' => ['application/cache/', 'application/logs/', 'application/views/audit/', 'assets/uploads/', 'backup/', 'docs/2026-', 'docs/_NOTE', 'docs/_old/', 'output/', 'sql/_old/', 'tmp/', 'uploads/', 'vendor/'],
             'deny_segments' => ['/.runtime/', '/.venv/', '/__pycache__/', '/node_modules/'],
             'deny_basenames' => ['.env'],
             'deny_suffixes' => ['.log', '.pid', '.sql.gz', '_bak.php'],

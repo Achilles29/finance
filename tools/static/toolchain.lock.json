@@ -16,8 +16,8 @@
     "config_relative_path": "tools/static/phpstan.neon",
     "baseline_relative_path": "tools/static/phpstan-baseline.neon",
     "scope_relative_path": "application",
-    "baseline_error_count": 5008,
-    "maximum_baseline_errors": 5008,
+    "baseline_error_count": 0,
+    "maximum_baseline_errors": 0,
     "timeout_seconds": 150,
     "maximum_captured_bytes": 262144
   }

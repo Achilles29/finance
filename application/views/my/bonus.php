@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $employee = $employee ?? null;
 $employeeOptions = $employee_options ?? [];
 $selectedEmployeeId = (int)($selected_employee_id ?? 0);

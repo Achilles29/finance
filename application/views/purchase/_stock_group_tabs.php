@@ -6,8 +6,8 @@ if (!in_array($tabScope, ['WAREHOUSE', 'DIVISION'], true)) {
     return;
 }
 
-$buttonClass = static function (string $tabKey) use ($activeTab): string {
-    return $activeTab === $tabKey ? 'btn btn-sm btn-dark' : 'btn btn-sm btn-outline-secondary';
+$tabClass = static function (string $tabKey) use ($activeTab): string {
+    return 'stock-scope-tab' . ($activeTab === $tabKey ? ' is-active' : '');
 };
 
 if ($tabScope === 'DIVISION') {
@@ -40,14 +40,31 @@ if ($tabScope === 'DIVISION') {
 }
 
 ?>
-<div class="d-flex flex-wrap gap-1 align-items-center">
-  <?php foreach ($links as $link): ?>
-    <a href="<?php echo $link['url']; ?>" class="<?php echo $buttonClass((string)$link['key']); ?>"><?php echo html_escape((string)$link['label']); ?></a>
-  <?php endforeach; ?>
-</div>
-<?php if ($tabScope === 'WAREHOUSE' && in_array($activeTab, ['lot', 'fifo_audit'], true)): ?>
-  <div class="d-flex flex-wrap gap-1 align-items-center mt-2">
-    <a href="<?php echo site_url('inventory/stock/warehouse/lot'); ?>" class="<?php echo $buttonClass('lot'); ?>">Audit Profil Gudang</a>
-    <a href="<?php echo site_url('inventory/fifo-audit?scope=WAREHOUSE'); ?>" class="<?php echo $buttonClass('fifo_audit'); ?>">FIFO Audit Gudang</a>
+<style>
+  .stock-scope-tabs { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:.5rem; margin:0 0 .65rem; }
+  .stock-scope-tabs__label { min-width:86px; padding-top:.38rem; color:#7a6d62; font-size:.72rem; font-weight:800; letter-spacing:.055em; text-transform:uppercase; }
+  .stock-scope-tabs__list { display:flex; gap:.42rem; min-width:0; overflow-x:auto; padding:.08rem .08rem .35rem; scrollbar-width:thin; }
+  .stock-scope-tab { display:inline-flex; flex:0 0 auto; align-items:center; min-height:32px; border:1px solid #eadbd2; border-radius:9px; background:#fffaf7; color:#6e5147; padding:.4rem .66rem; font-size:.76rem; font-weight:700; line-height:1.15; text-decoration:none; transition:background .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease; }
+  .stock-scope-tab:hover { border-color:#bc8270; background:#fff1e9; color:#5b2419; }
+  .stock-scope-tab:focus-visible { outline:3px solid rgba(165,80,53,.25); outline-offset:2px; }
+  .stock-scope-tab.is-active { border-color:#6a2d3c; background:linear-gradient(135deg,#6a2d3c,#8d4454); box-shadow:0 4px 10px rgba(106,45,60,.22); color:#fff; }
+  @media (max-width:575px) { .stock-scope-tabs { grid-template-columns:1fr; gap:.1rem; } .stock-scope-tabs__label { padding-top:0; } .stock-scope-tabs__list { padding-bottom:.45rem; } }
+</style>
+<nav class="stock-scope-tabs" aria-label="Navigasi stok <?php echo $tabScope === 'DIVISION' ? 'bahan baku' : 'gudang'; ?>">
+  <span class="stock-scope-tabs__label"><?php echo $tabScope === 'DIVISION' ? 'Bahan baku' : 'Gudang'; ?></span>
+  <div class="stock-scope-tabs__list" role="list">
+    <?php foreach ($links as $link): ?>
+      <?php $isActive = $activeTab === (string)$link['key']; ?>
+      <a href="<?php echo html_escape((string)$link['url']); ?>" class="<?php echo $tabClass((string)$link['key']); ?>"<?php echo $isActive ? ' aria-current="page"' : ''; ?>><?php echo html_escape((string)$link['label']); ?></a>
+    <?php endforeach; ?>
   </div>
+</nav>
+<?php if ($tabScope === 'WAREHOUSE' && in_array($activeTab, ['lot', 'fifo_audit'], true)): ?>
+  <nav class="stock-scope-tabs" aria-label="Audit stok gudang">
+    <span class="stock-scope-tabs__label">Audit</span>
+    <div class="stock-scope-tabs__list" role="list">
+      <a href="<?php echo html_escape(site_url('inventory/stock/warehouse/lot')); ?>" class="<?php echo $tabClass('lot'); ?>"<?php echo $activeTab === 'lot' ? ' aria-current="page"' : ''; ?>>Audit Profil Gudang</a>
+      <a href="<?php echo html_escape(site_url('inventory/fifo-audit?scope=WAREHOUSE')); ?>" class="<?php echo $tabClass('fifo_audit'); ?>"<?php echo $activeTab === 'fifo_audit' ? ' aria-current="page"' : ''; ?>>FIFO Audit Gudang</a>
+    </div>
+  </nav>
 <?php endif; ?>

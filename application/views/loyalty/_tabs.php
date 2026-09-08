@@ -12,31 +12,37 @@ $links = [
 ];
 ?>
 <style>
+  .loyalty-tabs {
+    display:grid; grid-template-columns:88px minmax(0,1fr); gap:.5rem; align-items:start; margin-bottom:1rem;
+  }
   .loyalty-label {
-    min-width: 88px;
     font-size: .74rem;
     font-weight: 700;
     letter-spacing: .04em;
     text-transform: uppercase;
     color: #7a6d62;
-    padding-top: .35rem;
+    padding-top: .42rem;
   }
+  .loyalty-tab-list { display:flex; gap:.42rem; min-width:0; overflow-x:auto; padding:.08rem .08rem .35rem; scrollbar-width:thin; }
   .loyalty-pill {
-    display:inline-flex; align-items:center; justify-content:center; min-height:38px; padding:.45rem .9rem;
+    display:inline-flex; flex:0 0 auto; align-items:center; justify-content:center; min-height:38px; padding:.45rem .9rem;
     border-radius:10px; font-size:.92rem; font-weight:600; text-decoration:none; border:1px solid #cbb8aa;
     background:#fffaf6; color:#6a5c54;
   }
   .loyalty-pill.is-active {
     background:#7f2f33; border-color:#7f2f33; color:#fff;
   }
+  .loyalty-pill:focus-visible { outline:3px solid rgba(127,47,51,.24); outline-offset:2px; }
+  @media (max-width:575px) { .loyalty-tabs { grid-template-columns:1fr; gap:.1rem; } .loyalty-label { padding-top:0; } .loyalty-tab-list { padding-bottom:.45rem; } }
 </style>
-<div class="d-flex flex-wrap gap-2 align-items-start mb-3">
+<nav class="loyalty-tabs" aria-label="Navigasi Loyalty">
   <div class="loyalty-label">Loyalty</div>
-  <div class="d-flex flex-wrap gap-2">
+  <div class="loyalty-tab-list" role="list">
     <?php foreach ($links as $link): ?>
-      <a href="<?php echo $link['url']; ?>" class="loyalty-pill <?php echo $activeTab === $link['key'] ? 'is-active' : ''; ?>">
+      <?php $isActive = $activeTab === $link['key']; ?>
+      <a href="<?php echo html_escape((string)$link['url']); ?>" class="loyalty-pill <?php echo $isActive ? 'is-active' : ''; ?>"<?php echo $isActive ? ' aria-current="page"' : ''; ?>>
         <?php echo html_escape((string)$link['label']); ?>
       </a>
     <?php endforeach; ?>
   </div>
-</div>
+</nav>

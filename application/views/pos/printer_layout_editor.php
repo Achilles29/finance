@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 $layout = is_array($layout_row ?? null) ? $layout_row : [];
 $payload = is_array($layout['payload'] ?? null) ? $layout['payload'] : [];
 $documentTypes = (array)($document_types ?? []);

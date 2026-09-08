@@ -7,13 +7,13 @@ class Menu_book extends CI_Controller
     {
         parent::__construct();
         $this->load->helper('url');
+        $this->load->model('Business_profile_model');
     }
 
     public function index()
     {
-        $data = [
-            'title' => 'Menu Book - NAMUA Coffee & Eatery',
-        ];
+        if ($this->render_customer_template()) return;
+        $data = $this->view_identity();
 
         $this->load->view('menu_book/index', $data);
     }
@@ -77,22 +77,48 @@ class Menu_book extends CI_Controller
 
     public function flipbook()
     {
-        $data = ['title' => 'Menu Book — NAMUA Coffee & Eatery'];
+        if ($this->render_customer_template()) return;
+        $data = $this->view_identity();
         $this->load->view('menu_book/flipbook', $data);
     }
 
     private function _load_menu_page($page, $allowed_pages)
     {
+        if ($this->render_customer_template()) return;
         if (!array_key_exists($page, $allowed_pages)) {
             show_404();
             return;
         }
 
-        $data = [
-            'title' => 'Menu Book - NAMUA Coffee & Eatery',
-            'page'  => $page,
-        ];
+        $data = $this->view_identity() + ['page' => $page];
 
         $this->load->view($allowed_pages[$page], $data);
+    }
+
+    private function render_customer_template(): bool
+    {
+        $template = $this->Business_profile_model->menu_book_template();
+        if ($template === 'legacy_namua') return false;
+        if ($template === 'disabled') { show_404(); return true; }
+        $items = [];
+        if ($this->db->table_exists('mst_product') && $this->db->field_exists('show_landing', 'mst_product')) {
+            // Publication is opt-in. Do not call the landing sales ranking (which reads orders).
+            $items = $this->db->select('p.product_name, p.description, p.selling_price, c.name AS category_name')
+                ->from('mst_product p')->join('mst_product_category c', 'c.id = p.product_category_id', 'left')
+                ->where('p.is_active', 1)->where('p.show_landing', 1)
+                ->order_by('c.sort_order', 'ASC')->order_by('c.name', 'ASC')->order_by('p.product_name', 'ASC')
+                ->get()->result_array();
+        }
+        $this->load->view('menu_book/customer', $this->view_identity() + ['items' => $items]);
+        return true;
+    }
+
+    /** Browser metadata may follow the local customer; legacy menu artwork/content stays a separate template. */
+    private function view_identity(): array
+    {
+        $profile = $this->Business_profile_model->profile();
+        $name = trim((string)($profile['display_name'] ?? ''));
+        $name = $name !== '' ? $name : 'Finance';
+        return ['title' => 'Menu Book — ' . $name, 'business_profile' => $profile];
     }
 }

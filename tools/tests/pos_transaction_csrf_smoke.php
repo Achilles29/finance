@@ -235,7 +235,7 @@ class PosTransactionCsrfSmokeStepUp
         $this->calls[] = [(int)$userId, (string)$action, $targetId, $proof];
 
         $valid = (int)$userId === 2
-            && in_array((string)$action, ['VOID', 'REFUND', 'ORDER_REPRINT'], true)
+            && in_array((string)$action, ['VOID', 'REFUND', 'ORDER_REPRINT', 'RESERVATION_REJECT_DEPOSIT_REFUND', 'RESERVATION_CANCEL_DEPOSIT_REFUND'], true)
             && (int)$targetId === 1701
             && is_string($proof)
             && preg_match('/\A[a-f0-9]{64}\z/D', $proof) === 1;
@@ -570,8 +570,8 @@ pos_transaction_csrf_check(
     'the eight relevant transaction views receive the rendered token'
 );
 pos_transaction_csrf_check(
-    preg_match_all('/\$this->require_pos_transaction_csrf\s*\(\s*\)/', $controllerSource, $matches) === 32,
-    'exactly thirty-two transaction writers call the scoped guard'
+    preg_match_all('/\$this->require_pos_transaction_csrf\s*\(\s*\)/', $controllerSource, $matches) === 33,
+    'exactly thirty-two transaction writers and one refund-proof issuer call the scoped guard'
 );
 
 $actions = [
@@ -934,19 +934,19 @@ $viewRenderMarkers = [
         ],
     ],
     'reservation' => [
-        'wrapperCalls' => 5,
+        'wrapperCalls' => 6,
         'directFetch' => true,
         'targetCalls' => [
             'postPosTransactionJson(urls.save,payload)',
             'postPosTransactionJson(`${urls.deposit}/${id}`,payload)',
             'postPosTransactionJson(`${urls.verify}/${id}`,{})',
-            'postPosTransactionJson(`${endpoint}/${id}`,{reason,refund_deposit:el(\'reservation_close_refund\').checked})',
+            'postPosTransactionJson(urls.refundStepUp,{reservation_id:id,close_mode:state.closeMode,password})',
+            'await postPosTransactionJson(`${endpoint}/${id}`,payload)',
         ],
         'legacyCalls' => [
             'request(urls.save,\'POST\',payload)',
             'request(`${urls.deposit}/${id}`,\'POST\',payload)',
             'request(`${urls.verify}/${id}`,\'POST\',{})',
-            'request(`${endpoint}/${id}`,\'POST\',{reason,refund_deposit:el(\'reservation_close_refund\').checked})',
         ],
     ],
     'self_order' => [
@@ -1047,7 +1047,7 @@ pos_transaction_csrf_check(
 );
 pos_transaction_csrf_check(
     strpos($viewSources['reservation'], 'const data=await request(`${urls.detail}/${id}`)') !== false
-        && strpos($viewSources['reservation'], 'const data=await request(`${endpoint}?${statusQuery()}`)') !== false,
+        && strpos($viewSources['reservation'], 'const data=await request(`${endpoint}?${statusQuery()}`,\'GET\',null,') !== false,
     'reservation read-only detail and list callers keep using the generic request helper'
 );
 $reservationSaveCallerSource = pos_transaction_csrf_view_function_block(
@@ -1402,7 +1402,7 @@ $reservationWriterCases = [
     'reservation_reject' => [
         'writer' => 'reject_reservation',
         'permission' => 'edit',
-        'rawInput' => '{"reason":"  Alasan smoke  ","refund_deposit":true,"sentinel":true}',
+        'rawInput' => '{"reason":"  Alasan smoke  ","refund_deposit":true,"step_up_proof":"' . str_repeat('a', 64) . '","sentinel":true}',
         'expectedArguments' => [1701, 1, 2, 'Alasan smoke', true],
     ],
     'reservation_cancel' => [

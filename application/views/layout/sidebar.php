@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * layout/sidebar.php — Materio sidebar, two-portal system
  *
@@ -129,12 +129,15 @@ if (!function_exists('render_menu_tree')) {
             $label        = htmlspecialchars($item['menu_label'] ?? '');
             $menu_id      = (int)($item['id'] ?? 0);
             $is_fav       = ($menu_id > 0) && !empty($fav_map[$menu_id]);
+            // Kedalaman keempat dan seterusnya dipadatkan. Nilai dicap agar
+            // tree legacy yang lebih dalam tidak kembali ke CSS bawaan tema.
+            $visual_depth = min(3, max(0, $depth));
 
             if ($has_children) {
                 // Menu group dengan sub-items
                 $open_class = $child_active ? 'open active current-path' : (($is_active) ? 'open active' : '');
                 ?>
-                <li class="menu-item <?= $open_class ?>">
+                <li class="menu-item sidebar-menu-item sidebar-depth-<?= $visual_depth ?> <?= $open_class ?>" data-sidebar-depth="<?= $visual_depth ?>">
                   <a href="javascript:void(0);" class="menu-link menu-toggle"<?php if (!empty($item['is_favoritable'])): ?> data-sidebar-favorite-url="<?= htmlspecialchars(base_url(ltrim((string)$item['url'], '/')), ENT_QUOTES, 'UTF-8') ?>"<?php endif; ?>>
                     <i class="menu-icon tf-icons ri <?= $icon_class ?>"></i>
                     <div class="flex-grow-1"><?= $label ?></div>
@@ -149,7 +152,7 @@ if (!function_exists('render_menu_tree')) {
                     </button>
                     <?php endif; ?>
                   </a>
-                  <ul class="menu-sub">
+                  <ul class="menu-sub sidebar-menu-sub sidebar-children-depth-<?= min(3, $visual_depth + 1) ?>">
                     <?php render_menu_tree($item['children'], $active_menu, $current_uri, $depth + 1, $fav_map); ?>
                   </ul>
                 </li>
@@ -158,7 +161,7 @@ if (!function_exists('render_menu_tree')) {
                 // Link langsung
                 $active_class = $is_active ? 'active' : '';
                 ?>
-                <li class="menu-item <?= $active_class ?>">
+                <li class="menu-item sidebar-menu-item sidebar-depth-<?= $visual_depth ?> <?= $active_class ?>" data-sidebar-depth="<?= $visual_depth ?>">
                   <a href="<?= base_url(ltrim($item['url'], '/')) ?>" class="menu-link">
                     <i class="menu-icon tf-icons ri <?= $icon_class ?>"></i>
                     <div class="flex-grow-1"><?= $label ?></div>
@@ -204,6 +207,13 @@ $resolved_active_code = _find_first_matching_menu_code($active_source_tree, $sb_
 if ($resolved_active_code !== '' && ($active_menu === '' || strpos($active_menu, 'grp.') === 0 || strpos($active_menu, 'master.group.') === 0)) {
   $active_menu = $resolved_active_code;
 }
+$sb_business_profile = is_array($business_profile ?? null) ? $business_profile : [];
+$sb_business_name = trim((string)($sb_business_profile['display_name'] ?? ''));
+$sb_business_name = $sb_business_name !== '' ? $sb_business_name : 'Finance';
+$sb_brand_title = trim((string)($sb_business_profile['short_name'] ?? ''));
+$sb_brand_title = $sb_brand_title !== '' ? $sb_brand_title : $sb_business_name;
+$sb_logo_url = trim((string)($sb_business_profile['logo_url'] ?? ''));
+$sb_logo_url = $sb_logo_url !== '' ? $sb_logo_url : base_url('assets/img/logo.png');
 ?>
 <aside id="layout-menu" class="layout-menu menu-vertical menu bg-menu-theme">
 
@@ -211,15 +221,15 @@ if ($resolved_active_code !== '' && ($active_menu === '' || strpos($active_menu,
   <div class="app-brand demo">
     <a href="<?= $is_employee_portal ? base_url('my') : base_url('dashboard') ?>" class="app-brand-link">
       <span class="app-brand-logo-wrap">
-        <img src="<?= base_url('assets/img/logo.png') ?>"
-             alt="Finance" width="34" height="34"
+        <img src="<?= htmlspecialchars($sb_logo_url, ENT_QUOTES, 'UTF-8') ?>"
+             alt="<?= htmlspecialchars($sb_business_name, ENT_QUOTES, 'UTF-8') ?>" width="34" height="34"
              style="object-fit:contain;display:block;"
              onerror="this.style.display='none';this.nextSibling.style.display='flex';">
         <span style="display:none;font-size:18px;font-weight:800;color:#c0392b;">F</span>
       </span>
       <span>
-        <span class="sb-brand-title"><?= $is_employee_portal ? 'PEGAWAI' : 'FINANCE' ?></span>
-        <span class="sb-brand-sub"><?= $is_employee_portal ? 'Portal Karyawan' : 'Finance Workspace' ?></span>
+        <span class="sb-brand-title"><?= htmlspecialchars($is_employee_portal ? 'PEGAWAI' : $sb_brand_title, ENT_QUOTES, 'UTF-8') ?></span>
+        <span class="sb-brand-sub"><?= htmlspecialchars($is_employee_portal ? ('Portal ' . $sb_business_name) : 'Workspace Bisnis', ENT_QUOTES, 'UTF-8') ?></span>
       </span>
     </a>
     <a href="javascript:void(0);" class="layout-menu-toggle menu-link text-large ms-auto d-xl-flex">

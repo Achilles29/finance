@@ -89,16 +89,6 @@ $uniqueComponentCount = count($uniqueComponents);
 ?>
 
 <style>
-.movement-summary-card { border:1px solid #e8e0d4;border-radius:12px;background:#fff;padding:.65rem .9rem; }
-.movement-summary-card .lbl { font-size:.68rem;color:#888;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap; }
-.movement-summary-card .val { font-size:1rem;font-weight:700;color:#2d2218;line-height:1.2;margin-top:.1rem; }
-.movement-summary-card .sub { font-size:.68rem;color:#aaa;margin-top:.15rem; }
-.movement-summary-card.green { border-color:#b5cca0;background:#f0f7ea; }
-.movement-summary-card.green .val { color:#2d6a0a; }
-.movement-summary-card.red { border-color:#f0c0b5;background:#fdf2ef; }
-.movement-summary-card.red .val { color:#a63022; }
-.movement-summary-card.blue { border-color:#b5cce0;background:#f0f5fb; }
-.movement-summary-card.blue .val { color:#1a4a7a; }
 .component-movement-wrap {
   max-height:74vh; overflow:auto;
   border:1px solid #e8d2c3; border-radius:18px;
@@ -144,63 +134,6 @@ $uniqueComponentCount = count($uniqueComponents);
     'location_type' => $selectedLoc,
   ], static fn($v) => $v !== '' && $v !== 0 && $v !== '0'),
 ]); ?>
-
-<!-- Summary cards -->
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="movement-summary-card h-100">
-      <div class="lbl">Total Mutasi</div>
-      <div class="val"><?php echo number_format($totalRows, 0, ',', '.'); ?></div>
-      <div class="sub">
-        <span style="color:#166534">▲ <?php echo $countIn; ?> masuk</span>
-        &nbsp;·&nbsp;<span style="color:#b42318">▼ <?php echo $countOut; ?> keluar</span>
-      </div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="movement-summary-card green h-100">
-      <div class="lbl">Nilai Masuk (Rp)</div>
-      <div class="val" style="font-size:.85rem">Rp <?php echo number_format($valueIn, 0, ',', '.'); ?></div>
-      <div class="sub"><?php echo number_format($qtyInTotal, 2, ',', '.'); ?> unit · <?php echo $countIn; ?> transaksi</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="movement-summary-card red h-100">
-      <div class="lbl">Nilai Keluar (Rp)</div>
-      <div class="val" style="font-size:.85rem">Rp <?php echo number_format($valueOut, 0, ',', '.'); ?></div>
-      <div class="sub"><?php echo number_format($qtyOutTotal, 2, ',', '.'); ?> unit · <?php echo $countOut; ?> transaksi</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="movement-summary-card <?php echo $netValue >= 0 ? 'green' : 'red'; ?> h-100">
-      <div class="lbl">Net Nilai</div>
-      <div class="val" style="font-size:.85rem"><?php echo $netValue >= 0 ? '+' : ''; ?>Rp <?php echo number_format($netValue, 0, ',', '.'); ?></div>
-      <div class="sub"><?php echo $netValue >= 0 ? 'Net positif (masuk lebih besar)' : 'Net negatif (keluar lebih besar)'; ?></div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="movement-summary-card blue h-100">
-      <div class="lbl">Component Unik</div>
-      <div class="val"><?php echo number_format($uniqueComponentCount, 0, ',', '.'); ?></div>
-      <div class="sub">dalam periode filter</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-4 col-xl-2">
-    <div class="movement-summary-card h-100">
-      <div class="lbl">Jenis Terbanyak</div>
-      <?php if (empty($topTypes)): ?>
-        <div class="val text-muted" style="font-size:.8rem">—</div>
-      <?php else: ?>
-        <?php foreach ($topTypes as $tl => $tc): ?>
-          <div style="display:flex;justify-content:space-between;font-size:.7rem;line-height:1.7">
-            <span class="text-truncate me-1" style="max-width:100px"><?php echo html_escape($tl); ?></span>
-            <span class="fw-bold"><?php echo $tc; ?>×</span>
-          </div>
-        <?php endforeach; ?>
-      <?php endif; ?>
-    </div>
-  </div>
-</div>
 
 <!-- Filter card -->
 <div class="card mb-3 border-0 shadow-sm">
@@ -258,6 +191,25 @@ $uniqueComponentCount = count($uniqueComponents);
     </form>
   </div>
 </div>
+
+<?php
+$topMovementType = '-';
+$topMovementCount = 0;
+if (!empty($topTypes)) {
+  $topMovementType = (string)array_key_first($topTypes);
+  $topMovementCount = (int)($topTypes[$topMovementType] ?? 0);
+}
+$this->load->view('layout/_stock_summary_cards', [
+  'stock_summary_label' => 'Ringkasan mutasi komponen',
+  'stock_summary_cards' => [
+    ['label' => 'Total Mutasi', 'value' => number_format($totalRows, 0, ',', '.'), 'detail' => $countIn . ' masuk · ' . $countOut . ' keluar', 'tone' => 'violet', 'icon' => 'ri-arrow-left-right-line'],
+    ['label' => 'Nilai Masuk', 'value' => 'Rp ' . number_format($valueIn, 0, ',', '.'), 'detail' => number_format($qtyInTotal, 2, ',', '.') . ' unit · ' . $countIn . ' transaksi', 'tone' => 'aqua', 'icon' => 'ri-arrow-down-circle-line'],
+    ['label' => 'Nilai Keluar', 'value' => 'Rp ' . number_format($valueOut, 0, ',', '.'), 'detail' => number_format($qtyOutTotal, 2, ',', '.') . ' unit · ' . $countOut . ' transaksi', 'tone' => 'blue', 'icon' => 'ri-arrow-up-circle-line'],
+    ['label' => 'Net Nilai', 'value' => ($netValue >= 0 ? '+' : '') . 'Rp ' . number_format($netValue, 0, ',', '.'), 'detail' => $netValue >= 0 ? 'Net positif (masuk lebih besar)' : 'Net negatif (keluar lebih besar)', 'tone' => $netValue < 0 ? 'danger' : 'amber', 'icon' => 'ri-scales-3-line'],
+    ['label' => 'Component Unik', 'value' => number_format($uniqueComponentCount, 0, ',', '.'), 'detail' => 'dalam periode filter', 'tone' => 'teal', 'icon' => 'ri-stack-line'],
+    ['label' => 'Jenis Terbanyak', 'value' => $topMovementType, 'detail' => $topMovementCount > 0 ? $topMovementCount . '× transaksi' : 'belum ada data', 'tone' => 'aqua', 'icon' => 'ri-bar-chart-grouped-line'],
+  ],
+]); ?>
 
 <!-- Table -->
 <div class="card border-0 shadow-sm">
@@ -391,4 +343,3 @@ $uniqueComponentCount = count($uniqueComponents);
   applyFilter(searchInput ? searchInput.value : '', 1);
 })();
 </script>
-
