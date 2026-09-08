@@ -7875,3 +7875,165 @@
 - Commit kode/laporan lokal: `0fe7ff93ecb61ba19637ff9e43635364f7c16e8f`;
   tag/cutoff artefak alpha.3 tetap b10fa37. Tidak push. Telegram ringkasan
   terkirim dan terkonfirmasi pada 2026-09-09 05:52:11 WIB.
+
+## Batch 232 — Kontrak kandidat MariaDB 10.11 dan pemisahan client/server
+
+- Waktu: 2026-09-09 WIB. Owner menjawab "ya lanjutkan" pada usulan mengikuti
+  MariaDB 10.11 yang tersedia. Prioritas C3/A5, bukan bug operasional APK.
+- Review fixer tunggal: CLI `mariadb --version` mengembalikan client 10.6.23,
+  bukan server 10.11.10-MariaDB-log. Runtime guard sebelumnya benar menolak
+  alpha.3; tidak boleh memalsukan PASS dengan memperlebar kontraknya.
+- Perubahan: alpha.4 PHP 8.1/MariaDB >=10.11 <10.12; policy sesuai. Bridge
+  mempertahankan verifikasi kandidat lama 10.6, namun mewajibkan kecocokan
+  manifest/policy. Installer memakai window signed untuk SELECT VERSION()
+  sebelum DDL dan mengikat hasil install pada SHA256 artefak/source commit.
+  Probe CLI memisahkan mariadb_client dan memperingatkan server belum diuji.
+  Registrar Control mengambil compatibility dari signed manifest; tidak
+  mengubah metadata/byte DRAFT alpha.3 yang sudah ada.
+- File Finance: `app-manifest.json`, runtime policy/check, ControlReleaseBridge,
+  clean_install_database dan empat smoke test runtime/bridge/installer/C2-C4.
+  Control: `tools/lib/FinanceReleaseRegistrar.php`, test registrar.
+- Validasi awal: lint 9 PHP PASS; installer boundary 32, bridge 27, runtime
+  contract 14, C2/C4 14, registrar Control 21 checks PASS. Quality parallel
+  105 entry PASS. Staging runtime probe PASS dengan warning client-only,
+  extension fileinfo tidak tersedia, Composer 2.0.14 di bawah rekomendasi.
+- Cutoff lokal: `b63a2300b52aa62d82df8b9eb04c3f1a84cc6b00` (9 file kode),
+  epoch 1788908386. Checkout bersih dan bukti privat:
+  `/var/lib/finance-alpha4-20260909.epD7mD/`. Tidak push/merge.
+- Database target yang telah disiapkan dikonfirmasi 0 tabel sebelum trial.
+  Tidak membaca/mengubah transaksi Finance berjalan, credential, upload,
+  backup, APK atau catatan lokal `_NOTE2.md`. Tidak ada SQL/schema baru.
+- Status review: CODE_PASS; build/sign dan trial aktual dilanjutkan pada
+  batch berikut. Belum merupakan INSTALL_TEST PASS atau siap jual.
+
+## Batch 233 — Bug baseline indeks ganda dan kontrak jumlah menu
+
+- Waktu: 2026-09-09 WIB. Prioritas A5/C3: menindaklanjuti kegagalan actual
+  clean-install, bukan memperbaiki data customer atau bug operasional APK.
+- Review fixer tunggal: alpha.4 berhasil membangun 296 tabel dan menerapkan
+  11 migrasi, lalu gagal `client_failure`. Metadata target membuktikan dua
+  indeks consume cashier/reservation sudah ada pada baseline, sedangkan SQL
+  2026-09-06f/06g memakai ADD KEY tanpa IF NOT EXISTS. Ini benturan script.
+- Perbaikan pertama: kedua definisi indeks dilepas hanya dari **baseline
+  clean-install**. SQL managed 06f/06g beserta checksum dan ledger upgrade
+  tidak diubah; kedua indeks tetap dibuat oleh migrasi resmi. Hash baseline
+  dan coverage policy diperbarui; baseline_schema_version clean-install-20260909.
+  Tidak menghapus indeks/tabel/data dari aplikasi berjalan.
+- Alpha.5 dibangun/signed dari cutoff `a682e8539255dcadc524fb658ae5d32f591a34eb`,
+  hash TAR `9ff3dca82a7046297908c0d236a6d653859d4462018395d367380d77fef28b02`.
+  Di DB disposable baru `c3_finance_test_223c8ea83bae`, seluruh **16 migrasi**
+  berhasil. Bootstrap kemudian ditolak `owner_seed`: policy menu 244 belum
+  menghitung lima grup task-oriented sidebar; actual 249, halaman/permission 209.
+- Quality alpha.5 juga menemukan satu assertion lama yang mengharuskan indeks
+  reservation langsung ada pada baseline. Test diperbaiki agar memastikan
+  field proof ada dan indeks hanya dibuat sekali melalui managed migration,
+  bukan menghilangkan pengecekan indeks hasil akhir.
+- Perbaikan kedua: post_apply_counts sys_menu=249; test first-owner/health
+  fixture diselaraskan. Status owner tetap dibatasi database kosong, satu
+  SUPERADMIN dan permission penuh. Tidak menambah/mengubah izin customer.
+- File: baseline SQL, `app-manifest.json`, baseline/legacy-disposition policy,
+  tests baseline, first-owner, post-install health, reservation refund dan
+  commercial foundation. Schema bisnis akhir tetap finance-20260907, katalog
+  tetap 16 managed/7 legacy; tidak ada SQL upgrade baru untuk server utama.
+- Validasi perbaikan: baseline guard 20, first-owner 14, post-install health 13,
+  legacy upgrade guard 19, reservation refund 14, C2/C4 14 checks PASS. Lint PASS.
+- Alpha.4 dan alpha.5 tetap disimpan sebagai **kandidat gagal**, tidak diubah,
+  tidak diregistrasikan/publish di Control. DB gagal dipertahankan tanpa wipe.
+  Alpha.4 TAR hash `f11a962254614b5700f2bb84d3f31af0e626ffef207b4511bb8b8079dc4c1357`;
+  target gagal pertama `c3_finance_test_d93fbfabffe0`, tanpa owner.
+- Kandidat perbaikan alpha.6: cutoff `efc69b0e5e387bf16f6292e06997aacbcfd39db4`,
+  epoch 1788909235, tag finance-web-alpha.6-cutoff-20260909. Checkout private
+  `/var/lib/finance-alpha4-20260909.epD7mD/source` kini detached pada cutoff ini;
+  source kandidat lama tetap dapat direkonstruksi dari tag/commit, arsip signed
+  dan ekstraksi lama tidak diubah. Cache checkout digunakan kembali dengan
+  gate normal, tanpa bypass. Build PASS 1.623 file.
+- Target alpha.6 baru `c3_finance_test_67dc705cdc7b`, akun DB hanya memiliki
+  grant database tersebut; private credential/owner file 0600. Secret admin
+  tidak dicetak/disalin ke repo atau argv. File Control yang berubah disalin
+  sebagai bukti privat karena repo Control belum memiliki HEAD.
+- Batch berikut: buktikan alpha.6 install/owner/health, verifikasi indeks dan
+  password owner, guard rerun, kemudian DRAFT Control. Belum publish/deploy web.
+
+## Batch 234 — Health checker menghormati halaman panduan read-only
+
+- Waktu: 2026-09-09 WIB. Prioritas A5/C3, kelanjutan trial database baru.
+- Alpha.6 telah membentuk 296 tabel, 16 ledger migrasi, satu owner/SUPERADMIN,
+  209 permission/halaman, 249 menu dan dua indeks consume yang tepat. Hash
+  password owner berhasil diverifikasi terhadap credential fixture privat.
+  Namun health lama menolak `superadmin_contract` hanya pada `tg.guide`.
+- Review: SQL managed 2026-09-05b sejak awal **sengaja** memberi VIEW=1 dan
+  CREATE/EDIT/DELETE/EXPORT=0 untuk halaman panduan statis. Memaksa semua
+  action=1 pada setiap halaman adalah bug checker, bukan kekurangan izin user.
+- Perubahan: predicate health hanya menerima matriks view-only untuk kode
+  halaman exact/case-sensitive `tg.guide`. Halaman lain tetap wajib sesuai
+  matriks full-action; izin view hilang tetap ditolak. Tidak mengubah role,
+  permission, seed, atau isi database untuk meloloskan pemeriksaan.
+- File: `tools/db/post_install_health_check.php`, test health, manifest versi
+  alpha.7 dan test commercial foundation. Tidak ada SQL baru.
+- Validasi: 15 health contract checks PASS termasuk permission gap negatif.
+  Diagnostic read-only menggunakan checker yang diperbaiki pada fixture alpha.6
+  PASS: 39 tabel wajib, 16 ledger exact, seed exact, owner aktif satu, Telegram
+  default OFF. Ini diagnosis fix, **bukan klaim paket alpha.6 lulus**: executor
+  yang dibundel alpha.6 tetap lama dan hasil install-nya tetap BLOCKED.
+- Alpha.6 disimpan, tidak diregistrasikan di Control. SHA256 TAR:
+  `0ef30a850add9f8fb1769cafe6664d1385af9098ee6bd86ef3a3759d59287a07`.
+- Alpha.7 dibangun dari cutoff `68e01142821647f541a60818696989e30832442c`,
+  epoch 1788909601; tag finance-web-alpha.7-cutoff-20260909. Tidak push/merge.
+  Bukti/artefak berada pada folder batch privat yang sama; checkout source
+  sekarang detached alpha.7. Seluruh arsip/signature versi sebelumnya utuh.
+- Lanjutan: full clean-install menggunakan executor **yang dibundel alpha.7**
+  ke DB baru `c3_finance_test_3ff68a92e9c3`, lalu negative permission SQL,
+  owner/index validation, guard rerun dan registrasi DRAFT Control.
+
+## Batch 235 — Alpha.7 clean-install DB PASS dan Control DRAFT
+
+- Waktu: 2026-09-09 WIB. Scope penutupan batch: runtime 10.11, paket signed,
+  database trial baru, bootstrap/health; bukan deployment web/publish/customer.
+- Hasil final actual executor paket **PASS**: database server
+  10.11.10-MariaDB-log cocok dengan signed contract >=10.11 <10.12; 296 tabel,
+  16 migrasi diterapkan/0 skipped, owner_id=1, health 39 tabel wajib/16 ledger
+  exact, seed exact, satu owner SUPERADMIN aktif. Tidak mengisi bisnis/transaksi.
+- Read-only validasi lanjutan: satu user/assignment/role, 209 halaman dan
+  permission, 249 menu. Password bcrypt owner cocok dengan private fixture,
+  dua indeks consume memiliki urutan tujuh kolom yang benar. Tujuh kasus SQL
+  permission aktual PASS (guide valid, view hilang, hak berlebih, halaman biasa
+  kurang/penuh, beda kapital dan suffix); tidak mengubah permission untuk test.
+- Negative rerun: executor yang sama menolak DB nonempty dengan
+  DATABASE_NOT_EMPTY sebelum DDL. Tidak menduplikasi owner atau migration,
+  tidak wipe database agar bisa retry.
+- Artefak: 1.623 file, 597.268.480 bytes. Cutoff/tag alpha.7 pada Batch 234;
+  SHA256 TAR `f8a4f9e34ac6aef6b8792999f377cf18c385c0ac14b9510f0dbc0b5e3be62803`;
+  inner manifest `e8ab90f28e85f67944b4b7c48a67788b9029c242b6baafbad799cc42a1b20a1d`.
+  Private folder `/var/lib/finance-alpha4-20260909.epD7mD/` menyimpan semua
+  log, source/artefak signed dan daftar perubahan alpha7-changes-from-alpha3.tsv.
+- Control: alpha.7 **DRAFT/ALPHA**, public ID
+  `5d8d9ed2-0d66-49d0-80c8-730b7bd3d3f4`, tepat 3 artefak dan 2 evidence
+  SOURCE_CLEAN/SIGNATURE_VERIFY. Import ulang aktual UNCHANGED. Compatibility
+  10.11 berasal dari signed manifest. Ketiga file 0640 root:www teruji readable
+  sebagai www. Alpha.3 masih DRAFT dengan hash/kontrak 10.6 semula; alpha.4–6
+  yang gagal tidak dimasukkan ke Control.
+- Evidence DB install di log ini **tidak** dipalsukan menjadi full web
+  INSTALL_TEST, BACKUP_RESTORE atau SECURITY_SCAN pada Control. Publikasi,
+  claim/receipt, customer/deployment/aktivasi lisensi tidak dibuat.
+- Validasi gabungan final: quality profile release **109 entry PASS** (99
+  required, 4 development, 1 release-config, 2 runtime, preflight/security/static
+  masing-masing 1); lint seluruh PHP perubahan PASS. Checklist/dashboard docs:
+  26 roadmap consistency + 30 dashboard checks PASS. Staging business probes
+  SKIPPED, UAT browser/peran/APK/printer tetap manual. Tidak mengklaim aplikasi
+  sudah tanpa bug atau siap jual hanya karena installer DB lulus.
+- File log/checklist/panduan: dua roadmap utama, execution log ini,
+  `docs/control_release_delivery.md`. Dokumen hasil batch berada setelah cutoff
+  artefak dan ikut kandidat selanjutnya; arsip signed tidak ditulis ulang.
+- Dampak SQL: hanya baseline khusus instalasi baru direvisi untuk dua indeks;
+  semua 16 checksum SQL managed tetap. Tidak ada SQL baru yang harus dijalankan
+  pada aplikasi/server utama lama. Empat DB trial baru/yang sebelumnya kosong
+  kini disimpan sebagai bukti; tidak ada backup/upload/log/credential dihapus.
+  Config database Finance, transaksi customer, source APK dan `_NOTE2.md` utuh.
+- Hasil review fixer: **DB_INSTALL_PASS_WEB_PENDING**. Bug baseline indeks,
+  hitungan menu dan health guide selesai dibuktikan; A5/C3 keseluruhan belum DONE.
+- Sisa risiko/urutan berikut: deployment web terpisah dengan dependency terkunci,
+  secret/folder/web-server lalu smoke login/onboarding; upgrade/rollback
+  disposable; UAT peran/printer. Audit identitas/aset legacy C2, aktivasi C4,
+  dan publish/pilot C5 mengikuti gate masing-masing. Fileinfo staging belum
+  tersedia dan Composer 2.0.14 di bawah rekomendasi tetap tercatat. Bug operasional
+  APK dan MFA tetap ditunda owner. Tidak push/merge Git.

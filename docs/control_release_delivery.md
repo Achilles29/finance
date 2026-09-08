@@ -4,10 +4,23 @@ Alur ini menyiapkan bukti paket dan registrasi DRAFT, bukan publish atau
 aktivasi lisensi. Executor database belum merupakan deployment web/customer
 lengkap. Jalankan sebagai admin rilis Linux; jangan melalui browser.
 
-Update Batch 229–231: kode gate cold-cache kini 360 detik dengan outer 420
-detik, cache per checkout; tidak perlu warming manual. Perbaikan ini belum
-berada dalam alpha.3. Paket alpha.3 sudah DRAFT di Control, tetapi trial DB
-diblokir sebelum DDL: runtime server 10.11.10 berbeda dari kontrak paket 10.6.
+Update Batch 235: kandidat alpha.7 memakai PHP 8.1 dan MariaDB **10.11**
+sesuai persetujuan owner. Alpha.3 tetap DRAFT lama, byte dan kontrak 10.6-nya
+tidak diubah. Gate cold-cache 360 detik/outer 420 detik, cache per checkout;
+tidak perlu warming manual. Status bukti instalasi terbaru ada pada checklist
+C3 di roadmap `_28` dan execution log, bukan disimpulkan dari adanya DRAFT.
+
+Alpha.7 sudah lulus instalasi DB kosong dari paket signed: 296 tabel,
+16 migrasi, satu owner, 209 halaman/permission, 249 menu, health exact.
+Versi alpha.4–6 gagal pada uji instalasi dan disimpan sebagai bukti; jangan
+dipakai untuk deployment customer. Kegagalan indeks baseline, jumlah menu
+dan pemeriksaan izin guide diperbaiki pada alpha.7. SQL managed lama tidak
+diubah; baseline SQL khusus instalasi baru jangan dijalankan ke DB lama.
+
+`mariadb --version` hanya menunjukkan versi **client**. Installer memeriksa
+versi server dengan `SELECT VERSION()` pada database target dan wajib cocok
+dengan kontrak signed paket. Probe runtime CLI melaporkan client secara terpisah;
+kelulusannya tidak menggantikan pemeriksaan server atau health database.
 
 Registrasi CLI Control:
 
@@ -30,7 +43,9 @@ ke database itu. Tidak menerima credential langsung di argv, tidak menghapus
 DB agar bisa retry, dan tidak mem-publish/deploy web. Urutan signature,
 source exact, empty-state/runtime guard, baseline, migration, bootstrap dan
 health bersifat wajib. Kegagalan DDL tidak bisa di-rollback otomatis; simpan
-DB dan file untuk inspeksi. **Trial sukses belum dinyatakan** karena runtime.
+DB dan file untuk inspeksi. Instalasi DB yang lulus pun belum membuktikan
+web/customer sudah ter-deploy: dependency, secret, folder, web server dan UAT
+masih memerlukan bukti tersendiri.
 
 1. Tetapkan commit lokal source. Buat checkout bersih terpisah dengan
    `git worktree add --detach /var/lib/finance-release/source COMMIT`.
@@ -48,8 +63,8 @@ DB dan file untuk inspeksi. **Trial sukses belum dinyatakan** karena runtime.
    `application`, satu worker dan memory 2G lulus nol error dalam batas
    diagnostik 300 detik. Builder kemudian dijalankan ulang dan semua gate
    lulus. Jangan menonaktifkan gate atau menyalin hasil PASS dari source lain.
-   Budget cold-start dan isolasi cache per checkout masih merupakan tindak
-   lanjut tooling; panduan ini belum mengklaim installer clean-machine selesai.
+   Budget cold-start dan isolasi cache diperbaiki pada Batch 229 dan masuk
+   kandidat alpha.7; panduan ini belum mengklaim deployment clean-machine selesai.
 
 3. Control menyediakan key release khusus produk `NAMUA_FINANCE` melalui
    `tools/provision_release_signing_key.php NAMUA_FINANCE`. Hanya sekali oleh
@@ -102,6 +117,11 @@ Kandidat Batch 228: versi `0.1.0-alpha.3`, cutoff Git
 staging dicatat pada execution log; source/tag terpisah dari commit laporan
 setelah build. Tidak perlu menjalankan SQL tambahan untuk batch delivery ini.
 
-Setelah DRAFT: tetapkan runtime kandidat berikutnya, lalu buktikan installer
-Linux/upgrade salinan database/rollback disposable.
+Kandidat terbaru: alpha.7, cutoff `68e01142821647f541a60818696989e30832442c`,
+tag `finance-web-alpha.7-cutoff-20260909`, DRAFT Control
+`5d8d9ed2-0d66-49d0-80c8-730b7bd3d3f4`. Laporan dan SHA256 ada di execution log.
+
+Setelah DB install PASS: buktikan deployment web Linux/upgrade/rollback
+disposable. Trial awal menggunakan database kosong/sintetis, bukan mengambil
+data transaksi customer untuk menguji tooling.
 Server aplikasi lama tidak menjadi target migration.

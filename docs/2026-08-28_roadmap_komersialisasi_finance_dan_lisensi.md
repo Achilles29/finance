@@ -1,10 +1,32 @@
 # Roadmap Komersialisasi Finance POS
 
-**Update 2026-09-09 — Batch 229–231:** cold-cache tooling diperbaiki dan
+**Update 2026-09-09 — Batch 232–235:** kandidat **alpha.7** memakai PHP 8.1
+dan MariaDB `>=10.11 <10.12`, sesuai persetujuan owner. Instalasi database
+kosong dari paket signed telah **PASS**, dan paket tercatat **DRAFT/ALPHA**
+di Control. Ini belum deployment web atau kesiapan jual penuh.
+Schema bisnis tetap finance-20260907; baseline clean-install direvisi
+clean-install-20260909. Detail bug teknis hanya di `_30`, bukti/hash di log.
+
+- [x] Kontrak manifest/policy/installer selaras; Control mengambil compatibility
+  dari manifest tervalidasi, bukan literal 10.6 untuk semua kandidat.
+- [x] Tes runtime/bridge/installer serta registrar Control lulus; versi lintas
+  kontrak dan metadata yang tidak cocok ditolak.
+- [x] Alpha.7 build/sign/verify: 1.623 file, cutoff `68e0114`, quality release
+  109 entry PASS. Alpha.3 tetap utuh; alpha.4–6 yang gagal disimpan sebagai bukti.
+- [x] Clean-install aktual dari executor paket: 296 tabel, 16 migrasi, satu
+  owner, 209 halaman/permission, 249 menu; health/seed exact PASS pada DB disposable.
+- [x] Password owner, dua indeks hasil migrasi, tujuh kasus SQL permission dan
+  larangan reinstall pada DB nonempty teruji. Tidak mengambil data Finance lama.
+- [x] Control DRAFT alpha.7: 3 artefak privat, 2 evidence SOURCE_CLEAN/SIGNATURE_VERIFY;
+  replay UNCHANGED. Bukti DB install ada di log, bukan evidence full web INSTALL_TEST.
+- [ ] Deploy web lengkap, upgrade/rollback disposable, claim/receipt, dan UAT.
+- [ ] Identitas/aset legacy C2, aktivasi C4 dan keputusan rilis/pilot C5 tetap terbuka.
+
+**Riwayat Batch 229–231:** cold-cache tooling diperbaiki dan
 alpha.3 sudah **DRAFT/ALPHA** di Control (3 artefak, 2 evidence, tanpa publish).
 Executor database clean-install tersedia, tetapi trial berhenti **sebelum DDL**:
-server sekarang MariaDB 10.11.10, kontrak alpha.3 masih 10.6. Menunggu keputusan
-runtime kandidat berikutnya; manifest/signature alpha.3 tidak diubah.
+server sekarang MariaDB 10.11.10, kontrak alpha.3 masih 10.6. Keputusan runtime
+kemudian disetujui pada Batch 232; manifest/signature alpha.3 tidak diubah.
 
 - [x] Gate cold-cache 360s/outer 420s, cache terpisah per checkout; scope tetap
   seluruh application dan baseline nol. Cold run aktual PASS.
@@ -13,10 +35,10 @@ runtime kandidat berikutnya; manifest/signature alpha.3 tidak diubah.
 - [x] Tiga artefak dapat dibaca web Control; import ulang UNCHANGED.
 - [x] Executor DB: signature/source exact, DB kosong, runtime dan lock diperiksa
   sebelum baseline, migration, owner dan health yang wajib dijalankan.
-- [ ] Tetapkan runtime kandidat berikutnya (server aktual 10.11.10 vs paket 10.6).
-- [ ] Install/first-owner/health lalu upgrade/rollback disposable harus lulus;
-  belum ada INSTALL_TEST PASS atau deployment web/customer pada batch ini.
-- [ ] Kemas kode Batch 229–231 pada kandidat baru, bukan mengganti byte alpha.3.
+- [x] Tetapkan runtime kandidat berikutnya: 10.11, disetujui owner Batch 232.
+- [x] Install DB/first-owner/health lulus pada alpha.7 (Batch 235).
+- [ ] Upgrade/rollback dan deployment web/customer tetap belum lulus.
+- [x] Kode Batch 229–231 sudah masuk kandidat alpha.7; byte alpha.3 tidak diganti.
 
 **Arahan terbaru 2026-09-09 — Batch 228:** pekerjaan komersialisasi APK
 (identitas, packaging, kompatibilitas, aktivasi) boleh dilanjutkan. Yang
@@ -36,8 +58,8 @@ atau deployment customer. Installer nyata tetap langkah berikutnya.
 - [x] Tindak lanjut cold-cache Batch 228 selesai dalam kode Batch 229;
   budget bertingkat/cache per checkout perlu masuk paket berikutnya.
 - [x] Registrasi DRAFT Finance selesai Batch 230.
-- [ ] Publish/install-plan dan install/upgrade disposable belum lulus; lihat
-  blokir runtime Batch 231, bukan mengulang pekerjaan DRAFT.
+- [ ] Publish, deployment web dan upgrade disposable belum lulus; blokir runtime
+  dan clean-install DB Batch 231 sudah dituntaskan pada kandidat alpha.7.
 
 **Riwayat pelaksanaan 2026-09-08, Batch 224–227:** lanjut non-APK melalui
 Menu Book customer (C2), perlindungan upload dan plan/runtime instalasi (C3),
@@ -183,7 +205,7 @@ internal. Status teknis A0–A5 tetap hanya berasal dari control board `_30`.
 | C0 — handoff/go-no-go | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Gerbang teknis A0–A5 masih diblokir dan belum disetujui product owner. |
 | C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 NAMUA_FINANCE di Control: 28 feature, 4 edition, 29 dependency, PERPETUAL dan maintenance awal 365 hari. Alpha.3 sudah DRAFT melalui Batch 230, bukan publish. Harga, EULA/SLA, data policy, add-on/override per customer dan kontrak pilot belum final. |
 | C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_READY` | Batch 219–220 menyediakan branding inti dan setup profil. Batch 224–225 menambah Menu Book customer/legacy/nonaktif, audit pilihan template, serta pemeriksaan folder upload dari PHP-FPM. Outlet/printer tetap override. Marketing menyeluruh, preset demo, pajak/service, integrasi, health/privacy, install profile, serta validasi URL customer belum selesai. |
-| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `DRAFT_REGISTERED_RUNTIME_BLOCKED` | Batch 229–231: cold-cache tooling diperbaiki; alpha.3 signed sudah DRAFT di Control (3 artefak/2 evidence). Executor DB tersedia, trial berhenti sebelum DDL karena server 10.11.10 berbeda dari kontrak 10.6. Runtime kandidat berikutnya, install/health, upgrade/rollback serta deployment/publish masih terbuka. APK operasional tetap ditunda. |
+| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `DB_INSTALL_PASS_WEB_PENDING` | Batch 232–235: alpha.7 signed, PHP 8.1/MariaDB 10.11, DRAFT Control (3 artefak/2 evidence), install database kosong/16 migrasi/owner/health PASS. Deployment web, upgrade/rollback, claim/receipt dan publish masih terbuka. APK operasional tetap ditunda. |
 | C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `AUDIT_ONLY_FOUNDATION` | Batch 226 menambah verifier Ed25519 sesuai envelope Control, binding instalasi, pemeriksaan lease/grace, serta entitlement dari payload signed (bukan flag SQL). FeatureGate tetap audit-only. Activation/polling/cache writer, replay/rollback lintas restart, Windows/native guard, pairing, limit dan enforcement belum selesai. Komersialisasi APK boleh berjalan; bug operasional/build dan UAT APK ditunda owner. |
 | C5 — pilot/operasi penjualan | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Pilot non-Namua, support playbook, dan operasi penjualan belum dijalankan. |
 
@@ -203,7 +225,7 @@ tetap sejalan dengan arah produk ini:
 | Batas data/monitoring | Customer/instance terpisah; heartbeat signed, outbound, tanpa database atau data bisnis customer. | Sender heartbeat Finance memakai kontrak HMAC/nonce/idempotency yang sama. Pilot `NAMUA_FINANCE` telah diarsipkan dari Control, jadi ini bukti kontrak, bukan integrasi aktif. | `SELARAS`, jangan aktifkan ulang tanpa instance runtime terpisah. |
 | C1 katalog | Manifest v2, scanner allowlist, preview/import produk-edition-feature, dependency, hak perpetual, maintenance, dan audit tersedia. | Katalog draft: 28 feature, 4 edition, 29 dependency, limit outlet/terminal awal. Alpha.3 cutoff b10fa37 sudah diregistrasikan sebagai DRAFT, belum publish. | `TERHUBUNG_DRAFT`; catalog bukan FeatureGate dan belum mengubah runtime customer. |
 | C2 identitas customer | Registry customer/PIC/instance vendor tersedia. | Profil lokal, setup admin, branding shell/login/QR/dokumen/label, locale/currency/timezone, dan fallback printer tersedia. | `TIDAK TUMPANG TINDIH`; registry vendor bukan pengganti profil usaha lokal. Template marketing/install profile tetap Finance-side. |
-| C3 delivery | Release maker-checker, private artifact, claim-once, unduhan hash-bound, dan receipt tersedia generik. Finance kini memiliki key terpisah, verifier dan registrar CLI DRAFT transaksional/idempotent. | Alpha.3 signed sudah DRAFT. Kode cold-cache diperbaiki. Executor DB menolak trial server 10.11 karena manifest alpha.3 masih 10.6; artefak tidak diubah untuk meloloskan guard. | `DRAFT_REGISTERED`; runtime kandidat berikutnya, install/health, claim/receipt dan publish belum selesai. |
+| C3 delivery | Release maker-checker, private artifact, claim-once, unduhan hash-bound, dan receipt tersedia generik. Finance memiliki key terpisah, verifier dan registrar CLI DRAFT transaksional/idempotent. | Alpha.7 DRAFT: runtime 10.11, install DB/owner/health actual PASS. Alpha.3 tetap utuh; alpha.4–6 gagal dan tidak didaftarkan. | `DB_INSTALL_PASS_WEB_PENDING`; deployment web, upgrade/rollback, claim/receipt dan publish belum selesai. |
 | C4 lisensi | Subscription, aktivasi server, lease Ed25519, grace/revoke, dan audit tersedia untuk Linux AMD64. | Registry/cache/device/audit lokal, FeatureGate audit-only dan verifier signed entitlement dengan binding instalasi tersedia (Batch 226). Activation/polling/cache writer, pairing dan enforcement belum selesai. | `VERIFIER_FOUNDATION`; signature release Batch 228 bukan aktivasi lisensi. UAT offline dan boundary enforcement tetap wajib. |
 | C5 operasi | Customer/instance/monitoring/audit tersedia; pilot produk generik belum dijalankan. | Belum ada pilot Finance customer non-Namua, SOP support, maupun panduan terikat release. | `BELUM DIMULAI`. |
 

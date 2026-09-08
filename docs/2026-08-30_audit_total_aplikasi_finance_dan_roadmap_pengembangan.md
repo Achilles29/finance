@@ -1,6 +1,34 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
-**Update 2026-09-09 — Batch 229–231:** A4 cold-cache diperbaiki tanpa mengurangi
+**Update 2026-09-09 — Batch 232–235:** clean-install database dari paket
+telah **PASS** pada DB disposable; belum menutup A5/handoff web/customer.
+Tiga bug yang baru terbukti saat menjalankan instalasi sudah diperbaiki:
+indeks ganda baseline vs migration, hitungan menu lama, dan health checker
+yang keliru mewajibkan hak mutasi pada panduan statis. Detail delivery di `_28`.
+
+- [x] Baseline tidak membuat dua indeks yang menjadi tanggung jawab migrasi
+  06f/06g. SQL managed/ledger upgrade tidak diubah; hasil akhir tetap berindeks.
+- [x] Policy first-owner/health menghitung lima grup sidebar baru: 249 menu,
+  209 halaman dan 209 permission; tidak mengubah isi izin customer.
+- [x] Health menerima matriks view-only yang memang ditetapkan SQL `tg.guide`;
+  view hilang, hak berlebih pada guide, dan hak kurang pada halaman lain ditolak.
+- [x] Instalasi aktual: 296 tabel, 16 migrasi, satu owner, seed exact dan health
+  PASS. Password owner, indeks, tujuh kasus permission SQL, dan guard rerun teruji.
+- [ ] Deployment web lengkap, upgrade/rollback disposable, UAT peran/printer,
+  dan handoff tetap terbuka. Bug operasional/build APK masih ditunda owner.
+
+Bug pemeriksaan runtime A5 juga diperbaiki:
+versi klien MariaDB tidak lagi dianggap bukti versi server. Probe CLI melaporkan
+`mariadb_client` secara terpisah dan memperingatkan kewajiban cek server saat
+install. Executor mencocokkan hasil `SELECT VERSION()` dengan kontrak signed
+paket sebelum DDL. Keputusan runtime/delivery hanya di `_28`.
+
+- [x] Tes negatif: server di luar minor signed, MySQL, respons rusak, dan
+  kontrak luas yang belum disetujui ditolak; paket lama tidak dilonggarkan.
+- [x] Baseline/migration/first-owner/health terbukti pada DB percobaan kosong.
+- [ ] Upgrade/rollback disposable dan UAT web/peran/printer tetap terbuka.
+
+**Riwayat Batch 229–231:** A4 cold-cache diperbaiki tanpa mengurangi
 scope/error gate. Bug tambahan A5: bootstrap owner masih memakai jumlah
 halaman/menu lama (206/241), berbeda dari policy rilis (209/244). Kini memakai
 policy baseline tervalidasi; unit contract PASS. Trial executor DB berhenti
@@ -11,9 +39,9 @@ Detail DRAFT/delivery dan keputusan runtime kandidat berikutnya hanya di `_28`.
 - [x] A4: gate cold-cache 360s/outer 420s, cache per checkout; analisis penuh
   application lulus dengan baseline/errors nol.
 - [x] A5 CODE_PASS: hitungan first-owner mengikuti release policy, bukan literal.
-- [ ] A5 runtime: install/first owner/health, upgrade dan rollback disposable
-  menunggu runtime kandidat yang disetujui. Tidak ada klaim UAT/INSTALL PASS.
-- [ ] Kode tooling baru belum berada dalam artefak alpha.3 yang immutable.
+- [x] A5 runtime: install DB/first owner/health lulus Batch 235; upgrade/rollback
+  dan UAT web tetap terpisah, belum dinyatakan lulus.
+- [x] Kode tooling masuk alpha.7; alpha.3 tetap immutable.
 
 **Delta 2026-09-09 — Batch 228:** izin owner membedakan pekerjaan
 komersialisasi APK (boleh) dari bug operasional/build APK (ditunda).
@@ -47,7 +75,7 @@ Checklist delta teknis (tidak mengulang A3 inventory/sidebar):
 - [x] A0/A5: cutoff source lokal `b10fa37a40a06b1867800327812ac1dc1490c176`, tag `finance-web-alpha.3-cutoff-20260909`; catatan lokal/upload dipertahankan di luar commit.
 - [x] A0/A5: paket kandidat internal signed dari cutoff bersih lulus verifikasi Control (Batch 228); bukan publish.
 - [ ] A0/A5: integrasi Git remote, restore/upgrade/rollback customer nyata dan persetujuan handoff belum selesai.
-- [x] A4/A5 kode Batch 229: cold-start dan isolasi cache diperbaiki; tetap perlu dikemas pada kandidat berikutnya, bukan overwrite alpha.3.
+- [x] A4/A5 kode Batch 229: cold-start dan isolasi cache diperbaiki dan sudah masuk alpha.7; alpha.3 tidak ditimpa.
 - [ ] A1/A4: penerimaan per peran dan printer fisik; bug operasional/build/UAT APK serta MFA ditunda owner, pekerjaan komersialisasi APK diperbolehkan.
 
 Laporan batch: `docs/2026-09-02_codex_execution_log.md`.
