@@ -81,7 +81,7 @@ while (($line = fgets(STDIN)) !== false) {
     } elseif (strpos($line, '__A513_LEDGER__') !== false) {
         echo "__A513_LEDGER__\t1\t" . ($mode === 'ledger_drift' ? '0' : '1') . "\n";
     } elseif (strpos($line, '__A513_AUTH__') !== false) {
-        echo "__A513_AUTH__\t1\t0\t" . ($mode === 'owner_missing' ? '0' : '1') . "\n";
+        echo "__A513_AUTH__\t1\t" . ($mode === 'permission_gap' ? '1' : '0') . "\t" . ($mode === 'owner_missing' ? '0' : '1') . "\n";
     } elseif (strpos($line, '__A513_SEED__') !== false) {
         $count = strpos($line, '`sys_matrix_group`') !== false ? 20 : (strpos($line, '`sys_page`') !== false ? 209 : (strpos($line, '`sys_menu`') !== false ? 249 : 10));
         if ($mode === 'seed_drift') $count++;
@@ -107,6 +107,9 @@ $check(($upgrade['migration_ledger_rows'] ?? null) === 15 && ($upgrade['referenc
 
 $clean = a513_check_database($release, 'clean_install', $option, 'a513_clean_ok');
 $check(($clean['migration_ledger_rows'] ?? null) === 16 && ($clean['reference_seed'] ?? '') === 'exact', 'clean-install health additionally checks exact reference seed and Telegram safe default');
+$check($failureCode(static fn() => a513_check_database($release, 'clean_install', $option, 'a513_clean_permission_gap')) === 'superadmin_contract', 'missing canonical permission still blocks clean install');
+$check(strpos(a513_permission_match_sql(), "BINARY p.page_code='tg.guide' THEN 0 ELSE 1") !== false
+    && strpos(a513_permission_match_sql(), 'rp.can_view=1') === 0, 'only exact static guide is view-only; other pages still require full canonical actions');
 
 foreach (['missing_table'=>'required_table_missing','ledger_count'=>'migration_ledger_count','ledger_drift'=>'migration_ledger_drift','owner_missing'=>'owner_missing','seed_drift'=>'reference_seed_drift','telegram_on'=>'safe_default_drift'] as $mode => $expected) {
     $testPolicy = in_array($mode, ['seed_drift','telegram_on'], true) ? 'clean_install' : 'upgrade';

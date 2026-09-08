@@ -176,6 +176,15 @@ function a513_ledger_probe_sql(array $migration): string
         . "') AND BINARY classification=UNHEX('" . bin2hex($migration['classification']) . "') AND BINARY policies=UNHEX('" . bin2hex(implode(',', $migration['policies'])) . "')),0)) FROM sys_schema_migration WHERE BINARY migration_id=UNHEX('" . bin2hex($migration['id']) . "')";
 }
 
+function a513_permission_match_sql(): string
+{
+    // 2026-09-05b intentionally grants VIEW only to the static Telegram guide.
+    // Do not grant mutations just to satisfy an over-broad health assertion.
+    $write = "(CASE WHEN BINARY p.page_code='tg.guide' THEN 0 ELSE 1 END)";
+    return 'rp.can_view=1 AND rp.can_create=' . $write . ' AND rp.can_edit=' . $write
+        . ' AND rp.can_delete=' . $write . ' AND rp.can_export=' . $write;
+}
+
 function a513_check_database(array $release, string $policy, string $optionFile, string $databaseName): array
 {
     if (!in_array($policy, ['clean_install','upgrade'], true)) a513_fail('policy', 'Health-check policy is unsupported.');
@@ -203,7 +212,7 @@ function a513_check_database(array $release, string $policy, string $optionFile,
             $optionFile,
             $databaseName,
             '__A513_AUTH__',
-            "SELECT CONCAT('__A513_AUTH__\\t',(SELECT COUNT(*) FROM auth_role WHERE role_code='SUPERADMIN' AND is_active=1),'\\t',(SELECT COUNT(*) FROM sys_page p JOIN auth_role r ON r.role_code='SUPERADMIN' AND r.is_active=1 LEFT JOIN auth_role_permission rp ON rp.role_id=r.id AND rp.page_id=p.id AND rp.can_view=1 AND rp.can_create=1 AND rp.can_edit=1 AND rp.can_delete=1 AND rp.can_export=1 WHERE p.is_active=1 AND rp.id IS NULL),'\\t',(SELECT COUNT(*) FROM auth_user u JOIN auth_user_role ur ON ur.user_id=u.id JOIN auth_role r ON r.id=ur.role_id WHERE u.is_active=1 AND r.role_code='SUPERADMIN' AND r.is_active=1))",
+            "SELECT CONCAT('__A513_AUTH__\\t',(SELECT COUNT(*) FROM auth_role WHERE role_code='SUPERADMIN' AND is_active=1),'\\t',(SELECT COUNT(*) FROM sys_page p JOIN auth_role r ON r.role_code='SUPERADMIN' AND r.is_active=1 LEFT JOIN auth_role_permission rp ON rp.role_id=r.id AND rp.page_id=p.id AND " . a513_permission_match_sql() . " WHERE p.is_active=1 AND rp.id IS NULL),'\\t',(SELECT COUNT(*) FROM auth_user u JOIN auth_user_role ur ON ur.user_id=u.id JOIN auth_role r ON r.id=ur.role_id WHERE u.is_active=1 AND r.role_code='SUPERADMIN' AND r.is_active=1))",
             3,
             'authorization'
         );
