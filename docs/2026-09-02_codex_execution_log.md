@@ -7872,3 +7872,6 @@
   alpha.3), ulang clean-install/owner/health, lalu upgrade/rollback disposable.
   Fixture yang dibuat di staging bukan bukti support MariaDB 10.11 sampai
   kandidat dengan kontrak dan pengujian yang tepat benar-benar lulus.
+- Commit kode/laporan lokal: `0fe7ff93ecb61ba19637ff9e43635364f7c16e8f`;
+  tag/cutoff artefak alpha.3 tetap b10fa37. Tidak push. Telegram ringkasan
+  terkirim dan terkonfirmasi pada 2026-09-09 05:52:11 WIB.
