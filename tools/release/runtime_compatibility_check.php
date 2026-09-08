@@ -199,6 +199,12 @@ function financeRuntimeStagingProbe(string $root, array $policy): array
             $errors[] = $name . ' runtime could not be probed';
             continue;
         }
+        if ($name === 'mariadb') {
+            // Client distribution is not SELECT VERSION() on the target server.
+            $facts['mariadb_client'] = $version;
+            $warnings[] = 'MariaDB client detected only; server runtime must be verified on the target DB by the installer before DDL';
+            continue;
+        }
         $facts[$name] = $version;
         if (!financeRuntimeVersionInRange($version, $policy['runtimes'][$name])) {
             $errors[] = $name . ' ' . $version . ' is outside the approved range';

@@ -34,7 +34,7 @@ $publicBranding = (string)file_get_contents($root . '/application/views/pos/cust
 
 $entry = null;
 foreach ((array)($catalog['migrations'] ?? []) as $item) if (($item['id'] ?? '') === '2026-09-07a-c2-c4-business-profile-license-runtime-foundation') $entry = $item;
-$check(is_array($manifest) && ($manifest['version'] ?? '') === '0.1.0-alpha.3' && ($manifest['schema_version'] ?? '') === 'finance-20260907', 'commercial source advances without inventing a schema migration');
+$check(is_array($manifest) && ($manifest['version'] ?? '') === '0.1.0-alpha.4' && ($manifest['schema_version'] ?? '') === 'finance-20260907', 'commercial source advances without inventing a schema migration');
 $check(is_array($entry) && ($entry['path'] ?? '') === 'sql/2026-09-07a_c2_c4_business_profile_license_runtime_foundation.sql' && hash_file('sha256', $migrationPath) === ($entry['sha256'] ?? '') && ($entry['dependencies'] ?? []) === ['2026-09-06i-a3-sidebar-task-oriented-layout'], 'C2/C4 migration is cataloged with exact checksum and ordered dependency');
 $check(strpos((string)file_get_contents($migrationPath), 'CREATE TABLE IF NOT EXISTS `sys_business_profile`') !== false && strpos((string)file_get_contents($migrationPath), 'CREATE TABLE IF NOT EXISTS `lic_license_cache`') !== false && strpos((string)file_get_contents($migrationPath), "'system.business_profile'") !== false && strpos((string)file_get_contents($migrationPath), "'system.license.index'") !== false, 'migration creates profile/licensing metadata plus RBAC navigation only');
 $required = ['sys_business_profile','sys_business_profile_audit','lic_installation','lic_license_cache','lic_feature','lic_feature_cache','lic_device_activation','lic_activation_audit','lic_runtime_audit'];

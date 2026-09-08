@@ -12,10 +12,13 @@ function c3InstallEmptyDatabase(array $marker): void
     if ($marker !== ['__C3_EMPTY__','0']) throw new RuntimeException('DATABASE_NOT_EMPTY');
 }
 
-function c3InstallDatabaseVersion(array $marker): void
+function c3InstallDatabaseVersion(array $marker, string $signedContract): void
 {
+    $rule = ControlReleaseBridge::databaseRule($signedContract);
     if (count($marker) !== 2 || $marker[0] !== '__C3_VERSION__' || !is_string($marker[1])
-        || preg_match('/^(?:5\.5\.5-)?10\.6\.\d+.*MariaDB/i', $marker[1]) !== 1) throw new RuntimeException('DATABASE_RUNTIME_UNSUPPORTED');
+        || preg_match('/\A(?:5\.5\.5-)?(\d+\.\d+\.\d+)-MariaDB(?:[-+].*)?\z/iD', $marker[1], $match) !== 1
+        || !version_compare($match[1], $rule['minimum'], '>=')
+        || !version_compare($match[1], $rule['maximum_exclusive'], '<')) throw new RuntimeException('DATABASE_RUNTIME_UNSUPPORTED');
 }
 
 function c3InstallDatabase(array $o): array
@@ -55,7 +58,7 @@ function c3InstallDatabase(array $o): array
         c3InstallEmptyDatabase(a5_client_marker($client, '__C3_EMPTY__'));
         a5_client_send($client, "SELECT CONCAT('__C3_VERSION__\\t',VERSION());");
         $version = a5_client_marker($client, '__C3_VERSION__');
-        c3InstallDatabaseVersion($version);
+        c3InstallDatabaseVersion($version, $manifest['runtime']['database']);
         $policy = ControlReleaseBridge::json((string)file_get_contents($release['root'] . '/tools/db/clean_install_baseline_policy.json'));
         a5_client_send($client, (string)file_get_contents($release['root'] . '/' . $policy['schema']['path']) . "\nSELECT '__C3_BASELINE_DONE__';\n");
         if (a5_client_marker($client, '__C3_BASELINE_DONE__') !== ['__C3_BASELINE_DONE__']) throw new RuntimeException('BASELINE_FAILED');
@@ -67,6 +70,8 @@ function c3InstallDatabase(array $o): array
         unset($owner);
         $health = a513_check_database($release, 'clean_install', $option, $database);
         return ['status' => 'PASS', 'mode' => 'clean_install_database', 'version' => $manifest['version'],
+            'database_server_version' => $version[1], 'database_contract' => $manifest['runtime']['database'],
+            'artifact_sha256' => $manifest['sha256'], 'source_commit' => $manifest['source_commit'],
             'managed_migrations' => count($migrations), 'applied' => $applied, 'owner_id' => $ownerResult['user_id'],
             'health' => $health, 'web_deployed' => false, 'published' => false];
     } finally { a5_client_close($client, true); }

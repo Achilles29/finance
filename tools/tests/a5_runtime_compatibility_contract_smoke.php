@@ -30,6 +30,10 @@ $check(
     'MariaDB distribution version wins over client protocol version'
 );
 $check(financeRuntimeExtractVersion('v20.20.2') === '20.20.2', 'Node version output is parsed');
+$check(financeRuntimeVersionInRange('10.11.10', $policy['runtimes']['mariadb']), 'actual staging MariaDB server is in the approved range');
+$check(!financeRuntimeVersionInRange('10.6.23', $policy['runtimes']['mariadb']) && !financeRuntimeVersionInRange('10.12.0', $policy['runtimes']['mariadb']), 'unapproved database minors remain rejected');
+$probe = (string)file_get_contents(dirname(__DIR__) . '/release/runtime_compatibility_check.php');
+$check(strpos($probe, "\$facts['mariadb_client'] = \$version;") !== false && strpos($probe, 'server runtime must be verified on the target DB') !== false, 'client presence cannot masquerade as database server validation');
 $check(
     ($policy['runtimes']['php']['feature_extensions']['whatsapp_file_mime'] ?? null) === ['fileinfo'],
     'WhatsApp file MIME capability explicitly depends on fileinfo'

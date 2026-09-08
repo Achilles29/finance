@@ -30,6 +30,26 @@ final class ControlReleaseBridge
         return $result['stdout'];
     }
 
+    /** Approved contracts; preserve verification of immutable 10.6 candidates. */
+    public static function databaseRule(string $contract): array
+    {
+        $rules = [
+            'MariaDB >=10.6 <10.7' => ['minimum' => '10.6.0', 'maximum_exclusive' => '10.7.0'],
+            'MariaDB >=10.11 <10.12' => ['minimum' => '10.11.0', 'maximum_exclusive' => '10.12.0'],
+        ];
+        self::need(isset($rules[$contract]), 'RUNTIME_CONTRACT');
+        return $rules[$contract];
+    }
+
+    public static function validateRuntime(array $app, array $runtime): void
+    {
+        $rule = self::databaseRule((string)($app['runtime']['database'] ?? ''));
+        self::need(($app['runtime']['php'] ?? '') === ($runtime['runtimes']['php']['composer_constraint'] ?? null)
+            && ($app['runtime']['php'] ?? '') === '>=8.1 <8.2'
+            && ($runtime['runtimes']['mariadb']['minimum'] ?? '') === $rule['minimum']
+            && ($runtime['runtimes']['mariadb']['maximum_exclusive'] ?? '') === $rule['maximum_exclusive'], 'RUNTIME_CONTRACT');
+    }
+
     /** Verify archive content, policy, SQL inventory, baseline and runtime without extracting executable code. */
     public static function inspect(string $artifact): array
     {
@@ -53,11 +73,7 @@ final class ControlReleaseBridge
         self::need(($app['manifest_version'] ?? null) === 2 && ($app['product_code'] ?? '') === 'NAMUA_FINANCE'
             && preg_match('/\A\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\z/D', (string)($app['version'] ?? '')) === 1, 'PRODUCT_OR_VERSION');
         foreach (['schema_version', 'baseline_schema_version'] as $field) self::need(preg_match('/\A[A-Za-z0-9._-]{1,80}\z/D', (string)($app[$field] ?? '')) === 1, 'SCHEMA_VERSION');
-        self::need(($app['runtime']['php'] ?? '') === ($runtime['runtimes']['php']['composer_constraint'] ?? null)
-            && ($app['runtime']['php'] ?? '') === '>=8.1 <8.2'
-            && ($app['runtime']['database'] ?? '') === 'MariaDB >=10.6 <10.7'
-            && ($runtime['runtimes']['mariadb']['minimum'] ?? '') === '10.6.0'
-            && ($runtime['runtimes']['mariadb']['maximum_exclusive'] ?? '') === '10.7.0', 'RUNTIME_CONTRACT');
+        self::validateRuntime($app, $runtime);
         $catalog = self::json(self::member($artifact, 'tools/db/migration_catalog.json'));
         self::need(($catalog['catalog_version'] ?? null) === 1 && !empty($catalog['migrations']), 'MIGRATION_CATALOG');
         $inventory = [];

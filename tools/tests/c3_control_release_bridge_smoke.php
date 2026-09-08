@@ -21,6 +21,18 @@ $run = static function (array $cmd): void {
     if ($r['code'] !== 0) throw new RuntimeException('Fixture command failed.');
 };
 try {
+    $app = ControlReleaseBridge::json((string)file_get_contents($root . '/app-manifest.json'));
+    $runtime = ControlReleaseBridge::json((string)file_get_contents($root . '/tools/release/runtime_compatibility.json'));
+    ControlReleaseBridge::validateRuntime($app, $runtime);
+    $check($app['runtime']['database'] === 'MariaDB >=10.11 <10.12', 'new candidate declares MariaDB server 10.11');
+    $oldApp = $app; $oldApp['runtime']['database'] = 'MariaDB >=10.6 <10.7';
+    $oldRuntime = $runtime; $oldRuntime['runtimes']['mariadb']['minimum'] = '10.6.0';
+    $oldRuntime['runtimes']['mariadb']['maximum_exclusive'] = '10.7.0';
+    ControlReleaseBridge::validateRuntime($oldApp, $oldRuntime);
+    $check(true, 'immutable legacy runtime remains verifiable');
+    $reject(fn() => ControlReleaseBridge::validateRuntime($app, $oldRuntime), 'new manifest cannot use legacy runtime policy');
+    $reject(fn() => ControlReleaseBridge::validateRuntime($oldApp, $runtime), 'legacy manifest cannot silently widen runtime');
+    $reject(fn() => ControlReleaseBridge::databaseRule('MariaDB >=10 <12'), 'unapproved broad database range rejected');
     $catalog = ControlReleaseBridge::json((string)file_get_contents($root . '/tools/db/migration_catalog.json'));
     $baseline = ControlReleaseBridge::json((string)file_get_contents($root . '/tools/db/clean_install_baseline_policy.json'));
     $paths = array_merge(['app-manifest.json', 'tools/release/package_policy.json', 'tools/release/runtime_compatibility.json',

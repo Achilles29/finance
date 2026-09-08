@@ -25,9 +25,9 @@
       }
     },
     "mariadb": {
-      "minimum": "10.6.0",
-      "maximum_exclusive": "10.7.0",
-      "staging_tested": "10.6.23"
+      "minimum": "10.11.0",
+      "maximum_exclusive": "10.12.0",
+      "staging_tested": "10.11.10"
     },
     "node": {
       "minimum": "20.0.0",
