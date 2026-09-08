@@ -8,7 +8,7 @@ parameters:
     scanFiles:
         - ci3-stubs.php
     reportUnmatchedIgnoredErrors: true
-    tmpDir: %env.A4_STATIC_RUNTIME_DIR%/tmp
+    tmpDir: %env.A4_STATIC_CACHE_DIR%
     parallel:
         maximumNumberOfProcesses: 1
         minimumNumberOfJobsPerProcess: 8

@@ -7782,3 +7782,93 @@
   disposable. Bug operasional APK tetap ditunda, komersialisasinya boleh berjalan.
 - Notifikasi ringkasan Batch 228 dikirim ke grup Telegram terkonfigurasi;
   log mengonfirmasi `notification sent` pada 2026-09-09 05:18:54 WIB.
+
+## Batch 229 — Cold-cache build: budget bertingkat dan isolasi checkout
+
+- Waktu: 2026-09-09 WIB. Prioritas A4/A5→C3, tanpa mengurangi error gate.
+- Review/diskusi: fixer tunggal; cold analysis sebelumnya sekitar empat menit,
+  tetapi inner gate 150s dan outer 180s. Cache staging/worktree saling menimpa.
+- File: `tools/static/toolchain.lock.json`, `tools/static/phpstan.neon`,
+  `tools/tests/a4_static_analysis_smoke.php`, contract test-nya,
+  `tools/tests/finance_quality_gate.php`, `tools/release/build_release_artifact.php`.
+- Perubahan: inner 360s, outer khusus static 420s; tes lain tetap 180s.
+  Cache di runtime eksternal dibagi hash path checkout, menolak symlink cache.
+  Scope seluruh application, satu worker, memory 2G dan baseline nol tetap.
+- Validasi: 20 static contract tests PASS; cold run aktual melalui gate baru
+  PASS scope=application/baseline_errors=0, tanpa warming manual.
+- Hasil review: CODE/RUNTIME PASS tooling. Artefak alpha.3 tetap immutable
+  dengan tooling lamanya; perbaikan ini baru masuk kandidat berikutnya.
+- Risiko/batch berikutnya: kode harus dipaketkan ulang sebagai versi baru;
+  tidak mengubah hash atau tag cutoff b10fa37 yang telah diverifikasi.
+
+## Batch 230 — Registrasi DRAFT Finance di private artifact storage Control
+
+- Waktu: 2026-09-09 WIB. Prioritas C3 delivery, bukan publish/deployment.
+- Review/diskusi: fixer tunggal; importer Finance khusus SQL, tidak mengubah
+  importer Penatausahaan, alur maker-checker atau batas upload HTTP 25 MiB.
+- File Control baru: `tools/lib/FinanceReleaseRegistrar.php`,
+  `tools/register_finance_release.php`, `tools/test_finance_release_registrar.php`.
+- Perubahan: root CLI dengan operator OWNER/RELEASE_MANAGER aktif; signature
+  dan semua byte diverifikasi sebelum koneksi Control. Import selalu DRAFT/ALPHA.
+  Product lock + unique version guard, transaksi metadata/artefak/evidence/audit,
+  penolakan overwrite byte berbeda dan replay identik UNCHANGED. Gagal sebelum
+  commit membersihkan hanya salinan baru; hasil COMMIT yang tidak pasti
+  mempertahankan file untuk read-back, bukan berisiko menghapus file committed.
+- Validasi: 18 tes SQLite in-memory/fixture filesystem PASS, termasuk rollback
+  di artefak kedua, peran salah, account nonaktif, versi sudah published,
+  tamper hash, replay dan lost commit reply. Lint tiga file Control PASS.
+- Eksekusi staging: alpha.3 cutoff b10fa37 diregistrasikan; public ID
+  `03b7746d-2e50-442d-94f7-edcc0c47686c`. Tepat 3 artefak dan 2 evidence
+  (SOURCE_CLEAN, SIGNATURE_VERIFY). Replay aktual UNCHANGED. Ketiga file
+  terbukti readable sebagai `www`; root:www, file 0640/direktori 0750.
+- Dampak DB: hanya INSERT metadata Control untuk release Finance baru,
+  compatibility, artifact, evidence dan audit. Tidak membuat customer,
+  deployment, token claim, aktivasi atau publish; tidak ada SQL/schema baru.
+- Hasil review: DRAFT_REGISTERED. Tidak membuat evidence INSTALL_TEST,
+  BACKUP_RESTORE/SECURITY_SCAN yang belum berasal dari pengujian kandidat itu.
+- Risiko: alpha.3 belum mengandung perbaikan Batch 229–231; importer tidak
+  mengganti artefak lama. Control masih tanpa HEAD; tidak commit seluruh repo.
+  Bukti before/after, replay dan hash source berada di
+  `/var/lib/finance-c3-20260909.tfDmtz/` (private).
+
+## Batch 231 — Executor DB clean-install dan bug first-owner bootstrap
+
+- Waktu: 2026-09-09 WIB. Prioritas A5/C3: buktikan jalur install tanpa
+  menyentuh data transaksi aplikasi yang berjalan.
+- Review/diskusi: fixer tunggal. Ditemukan literal bootstrap 206 halaman,
+  241 menu dan 206 permission, berbeda dari approved policy 209/244/209.
+  Ini bug script, bukan alasan mengedit isi menu/database customer.
+- File: `tools/install/clean_install_database.php`,
+  `tools/db/bootstrap_first_owner.php`, `tools/tests/c3_clean_install_database_smoke.php`,
+  test bootstrap/quality-gate contract/registry, kedua roadmap dan panduan delivery.
+- Perubahan: bootstrap memakai approved policy yang tervalidasi. Executor
+  memverifikasi signature/source exact, private credential files, database
+  kosong, runtime PHP/DB, lock, baseline, managed clean_install, first owner
+  dan health. Tidak menerima credential di argv, tidak menjalankan upgrade
+  melalui clean-install, dan tidak wipe/rollback DDL otomatis.
+- Validasi kode: 18 boundary tests installer tanpa DB PASS; 14 first-owner
+  contract PASS. Existing first-owner guard (kosong, fixed SUPERADMIN,
+  kekuatan password, locking) tetap dipertahankan.
+- Trial aktual: buat **database kosong baru**
+  `c3_finance_test_d93fbfabffe0` dan akun terpisah dengan grant hanya database
+  itu. Admin credential server dibaca internal dari konfigurasi panel yang
+  sudah ada, tidak dicetak/disalin ke source/argv. File akun trial/owner
+  acak 0600 disimpan di folder bukti privat; tidak mengubah config Finance.
+- Hasil trial **BLOCKED / DATABASE_RUNTIME_UNSUPPORTED** sebelum DDL.
+  Server socket dan TCP terverifikasi 10.11.10-MariaDB-log (port 3306),
+  sedangkan signed manifest alpha.3 hanya mendukung 10.6. Database trial
+  dikonfirmasi tetap **0 tabel**; tidak ada owner aplikasi dibuat, migration
+  diterapkan atau transaksi customer dibaca. DB kosong/account/source trial
+  dipertahankan untuk inspeksi, tidak menghapus runtime/backup/user data.
+- Hasil review: executor/guard dan perbaikan bootstrap CODE_PASS, bukan
+  INSTALL_TEST/owner integration/health PASS. Signature/kontrak alpha.3 tidak
+  dilonggarkan agar bisa lewat. Penetapan runtime kandidat berikutnya ditanyakan
+  ke owner (ikuti 10.11 server sekarang atau sediakan lingkungan 10.6 terpisah).
+- Validasi gabungan final: release profile **PASS 109 entry** (99 required,
+  4 development, 1 release-config, 2 runtime, preflight/security/static masing-masing
+  1); DB probes staging SKIPPED. UAT browser/peran/APK/printer fisik tetap manual.
+  Tidak ada SQL/schema baru, merge/push, deployment web/customer atau perubahan APK.
+- Batch berikutnya: putuskan runtime, kemas kandidat baru (jangan overwrite
+  alpha.3), ulang clean-install/owner/health, lalu upgrade/rollback disposable.
+  Fixture yang dibuat di staging bukan bukti support MariaDB 10.11 sampai
+  kandidat dengan kontrak dan pengujian yang tepat benar-benar lulus.

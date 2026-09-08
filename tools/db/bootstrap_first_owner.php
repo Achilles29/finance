@@ -3,12 +3,23 @@
 declare(strict_types=1);
 
 const A512_OWNER_FILE_MAX_BYTES = 4096;
-const A512_EXPECTED_PAGE_COUNT = 206;
-const A512_EXPECTED_MENU_COUNT = 241;
-const A512_EXPECTED_SUPERADMIN_PERMISSION_COUNT = 206;
+if (!defined('A5_MIGRATION_LIBRARY_ONLY')) define('A5_MIGRATION_LIBRARY_ONLY', true);
+require_once __DIR__ . '/migration_runner.php';
+if (!defined('FINANCE_A512_BASELINE_GUARD_LIBRARY_ONLY')) define('FINANCE_A512_BASELINE_GUARD_LIBRARY_ONLY', true);
+require_once __DIR__ . '/clean_install_baseline_guard.php';
 
-define('A5_MIGRATION_LIBRARY_ONLY', true);
-require __DIR__ . '/migration_runner.php';
+function a512_owner_seed_counts(string $root): array
+{
+    $path = $root . '/tools/db/clean_install_baseline_policy.json';
+    $checked = a512_validate_baseline($root, $path);
+    if (empty($checked['ok'])) a5_fail('owner_seed_policy', 'Approved clean-install baseline is invalid.');
+    $policy = json_decode((string)file_get_contents($path), true);
+    $counts = $policy['seed']['post_apply_counts'] ?? [];
+    foreach (['sys_page','sys_menu','auth_role_permission'] as $key) {
+        if (!is_int($counts[$key] ?? null) || $counts[$key] < 1) a5_fail('owner_seed_policy', 'Expected clean-install counts are invalid.');
+    }
+    return $counts;
+}
 
 function a512_owner_file(string $root, string $path): array
 {
@@ -62,6 +73,7 @@ function a512_owner_file(string $root, string $path): array
 
 function a512_bootstrap_owner(string $root, string $optionFile, string $databaseName, array $owner): array
 {
+    $expected = a512_owner_seed_counts($root);
     $passwordHash = password_hash($owner['password'], PASSWORD_BCRYPT, ['cost'=>12]);
     if (!is_string($passwordHash)) {
         a5_fail('owner_password_hash', 'Owner password could not be secured.');
@@ -95,9 +107,9 @@ function a512_bootstrap_owner(string $root, string $optionFile, string $database
             a5_fail('owner_exists', 'First-owner bootstrap is only allowed before any user or assignment exists.');
         }
         if ($counts[2] !== 1 || $counts[3] !== 1
-            || $counts[4] !== A512_EXPECTED_PAGE_COUNT
-            || $counts[5] !== A512_EXPECTED_MENU_COUNT
-            || $counts[6] !== A512_EXPECTED_SUPERADMIN_PERMISSION_COUNT) {
+            || $counts[4] !== $expected['sys_page']
+            || $counts[5] !== $expected['sys_menu']
+            || $counts[6] !== $expected['auth_role_permission']) {
             a5_fail('owner_seed', 'The approved clean-install seed has not been applied exactly.');
         }
 

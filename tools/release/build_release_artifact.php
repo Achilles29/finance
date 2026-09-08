@@ -133,7 +133,7 @@ try {
         ['STATIC', 'a4_static_analysis_smoke.php'],
         ['VULNERABILITY', 'a4_dependency_vulnerability_smoke.php'],
     ] as [$label, $script]) {
-        $gate = releaseArtifactRun([PHP_BINARY, $root . '/tools/tests/' . $script], $root);
+        $gate = releaseArtifactRun([PHP_BINARY, $root . '/tools/tests/' . $script], $root, $label === 'STATIC' ? 420 : 180);
         if ($gate['code'] !== 0) {
             if ($gate['output'] !== '') {
                 fwrite(STDERR, $gate['output'] . PHP_EOL);

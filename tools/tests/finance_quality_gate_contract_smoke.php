@@ -58,6 +58,7 @@ $expectedRequired = [
     'c3-upload-storage',
     'c3-composer-compat',
     'c3-control-release-bridge',
+    'c3-clean-install-database',
     'c4-control-license-verifier',
     'a3-finance-ui-shell',
     'a3-division-movement-pagination',

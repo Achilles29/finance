@@ -18,7 +18,7 @@
     "scope_relative_path": "application",
     "baseline_error_count": 0,
     "maximum_baseline_errors": 0,
-    "timeout_seconds": 150,
+    "timeout_seconds": 360,
     "maximum_captured_bytes": 262144
   }
 }

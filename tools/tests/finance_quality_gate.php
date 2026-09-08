@@ -57,6 +57,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'c3-upload-storage', 'file' => 'c3_upload_storage_smoke.php'],
             ['id' => 'c3-composer-compat', 'file' => 'c3_composer_compat_smoke.php'],
             ['id' => 'c3-control-release-bridge', 'file' => 'c3_control_release_bridge_smoke.php'],
+            ['id' => 'c3-clean-install-database', 'file' => 'c3_clean_install_database_smoke.php'],
             ['id' => 'c4-control-license-verifier', 'file' => 'c4_control_license_verifier_smoke.php'],
             ['id' => 'a3-finance-ui-shell', 'file' => 'a3_finance_ui_shell_smoke.php'],
             ['id' => 'a3-division-movement-pagination', 'file' => 'a3_division_movement_pagination_smoke.php'],
@@ -482,7 +483,8 @@ if ($profile !== 'parallel') {
 }
 $static = ['ok' => true, 'failed' => [], 'passed' => 0, 'total' => 0];
 if ($profile !== 'parallel') {
-    $static = finance_quality_gate_run_tier('A4 STATIC', $manifest['static'], $root, $timeoutSeconds);
+    // Cold analysis has a bounded 360s budget; leave time for startup/reporting.
+    $static = finance_quality_gate_run_tier('A4 STATIC', $manifest['static'], $root, 420);
     if (!$static['ok']) {
         echo 'A4 STATIC BLOCKED: PHPStan semantic analysis must pass before release.' . PHP_EOL;
     }

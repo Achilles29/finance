@@ -1,7 +1,36 @@
 # Paket Finance untuk Control — kandidat internal
 
-Alur ini menyiapkan bukti paket, bukan installer, bukan publish, dan bukan
-aktivasi lisensi. Jalankan sebagai admin rilis Linux; jangan melalui browser.
+Alur ini menyiapkan bukti paket dan registrasi DRAFT, bukan publish atau
+aktivasi lisensi. Executor database belum merupakan deployment web/customer
+lengkap. Jalankan sebagai admin rilis Linux; jangan melalui browser.
+
+Update Batch 229–231: kode gate cold-cache kini 360 detik dengan outer 420
+detik, cache per checkout; tidak perlu warming manual. Perbaikan ini belum
+berada dalam alpha.3. Paket alpha.3 sudah DRAFT di Control, tetapi trial DB
+diblokir sebelum DDL: runtime server 10.11.10 berbeda dari kontrak paket 10.6.
+
+Registrasi CLI Control:
+
+```bash
+php tools/register_finance_release.php CHECKOUT_FINANCE_ROOT MANIFEST.release.json --actor-id=ID_OPERATOR
+```
+
+Path harus absolut dan validator milik root. Actor harus OWNER/RELEASE_MANAGER
+aktif. Hasil selalu DRAFT/ALPHA dengan tiga artefak privat. Import identik
+UNCHANGED, isi berbeda pada versi sama ditolak. Tidak mengubah limit HTTP
+25 MiB. File 0640/root:www, direktori 0750; web hanya membaca file kandidat.
+Jika COMMIT kehilangan koneksi, file dipertahankan untuk read-back/recovery;
+jangan menghapusnya sebelum hasil commit dipastikan.
+
+Executor database `tools/install/clean_install_database.php apply` menerima
+enam parameter file/path: `--release-root`, `--signed-manifest`, `--trust-file`,
+`--defaults-extra-file`, `--database-name-file`, `--owner-file`. Source harus
+ekstraksi persis paket signed, database harus kosong dan akun DB terbatas
+ke database itu. Tidak menerima credential langsung di argv, tidak menghapus
+DB agar bisa retry, dan tidak mem-publish/deploy web. Urutan signature,
+source exact, empty-state/runtime guard, baseline, migration, bootstrap dan
+health bersifat wajib. Kegagalan DDL tidak bisa di-rollback otomatis; simpan
+DB dan file untuk inspeksi. **Trial sukses belum dinyatakan** karena runtime.
 
 1. Tetapkan commit lokal source. Buat checkout bersih terpisah dengan
    `git worktree add --detach /var/lib/finance-release/source COMMIT`.
@@ -61,8 +90,8 @@ Kontrak:
 - Paket web tidak menyertakan binary/source APK. Komersialisasi APK boleh
   dilanjutkan, bug produksi/build/UAT masih tertunda. Jangan mengiklankan
   APK siap rilis atau menentukan versi minimum APK tanpa build teruji.
-- Kandidat `INTERNAL_CANDIDATE`/ALPHA. Belum ada registrasi DRAFT ke DB
-  Control, publish, install-plan, deployment customer atau enforcement.
+- Kandidat `INTERNAL_CANDIDATE`/ALPHA sudah DRAFT di DB Control (Batch 230).
+  Belum publish, install-plan, deployment customer atau enforcement.
 - Template Menu Book legacy masih disediakan untuk kompatibilitas. Customer
   baru harus memilih template customer di Profil Usaha; audit identitas/aset
   legacy menyeluruh tetap menjadi checklist C2, bukan dinyatakan selesai oleh
@@ -73,6 +102,6 @@ Kandidat Batch 228: versi `0.1.0-alpha.3`, cutoff Git
 staging dicatat pada execution log; source/tag terpisah dari commit laporan
 setelah build. Tidak perlu menjalankan SQL tambahan untuk batch delivery ini.
 
-Setelah verifikasi: adapter registrasi Finance di private artifact storage
-Control, lalu installer Linux/upgrade salinan database/rollback disposable.
+Setelah DRAFT: tetapkan runtime kandidat berikutnya, lalu buktikan installer
+Linux/upgrade salinan database/rollback disposable.
 Server aplikasi lama tidak menjadi target migration.

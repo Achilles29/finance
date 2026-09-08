@@ -1,5 +1,20 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Update 2026-09-09 — Batch 229–231:** A4 cold-cache diperbaiki tanpa mengurangi
+scope/error gate. Bug tambahan A5: bootstrap owner masih memakai jumlah
+halaman/menu lama (206/241), berbeda dari policy rilis (209/244). Kini memakai
+policy baseline tervalidasi; unit contract PASS. Trial executor DB berhenti
+sebelum membuat tabel: staging aktual MariaDB 10.11.10, paket alpha.3 membatasi
+10.6. Bukti runtime lama 10.6.23 bukan bukti versi server saat ini.
+Detail DRAFT/delivery dan keputusan runtime kandidat berikutnya hanya di `_28`.
+
+- [x] A4: gate cold-cache 360s/outer 420s, cache per checkout; analisis penuh
+  application lulus dengan baseline/errors nol.
+- [x] A5 CODE_PASS: hitungan first-owner mengikuti release policy, bukan literal.
+- [ ] A5 runtime: install/first owner/health, upgrade dan rollback disposable
+  menunggu runtime kandidat yang disetujui. Tidak ada klaim UAT/INSTALL PASS.
+- [ ] Kode tooling baru belum berada dalam artefak alpha.3 yang immutable.
+
 **Delta 2026-09-09 — Batch 228:** izin owner membedakan pekerjaan
 komersialisasi APK (boleh) dari bug operasional/build APK (ditunda).
 Tidak mengulang A3 atau memperbaiki transaksi. Batas PHP manifest dikoreksi
@@ -32,7 +47,7 @@ Checklist delta teknis (tidak mengulang A3 inventory/sidebar):
 - [x] A0/A5: cutoff source lokal `b10fa37a40a06b1867800327812ac1dc1490c176`, tag `finance-web-alpha.3-cutoff-20260909`; catatan lokal/upload dipertahankan di luar commit.
 - [x] A0/A5: paket kandidat internal signed dari cutoff bersih lulus verifikasi Control (Batch 228); bukan publish.
 - [ ] A0/A5: integrasi Git remote, restore/upgrade/rollback customer nyata dan persetujuan handoff belum selesai.
-- [ ] A4/A5: rapikan cold-start analisis statis; batas gate saat ini membutuhkan cache yang sudah dibentuk oleh analisis penuh yang lulus.
+- [x] A4/A5 kode Batch 229: cold-start dan isolasi cache diperbaiki; tetap perlu dikemas pada kandidat berikutnya, bukan overwrite alpha.3.
 - [ ] A1/A4: penerimaan per peran dan printer fisik; bug operasional/build/UAT APK serta MFA ditunda owner, pekerjaan komersialisasi APK diperbolehkan.
 
 Laporan batch: `docs/2026-09-02_codex_execution_log.md`.

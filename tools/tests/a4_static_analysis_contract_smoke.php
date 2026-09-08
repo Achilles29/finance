@@ -29,6 +29,9 @@ $check(!a4StaticToolchainValid($badVersion), 'non-exact PHPStan version fails cl
 $badTimeout = $config;
 $badTimeout['analysis']['timeout_seconds'] = 600;
 $check(!a4StaticToolchainValid($badTimeout), 'unbounded timeout fails closed');
+$check($config['analysis']['timeout_seconds'] === 360, 'cold analysis has a bounded six-minute budget');
+$check(a4StaticCacheDirectory('/runtime', $root) === a4StaticCacheDirectory('/runtime', $root), 'cache is stable within one checkout');
+$check(a4StaticCacheDirectory('/runtime', $root) !== a4StaticCacheDirectory('/runtime', '/different-checkout'), 'independent checkouts never share a result cache');
 $badCapture = $config;
 $badCapture['analysis']['maximum_captured_bytes'] = 2097152;
 $check(!a4StaticToolchainValid($badCapture), 'unbounded captured output fails closed');
@@ -51,6 +54,10 @@ $check(strpos($bootstrap, '--no-scripts') !== false, 'static bootstrap cannot ex
 $check(strpos($runner, "'--error-format=json'") !== false, 'runtime requires a machine-readable PHPStan report');
 $check(strpos($runner, "'application'") !== false || strpos($runner, "scope_relative_path") !== false, 'runtime analysis scope cannot omit application');
 $check(strpos($runner, '$analysisEnvironment[$config[\'runtime\'][\'environment\']] = $runtimeDirectory;') !== false, 'runtime injects the resolved external tmp directory into PHPStan');
+$check(strpos($runner, "\$analysisEnvironment['A4_STATIC_CACHE_DIR'] = \$cacheDirectory;") !== false, 'PHPStan receives the checkout-specific cache directory');
+$builder = (string)file_get_contents(dirname(__DIR__) . '/release/build_release_artifact.php');
+$gate = (string)file_get_contents(__DIR__ . '/finance_quality_gate.php');
+$check(strpos($builder, "\$label === 'STATIC' ? 420 : 180") !== false && strpos($gate, "\$manifest['static'], \$root, 420") !== false, 'outer build and quality gate budgets exceed the inner cold-analysis budget');
 
 echo 'A4 STATIC ANALYSIS CONTRACT ' . ($failed === 0 ? 'PASS' : 'FAIL')
     . ' passed=' . $passed . ' failed=' . $failed . PHP_EOL;

@@ -35,7 +35,7 @@ function a4StaticToolchainValid($config): bool
         && $analysis['baseline_error_count'] <= $analysis['maximum_baseline_errors']
         && is_int($analysis['timeout_seconds'] ?? null)
         && $analysis['timeout_seconds'] >= 10
-        && $analysis['timeout_seconds'] <= 180
+        && $analysis['timeout_seconds'] <= 360
         && is_int($analysis['maximum_captured_bytes'] ?? null)
         && $analysis['maximum_captured_bytes'] >= 65536
         && $analysis['maximum_captured_bytes'] <= 1048576;
@@ -105,7 +105,7 @@ function a4StaticSourceContract(array $config, string $root): array
         || strpos($phpstanConfig, 'excludePaths:') !== false
         || strpos($phpstanConfig, 'bootstrapFiles:') !== false
         || strpos($phpstanConfig, 'ci3-stubs.php') === false
-        || strpos($phpstanConfig, '%env.A4_STATIC_RUNTIME_DIR%/tmp') === false
+        || strpos($phpstanConfig, '%env.A4_STATIC_CACHE_DIR%') === false
     ) {
         $failures[] = 'phpstan_scope_or_policy_invalid';
     }
@@ -211,6 +211,12 @@ function a4StaticRuntimeDirectory(array $config): string
     return rtrim($configured !== '' ? $configured : $config['runtime']['default_directory'], DIRECTORY_SEPARATOR);
 }
 
+/** Stable per checkout: staging and a clean release build must not invalidate each other's cache. */
+function a4StaticCacheDirectory(string $runtimeDirectory, string $root): string
+{
+    return $runtimeDirectory . '/tmp/' . hash('sha256', realpath($root) ?: $root);
+}
+
 if (defined('A4_STATIC_ANALYSIS_LIBRARY_ONLY') && A4_STATIC_ANALYSIS_LIBRARY_ONLY) {
     return;
 }
@@ -257,6 +263,13 @@ if (!is_array($analysisEnvironment)) {
     $analysisEnvironment = [];
 }
 $analysisEnvironment[$config['runtime']['environment']] = $runtimeDirectory;
+$cacheDirectory = a4StaticCacheDirectory($runtimeDirectory, $root);
+if (is_link($runtimeDirectory . '/tmp') || is_link($cacheDirectory)
+    || (!is_dir($cacheDirectory) && !mkdir($cacheDirectory, 0700, true))) {
+    fwrite(STDERR, "A4 STATIC FAIL cache_directory_unsafe\n");
+    exit(1);
+}
+$analysisEnvironment['A4_STATIC_CACHE_DIR'] = $cacheDirectory;
 $result = a4StaticRun([
     $binary,
     'analyse',
