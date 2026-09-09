@@ -1,5 +1,11 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Validasi Batch 241:** source cutoff `4d31548` lulus **112 entry quality gate
+release** dari checkout bersih; 54 tes agen/model/file diulang PASS. UAT peran,
+APK dan printer fisik tetap pending, probe DB bisnis tidak dijalankan. Tidak
+ada pengurangan gate/baseline, SQL baru atau koreksi transaksi. Bukti paket
+dan praktik penjualan hanya pada `_28` dan execution log.
+
 **Delta teknis Batch 240 — 2026-09-09:** reader lisensi kini dapat memakai
 cache deployment root-owned yang ditulis atomik, bukan mempercayai flag SQL.
 

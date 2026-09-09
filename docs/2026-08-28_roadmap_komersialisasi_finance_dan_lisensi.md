@@ -1,5 +1,11 @@
 # Roadmap Komersialisasi Finance POS
 
+**Batch 241:** kandidat privat alpha.9 sudah build/sign/verify, termasuk
+verifier Control read-only, dari cutoff `4d31548`: **112 gate release PASS**
+dan 54 tes agen lengkap PASS. **Belum diregistrasi/publish/diaktivasi** di
+Control pada batch ini. Paket alpha.8 dan bukti HTTPS/DB-nya tetap utuh;
+hasil alpha.8 tidak otomatis dianggap acceptance deployment alpha.9.
+
 **Arahan owner dan Batch 240 — 2026-09-09:** siapkan barang/engineering lebih
 dahulu; customer, paket, kontrak, aktivasi dan praktik penjualan akan dilakukan
 owner melalui UI Control. Harga/domain/pilot bukan penghambat persiapan teknis.
@@ -267,7 +273,7 @@ internal. Status teknis A0–A5 tetap hanya berasal dari control board `_30`.
 | C0 — handoff/go-no-go | `IN_PROGRESS` | `NONE` | `BLOCKED` | `HANDOFF_CHECKLIST_READY` | Batch 238: daftar keputusan/penerimaan dan batas produk disusun dalam panduan alpha.8. Gerbang teknis A0–A5 dan persetujuan owner belum tuntas. |
 | C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 NAMUA_FINANCE di Control: 28 feature, 4 edition, 29 dependency, PERPETUAL dan maintenance awal 365 hari. Alpha.3 sudah DRAFT melalui Batch 230, bukan publish. Harga, EULA/SLA, data policy, add-on/override per customer dan kontrak pilot belum final. |
 | C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_HTTP_PASS` | Batch 236–237: profil/logo/login benar pada HTTPS percobaan, URL tetap dan session terisolasi. Marketing menyeluruh, preset demo, pajak/service/integrasi/privacy serta penerimaan customer tetap terbuka. Outlet/printer lama tidak diubah. |
-| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `SIGNED_WEB_UPGRADE_TRIAL_PASS` | Batch 239: alpha.8 signed/DRAFT, 111 gates, 22 HTTPS test dari paket dan health upgrade PASS pada DB salinan sintetis. Restore 296 tabel terbukti Batch 237. Installer layanan final, upgrade lintas versi bermigrasi baru, web cutover/rollback, claim/receipt dan publish belum selesai. |
+| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `SIGNED_WEB_UPGRADE_TRIAL_PASS` | Alpha.8 signed/DRAFT, 22 HTTPS test dan health upgrade DB sintetis PASS (Batch 239); restore 296 tabel Batch 237. Alpha.9 signed privat dan 112 gate PASS (Batch 241), belum registrasi/deploy. Installer layanan final, upgrade lintas versi, web cutover/rollback, claim/receipt dan publish belum selesai. |
 | C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `AGENT_CACHE_FIXTURE_PASS` | Batch 240: agen Linux init/activate/poll, signed file cache dan model/UI; 54 fixture checks PASS termasuk restart/replay/clock/revoke/izin. Mode tetap audit-only, belum aktivasi customer nyata. Recovery aktivasi ambigu, Windows/native guard, pairing, limit, enforcement dan acceptance HTTPS nyata masih terbuka. Komersialisasi APK boleh; bug operasional/build/UAT ditunda. |
 | C5 — pilot/operasi penjualan | `IN_PROGRESS` | `NONE` | `BLOCKED` | `SUPPORT_DRAFT_READY` | Batch 238: panduan alpha.8 admin usaha/server, latihan penerimaan dan draft SOP support tersedia. Panduan per modul, walkthrough awam, customer/domain pilot, kontrak/SLA final dan operasi penjualan belum dijalankan. |
 

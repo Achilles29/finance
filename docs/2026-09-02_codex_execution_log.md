@@ -8252,3 +8252,45 @@
 - Berikutnya: paket kandidat dari cutoff terseleksi dan gate penuh; setelah
   itu installer/cutover/rollback serta acceptance integrasi yang belum lulus.
   Penjualan/publikasi nyata tetap menunggu praktik owner di UI Control.
+
+## Batch 241 — Paket alpha.9 privat sebelum praktik penjualan owner
+
+- Waktu: 2026-09-09 **09:22–09:27 WIB**. Cutoff source
+  `4d315484cdc60bdaf1894885c8312c167e829cad`, tag
+  `finance-web-alpha.9-cutoff-20260909`, epoch `1788920512`.
+  Commit lokal memuat 20 file; daftar A/M dari HEAD awal turn `e2ed1fd`
+  disimpan pada `changes-from-e2ed1fd.tsv` di folder bukti.
+- Checkout build bersih; `_NOTE2.md` dan kedua folder upload pengguna tidak
+  diikutsertakan. Tidak push/merge atau mengubah alpha.8 yang sudah signed.
+- **112 entry quality gate release PASS**: 102 required, 4 development,
+  1 release config, 2 runtime, preflight/security/static masing-masing 1.
+  PHPStan application baseline/errors nol. Probe DB bisnis SKIPPED dan manual
+  UAT peran/APK/printer masih pending, tidak diklaim PASS dari gate ini.
+- Full `c4_control_license_agent_smoke.php` di checkout bersih: **54 PASS**;
+  `--protocol-only` dalam gate berisi 22 checks, bukan bukti acceptance file.
+  **13 PHP perubahan php -l PASS**. Composer validate exit 0; warning
+  deprecation Composer 2.0.14 lama tetap dicatat, dependency tidak diubah.
+  Systemd verify template service/timer exit 0; warning `RestartMode` berasal
+  dari unit snapd host yang tidak disentuh. Tidak memasang/menjalankan service.
+- Build/sign/verify: **1.634 file**, **597.381.120 bytes**; TAR SHA256
+  `8ed5ff28bc7c787f3de197f9e1721e623d2f340add8c1aeb8338325d7bd90bc7`;
+  inner manifest SHA256
+  `b7035a05bf29bf8d37b8149b4255bbc319bc6be7f0b511f81624a6d8b1ac9a11`.
+  Verifier Finance dan `/control/tools/verify_finance_release.php` read-only
+  keduanya PASS. Kunci release Finance lama digunakan tanpa rotasi.
+- Paket `finance-0.1.0-alpha.9.tar`, sidecar, log gate/build/agen dan daftar
+  perubahan ada di **`/var/lib/finance-release-20260909.WpqNVe`**, root 0700.
+  Tidak register DRAFT baru, publish, claim/receipt, subscription/customer,
+  aktivasi nyata, issuance worker, atau perubahan database Control.
+- SQL: tidak ada SQL baru/dijalankan. 16 managed SQL dan kontrak schema tetap;
+  7 legacy dalam deskripsi paket bukan instruksi menjalankan seluruh folder.
+  Server utama lama tidak disentuh; trial nanti memakai database salinan.
+- Review fixer: **INTERNAL_CANDIDATE**, bukan barang final/go-live atau
+  C0–C5 DONE. Belum deployment/HTTPS alpha.9; bukti versi alpha.8 tetap disebut
+  versi alpha.8. Status C4 AGENT_CACHE_FIXTURE_PASS dipertahankan.
+- Risiko/berikutnya: installer layanan + cutover/rollback + upgrade lintas versi,
+  integrasi aktivasi/recovery, native guard/pairing/limit/enforcement, panduan
+  per modul dan penerimaan pengguna. Harga/customer/publikasi tidak dijadikan
+  alasan menghentikan engineering; praktik komersial tetap milik owner via UI.
+- Dokumen hasil setelah cutoff: kedua roadmap, delivery guide dan execution
+  log ini. Paket signed tidak ditimpa untuk memasukkan catatan hasil build.

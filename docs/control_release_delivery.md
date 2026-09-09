@@ -1,5 +1,25 @@
 # Paket Finance untuk Control — kandidat internal
 
+Update Batch 241: **alpha.9 privat**, cutoff
+`4d315484cdc60bdaf1894885c8312c167e829cad`, tag
+`finance-web-alpha.9-cutoff-20260909`, source epoch `1788920512`.
+Build, signature dan verifier Finance maupun Control read-only PASS.
+112 gate release PASS; 54 fixture agen/model/izin PASS. Kandidat ini belum
+diregistrasi/publish atau dipakai mengaktifkan customer melalui Control.
+
+- Arsip: `/var/lib/finance-release-20260909.WpqNVe/finance-0.1.0-alpha.9.tar`.
+- 1.634 file, 597.381.120 bytes; SHA256
+  `8ed5ff28bc7c787f3de197f9e1721e623d2f340add8c1aeb8338325d7bd90bc7`.
+- Manifest/signature: nama dasar yang sama + `.release.json` dan `.release.sig.json`.
+- Schema finance-20260907, 16 SQL managed tetap; **tidak ada SQL baru**.
+- Tambahan utama: agen lisensi, signed cache/model/UI, template scheduler dan
+  panduan. Bukan native guard atau enforcement yang sudah diterima.
+
+Folder privat tetap root:root 0700; belum disalin ke registry Control. Bukti
+upgrade DB/HTTPS alpha.8 di bawah adalah hasil versi itu, bukan acceptance
+deployment alpha.9. Owner menjalankan praktik UI nanti setelah gerbang teknis
+selesai. Registrasi CLI yang dijelaskan di bawah bukan instruksi eksekusi sekarang.
+
 Update Batch 239: alpha.8 cutoff `39a82105ef9003d91f22595b10d661711381029d`,
 111 gate otomatis PASS, 1.626 file signed dan **DRAFT/ALPHA** di Control.
 Web dari paket, 22 HTTPS test dan health upgrade dari salinan DB sintetis
