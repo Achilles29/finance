@@ -8138,3 +8138,57 @@
 - Berikutnya: ulang gate penuh dari cutoff baru, bangun/verifikasi kandidat;
   lanjut C3 installer/upgrade lintas versi dan C4 setelah identitas/profil
   target jelas. C1/C5 harga/kontrak/domain/pilot/publikasi tetap keputusan owner.
+
+## Batch 239 — Alpha.8 signed dan uji web langsung dari paket
+
+- Waktu: 2026-09-09 07:22–07:33 WIB. Cutoff final
+  `39a82105ef9003d91f22595b10d661711381029d`, epoch 1788913376,
+  tag `finance-web-alpha.8-cutoff-20260909`; cutoff d5ff56e tidak ditandatangani.
+  **24 file** berubah/bertambah sejak awal turn `647c389`; daftar nama/status
+  disimpan `alpha8-changes-from-previous-turn.tsv` pada folder bukti Batch 237.
+- Gate penuh dari checkout bersih: **111 entry PASS** (101 required,
+  4 development, 1 release-config, 2 runtime, preflight/security/static masing-masing
+  1). PHPStan seluruh application PASS, baseline nol; probes DB operasional
+  SKIPPED. Semua 18 PHP perubahan lint PASS. Tidak ada bypass gate atau copy
+  secret/marker staging ke checkout release. Composer validate exit 0.
+- Build/sign/verify PASS: `finance-0.1.0-alpha.8.tar`, **1.626 file**,
+  **597.309.440 bytes**, SHA256
+  `523b2234e219ec764973549987bd26f0a649ee55e91af385d8b1ab8a8670078f`;
+  inner manifest
+  `5c5c125b7f72c8b29c2e9ce864e3f73a813bc70d0e5a80bfc078b7b3c9556e8a`.
+  Arsip/sidecar/log final ada di `/var/lib/finance-web-20260909.fDgGsM`.
+  Key release Finance lama dipakai, tidak dirotasi atau disalin ke aplikasi.
+- Ekstraksi verified alpha.8 dan runtime percobaan baru di
+  `/var/lib/finance-web-20260909.uRE66a`. Database hanya salinan sintetis
+  `c3_finance_test_0471d94e5ffe`. Encryption key dipertahankan dari percobaan
+  sebelumnya untuk mencontohkan upgrade, bukan diganti setiap versi.
+- Temuan provisioning: umask privat 0077 membuat 228 parent direktori kode
+  hasil TAR menjadi 0700; request awal 500/permission denied. Diperbaiki
+  hanya pada direktori root-owned yang terdaftar sebagai parent source signed,
+  menjadi 0755. Tidak ada byte source, izin upload, credential atau data diubah
+  untuk mengatasi masalah itu. Helper ekstraksi dan panduan diperbarui; tidak
+  chmod rekursif aplikasi utama atau mengubah arsip signed.
+- Composer install --no-dev dari lock exit 0; warning Composer 2.0.14 tetap
+  dicatat. Nginx/PHP-FPM config test PASS, **22 HTTPS acceptance PASS** dari
+  paket, tanpa edit source termasuk config.php/Auth.php. Setelah save logo/profil,
+  health memverifikasi ulang 1.626 file, 39 tabel wajib, 16 receipt, 1 owner PASS.
+  `signed-web-acceptance.json` mengikat hasil HTTP dan health ke hash paket/cutoff.
+- Control read-back: alpha.8 **DRAFT/ALPHA**, public ID
+  `4811a549-6525-4c80-ab6b-6b4cb5a83eed`, 3 artefak, 2 evidence
+  SOURCE_CLEAN/SIGNATURE_VERIFY. Registrasi ulang UNCHANGED. Tidak membuat
+  evidence full customer INSTALL_TEST/BACKUP_RESTORE dari tes parsial,
+  tidak publish, claim/receipt, customer, kontrak atau lisensi baru.
+- Kedua layanan HTTPS trial telah dihentikan; semua folder, backup, fixture DB,
+  credential, log dan upload percobaan dipertahankan. Tidak mengubah layanan,
+  database, upload maupun setting staging operasional. Tidak ada SQL baru,
+  push/merge Git, rotasi secret atau intervensi transaksi pengguna/APK.
+- Dokumen setelah cutoff: dua roadmap, log ini dan control delivery guide.
+  26 roadmap consistency + 30 dashboard PASS akan diperiksa kembali sesudah
+  finalisasi. Hasil review: **SIGNED_WEB_UPGRADE_TRIAL_PASS**, bukan seluruh
+  C0–C5 selesai. C0/C1/C5 keputusan/pilot belum final; C2 marketing/preset dan
+  UAT, C3 installer/cutover/upgrade lintas versi, C4 activation/poll/cache,
+  replay/native/device/limit/enforcement masih terbuka. Panduan per modul dan
+  latihan awam belum dinyatakan lulus. Windows/APK/printer tidak disertifikasi.
+- Langkah berikut yang perlu arah owner: pilih customer/domain/instance dan
+  paket pilot serta lokasi keputusan harga/kontrak/SLA. Jangan mem-publish
+  paket atau mengaktifkan enforcement untuk menyiasati gerbang yang belum lulus.

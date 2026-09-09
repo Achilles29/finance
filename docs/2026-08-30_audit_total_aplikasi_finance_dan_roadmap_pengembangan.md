@@ -1,5 +1,11 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Final Batch 239:** gate release dari checkout bersih lulus **111 entry**,
+tanpa menyalin `.env` backup atau marker dashboard staging. Paket alpha.8
+terverifikasi, web dari paket lulus 22 pemeriksaan HTTPS dan health upgrade
+setelah UI save. Ini melengkapi bukti batch di bawah, bukan menutup seluruh
+A5/handoff atau UAT peran/printer. Detail delivery hanya di `_28`.
+
 **Update 2026-09-09 — Batch 236–238:** perbaikan fondasi instalasi customer
 dan bug login yang ditemukan lewat pengujian HTTPS. Tidak mengulang A3,
 mengoreksi data transaksi, atau mengerjakan bug operasional APK.

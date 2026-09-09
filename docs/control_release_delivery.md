@@ -1,5 +1,22 @@
 # Paket Finance untuk Control — kandidat internal
 
+Update Batch 239: alpha.8 cutoff `39a82105ef9003d91f22595b10d661711381029d`,
+111 gate otomatis PASS, 1.626 file signed dan **DRAFT/ALPHA** di Control.
+Web dari paket, 22 HTTPS test dan health upgrade dari salinan DB sintetis
+lulus; tidak ada edit source setelah ekstraksi. Alpha.7 tetap immutable.
+Ini belum installer final, publish/claim/receipt, migrasi lintas versi dengan
+DDL baru, atau pilot customer. Batas lengkap berada di tabel kanonis C3 `_28`.
+
+Saat ekstraksi TAR, direktori kode harus root-owned dan dapat dilalui akun
+pool (contoh 0755); file kode 0644/0755 mengikuti manifest, tidak writable
+oleh PHP. TAR berisi file tanpa entry direktori, sehingga ekstraksi dengan
+umask 0077 dapat membuat parent kode 0700 dan login HTTP gagal meskipun checksum
+benar. Gunakan umask 0022 **hanya saat mengekstrak kode ke direktori baru yang
+telah divalidasi**, kemudian kembali ke umask 0077 untuk credential/backup.
+Jangan chmod rekursif seluruh project: upload dan secret mempunyai owner/mode
+berbeda. Runtime/upload/dependency dibuat setelah verifikasi source exact;
+health sesudah operasi harus tetap memverifikasi semua byte source signed.
+
 Alur ini menyiapkan bukti paket dan registrasi DRAFT, bukan publish atau
 aktivasi lisensi. Executor database belum merupakan deployment web/customer
 lengkap. Jalankan sebagai admin rilis Linux; jangan melalui browser.
