@@ -8296,3 +8296,17 @@
   log ini. Paket signed tidak ditimpa untuk memasukkan catatan hasil build.
 - Laporan lokal `ba32806`; notifikasi ringkasan hasil/batas kesiapan terkirim
   Telegram dan terkonfirmasi **2026-09-09 09:27:21 WIB**. Tidak ada push Git.
+## Batch 242 — 2026-09-09: sambungan Control dan executor praktik Linux
+
+- Prioritas: tuntaskan engineering untuk praktik owner di UI; bukan penjualan/publikasi otomatis.
+- Pelaksana tunggal: telusuri kontrak Finance–Control, implementasi kecil dan test aktual terisolasi; tidak mengulang audit bisnis/APK.
+- Finance: `tools/licensing/{ControlLicenseProtocol,FinanceLicenseAgent,finance_license}.php`; `tools/install/{PrivateDeployment,ControlDelivery,FinanceInstance,control_delivery,finance_instance,LinuxWebProfile}.php`; test c3/c4 dan registry gate; manifest alpha.10 tanpa SQL baru.
+- Control (perubahan terpisah, source lama dibackup): route/CSRF recovery; controller/model aktivasi; issuer/config privat khusus fixture; receipt controller/model; controller/model/view deployment untuk token pengganti dengan step-up, CSRF, alasan dan konfirmasi installer lama berhenti.
+- Perbaikan: recovery aktivasi memakai kunci instance lama, lease RESTRICTED dapat diperbarui setelah kembali online, pemeriksaan eligibility worker, format ID migrasi Finance diterima; receipt migrasi tidak menutup deployment sebelum aktivasi web.
+- Installer: verifikasi paket/source, database kosong untuk pemasangan baru, database salinan dan backup terverifikasi untuk upgrade, source/runtime terpisah, dependency/upload, layanan HTTPS loopback dengan PID milik konfigurasi sendiri. Tidak menghapus DB/upload/backup; kegagalan ambigu dipertahankan untuk inspeksi.
+- Bukti aktual: Control salinan di `/var/lib/finance-control-20260909.HusH3Z`, DB `finance_ctl_test_ed8fa9f24b35`; 18 tes HTTPS lisensi PASS. Alpha.9 signed dipasang lewat executor baru di `/var/lib/finance-web-20260909.8kCfz6`, DB baru `c3_finance_test_626455afbd41`; baseline/16 migrasi/owner/health serta 22 tes HTTPS UI PASS.
+- Delivery aktual alpha.9: 597.381.120 byte melalui HTTPS, tiga artefak verified, 9 tes claim/download/receipt/replay/idempotensi PASS; bukti `delivery-8072f90227b4/acceptance.json` dalam fixture Control.
+- Unit: 58 agen/model/izin PASS dan 19 kontrak delivery PASS. Gate release/final paket alpha.10 serta upgrade/rollback lintas versi dicatat pada batch berikut setelah dijalankan, belum diklaim pada batch ini.
+- Risiko sisa: fixture bukan customer publik; enforcement/native guard, Windows, APK/printer/UAT produksi tetap terpisah. Tidak memakai DB transaksi Finance, tidak menjalankan worker pada subscription nyata.
+- Cutoff sebelum pekerjaan: `fa6241e`; source paket alpha.9 tetap immutable `4d31548`. Perubahan pengguna `docs/_NOTE2.md` dan folder upload tidak ikut commit.
+- Berikut: build/sign alpha.10, uji upgrade/cutover/rollback, registrasi DRAFT berbukti dan panduan praktik UI owner. Tidak push/publish/aktivasi nyata.

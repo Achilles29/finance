@@ -122,4 +122,24 @@ final class FinanceLicenseAgent
                 'code'=>$error ?? $v['code'],'enforcement_changed'=>false];
         } finally { flock($lock, LOCK_UN); fclose($lock); }
     }
+
+    public function recover(string $code): array
+    {
+        $lock=$this->private->lock();
+        try {
+            $s=$this->state();
+            if (($s['activation_state']??'')!=='REQUEST_UNCERTAIN' || isset($s['activation'])) throw new RuntimeException('RECOVERY_NOT_REQUIRED');
+            $secret=base64_decode($s['secret_key_base64'],true);
+            $payload=ControlLicenseProtocol::activation($s['identity'],sodium_crypto_sign_publickey_from_secretkey($secret),$this->fingerprint,$code);
+            $request=ControlLicenseProtocol::recovery($payload,$secret,($this->clock)(),bin2hex(random_bytes(24))); sodium_memzero($secret);
+            $r=($this->transport)($s['origin'],ControlLicenseProtocol::RECOVER_PATH,$request['body'],$request['headers']);
+            unset($request,$payload,$code);
+            if (($r['http']??0)!==202 || ($r['json']['status']??'')!=='PENDING' || ($r['json']['recovered']??false)!==true) throw new RuntimeException('RECOVERY_REQUIRES_REVIEW');
+            $activation=['activation_id'=>$r['json']['activation_id']??'','poll_token'=>$r['json']['poll_token']??''];
+            $secret=base64_decode($s['secret_key_base64'],true);
+            ControlLicenseProtocol::poll($activation,$secret,($this->clock)(),bin2hex(random_bytes(16))); sodium_memzero($secret);
+            $s['activation']=$activation; $s['activation_state']='PENDING'; $this->private->write('agent.json',$s,0600);
+            return ['status'=>'PENDING','recovered'=>true,'activation_id'=>$activation['activation_id'],'identity_changed'=>false];
+        } finally { flock($lock,LOCK_UN); fclose($lock); }
+    }
 }

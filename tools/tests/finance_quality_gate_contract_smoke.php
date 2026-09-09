@@ -61,6 +61,7 @@ $expectedRequired = [
     'c3-clean-install-database',
     'c3-deployment-instance',
     'c3-linux-web-profile',
+    'c3-control-delivery',
     'c4-control-license-verifier',
     'c4-control-license-protocol-cache',
     'a3-finance-ui-shell',

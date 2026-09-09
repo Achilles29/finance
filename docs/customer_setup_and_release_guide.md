@@ -1,6 +1,6 @@
 # Panduan setup customer dan pemeriksaan sebelum rilis
 
-Status 2026-09-09, source kandidat **0.1.0-alpha.9**: panduan setup web yang sudah tersedia, **bukan pernyataan
+Status 2026-09-09, source kandidat **0.1.0-alpha.10**: panduan praktik web Linux; lihat **bagian 9 untuk owner**, **bagian 10 untuk admin server**. Ini **bukan pernyataan
 seluruh aplikasi/installer/APK siap jual**. Status utama tetap pada roadmap
 audit `_30` dan komersialisasi `_28`.
 
@@ -223,7 +223,7 @@ Private state terpisah dari kode dan database, tidak ikut package/upload.
 | --- | --- |
 | `PENDING` | Permintaan diterima, penerbitan belum selesai; periksa worker dan detail aktivasi Control. |
 | `SYNC_UNAVAILABLE` / exit 2 | Koneksi/response ditolak; cache sah tidak dihapus. Periksa HTTPS, waktu mesin dan status Control, lalu poll lagi. |
-| `REQUEST_UNCERTAIN` / `ACTIVATION_ALREADY_ATTEMPTED` | Request pertama mungkin sudah diterima meskipun koneksi putus. **Jangan buat key/identitas baru atau mengulang kode**; admin Control memeriksa aktivasi sebelum pemulihan terarah. Alur recovery otomatis belum tersedia. |
+| `REQUEST_UNCERTAIN` / `ACTIVATION_ALREADY_ATTEMPTED` | Request pertama mungkin sudah diterima meskipun koneksi putus. Jangan init ulang/mengganti kunci. Setelah memeriksa aktivasi di Control, jalankan perintah `recover` dengan argumen privat yang sama seperti `activate` dan file kode asli. Recovery membuktikan kepemilikan kunci lama dan mengganti credential polling, bukan memakai slot baru. Lalu `poll`. |
 | `ALREADY_PROVISIONED` | Identitas sudah ada atau init sebelumnya belum lengkap. Simpan seluruh state; admin memeriksa file yang kurang tanpa menghapus private key. |
 | `CLOCK_ROLLBACK` | Jam mundur lebih dari toleransi 5 menit; perbaiki sinkronisasi waktu, bukan watermark cache. |
 | `LEASE_REPLAY` / `LEASE_SEQUENCE_CONFLICT` | Dokumen lebih lama atau isi berbeda pada waktu penerbitan yang sama ditolak; admin memeriksa penerbitan Control. |
@@ -358,10 +358,16 @@ perlu dilaksanakan; keberadaan dokumen tidak mencentang penerimaannya.
 
 ## 9. Urutan praktik penjualan nanti — owner melalui UI Control
 
-Ini **rencana latihan**, belum instruksi go-live sekarang. Engineer menyiapkan
-paket verified, installer/update/rollback dan sambungan agen lebih dahulu.
-Owner tidak perlu menetapkan harga/customer untuk melanjutkan persiapan kode.
-Saat gerbang teknis siap, latihan dilakukan satu langkah per satu langkah:
+Target pertama adalah **latihan penjualan web Linux pada instalasi baru**, bukan
+mengganti aplikasi utama atau langsung menjual APK. Bukti kesiapan kandidat terbaru
+ada di bagian awal `control_release_delivery.md` dan tabel C0–C5 `_28`.
+Tidak perlu membuka terminal untuk mengisi customer dan subscription. Admin server
+menangani pemasangan pada bagian 10; token dari UI diserahkan melalui kanal privat.
+
+Siapkan dua akun berwenang: pemohon dan pemeriksa. Control melarang orang yang
+mengajukan release/deployment menyetujui permohonannya sendiri. Ini bukan error.
+Jika diminta konfirmasi identitas, masukkan password/kode keamanan akun sendiri,
+kembali ke halaman tadi, lalu ulangi tombol tindakan yang belum diproses.
 
 1. **Periksa produk dan versi.** Pastikan NAMUA_FINANCE dan edisi yang dipilih
    sesuai katalog. Paket bertanda alpha/internal candidate bukan otomatis rilis
@@ -375,19 +381,168 @@ Saat gerbang teknis siap, latihan dilakukan satu langkah per satu langkah:
    yang sama, isi kode unik/batas server. Status ACTIVE hanya dipilih ketika
    owner memang menyetujui aktivasi. Harga/kontrak adalah keputusan owner;
    jangan menganggap formulir subscription sebagai bukti pembayaran.
-5. **Paket/deployment.** Ikuti rilis yang sudah approved di Control. Admin
-   menyiapkan instance baru dan database terpisah; jika mengambil aplikasi lama,
-   upgrade hanya pada salinan. Tidak mengubah database aplikasi utama berjalan.
-   Verifikasi paket, migration/health, URL dan restore sebelum cutover.
-6. **Buat kode** pada detail subscription, setelah admin siap menerima kode.
+5. **Release** (`/releases`). Cari **NAMUA_FINANCE 0.1.0-alpha.10**. Periksa
+   status DRAFT/ALPHA, tiga file paket dan bukti pengujian. Jangan memilih alpha
+   lama hanya karena urutannya lebih atas. Pemohon mengirim review; pemeriksa
+   menyetujui; owner memublikasikan hanya jika setuju untuk trial terbatas.
+   Label ALPHA tidak berubah menjadi stabil oleh tombol publish.
+6. **Deployment** (`/deployments/create`). Pilih instalasi langkah 3, release
+   tersebut dan aksi DEPLOY. Simpan → Kirim untuk approval → pemeriksa berbeda
+   menekan Setujui deployment → Terbitkan token instalasi. Simpan token yang
+   hanya muncul sekali dan berlaku satu jam; jangan kirim ke grup umum.
+   RUNNING artinya token/rencana tersedia, **bukan aplikasi sudah terpasang**.
+   Admin mengunduh, memeriksa signature, memasang dan memeriksa web, lalu mengirim
+   receipt. Baru setelah itu Control menunjukkan SUCCEEDED.
+7. **Buat kode** pada detail subscription, setelah admin siap menerima kode.
    Admin menjalankan langkah 4.2–4.3; owner melihat status di detail aktivasi
    Control dan mencocokkannya dengan halaman Lisensi & Aktivasi Finance.
-7. **Latihan customer.** Login, identitas/logo/outlet/rekening, transaksi uji,
+8. **Latihan customer.** Login, identitas/logo/outlet/rekening, transaksi uji,
    struk, backup/restore dan update/rollback. Catat hasil; jangan mengklaim APK
    atau printer fisik lulus hanya dari tes web.
-8. **Persetujuan pemakaian.** Owner meninjau hasil, batas produk, kontrak/support
+9. **Persetujuan pemakaian.** Owner meninjau hasil, batas produk, kontrak/support
    dan risiko, baru menyetujui go-live/publikasi. Langkah ini tidak dilakukan
    otomatis oleh engineer atau oleh keberhasilan unit test.
 
-Praktik di atas belum dijalankan pada Batch 240. Pairing/limit/native guard,
-enforcement dan installer/cutover final masih mengikuti checklist `_28`.
+Token hilang/unduhan putus: buka detail deployment RUNNING, bagian **Token hilang
+atau unduhan terputus?**. Minta admin menghentikan installer lama dan memeriksa
+hasilnya; isi alasan dan konfirmasi, baru terbitkan pengganti. Token lama dicabut,
+rencana/persetujuan tetap. Admin memakai folder unduhan baru dan menyimpan folder
+lama untuk audit. Jangan mengulang installer pada database setengah terpasang.
+
+Praktik owner/customer nyata belum dilakukan otomatis. Pairing/limit/native guard,
+enforcement, Windows, APK dan printer fisik tetap mengikuti checklist `_28`.
+
+## 10. Pemasangan paket dan pemulihan — admin server, bukan operator UI
+
+### 10.1 Pemisahan tugas dan file
+
+Pilih domain trial dan **database baru**; aplikasi utama lama tidak menjadi
+target SQL. Migrasi data lama nanti melalui backup ke database salinan setelah
+mapping/backup disetujui, bukan menjalankan semua SQL pada database operasional.
+Praktik awal memakai database kosong agar kegagalan bisnis historis tidak tercampur.
+
+- Tooling: checkout rilis terverifikasi, root-owned, contoh `/opt/finance-toolkit`.
+- Unduhan dan konfigurasi CLI: root:root 0700/0600, di luar webroot.
+- Code release: direktori baru, root-owned 0755, tidak writable oleh akun web.
+- Runtime: direktori tersendiri root:grup-pool 0750; installer membuat session,
+  log/cache/tmp privat serta folder upload writable oleh akun pool yang ditunjuk.
+- `deployment.json`: bagian 6, root:grup-pool 0640; DB/URL/encryption key/path harus
+  sesuai konfigurasi CLI. Tidak perlu mengubah `database.php` atau `config.php`.
+- Sertifikat HTTPS, PHP-FPM 8.1, MariaDB server 10.11, Nginx, Composer dan akun
+  pool non-root harus tersedia. Profil tool ini **hanya listen loopback HTTPS**;
+  vhost/reverse proxy domain publik harus dipasang admin dengan TLS dan akses
+  terarah ke port instance. Jangan membuka direktori runtime sebagai document root.
+
+### 10.2 Unduh paket dari rencana Control
+
+Buat JSON privat `delivery-job.json` dengan field `state_dir` (direktori 0700),
+`control_origin` (origin HTTPS Control tanpa path), `install_token` (dari UI),
+`instance_id` dan `primary_domain` persis registry. Token tidak ditulis di perintah:
+
+```bash
+php /opt/finance-toolkit/tools/install/control_delivery.php fetch \
+  --job-file=/var/lib/finance/customer-a/private/delivery-job.json \
+  --trust-file=/var/lib/finance/customer-a/private/release-trust.json
+```
+
+`VERIFIED` membuktikan tiga artefak sesuai hash/signature, belum memasang aplikasi.
+Trust adalah **public key release NAMUA_FINANCE dari admin Control**, bukan key
+lisensi dan bukan file yang dipercaya hanya karena ikut paket. Unduhan ditulis
+streaming; file `.partial`/status UNCERTAIN tidak otomatis dipakai atau diulang.
+
+### 10.3 Konfigurasi executor (file privat root 0600)
+
+Contoh struktur `/var/lib/finance/customer-a/private/config.json`; sesuaikan
+path yang benar-benar ada. Jangan isi placeholder lalu langsung menekan Enter.
+
+```json
+{
+  "private_dir": "/var/lib/finance/customer-a/private",
+  "runtime_dir": "/var/lib/finance/customer-a/runtime",
+  "release_root": "/opt/finance/customer-a/releases/alpha10",
+  "signed_manifest": "/var/lib/finance/customer-a/download/finance-0.1.0-alpha.10.release.json",
+  "trust_file": "/var/lib/finance/customer-a/private/release-trust.json",
+  "deployment_file": "/var/lib/finance/customer-a/deployment.json",
+  "defaults_extra_file": "/var/lib/finance/customer-a/private/database.cnf",
+  "database_name_file": "/var/lib/finance/customer-a/private/database.name",
+  "owner_file": "/var/lib/finance/customer-a/private/first-owner.json",
+  "php_fpm": "/www/server/php/81/sbin/php-fpm",
+  "nginx": "/www/server/nginx/sbin/nginx",
+  "composer": "/usr/bin/composer",
+  "mime_types": "/www/server/nginx/conf/mime.types",
+  "lua_root": "/www/server/nginx/lib/lua",
+  "user": "finance_customer_a",
+  "group": "finance_customer_a",
+  "port": 18443,
+  "tls_certificate": "/var/lib/finance/customer-a/tls/fullchain.pem",
+  "tls_key": "/var/lib/finance/customer-a/tls/private.key",
+  "mode": "clean_install"
+}
+```
+
+`first-owner.json` tepat tiga field username/email/password kuat; file `.cnf`
+bagian `[client]` berisi host/protocol/user/password untuk **satu database saja**;
+`.name` hanya nama database. DB wajib kosong, parent release sudah dibuat tetapi
+direktori release tujuan belum ada. Akun/port berbeda untuk instance simultan.
+Nginx tanpa Lua tidak memerlukan `lua_root`. Lisensi opsional menggunakan
+`license_public_dir` dari bagian 4; tidak memasukkan private key ke pool web.
+
+Jalankan berurutan, hentikan bila salah satu tidak lulus:
+
+```bash
+php /opt/finance-toolkit/tools/install/finance_instance.php stage --config=/var/lib/finance/customer-a/private/config.json
+php /opt/finance-toolkit/tools/install/finance_instance.php install --config=/var/lib/finance/customer-a/private/config.json
+php /opt/finance-toolkit/tools/install/finance_instance.php start --config=/var/lib/finance/customer-a/private/config.json
+php /opt/finance-toolkit/tools/install/finance_instance.php health --config=/var/lib/finance/customer-a/private/config.json
+```
+
+Urutan hasil: STAGED → PREPARED → RUNNING → PASS. Tool mempertahankan file/log/
+database bila gagal, bukan menghapus agar retry terlihat bersih. Sesudah start,
+admin tetap memeriksa domain publik dan owner menjalankan latihan UI bagian 7.
+`health` ini mengecek integritas source, ledger/seed/owner dan login HTTPS, bukan
+jaminan semua perangkat/proses bisnis sudah lolos UAT.
+
+Receipt menggunakan **secret heartbeat instance** dari UI, bukan token instalasi
+atau kode lisensi. Simpan JSON privat dengan `instance_id`, `environment`,
+`key_id`, `secret`, lalu:
+
+```bash
+php /opt/finance-toolkit/tools/install/control_delivery.php receipt \
+  --job-file=/var/lib/finance/customer-a/private/delivery-job.json \
+  --identity-file=/var/lib/finance/customer-a/private/heartbeat.json \
+  --result-file=/var/lib/finance/customer-a/private/result.json
+```
+
+Harus ACKNOWLEDGED dan deployment Control SUCCEEDED. Jika balasan receipt putus,
+perintah yang sama aman diulang: ID dan payload lama dipakai kembali. Jangan
+mengarang result.json untuk mengubah status Control.
+
+### 10.4 Upgrade dan kembali ke versi lama
+
+1. Umumkan maintenance; hentikan layanan dan scheduler penulis untuk instance
+   target. `finance_instance.php stop --config=CONFIG_LAMA` hanya menghentikan PID
+   yang cocok dengan konfigurasi tersebut; tidak me-reload seluruh Nginx staging.
+2. Buat backup konsisten DB, inventory/checksum upload dan snapshot konfigurasi.
+   Restore backup **ke DB baru kosong** memakai akun khusus DB itu. DB lama
+   tetap disimpan. Jangan memasukkan dump berisi CREATE DATABASE/USE database
+   lama dan jangan restore menggunakan root pada database operasional.
+3. Konfigurasi baru: `mode=upgrade`, `backup_file`, `backup_sha256`,
+   `previous_config_file=CONFIG_LAMA`, `from_schema` dari health lama; path code,
+   private/runtime dan DB baru berbeda. Pertahankan encryption key, URL dan
+   identitas lisensi. Jalankan stage/install/start/health di konfigurasi baru.
+   Installer menyalin file upload yang diizinkan dengan checksum tanpa mengubah
+   file code signed; benturan/symlink membuat proses berhenti untuk inspeksi.
+4. Sebelum menerima transaksi, cocokkan profil/logo, jumlah tabel/ledger, login
+   dan hasil pemeriksaan. Setelah PASS, kirim receipt deployment versi baru.
+5. Bila gagal **sebelum ada transaksi baru**: hentikan konfigurasi baru, start
+   konfigurasi lama, jalankan health lama. Source, DB, upload dan secret lama
+   tetap utuh; tidak perlu SQL down atau menghapus kondisi gagal. Laporkan
+   rollback dengan rencana Control yang memang beraksi ROLLBACK, bukan receipt
+   SUCCEEDED untuk release yang gagal.
+6. Bila transaksi sudah masuk ke versi baru, rollback berpotensi meninggalkan
+   transaksi tersebut. Bekukan penulisan, simpan kedua sisi dan minta keputusan
+   rekonsiliasi owner; jangan kembali ke snapshot secara diam-diam.
+
+Tool tidak memasang boot service atau scheduler customer secara global. Admin
+menjadwalkan startup/scheduler per instance setelah praktik diterima. Windows,
+native guard dan migrasi bisnis baru di masa depan memerlukan acceptance sendiri.

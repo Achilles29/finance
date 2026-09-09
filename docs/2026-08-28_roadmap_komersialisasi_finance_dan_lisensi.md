@@ -1,5 +1,26 @@
 # Roadmap Komersialisasi Finance POS
 
+**Batch 242 — persiapan praktik, 2026-09-09:** sambungan aktual ke **salinan
+Control via HTTPS** lulus 18 tes lisensi dan 9 tes delivery/receipt paket alpha.9;
+12 tes UI deployment/maker-checker/penggantian token juga PASS. Installer baru
+memasang alpha.9 pada DB kosong: health + 22 tes HTTPS profil/logo/login PASS.
+Recovery aktivasi ambigu dan perpanjangan lease setelah offline sudah diperbaiki.
+Source alpha.10 menambahkan executor layanan dan salinan upload untuk upgrade;
+hasil paket alpha.10/cutover/rollback dicatat setelah test, bukan disamakan dengan
+hasil alpha.9. Tidak ada customer/publish/aktivasi nyata; kunci penerbit Finance
+disiapkan root-only tanpa menjalankan penerbit pada subscription operasional.
+
+- [x] C3: claim/download terverifikasi, receipt ber-ID migrasi Finance,
+  idempotensi dan penolakan penyelesaian prematur setelah migrasi.
+- [x] C4: HTTPS request/poll/recover/revoke/replay/renewal pada Control terisolasi;
+  58 unit agen/model/izin PASS, termasuk key tetap setelah recovery.
+- [x] Panduan UI owner (bagian 9) dipisahkan dari executor admin (bagian 10).
+- [ ] Final kandidat alpha.10, upgrade/cutover/rollback dan bukti DRAFT terikat
+  ke paket terbaru; ini langkah penuntasan praktik, bukan menunggu harga customer.
+
+Ringkasan batch terbaru mengoreksi checklist historis di bawah; tabel 0.1 tetap
+sumber status fase. **Siap praktik terbatas tidak sama dengan C0–C5 DONE produksi.**
+
 **Batch 241:** kandidat privat alpha.9 sudah build/sign/verify, termasuk
 verifier Control read-only, dari cutoff `4d31548`: **112 gate release PASS**
 dan 54 tes agen lengkap PASS. **Belum diregistrasi/publish/diaktivasi** di

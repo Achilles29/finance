@@ -38,6 +38,11 @@ $canonical = implode("\n", ['POST','/api/v1/license-activations/status',$activat
 $signature = base64_decode(substr($poll['headers'][2], strlen('X-Namua-Signature: ')), true);
 $check(sodium_crypto_sign_verify_detached($signature, $canonical, $publicKey), 'poll signature matches Control canonical bytes');
 $check(!sodium_crypto_sign_verify_detached($signature, $canonical . 'changed', $publicKey), 'poll body/path/nonce cannot be changed');
+$recovery = ControlLicenseProtocol::recovery($request, $secret, $now, $nonce);
+$recoveryWire = implode("\n", ['POST',ControlLicenseProtocol::RECOVER_PATH,gmdate(DATE_ATOM,$now),$nonce,hash('sha256',$recovery['body'])]);
+$recoverySignature = base64_decode(substr($recovery['headers'][2],strlen('X-Namua-Signature: ')),true);
+$check(sodium_crypto_sign_verify_detached($recoverySignature,$recoveryWire,$publicKey), 'recovery proves ownership with persisted instance key');
+$check(!sodium_crypto_sign_verify_detached($recoverySignature,str_replace('/recover','/status',$recoveryWire),$publicKey), 'recovery proof cannot be replayed on poll endpoint');
 $cache = Control_license_cache::initial($identity);
 $r = $makeLicense($identity, $now-30);
 $cache = Control_license_cache::transition($cache, $r['http'], $r['json'], $trust, $identity, $now);
@@ -202,5 +207,11 @@ try {
     $reject(fn()=>$agent2->activate('nla_' . str_repeat('B',40)),'CONTROL_TRANSPORT_UNAVAILABLE','activation timeout is reported without losing the instance key');
     $agent2=new FinanceLicenseAgent($p2,$v2,$fingerprint,$transport,$clock);
     $reject(fn()=>$agent2->activate('nla_' . str_repeat('B',40)),'ACTIVATION_ALREADY_ATTEMPTED','ambiguous request cannot consume another code after restart');
+    $beforeRecovery=$p2->read('agent.json',0600);
+    $transportFails=false;$response=['http'=>202,'json'=>['status'=>'PENDING','recovered'=>true]+$activation];
+    $recovered=$agent2->recover('nla_'.str_repeat('B',40));
+    $afterRecovery=$p2->read('agent.json',0600);
+    $check($recovered['status']==='PENDING'&&!isset($recovered['poll_token']),'recovery stores new credential without printing it');
+    $check($beforeRecovery['secret_key_base64']===$afterRecovery['secret_key_base64']&&$beforeRecovery['identity']===$afterRecovery['identity'],'recovery preserves installation and key after process restart');
 } finally { $remove($base); umask($oldMask); sodium_memzero($secret); sodium_memzero($keypair); }
 echo "All {$checks} Control license agent checks passed.\n";

@@ -7,6 +7,7 @@ final class ControlLicenseProtocol
     public const AGENT_VERSION = '0.1.0';
     public const REQUEST_PATH = '/api/v1/license-activations';
     public const POLL_PATH = '/api/v1/license-activations/status';
+    public const RECOVER_PATH = '/api/v1/license-activations/recover';
 
     public static function origin(string $value): string
     {
@@ -42,10 +43,19 @@ final class ControlLicenseProtocol
             'X-Namua-Signature: ' . base64_encode(sodium_crypto_sign_detached($canonical, $secret))]];
     }
 
-    public static function post(string $origin, string $path, string $body, array $headers = []): array
+    public static function recovery(array $payload, string $secret, int $now, string $nonce): array
+    {
+        if (strlen($secret)!==64 || preg_match('/\A[A-Za-z0-9_-]{16,100}\z/D',$nonce)!==1) throw new RuntimeException('RECOVERY_INPUT_INVALID');
+        $body=json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR); $timestamp=gmdate(DATE_ATOM,$now);
+        $canonical=implode("\n",['POST',self::RECOVER_PATH,$timestamp,$nonce,hash('sha256',$body)]);
+        return ['body'=>$body,'headers'=>['X-Namua-Timestamp: '.$timestamp,'X-Namua-Nonce: '.$nonce,
+            'X-Namua-Signature: '.base64_encode(sodium_crypto_sign_detached($canonical,$secret))]];
+    }
+
+    public static function post(string $origin, string $path, string $body, array $headers = [], ?string $caFile = null): array
     {
         $origin = self::origin($origin);
-        if (!in_array($path, [self::REQUEST_PATH,self::POLL_PATH], true) || strlen($body) > 16384) throw new RuntimeException('REQUEST_INVALID');
+        if (!in_array($path, [self::REQUEST_PATH,self::POLL_PATH,self::RECOVER_PATH], true) || strlen($body) > 16384) throw new RuntimeException('REQUEST_INVALID');
         $c = curl_init($origin . $path); $response = '';
         curl_setopt_array($c, [CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$body,CURLOPT_FOLLOWLOCATION=>false,
             CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>20,
@@ -55,6 +65,11 @@ final class ControlLicenseProtocol
                 if (strlen($response) + strlen($chunk) > 300000) return 0;
                 $response .= $chunk; return strlen($chunk);
             }]);
+        if ($caFile !== null) {
+            require_once __DIR__.'/LicenseAgentFiles.php';
+            LicenseAgentFiles::securePath($caFile,dirname(__DIR__,2));
+            curl_setopt($c,CURLOPT_CAINFO,$caFile);
+        }
         $ok = curl_exec($c); $status = (int)curl_getinfo($c, CURLINFO_RESPONSE_CODE); curl_close($c);
         if ($ok === false) throw new RuntimeException('CONTROL_TRANSPORT_UNAVAILABLE');
         // Never forward activation credentials or follow redirects to a different origin.

@@ -82,6 +82,19 @@ http {
 NGINX;
         $nginx = strtr($nginx, ['@LUA@'=>$lua,'@USER@'=>$user,'@GROUP@'=>$group,'@STATE@'=>$s,'@MIME@'=>$p['mime_types'],
             '@PORT@'=>(string)$port,'@CERT@'=>$p['tls_certificate'],'@KEY@'=>$p['tls_key'],'@APP@'=>$app]);
+        if (($p['daemonize'] ?? false) === true) {
+            $fpm=str_replace("daemonize = no\n","daemonize = yes\n",$fpm);
+            $nginx=str_replace("daemon off;","daemon on;",$nginx);
+        }
+        if (isset($p['license_public_dir'])) {
+            $dir=$p['license_public_dir'];
+            if (!is_string($dir)||realpath($dir)!==$dir||is_link($dir)||preg_match('~\A/[A-Za-z0-9_./-]+\z~D',$dir)!==1
+                ||strpos($dir,$app.'/')===0) throw new RuntimeException('PROFILE_LICENSE_PATH_INVALID');
+            foreach (['TRUST'=>'trust.json','IDENTITY'=>'identity.json','CACHE'=>'runtime.json'] as $key=>$file) {
+                if (!is_file($dir.'/'.$file)||is_link($dir.'/'.$file)) throw new RuntimeException('PROFILE_LICENSE_PATH_INVALID');
+                $fpm.='env[FINANCE_LICENSE_'.$key.'_FILE] = '.$dir.'/'.$file."\n";
+            }
+        }
         return ['php-fpm.conf' => $fpm, 'nginx.conf' => $nginx . "\n"];
     }
 }
