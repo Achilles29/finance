@@ -77,9 +77,11 @@ while (($line = fgets(STDIN)) !== false) {
     if (strpos($line, '__A513_TABLE__') !== false) {
         echo "__A513_TABLE__\t" . ($mode === 'missing_table' ? '0' : '1') . "\n";
     } elseif (strpos($line, '__A513_LEDGER_COUNT__') !== false) {
-        echo "__A513_LEDGER_COUNT__\t" . ($mode === 'ledger_count' ? '99' : ($policy === 'clean_install' ? '16' : '15')) . "\n";
+        echo "__A513_LEDGER_COUNT__\t" . ($mode === 'ledger_count' ? '99' : ($policy === 'clean_install' || $mode === 'installed' || $mode === 'seed_receipt_drift' ? '16' : '15')) . "\n";
     } elseif (strpos($line, '__A513_LEDGER__') !== false) {
-        echo "__A513_LEDGER__\t1\t" . ($mode === 'ledger_drift' ? '0' : '1') . "\n";
+        $seed = strpos($line, bin2hex('2026-09-05d-a5-clean-install-reference-seed')) !== false;
+        if ($seed && $policy === 'upgrade' && !in_array($mode, ['installed','seed_receipt_drift'], true)) echo "__A513_LEDGER__\t0\t0\n";
+        else echo "__A513_LEDGER__\t1\t" . ($mode === 'ledger_drift' || ($seed && $mode === 'seed_receipt_drift') ? '0' : '1') . "\n";
     } elseif (strpos($line, '__A513_AUTH__') !== false) {
         echo "__A513_AUTH__\t1\t" . ($mode === 'permission_gap' ? '1' : '0') . "\t" . ($mode === 'owner_missing' ? '0' : '1') . "\n";
     } elseif (strpos($line, '__A513_SEED__') !== false) {
@@ -104,6 +106,9 @@ chmod($databaseName, 0600);
 putenv('PATH=' . $tmp . '/bin');
 $upgrade = a513_check_database($release, 'upgrade', $option, 'a513_upgrade_ok');
 $check(($upgrade['migration_ledger_rows'] ?? null) === 15 && ($upgrade['reference_seed'] ?? '') === 'preserved_customer_state', 'upgrade health checks release files, required schema, exact ledger, RBAC, and owner without replacing customer seed');
+$installed = a513_check_database($release, 'upgrade', $option, 'a513_upgrade_installed');
+$check($installed['migration_ledger_rows'] === 16, 'upgrade accepts verified historical clean-install seed without rerunning it');
+$check($failureCode(static fn() => a513_check_database($release, 'upgrade', $option, 'a513_upgrade_seed_receipt_drift')) === 'migration_ledger_drift', 'historical seed checksum drift is rejected');
 
 $clean = a513_check_database($release, 'clean_install', $option, 'a513_clean_ok');
 $check(($clean['migration_ledger_rows'] ?? null) === 16 && ($clean['reference_seed'] ?? '') === 'exact', 'clean-install health additionally checks exact reference seed and Telegram safe default');

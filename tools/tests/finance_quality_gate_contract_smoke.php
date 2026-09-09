@@ -59,6 +59,8 @@ $expectedRequired = [
     'c3-composer-compat',
     'c3-control-release-bridge',
     'c3-clean-install-database',
+    'c3-deployment-instance',
+    'c3-linux-web-profile',
     'c4-control-license-verifier',
     'a3-finance-ui-shell',
     'a3-division-movement-pagination',

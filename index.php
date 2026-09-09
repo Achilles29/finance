@@ -103,8 +103,13 @@ switch (ENVIRONMENT)
 if (ENVIRONMENT === 'production')
 {
 		require_once dirname(__FILE__).'/application/libraries/DeploymentConfig.php';
-		$deployment_config = new DeploymentConfig();
-		if (!$deployment_config->validateProductionSecretContract())
+		try {
+			$deployment_config = new DeploymentConfig();
+			$deployment_ready = $deployment_config->validateProductionSecretContract();
+		} catch (Throwable $deployment_error) {
+			$deployment_ready = false;
+		}
+		if (!$deployment_ready)
 		{
 			header('HTTP/1.1 503 Service Unavailable.', TRUE, 503);
 			echo 'Service temporarily unavailable.';

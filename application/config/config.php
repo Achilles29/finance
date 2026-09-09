@@ -39,6 +39,7 @@ $forwarded_proto = strtolower(trim(explode(',', (string)($_SERVER['HTTP_X_FORWAR
 $is_https = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || $forwarded_proto === 'https';
 $config['base_url'] = ($is_https ? "https" : "http")
     . "://" . $http_host . rtrim($script_name, '/') . '/';
+$config['base_url'] = $finance_deployment_config->canonicalBaseUrl($config['base_url'], ENVIRONMENT === 'production');
 
 /*
 |--------------------------------------------------------------------------
@@ -251,7 +252,7 @@ $config['log_threshold'] = 0;
 | application/logs/ directory. Use a full server path with trailing slash.
 |
 */
-$config['log_path'] = '';
+$config['log_path'] = $finance_deployment_config->runtimeDirectory(DeploymentConfig::LOG_PATH, dirname(__DIR__, 2), '');
 
 /*
 |--------------------------------------------------------------------------
@@ -310,7 +311,7 @@ $config['error_views_path'] = '';
 | application/cache/ directory.  Use a full server path with trailing slash.
 |
 */
-$config['cache_path'] = '';
+$config['cache_path'] = $finance_deployment_config->runtimeDirectory(DeploymentConfig::CACHE_PATH, dirname(__DIR__, 2), '');
 
 /*
 |--------------------------------------------------------------------------
@@ -399,10 +400,10 @@ $config['encryption_key'] = $finance_deployment_config->get(DeploymentConfig::EN
 |
 */
 $config['sess_driver'] = 'files';
-$config['sess_cookie_name'] = 'finance_session';
+$config['sess_cookie_name'] = $finance_deployment_config->sessionCookieName();
 $config['sess_samesite'] = 'Lax';
 $config['sess_expiration'] = 43200;
-$config['sess_save_path'] = '/tmp/finance_ci_sessions';
+$config['sess_save_path'] = $finance_deployment_config->runtimeDirectory(DeploymentConfig::SESSION_PATH, dirname(__DIR__, 2), '/tmp/finance_ci_sessions');
 $config['sess_match_ip'] = FALSE;
 $config['sess_time_to_update'] = 300;
 $config['sess_regenerate_destroy'] = TRUE;

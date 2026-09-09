@@ -14,6 +14,11 @@ final class DeploymentConfig
     const DB_NAME = 'FINANCE_DB_NAME';
     const DB_USER = 'FINANCE_DB_USER';
     const DB_PASSWORD = 'FINANCE_DB_PASSWORD';
+    const BASE_URL = 'FINANCE_BASE_URL';
+    const SESSION_PATH = 'FINANCE_SESSION_PATH';
+    const SESSION_COOKIE = 'FINANCE_SESSION_COOKIE';
+    const LOG_PATH = 'FINANCE_LOG_PATH';
+    const CACHE_PATH = 'FINANCE_CACHE_PATH';
 
     /**
      * @var array
@@ -56,10 +61,10 @@ final class DeploymentConfig
     public static function snapshotEnvironment($names = null)
     {
         if ($names === null) {
-            $names = self::productionRequiredNames();
+            $names = array_merge(self::productionRequiredNames(), array(self::BASE_URL, self::SESSION_PATH, self::SESSION_COOKIE, self::LOG_PATH, self::CACHE_PATH));
         }
 
-        $snapshot = array();
+        $snapshot = self::deploymentFileSnapshot();
         foreach ($names as $name) {
             $value = getenv($name);
             if ($value !== false) {
@@ -68,6 +73,66 @@ final class DeploymentConfig
         }
 
         return $snapshot;
+    }
+
+    /** Optional root-owned JSON secret file, outside the webroot; never executable PHP. */
+    private static function deploymentFileSnapshot()
+    {
+        $path = getenv('FINANCE_DEPLOYMENT_FILE');
+        if ($path === false || $path === '') return array();
+        $real = realpath($path);
+        $root = realpath(dirname(__DIR__, 2));
+        if (PHP_OS_FAMILY === 'Windows' || $real === false || $real !== $path || $root === false
+            || is_link($path) || !is_file($path) || !is_readable($path) || filesize($path) > 16384
+            || strpos($real . '/', $root . '/') === 0) {
+            throw new RuntimeException('Deployment file is unavailable.');
+        }
+        $stat = stat($path);
+        if (!is_array($stat) || $stat['uid'] !== 0 || ($stat['mode'] & 0027) !== 0) throw new RuntimeException('Deployment file is unavailable.');
+        for ($parent = dirname($real); ; $parent = dirname($parent)) {
+            $stat = stat($parent);
+            if (!is_array($stat) || $stat['uid'] !== 0 || ($stat['mode'] & 0022) !== 0) throw new RuntimeException('Deployment file is unavailable.');
+            if ($parent === dirname($parent)) break;
+        }
+        $values = json_decode((string)file_get_contents($path), true);
+        if (!is_array($values)) throw new RuntimeException('Deployment file is unavailable.');
+        $allowed = array_merge(self::productionRequiredNames(), array(self::BASE_URL, self::SESSION_PATH, self::SESSION_COOKIE, self::LOG_PATH, self::CACHE_PATH));
+        foreach ($values as $name => $value) {
+            if (!in_array($name, $allowed, true) || !is_string($value)) throw new RuntimeException('Deployment file is unavailable.');
+        }
+        return $values;
+    }
+
+    /** Explicit runtime directories must be pre-provisioned outside application source. */
+    public function runtimeDirectory($name, $webroot, $fallback)
+    {
+        $path = $this->get($name, '');
+        if ($path === '') return $fallback; // Preserve existing installations until explicitly configured.
+        $real = is_string($path) ? realpath($path) : false;
+        $root = realpath($webroot);
+        if ($real === false || $root === false || $real !== rtrim($path, '/\\') || is_link($path)
+            || !is_dir($real) || !is_writable($real) || strpos($real . '/', $root . '/') === 0
+            || (fileperms($real) & 0007) !== 0) throw new RuntimeException('Runtime directory is unavailable.');
+        return $real . DIRECTORY_SEPARATOR;
+    }
+
+    public function canonicalBaseUrl($fallback, $production)
+    {
+        $url = $this->get(self::BASE_URL, '');
+        if ($url === '') return $fallback;
+        $parts = is_string($url) ? parse_url($url) : false;
+        if (!is_array($parts) || !filter_var($url, FILTER_VALIDATE_URL) || empty($parts['host'])
+            || !in_array($parts['scheme'] ?? '', $production ? array('https') : array('https', 'http'), true)
+            || isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])
+            || preg_match('/[\x00-\x20\x7f]/', $url)) throw new RuntimeException('Canonical URL is unavailable.');
+        return rtrim($url, '/') . '/';
+    }
+
+    public function sessionCookieName()
+    {
+        $name = $this->get(self::SESSION_COOKIE, 'finance_session');
+        if (!is_string($name) || preg_match('/\A[A-Za-z][A-Za-z0-9_]{5,63}\z/D', $name) !== 1) throw new RuntimeException('Session configuration is unavailable.');
+        return $name;
     }
 
     /**

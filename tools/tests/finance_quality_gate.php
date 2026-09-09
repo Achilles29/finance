@@ -58,6 +58,8 @@ function finance_quality_gate_manifest(): array
             ['id' => 'c3-composer-compat', 'file' => 'c3_composer_compat_smoke.php'],
             ['id' => 'c3-control-release-bridge', 'file' => 'c3_control_release_bridge_smoke.php'],
             ['id' => 'c3-clean-install-database', 'file' => 'c3_clean_install_database_smoke.php'],
+            ['id' => 'c3-deployment-instance', 'file' => 'c3_deployment_instance_smoke.php'],
+            ['id' => 'c3-linux-web-profile', 'file' => 'c3_linux_web_profile_smoke.php'],
             ['id' => 'c4-control-license-verifier', 'file' => 'c4_control_license_verifier_smoke.php'],
             ['id' => 'a3-finance-ui-shell', 'file' => 'a3_finance_ui_shell_smoke.php'],
             ['id' => 'a3-division-movement-pagination', 'file' => 'a3_division_movement_pagination_smoke.php'],

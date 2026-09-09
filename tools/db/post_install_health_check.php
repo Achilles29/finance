@@ -201,7 +201,19 @@ function a513_check_database(array $release, string $policy, string $optionFile,
         if ($count !== '1') a513_fail('required_table_missing', 'A required application table is missing.');
     }
         [$ledgerCount] = a513_query_marker($binary, $optionFile, $databaseName, '__A513_LEDGER_COUNT__', "SELECT CONCAT('__A513_LEDGER_COUNT__\\t',COUNT(*)) FROM sys_schema_migration", 1, 'ledger-count');
-        if ($ledgerCount !== (string)count($plan)) a513_fail('migration_ledger_count', 'Migration ledger row count does not match this release policy.');
+        $expectedLedgerRows = count($plan);
+        // An installation created by clean_install legitimately retains its seed
+        // receipt when subsequently upgraded. Verify that receipt, never rerun it.
+        if ($policy === 'upgrade') {
+            foreach ($release['catalog']['migrations'] as $migration) {
+                if ($migration['policies'] !== ['clean_install'] || $migration['classification'] !== 'seed') continue;
+                [$count,$exact] = a513_query_marker($binary, $optionFile, $databaseName, '__A513_LEDGER__', a513_ledger_probe_sql($migration), 2, 'historical-seed-identity');
+                if ($count === '0' && $exact === '0') continue;
+                if ($count !== '1' || $exact !== '1') a513_fail('migration_ledger_drift', 'Historical seed ledger does not match the release catalog.');
+                $expectedLedgerRows++;
+            }
+        }
+        if ($ledgerCount !== (string)$expectedLedgerRows) a513_fail('migration_ledger_count', 'Migration ledger row count does not match this release policy.');
         foreach ($plan as $migration) {
             $sql = a513_ledger_probe_sql($migration);
             [$count,$exact] = a513_query_marker($binary, $optionFile, $databaseName, '__A513_LEDGER__', $sql, 2, 'ledger-identity');
@@ -235,7 +247,7 @@ function a513_check_database(array $release, string $policy, string $optionFile,
         'release_manifest_sha256'=>$release['manifest_sha256'],
         'release_files'=>count($release['manifest']['files']),
         'required_tables'=>count($requiredTables),
-        'migration_ledger_rows'=>count($plan),
+        'migration_ledger_rows'=>$expectedLedgerRows,
         'reference_seed'=>$policy === 'clean_install' ? 'exact' : 'preserved_customer_state',
         'active_superadmin_owners'=>$ownerCount,
     ];

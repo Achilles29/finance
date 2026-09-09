@@ -13,7 +13,6 @@
   ],
   "include_files": [
     ".htaccess",
-    ".user.ini",
     "README.md",
     "app-manifest.json",
     "composer.lock",
@@ -27,6 +26,7 @@
     "application/logs/index.html"
   ],
   "deny_exact": [
+    ".user.ini",
     "application/controllers/Audit.php",
     "application/libraries/AuditRoadmapReader.php",
     "docs/_NOTE.md"

@@ -129,6 +129,7 @@ $denied = [
     'docs/2026-09-05_internal.md',
     'uploads/customer/file.txt',
     'assets/uploads/business-profile-logo/customer.png',
+    '.user.ini',
     'vendor/package/library.php',
 ];
 $check(array_intersect($denied, $archivePaths) === [], 'runtime, customer data, secrets, and internal audit paths are excluded');
