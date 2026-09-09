@@ -51,8 +51,10 @@ function executable_lines(string $source, bool $batch): string
 
 $sh = read_source($root, 'scripts/backup/backup_full.sh');
 $bat = read_source($root, 'scripts/backup/backup_full.bat');
-$env = read_source($root, 'scripts/backup/.env');
 $envExample = read_source($root, 'scripts/backup/.env.example');
+// A clean release checkout must not need a copied staging secret to run tests.
+$checkDeployment = ($argv[1] ?? '') === '--staging-env';
+$env = $checkDeployment ? read_source($root, 'scripts/backup/.env') : $envExample;
 $gitignore = read_source($root, '.gitignore');
 $controller = read_source($root, 'application/controllers/System_tools.php');
 $dbtools = read_source($root, 'application/views/system/dbtools.php');
@@ -100,11 +102,11 @@ check_source(
 
 check_source(
     !preg_match('/^\s*BACKUP_REPO_REMOTE\s*=/m', $env),
-    'Actual backup environment still defines BACKUP_REPO_REMOTE'
+    'Selected backup configuration still defines BACKUP_REPO_REMOTE'
 );
 check_source(
     !preg_match('/^\s*BACKUP_REPO_BRANCH\s*=/m', $env),
-    'Actual backup environment still defines BACKUP_REPO_BRANCH'
+    'Selected backup configuration still defines BACKUP_REPO_BRANCH'
 );
 
 foreach ([$envExample, $sh, $bat] as $source) {

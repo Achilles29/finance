@@ -1,5 +1,35 @@
 # Roadmap Komersialisasi Finance POS
 
+**Update 2026-09-09 — Batch 236–238:** permintaan pengerjaan C0–C5 dilanjutkan
+pada fondasi customer, uji HTTPS, backup/restore dan panduan serah-terima.
+**C0–C5 belum seluruhnya selesai.** Kelulusan pengujian internal tidak
+menggantikan pekerjaan lisensi, installer final, keputusan owner dan pilot.
+
+- [x] C2/C3: konfigurasi per instalasi untuk URL tetap, cookie/session/log/cache,
+  JSON privat tanpa edit source, serta profile Nginx/PHP-FPM loopback HTTPS.
+- [x] C2: owner percobaan login, simpan profil/unggah logo lewat UI, lalu login
+  publik memakai identitas/logo itu; CSRF dan file internal ditolak. 22 tes PASS.
+- [x] C3: backup 296 tabel percobaan dipulihkan ke dua database baru dengan
+  checksum sama. Upgrade katalog yang sama idempotent dan health PASS, tanpa
+  menimpa seed/owner/profil. Bukan bukti migrasi lintas versi atau web cutover.
+- [x] C0/C1/C5: panduan alpha.8 memisahkan admin usaha/admin server, daftar
+  keputusan paket-harga-kontrak-domain, latihan penerimaan dan rancangan SOP
+  support. Status keputusan tetap belum disetujui; SLA tidak dikarang.
+- [x] C4: 26 tes verifier lisensi lulus kembali; maintenance berakhir tidak
+  disamakan dengan lease berakhir. Tidak ada aktivasi/enforcement baru.
+- [ ] C3: kandidat alpha.8 dari cutoff `d5ff56e` menjalani gate rilis; hasil
+  final artefak dicatat setelah proses selesai. Alpha.7 tetap immutable.
+- [ ] Sisa engineering: installer layanan/customer, upgrade lintas versi,
+  aktivasi/polling/cache writer, anti-replay lintas restart, pairing/limit dan
+  enforcement teruji. Windows dan UAT/bug operasional APK belum lulus.
+- [ ] Keputusan owner: harga, kontrak/EULA-SLA/data policy, customer/domain
+  pilot, penerimaan risiko dan persetujuan publikasi. Pilot nyata belum dijalankan.
+
+Rujukan operator: `docs/customer_setup_and_release_guide.md` bagian 6–8.
+Tidak ada SQL baru untuk aplikasi utama lama, tidak ada publish/push, dan
+layanan/database operasional tetap utuh. Database trial hanya berisi seed,
+owner serta identitas/logo sintetis hasil pengujian UI.
+
 **Update 2026-09-09 — Batch 232–235:** kandidat **alpha.7** memakai PHP 8.1
 dan MariaDB `>=10.11 <10.12`, sesuai persetujuan owner. Instalasi database
 kosong dari paket signed telah **PASS**, dan paket tercatat **DRAFT/ALPHA**
@@ -202,12 +232,12 @@ internal. Status teknis A0–A5 tetap hanya berasal dari control board `_30`.
 
 | Fase | Implementasi | Validasi tertinggi | Release/data | Status fase | Alasan/gerbang berikutnya |
 | --- | --- | --- | --- | --- | --- |
-| C0 — handoff/go-no-go | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Gerbang teknis A0–A5 masih diblokir dan belum disetujui product owner. |
+| C0 — handoff/go-no-go | `IN_PROGRESS` | `NONE` | `BLOCKED` | `HANDOFF_CHECKLIST_READY` | Batch 238: daftar keputusan/penerimaan dan batas produk disusun dalam panduan alpha.8. Gerbang teknis A0–A5 dan persetujuan owner belum tuntas. |
 | C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 NAMUA_FINANCE di Control: 28 feature, 4 edition, 29 dependency, PERPETUAL dan maintenance awal 365 hari. Alpha.3 sudah DRAFT melalui Batch 230, bukan publish. Harga, EULA/SLA, data policy, add-on/override per customer dan kontrak pilot belum final. |
-| C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_READY` | Batch 219–220 menyediakan branding inti dan setup profil. Batch 224–225 menambah Menu Book customer/legacy/nonaktif, audit pilihan template, serta pemeriksaan folder upload dari PHP-FPM. Outlet/printer tetap override. Marketing menyeluruh, preset demo, pajak/service, integrasi, health/privacy, install profile, serta validasi URL customer belum selesai. |
-| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `DB_INSTALL_PASS_WEB_PENDING` | Batch 232–235: alpha.7 signed, PHP 8.1/MariaDB 10.11, DRAFT Control (3 artefak/2 evidence), install database kosong/16 migrasi/owner/health PASS. Deployment web, upgrade/rollback, claim/receipt dan publish masih terbuka. APK operasional tetap ditunda. |
+| C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_HTTP_PASS` | Batch 236–237: profil/logo/login benar pada HTTPS percobaan, URL tetap dan session terisolasi. Marketing menyeluruh, preset demo, pajak/service/integrasi/privacy serta penerimaan customer tetap terbuka. Outlet/printer lama tidak diubah. |
+| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `ISOLATED_WEB_DB_REHEARSAL_PASS` | Alpha.7 signed/DRAFT dan clean DB install PASS. Batch 237: HTTPS diagnostik, restore 296 tabel ke dua DB kosong, upgrade katalog sama/health PASS. Kandidat alpha.8 sedang diuji; installer layanan final, upgrade lintas versi, web cutover/rollback, claim/receipt dan publish belum selesai. |
 | C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `AUDIT_ONLY_FOUNDATION` | Batch 226 menambah verifier Ed25519 sesuai envelope Control, binding instalasi, pemeriksaan lease/grace, serta entitlement dari payload signed (bukan flag SQL). FeatureGate tetap audit-only. Activation/polling/cache writer, replay/rollback lintas restart, Windows/native guard, pairing, limit dan enforcement belum selesai. Komersialisasi APK boleh berjalan; bug operasional/build dan UAT APK ditunda owner. |
-| C5 — pilot/operasi penjualan | `NOT_STARTED` | `NONE` | `BLOCKED` | `WAITING_TECH_HANDOFF` | Pilot non-Namua, support playbook, dan operasi penjualan belum dijalankan. |
+| C5 — pilot/operasi penjualan | `IN_PROGRESS` | `NONE` | `BLOCKED` | `SUPPORT_DRAFT_READY` | Batch 238: panduan alpha.8 admin usaha/server, latihan penerimaan dan draft SOP support tersedia. Panduan per modul, walkthrough awam, customer/domain pilot, kontrak/SLA final dan operasi penjualan belum dijalankan. |
 
 **Aturan urutan:** tidak ada enforcement lisensi atau pembangunan License Hub
 yang menutupi temuan P0/P1. Pekerjaan teknis yang masih menjadi bug tetap

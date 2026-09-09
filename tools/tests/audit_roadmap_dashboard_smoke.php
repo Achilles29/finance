@@ -145,7 +145,9 @@ $check(
         && (!$linkCreated || !$allows('development', $linkedMarker)),
     'policy fixture rejects missing, wrong-token, and symlink markers'
 );
-$check(
+if (!file_exists($markerPath) && !is_link($markerPath)) {
+    $check(!$allows('development', $markerPath), 'clean checkout keeps internal dashboard disabled without copying a staging marker');
+} else $check(
     is_file($markerPath)
         && !is_link($markerPath)
         && is_readable($markerPath)

@@ -59,6 +59,7 @@ register_shutdown_function(static function () use ($remove, $base): void { $remo
 
 copy(dirname(__DIR__) . '/release/package_policy.json', $root . '/tools/release/package_policy.json');
 file_put_contents($root . '/.codex/internal_audit_dashboard.enabled', "enabled-v1\n");
+file_put_contents($root . '/.user.ini', "open_basedir=/legacy/staging/path/:/tmp/\n");
 file_put_contents($root . '/application/index.php', "<?php\necho 'fixture';\n");
 file_put_contents($root . '/application/config/app.ini', "name=fixture\n");
 file_put_contents($root . '/application/config/.env', "PASSWORD=denied-secret\n");

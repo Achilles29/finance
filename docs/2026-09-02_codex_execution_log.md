@@ -8039,3 +8039,102 @@
   APK dan MFA tetap ditunda owner. Tidak push/merge Git.
 - Commit laporan lokal `f68a930`; cutoff paket tetap `68e0114`. Ringkasan
   Telegram terkirim dan terkonfirmasi pada 2026-09-09 **06:27:20 WIB**.
+
+## Batch 236 — Isolasi instalasi customer dan health upgrade
+
+- Waktu: 2026-09-09 WIB; permintaan owner melanjutkan C0–C5. Fixer tunggal,
+  review kode dan tes langsung; tidak mengulang A3 atau bug operasional APK.
+- Prioritas: clean-install DB sudah lulus, tetapi runtime web masih mengacu
+  session bersama, Host request dan `.user.ini` staging; health upgrade menolak
+  receipt seed awal yang sah. Ini menghalangi trial customer terpisah.
+- File: `application/libraries/DeploymentConfig.php`, `application/config/config.php`,
+  `index.php`, `tools/install/LinuxWebProfile.php`, `tools/release/ReleasePackagePolicy.php`,
+  `tools/release/package_policy.json`, `tools/db/post_install_health_check.php`,
+  dua tes baru deployment/profile, tes health/artifact serta registry/contract quality gate.
+- Perubahan: JSON privat root-owned opt-in, ENV eksplisit tetap prioritas,
+  URL HTTPS tetap, cookie/session/log/cache terpisah; generic production 503
+  untuk file privat invalid. Renderer Linux loopback TLS/socket privat,
+  deny internal/script upload; dukungan direktori Lua vendor opsional.
+  `.user.ini` staging dikecualikan dari paket, file asli tidak disentuh.
+- Upgrade memverifikasi receipt seed historis tanpa menjalankannya ulang;
+  checksum/metadata/count tidak cocok tetap ditolak, termasuk baris asing.
+- Validasi: deployment instance 15, secret contract 39, Linux profile 16,
+  health 17, artifact 12, quality manifest 28 pemeriksaan PASS; lint PHP PASS.
+- Commit kode awal: `80d5a11`. Hasil review: layak diuji pada web terisolasi;
+  tidak dianggap installer final Windows/customer atau handoff selesai.
+- Risiko sisa/batch berikut: jalankan login/profil/logo pada HTTPS nyata,
+  backup/restore database percobaan dan gate paket baru.
+
+## Batch 237 — HTTPS nyata, bug User-Agent, dan restore database percobaan
+
+- Waktu: 2026-09-09 07:06–07:16 WIB. Hanya lingkungan
+  `/var/lib/finance-web-20260909.fDgGsM`, akun sistem baru `finance_c3_trial`
+  (nologin), Nginx/PHP-FPM terpisah dan listener `127.0.0.1:18443`.
+  Sertifikat self-signed khusus test diverifikasi dengan CA file; tidak memakai
+  bypass TLS. Tidak reload layanan aplikasi lama atau membuka domain publik.
+- Source awal diagnostic snapshot dari commit 80d5a11 mengikuti package policy;
+  bukan artefak signed. Tambahan diagnostik log_threshold=1 hanya di salinan
+  percobaan. DB sumber `c3_finance_test_3ff68a92e9c3` adalah fixture alpha.7,
+  bukan database transaksi Finance; hanya owner/profil/logo sintetis dipakai.
+- Temuan: request valid tanpa header User-Agent menghasilkan NULL dari CI,
+  lalu TypeError pada audit login berparameter string. Diperbaiki dengan cast
+  di `application/controllers/Auth.php`, tidak melewati audit/RBAC/throttle.
+- File tambahan: `tools/tests/c3_linux_web_acceptance.php` (opt-in, CLI root,
+  hanya URL loopback dan DB beridentitas disposable),
+  `tools/tests/auth_login_throttle_smoke.php`; commit lanjutan `d5ff56e`.
+- Validasi: **22 HTTPS acceptance PASS**, **74 login regression PASS**.
+  Login owner tanpa User-Agent, profil/CSRF, logo upload+served image, branding
+  login, cookie Secure/HttpOnly/SameSite, URL spoof Host dan 9 private paths
+  ditolak teruji. Composer install --no-dev dari lock dan validate exit 0;
+  Composer sistem lama menghasilkan deprecation warning, tidak diupgrade.
+- Backup `trial-before-upgrade.sql`, SHA256
+  `02c89800c3be83bc9e4dd62d18aaf9230625edf55cc6162602ac4376dd4455df`, mode 0600.
+  Dipulihkan ke DB kosong baru `c3_finance_test_0471d94e5ffe` (upgrade)
+  dan `c3_finance_test_8960e1072aea` (restore). Akun hanya punya grant ke DB
+  masing-masing; kredensial tidak ditaruh di Git, argv atau output.
+- **296 tabel sama checksum** pada kedua salinan dan sumber fixture tetap
+  sama. Upgrade katalog sama: applied=0, skipped=15, ledger=16, owner=1,
+  required tables=39, health PASS. Profil sintetis dipertahankan. Tidak
+  mengulang seed, membuat owner baru, wipe database, atau switch layanan live.
+- Bukti privat: `web-acceptance.json`, `upgrade-restore-acceptance.json`,
+  checksum source, output percobaan yang gagal dan backup di folder di atas.
+  Nginx/PHP-FPM percobaan dihentikan setelah HTTP test; backup/upload/log/DB
+  percobaan tetap disimpan. Tidak ada SQL baru di aplikasi/server utama lama.
+- Hasil review: HTTPS diagnostik dan restore/upgrader idempotent layak.
+  **Belum** install dari artefak alpha.8, upgrade lintas versi bermigrasi baru,
+  web cutover/rollback, UAT semua role/printer atau customer pilot.
+
+## Batch 238 — Handoff, panduan customer dan audit gerbang C0–C5
+
+- Waktu: 2026-09-09 WIB. Sesuai pola fixer tunggal, status direview dari bukti,
+  tanpa membuat penerimaan owner atau publikasi secara otomatis.
+- File: dua roadmap utama, execution log, `docs/customer_setup_and_release_guide.md`,
+  `app-manifest.json` dan tes versi; kandidat source menjadi **0.1.0-alpha.8**,
+  schema finance-20260907 tetap, 16 SQL managed/checksum tidak diubah.
+- C0/C1: daftar keputusan paket, harga, implementasi/support, kontrak/SLA/data,
+  domain/customer pilot, batas runtime dan go-live dipisahkan dari hasil tes.
+  Harga/kontrak tidak dikarang sebagai final; pertanyaan owner sudah diajukan.
+- C2/C5: contoh file deployment JSON, lokasi/owner/mode, environment pool,
+  prioritas setting, runtime/session, latihan penerimaan dan rancangan SOP
+  support. Pengaturan admin usaha lewat UI dipisah dari pekerjaan admin server.
+- C4: protokol activation/status Control diperiksa read-only; **26 tes verifier
+  PASS**, termasuk expiry maintenance vs lease, signed binding dan penolakan
+  entitlement palsu. Tidak mengklaim activation/polling/cache writer selesai.
+  Tidak ada aktivasi, penandatanganan lisensi, enforcement atau perubahan Control.
+- Review: C0 HANDOFF_CHECKLIST_READY; C1 tetap CATALOG_DRAFT_READY;
+  C2 CORE_BRANDING_HTTP_PASS; C3 ISOLATED_WEB_DB_REHEARSAL_PASS;
+  C4 tetap AUDIT_ONLY_FOUNDATION; C5 SUPPORT_DRAFT_READY. **Seluruh fase
+  belum DONE**, karena masih ada engineering dan acceptance, bukan hanya dokumen.
+- Validasi dokumen: 26 roadmap consistency + 30 dashboard PASS. Perubahan
+  `_NOTE2.md`, logo/upload pengguna dan pekerjaan APK dipertahankan.
+- Gate rilis pertama cutoff d5ff56e FAIL pada dua tes yang bergantung file
+  staging tidak tracked: backup membutuhkan `.env`, dashboard mewajibkan
+  marker enable. Tidak menyalin secret/marker untuk memaksa PASS. Test backup
+  kini memeriksa template untuk checkout bersih dan `.env` hanya dengan flag
+  `--staging-env`; kedua mode 32 checks PASS di workspace. Dashboard mengecek
+  fail-closed bila marker tidak ada; negatif/valid fixture tetap wajib.
+  Test artifact kini benar-benar memasukkan `.user.ini` sintetis dan membuktikan
+  file itu tidak masuk arsip. Tidak mengurangi gate keamanan aplikasi.
+- Berikutnya: ulang gate penuh dari cutoff baru, bangun/verifikasi kandidat;
+  lanjut C3 installer/upgrade lintas versi dan C4 setelah identitas/profil
+  target jelas. C1/C5 harga/kontrak/domain/pilot/publikasi tetap keputusan owner.

@@ -1,5 +1,28 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Update 2026-09-09 — Batch 236–238:** perbaikan fondasi instalasi customer
+dan bug login yang ditemukan lewat pengujian HTTPS. Tidak mengulang A3,
+mengoreksi data transaksi, atau mengerjakan bug operasional APK.
+
+- [x] A1: login tanpa header User-Agent tidak lagi gagal saat penulisan audit
+  karena NULL masuk parameter string. Audit tetap wajib; 74 tes login lulus.
+- [x] A5: URL, cookie, session, cache dan log dapat dipisahkan per instalasi
+  lewat JSON privat root-owned; konfigurasi staging lama tetap opt-in.
+- [x] A5: `.user.ini` berisi path staging tidak ikut paket customer baru.
+  File asli staging tidak dihapus atau diedit.
+- [x] A5: health-check upgrade menerima receipt seed clean-install yang sah,
+  memverifikasi checksum dan tetap menolak metadata/ledger asing atau drift.
+- [x] HTTPS percobaan Linux: 22 pemeriksaan login/profil/logo/CSRF/URL/akses
+  internal/session lulus. Ini bukan UAT seluruh modul atau pilot publik.
+- [x] Backup dipulihkan ke dua DB kosong percobaan: 296 tabel sama checksum;
+  upgrade katalog sama melewati 15 migrasi, mempertahankan 16 receipt dan
+  profil sintetis customer. Tidak ada seed ulang/owner baru/DB lama dihapus.
+- [ ] Upgrade lintas versi dengan migrasi baru, switch/rollback layanan web
+  customer, Windows, UAT kasir/printer dan persetujuan handoff belum selesai.
+
+Scope artefak/delivery dan C0–C5 tetap hanya pada `_28`; bukti detail di log
+eksekusi. Perubahan batch ini **tidak memerlukan SQL baru** di aplikasi lama.
+
 **Update 2026-09-09 — Batch 232–235:** clean-install database dari paket
 telah **PASS** pada DB disposable; belum menutup A5/handoff web/customer.
 Tiga bug yang baru terbukti saat menjalankan instalasi sudah diperbaiki:
