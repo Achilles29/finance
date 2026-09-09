@@ -29,7 +29,7 @@ if($old!==null){
     $p=proc_open(['/usr/bin/mysql','--defaults-extra-file='.$c['defaults_extra_file'],'--database='.$name],[0=>['file',$backup,'r'],1=>['file',$s.'/private/restore.log','a'],2=>['file',$s.'/private/restore.log','a']],$pipes);if(!is_resource($p)||proc_close($p)!==0)throw new RuntimeException('FIXTURE_RESTORE_FAILED');
     $oldSettings=json_decode((string)file_get_contents($old.'/deployment.json'),true,32,JSON_THROW_ON_ERROR);$settings['FINANCE_ENCRYPTION_KEY']=$oldSettings['FINANCE_ENCRYPTION_KEY'];unset($oldSettings);
     $c['mode']='upgrade';$c['previous_config_file']=$old.'/private/config.json';copy($previous['owner_file'],$c['owner_file']);chmod($c['owner_file'],0600);
-}else{$write($c['owner_file'],json_encode(['username'=>'trial.owner','email'=>'trial.owner@example.invalid','password'=>'Aa1!'.bin2hex(random_bytes(20))]));}
+}else{$ownerPassword='Aa1!'.bin2hex(random_bytes(20));$write($c['owner_file'],json_encode(['username'=>'trial.owner','email'=>'trial.owner@example.invalid','password'=>$ownerPassword]));unset($ownerPassword);}
 foreach(['SESSION'=>'sessions','LOG'=>'logs','CACHE'=>'cache']as$key=>$dir)$settings['FINANCE_'.$key.'_PATH']=$s.'/'.$dir;
 $write($s.'/deployment.json',json_encode($settings,JSON_THROW_ON_ERROR),0640);chgrp($s.'/deployment.json',$account['gid']);unset($settings);
 PrivateDeployment::run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','3','-subj','/CN=Finance Instance Trial','-addext','subjectAltName=IP:127.0.0.1','-keyout',$s.'/tls.key','-out',$s.'/tls.crt'],$s.'/private/openssl.log');chmod($s.'/tls.key',0600);chmod($s.'/tls.crt',0644);
