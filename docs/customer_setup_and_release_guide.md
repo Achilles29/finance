@@ -4,6 +4,11 @@ Status 2026-09-09, source kandidat **0.1.0-alpha.10**: panduan praktik web Linux
 seluruh aplikasi/installer/APK siap jual**. Status utama tetap pada roadmap
 audit `_30` dan komersialisasi `_28`.
 
+Cara paling mudah bagi owner: di Control buka **Release → Panduan praktik
+Finance** (`/finance/practice`). Halaman itu menampilkan kandidat terbaru dan
+tombol langkah berurutan. Batch 243 menyiapkan alpha.10 DRAFT release 38 dengan
+3 artefak/5 evidence; belum melakukan review/publish/customer/aktivasi nyata.
+
 ## 1. Pengaturan lewat aplikasi — admin usaha
 
 1. Masuk menggunakan akun yang memiliki akses **System → Profil Usaha & Tampilan**.
@@ -195,6 +200,17 @@ Private state terpisah dari kode dan database, tidak ikut package/upload.
    dihapus otomatis. Admin menangani retensinya setelah aktivasi terkonfirmasi.
 3. Worker penerbit lisensi di **server Control** harus sudah disiapkan admin
    Control. Agen Finance tidak menerbitkan atau menyetujui lisensi sendiri.
+   Kunci produk Finance disiapkan Batch 243. Sesudah owner membuat kode dan
+   instance mengirim aktivasi PENDING, admin Control dapat menjalankan worker
+   terbatas produk (bukan seluruh produk lain):
+
+   ```bash
+   CONTROL_LICENSE_PRODUCT_CODE=NAMUA_FINANCE php /www/wwwroot/control/tools/process_license_issuance.php
+   ```
+
+   Untuk operasional nanti, jadwalkan perintah tersebut pada server Control
+   sebagai root, misalnya per lima menit, sesudah alur trial diterima. Jangan
+   memakai `CONTROL_LICENSE_ISSUER_CONFIG` fixture atau kunci percobaan.
    Kemudian jalankan:
 
    ```bash

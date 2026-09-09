@@ -1,5 +1,55 @@
 # Paket Finance untuk Control — kandidat internal
 
+## Kandidat praktik saat ini — Batch 243
+
+**0.1.0-alpha.10 siap untuk praktik web Linux terbatas**, tercatat DRAFT/ALPHA
+di Control: release **38**, UUID `cdcbd62d-f030-4842-b2f3-db446f03c829`.
+Mulai di Control **Release → Panduan praktik Finance** (`/finance/practice`).
+Tiga artefak dan lima evidence wajib tersedia; belum review/approve/publish,
+belum customer/subscription/aktivasi nyata dan belum penerimaan produksi.
+
+- Cutoff final: `15f9f62849e3ba91bd029a53acd0686748e93f39`, epoch `1788925696`,
+  tag **finance-web-alpha.10-verified-cutoff-20260909**. Tag percobaan
+  `finance-web-alpha.10-cutoff-20260909` menunjuk f7b92f1 yang belum lolos
+  preflight; **bukan sumber paket final**. Riwayat tidak dihapus/ditulis ulang.
+- Folder: `/var/lib/finance-release-20260909.5hPSTs`, root-private.
+- File: `finance-0.1.0-alpha.10.tar` dan sidecar `.release.json/.release.sig.json`.
+- 1.645 file, **597.483.520 bytes**; TAR SHA256:
+  `e10d6afd29deb611e40fab25206f51404a90586cf46ad79760c9d7edcec9458d`.
+- SHA256 manifest Control:
+  `52d51ac39f9bf29a5f64c9a43caa3907782c7583bfc52bc2bddd89162523e2f3`.
+- SHA256 inner manifest:
+  `4dbd9a700a0829c148c3a01c262e321aee212324d7c2b0e804ce82778d4a088a`.
+- Bukti: `quality-release.log` (113 PASS), `build.log`, `practice-evidence.json`
+  dan `rollback-acceptance.json` dalam folder paket; verifier Control PASS.
+- Clean install alpha.10: `/var/lib/finance-web-20260909.cszJso`, health dan
+  22 tes HTTPS PASS. Upgrade dari alpha.9: `/var/lib/finance-web-20260909.PnTYyw`,
+  DB salinan, 296 checksum tabel cocok, upload sama, 22 HTTPS PASS, cache lisensi
+  Control aktual terbaca dan rollback layanan ke alpha.9 PASS.
+- Control terisolasi `/var/lib/finance-control-20260909.wmwnYi`: 18 lisensi,
+  9 delivery/receipt paket alpha.10, 12 UI deployment/reissue dan 2 akses panduan
+  PASS. Simulasi customer/PUBLISHED di DB fixture tidak sama dengan Control asli.
+- Database fixture, backup, log dan kunci uji dipertahankan. Listener percobaan
+  dihentikan setelah pemeriksaan; layanan Finance/Control utama tidak direstart.
+
+SQL bisnis/schema tetap finance-20260907, baseline clean-install-20260909,
+16 migrasi managed; **tidak ada SQL baru untuk dijalankan pada aplikasi lama**.
+Upgrade lintas versi kode tidak membuktikan semua migrasi SQL masa depan aman.
+APK/Windows/printer fisik/native guard/enforcement dan pilot produksi tetap
+terbuka di `_28`. Panduan server bagian 10 dan panduan owner bagian 9 pada
+`customer_setup_and_release_guide.md`; target domain/scheduler ditentukan saat
+owner memilih instalasi trial, bukan dibuatkan customer oleh engineer.
+
+Perubahan Control disertakan dalam backup/handoff privat terpisah
+`/var/lib/finance-practice-20260909.cS9jNa/`; tidak berada dalam TAR Finance.
+Key lisensi NAMUA_FINANCE sudah dibuat di key store root-only, bukan key dari
+fixture dan bukan lisensi customer. Worker mendukung pembatasan produk lewat
+`CONTROL_LICENSE_PRODUCT_CODE=NAMUA_FINANCE`; belum diaktifkan otomatis untuk
+subscription operasional. Jangan menjalankan worker semua produk untuk latihan.
+
+Catatan alpha.9 dan versi lebih lama di bawah adalah riwayat, bukan pilihan
+kandidat terbaru.
+
 Update Batch 241: **alpha.9 privat**, cutoff
 `4d315484cdc60bdaf1894885c8312c167e829cad`, tag
 `finance-web-alpha.9-cutoff-20260909`, source epoch `1788920512`.

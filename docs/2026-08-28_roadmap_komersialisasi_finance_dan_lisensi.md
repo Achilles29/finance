@@ -1,5 +1,39 @@
 # Roadmap Komersialisasi Finance POS
 
+## Status praktik owner — Batch 243, 2026-09-09
+
+**Barang siap untuk praktik penjualan web Linux terbatas di UI Control.**
+Mulai dari **Release → Panduan praktik Finance** (`/finance/practice`).
+Kandidat **alpha.10**, release **38**, masih **DRAFT/ALPHA**; 3 artefak dan 5
+evidence wajib tersedia. Owner tetap memegang keputusan review/publish,
+customer, subscription, domain dan aktivasi nyata. Tidak ada push Git.
+
+- [x] Paket signed cutoff `15f9f62`: **113 gate release PASS**, 1.645 file,
+  verifier Finance/Control PASS; byte alpha.9 dan tag percobaan tetap utuh.
+- [x] Pemasangan alpha.10 pada DB baru: 296 tabel, 16 migrasi, owner, health dan
+  22 tes HTTPS UI PASS. Tidak mengambil data transaksi aplikasi lama.
+- [x] Upgrade alpha.9 → alpha.10 pada DB salinan, 296 checksum tabel sama,
+  upload identik; web baru + cache lisensi aktual terbaca; rollback ke web/DB
+  lama PASS dan database lama tidak berubah selama uji versi baru.
+- [x] HTTPS Control terisolasi: 18 lisensi, 9 delivery/receipt, 12 form UI dan
+  2 akses panduan PASS. Kunci penerbit Finance disiapkan, bukan lisensi customer.
+- [x] DRAFT Control menyimpan SOURCE_CLEAN, SECURITY_SCAN, INSTALL_TEST,
+  BACKUP_RESTORE, SIGNATURE_VERIFY; import evidence ulang UNCHANGED.
+- [x] Panduan owner berupa halaman web berurutan; admin server mempunyai
+  perintah konkret di `customer_setup_and_release_guide.md` bagian 10.
+- [ ] Praktik owner/customer nyata, domain publik dan vhost/scheduler target:
+  dilakukan pada saat latihan setelah target dipilih, tidak ditebak oleh engineer.
+- [ ] Release produksi penuh: UAT per peran/perangkat/printer, APK/Windows,
+  native guard/pairing/limit/enforcement, audit branding legacy menyeluruh,
+  kontrak/support final dan pilot. **Tidak diiklankan sudah selesai.**
+
+SQL managed tidak bertambah. Upgrade yang diuji melintasi **versi kode**, dengan
+schema tetap finance-20260907; SQL bisnis baru di masa depan harus diuji lagi.
+Untuk praktik pertama pilih instalasi kosong. Import data aplikasi berjalan
+nanti harus ke **database salinan**, bukan menjalankan SQL pada server lama.
+Rincian cutoff/hash/lingkungan uji di `control_release_delivery.md` dan log.
+Bagian batch di bawah adalah riwayat; **gunakan tabel 0.1 untuk status fase**.
+
 **Batch 242 — persiapan praktik, 2026-09-09:** sambungan aktual ke **salinan
 Control via HTTPS** lulus 18 tes lisensi dan 9 tes delivery/receipt paket alpha.9;
 12 tes UI deployment/maker-checker/penggantian token juga PASS. Installer baru
@@ -269,14 +303,12 @@ gerbang audit; `[ ]` belum dibangun atau belum dibuktikan.
   Batch 220 menyelesaikan jalur inti login, shell, QR ulasan, dokumen, label,
   fallback cetak, dan setup admin tiga langkah; template marketing/Menu Book
   serta install profile customer tetap pekerjaan C2 terbuka.
-- `[~]` Installer customer, signed release, migration delivery, dan update
-  channel komersial. Finance kini memiliki preflight Control Center dan plan
-  installer non-mutating; artifact signed/claim/receipt dan updater customer
-  belum dibuat.
-- `[~]` FeatureGate, signed entitlement, activation device, dan offline cache.
-  Finance memiliki registry/cache lokal, halaman status, dan FeatureGate mode
-  audit; verifier signed, aktivasi Control, pairing device, dan enforcement
-  belum diaktifkan.
+- `[~]` Installer Linux, artifact signed, claim/receipt, DB-copy upgrade dan web
+  rollback sudah teruji Batch 243. Domain/scheduler target, migrasi bisnis baru,
+  Windows dan penerimaan produksi tetap terpisah dari kelulusan trial Linux.
+- `[~]` Signed entitlement dan agen init/activate/recover/poll/cache sudah lulus
+  HTTPS Control terisolasi. FeatureGate tetap audit-only; aktivasi customer,
+  pairing/native guard dan enforcement produksi belum dijalankan.
 - `[~]` Product Control Center multi-produk tersedia terpisah di
   `control.namuaprojects.com`; adopsi Finance tetap fase tersendiri dan belum
   boleh diklaim selesai.
@@ -291,12 +323,12 @@ internal. Status teknis A0–A5 tetap hanya berasal dari control board `_30`.
 
 | Fase | Implementasi | Validasi tertinggi | Release/data | Status fase | Alasan/gerbang berikutnya |
 | --- | --- | --- | --- | --- | --- |
-| C0 — handoff/go-no-go | `IN_PROGRESS` | `NONE` | `BLOCKED` | `HANDOFF_CHECKLIST_READY` | Batch 238: daftar keputusan/penerimaan dan batas produk disusun dalam panduan alpha.8. Gerbang teknis A0–A5 dan persetujuan owner belum tuntas. |
-| C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 NAMUA_FINANCE di Control: 28 feature, 4 edition, 29 dependency, PERPETUAL dan maintenance awal 365 hari. Alpha.3 sudah DRAFT melalui Batch 230, bukan publish. Harga, EULA/SLA, data policy, add-on/override per customer dan kontrak pilot belum final. |
-| C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_HTTP_PASS` | Batch 236–237: profil/logo/login benar pada HTTPS percobaan, URL tetap dan session terisolasi. Marketing menyeluruh, preset demo, pajak/service/integrasi/privacy serta penerimaan customer tetap terbuka. Outlet/printer lama tidak diubah. |
-| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `SIGNED_WEB_UPGRADE_TRIAL_PASS` | Alpha.8 signed/DRAFT, 22 HTTPS test dan health upgrade DB sintetis PASS (Batch 239); restore 296 tabel Batch 237. Alpha.9 signed privat dan 112 gate PASS (Batch 241), belum registrasi/deploy. Installer layanan final, upgrade lintas versi, web cutover/rollback, claim/receipt dan publish belum selesai. |
-| C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `AGENT_CACHE_FIXTURE_PASS` | Batch 240: agen Linux init/activate/poll, signed file cache dan model/UI; 54 fixture checks PASS termasuk restart/replay/clock/revoke/izin. Mode tetap audit-only, belum aktivasi customer nyata. Recovery aktivasi ambigu, Windows/native guard, pairing, limit, enforcement dan acceptance HTTPS nyata masih terbuka. Komersialisasi APK boleh; bug operasional/build/UAT ditunda. |
-| C5 — pilot/operasi penjualan | `IN_PROGRESS` | `NONE` | `BLOCKED` | `SUPPORT_DRAFT_READY` | Batch 238: panduan alpha.8 admin usaha/server, latihan penerimaan dan draft SOP support tersedia. Panduan per modul, walkthrough awam, customer/domain pilot, kontrak/SLA final dan operasi penjualan belum dijalankan. |
+| C0 — handoff/go-no-go | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `PRACTICE_HANDOFF_READY` | Batch 243: barang dan panduan UI siap untuk latihan web Linux terbatas. Bukan go-live; UAT/handoff produksi dan persetujuan owner tetap wajib. |
+| C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 NAMUA_FINANCE di Control: 28 feature, 4 edition, 29 dependency, PERPETUAL dan maintenance awal 365 hari. Kandidat praktik terbaru alpha.10 DRAFT (Batch 243), bukan publish. Harga, EULA/SLA, data policy, add-on/override per customer dan kontrak pilot belum final. |
+| C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_HTTP_PASS` | Batch 243: profil/logo/login alpha.10 benar melalui 22 tes HTTPS pada clean install dan upgrade; upload lama terbawa. Marketing/legacy branding menyeluruh, preset demo, pajak/service/integrasi/privacy serta penerimaan customer tetap terbuka. |
+| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `LINUX_DELIVERY_TRIAL_PASS` | Batch 243: alpha.10 cutoff 15f9f62, 113 gate PASS; DRAFT Control 38, tiga artefak/lima evidence. Clean install, upgrade kode alpha.9→10, 296 checksum tabel, upload, web cutover/rollback serta HTTPS claim/download/receipt PASS. Domain/scheduler target, SQL bisnis baru, Windows/pilot dan publish owner belum dilakukan. |
+| C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CONTROL_HTTPS_CACHE_PASS` | Batch 242–243: 58 unit agen/model/izin, 18 HTTPS Control terisolasi PASS, recovery identitas tetap, renewal setelah offline, revoke/replay, cache terbaca web aktual. Kunci Finance root-only siap. Mode audit-only; aktivasi customer, Windows/native guard, pairing/limit dan enforcement belum diterima. Bug operasional/build/UAT APK ditunda. |
+| C5 — pilot/operasi penjualan | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `UI_PRACTICE_GUIDE_READY` | Batch 243: halaman Control /finance/practice dan tombol dari Release tersedia, panduan owner dan admin server terpisah. Praktik customer/domain, pelatihan per modul, kontrak/SLA dan go-live tetap dilaksanakan owner, tidak otomatis oleh engineer. |
 
 **Aturan urutan:** tidak ada enforcement lisensi atau pembangunan License Hub
 yang menutupi temuan P0/P1. Pekerjaan teknis yang masih menjadi bug tetap
@@ -314,9 +346,9 @@ tetap sejalan dengan arah produk ini:
 | Batas data/monitoring | Customer/instance terpisah; heartbeat signed, outbound, tanpa database atau data bisnis customer. | Sender heartbeat Finance memakai kontrak HMAC/nonce/idempotency yang sama. Pilot `NAMUA_FINANCE` telah diarsipkan dari Control, jadi ini bukti kontrak, bukan integrasi aktif. | `SELARAS`, jangan aktifkan ulang tanpa instance runtime terpisah. |
 | C1 katalog | Manifest v2, scanner allowlist, preview/import produk-edition-feature, dependency, hak perpetual, maintenance, dan audit tersedia. | Katalog draft: 28 feature, 4 edition, 29 dependency, limit outlet/terminal awal. Alpha.3 cutoff b10fa37 sudah diregistrasikan sebagai DRAFT, belum publish. | `TERHUBUNG_DRAFT`; catalog bukan FeatureGate dan belum mengubah runtime customer. |
 | C2 identitas customer | Registry customer/PIC/instance vendor tersedia. | Profil lokal, setup admin, branding shell/login/QR/dokumen/label, locale/currency/timezone, dan fallback printer tersedia. | `TIDAK TUMPANG TINDIH`; registry vendor bukan pengganti profil usaha lokal. Template marketing/install profile tetap Finance-side. |
-| C3 delivery | Release maker-checker, private artifact, claim-once, unduhan hash-bound, dan receipt tersedia generik. Finance memiliki key terpisah, verifier dan registrar CLI DRAFT transaksional/idempotent. | Alpha.8 DRAFT: source signed, HTTPS/health upgrade salinan DB PASS. Alpha.7 clean DB install tetap valid; versi lama tidak diubah. | `SIGNED_WEB_UPGRADE_TRIAL_PASS`; installer/cutover lintas versi, claim/receipt dan publish belum selesai. |
-| C4 lisensi | Subscription, aktivasi server, lease Ed25519, grace/revoke, dan audit tersedia untuk Linux AMD64. | Batch 240: agen mengirim request/poll sesuai kontrak, memverifikasi sebelum cache atomik, model membaca cache root-owned; 54 tes fixture PASS tanpa DB bisnis. | `AGENT_CACHE_FIXTURE_PASS`; bukan aktivasi nyata. HTTPS Control, recovery, native guard, pairing/limit dan enforcement masih wajib. |
-| C5 operasi | Customer/instance/monitoring/audit tersedia; pilot produk generik belum dijalankan. | Panduan setup alpha.8, latihan penerimaan dan draft SOP support tersedia. Panduan per modul, walkthrough pengguna dan pilot Finance non-Namua belum dilakukan. | `SUPPORT_DRAFT_READY`; bukan acceptance/pilot PASS. |
+| C3 delivery | Maker-checker tetap, token pengganti melalui UI dengan konfirmasi/CSRF/step-up; receipt migrasi tidak menutup deployment. DRAFT Finance 38 dengan lima evidence. | Alpha.10: installer/upgrade DB salinan, upload, web rollback, HTTPS claim/download/receipt dan 113 gate PASS. | `LINUX_DELIVERY_TRIAL_PASS`; domain/scheduler target, SQL baru, publish/pilot masih terpisah. |
+| C4 lisensi | Recovery bertanda tangan mempertahankan instalasi/slot; issuer memeriksa eligibility kembali dan dapat renew setelah offline. Kunci Finance terpisah siap. | 18 tes HTTPS Control terisolasi + 58 unit PASS, web Finance membaca cache signed nyata. | `CONTROL_HTTPS_CACHE_PASS`; bukan aktivasi customer. Native guard, pairing/limit/enforcement masih wajib sebelum klaim proteksi penuh. |
+| C5 operasi | Halaman /finance/practice dari menu Release, urutan customer→instance→subscription→release→deployment→aktivasi. | Panduan setup/pemulihan admin dan latihan owner tersedia; keputusan harga/domain/pilot milik owner. | `UI_PRACTICE_GUIDE_READY`; bukan pilot produksi PASS. |
 
 **Keputusan sinkronisasi yang mengikat:** Finance tetap memakai lisensi
 **perpetual**. Hak menjalankan versi yang sudah dibeli tidak boleh berubah

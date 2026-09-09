@@ -1,5 +1,21 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Validasi penuntasan Batch 243 — 2026-09-09:** source cutoff `15f9f62`
+lulus **113 entry release gate dari checkout bersih**, tanpa mengurangi gate
+atau baseline. Pemasangan dan upgrade dari paket alpha.10 signed masing-masing
+lulus health dan 22 tes HTTPS UI. Upgrade kode alpha.9→10 mempertahankan
+296 checksum tabel dan file logo; web/DB lama dapat dikembalikan, database lama
+tetap utuh saat versi baru diuji. Bukan test SQL bisnis baru atau seluruh UAT.
+
+- [x] Pemindai credential tetap aktif; generator fixture memakai identitas acak.
+- [x] Gate token/lisensi, recovery, receipt, PID/backup/upload dibuktikan melalui
+  aplikasi Control/Finance terisolasi. Tidak memakai atau memperbaiki data transaksi.
+- [ ] Native guard/enforcement, UAT peran, APK dan printer fisik tetap terpisah;
+  tidak dicentang hanya karena alat deployment lulus.
+
+Status praktik penjualan hanya di `_28`; panduan UI ada di Control
+`/finance/practice`. Tidak ada SQL baru pada Finance atau Control untuk batch ini.
+
 **Delta Batch 242 — 2026-09-09:** recovery koneksi aktivasi mempertahankan
 identitas/kunci, perpanjangan setelah offline tidak tersangkut RESTRICTED,
 dan receipt migrasi tidak boleh menandai seluruh deployment selesai. Bukti
