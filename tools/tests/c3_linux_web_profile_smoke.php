@@ -19,6 +19,9 @@ $check(strpos($nginx, 'access_log off;') !== false && strpos($nginx, 'ssl_protoc
 $check(strpos($fpm, 'clear_env = yes') !== false && strpos($fpm, 'env[CI_ENV] = production') !== false, 'production process has explicit environment');
 $check(strpos($fpm, 'FINANCE_DEPLOYMENT_FILE') !== false && strpos($fpm, 'DB_PASSWORD') === false, 'service config references private file, not secret values');
 $check(strpos($fpm, 'listen.mode = 0600') !== false, 'dedicated account owns private socket');
+$lua = LinuxWebProfile::render($p + ['lua_root'=>realpath(sys_get_temp_dir())]);
+$check(strpos($lua['nginx.conf'], 'lua_package_path "' . realpath(sys_get_temp_dir()) . '/?.lua;;";') !== false, 'optional vendor Lua directory is explicit');
+$check(strpos($nginx, 'lua_package_path') === false, 'plain nginx does not receive vendor-only directive');
 foreach ([['port'=>80],['user'=>'root'],['group'=>'root'],['user'=>"bad\nuser"],['app_root'=>'/tmp/../tmp'],['state_root'=>$p['app_root']]] as $bad) {
     $rejected = false;
     try { LinuxWebProfile::render(array_replace($p, $bad)); } catch (RuntimeException $e) { $rejected = true; }

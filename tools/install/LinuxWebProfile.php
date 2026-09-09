@@ -16,6 +16,13 @@ final class LinuxWebProfile
             || !is_dir($p['app_root']) || !is_dir($p['state_root'])
             || strpos($p['state_root'] . '/', $p['app_root'] . '/') === 0) throw new RuntimeException('PROFILE_BOUNDARY_INVALID');
         $app = $p['app_root']; $s = $p['state_root']; $user = $p['user']; $group = $p['group']; $port = $p['port'];
+        $lua = '';
+        if (isset($p['lua_root'])) {
+            $path = $p['lua_root'];
+            if (!is_string($path) || preg_match('~\A/[A-Za-z0-9_./-]+\z~D', $path) !== 1
+                || strpos($path, '..') !== false || realpath($path) !== $path || !is_dir($path)) throw new RuntimeException('PROFILE_PATH_INVALID');
+            $lua = 'lua_package_path "' . $path . '/?.lua;;";';
+        }
         $fpm = "[global]\npid = {$s}/fpm.pid\nerror_log = {$s}/fpm.log\ndaemonize = no\n[finance]\nuser = {$user}\ngroup = {$group}\nlisten = {$s}/php.sock\nlisten.owner = {$user}\nlisten.group = {$group}\nlisten.mode = 0600\npm = ondemand\npm.max_children = 2\npm.process_idle_timeout = 10s\nclear_env = yes\nchdir = {$app}\nsecurity.limit_extensions = .php\ncatch_workers_output = yes\nenv[CI_ENV] = production\nenv[FINANCE_DEPLOYMENT_FILE] = {$p['deployment_file']}\nphp_admin_flag[display_errors] = off\nphp_admin_flag[log_errors] = on\nphp_admin_value[error_log] = {$s}/logs/php-error.log\nphp_admin_value[upload_tmp_dir] = {$s}/tmp\nphp_admin_value[sys_temp_dir] = {$s}/tmp\n";
         $nginx = <<<'NGINX'
 user @USER@ @GROUP@;
@@ -25,6 +32,7 @@ error_log @STATE@/nginx.log warn;
 daemon off;
 events { worker_connections 128; }
 http {
+ @LUA@
  include @MIME@;
  default_type application/octet-stream;
  access_log off;
@@ -72,7 +80,7 @@ http {
  }
 }
 NGINX;
-        $nginx = strtr($nginx, ['@USER@'=>$user,'@GROUP@'=>$group,'@STATE@'=>$s,'@MIME@'=>$p['mime_types'],
+        $nginx = strtr($nginx, ['@LUA@'=>$lua,'@USER@'=>$user,'@GROUP@'=>$group,'@STATE@'=>$s,'@MIME@'=>$p['mime_types'],
             '@PORT@'=>(string)$port,'@CERT@'=>$p['tls_certificate'],'@KEY@'=>$p['tls_key'],'@APP@'=>$app]);
         return ['php-fpm.conf' => $fpm, 'nginx.conf' => $nginx . "\n"];
     }

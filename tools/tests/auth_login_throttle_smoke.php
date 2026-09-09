@@ -314,9 +314,9 @@ final class AuthLoginThrottleInput
         return $this->ip;
     }
 
-    public function user_agent(): string
+    public function user_agent(): ?string
     {
-        return 'must-not-be-logged-on-failure';
+        return null; // A valid client need not send a User-Agent header.
     }
 }
 
@@ -716,7 +716,7 @@ $logSuccessModel = new AuthLoginThrottleProbeModel();
 $logSuccessModel->candidate = ['id' => 42, 'password_hash' => 'unused'];
 $logSuccessModel->passwordMatches = true;
 $logSuccess = auth_login_throttle_run_controller($logSuccessModel);
-$expect(($logSuccess->redirect ?? '') === 'dashboard', 'successful finalized login preserves redirect flow');
+$expect(($logSuccess->redirect ?? '') === 'dashboard', 'successful login without User-Agent preserves redirect flow');
 $expect(($logSuccess->session->data['session_log_id'] ?? 0) === 99 && isset($logSuccess->session->data['auth_user']), 'successful audit then creates authenticated session');
 $expect($authLoginThrottleTrace === ['session-log', 'session-write'], 'auth_session_log succeeds strictly before authenticated session write');
 

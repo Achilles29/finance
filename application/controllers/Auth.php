@@ -148,7 +148,7 @@ class Auth extends CI_Controller
             $log_id = $this->Auth_model->log_login(
                 $user['id'],
                 $this->input->ip_address(),
-                $this->input->user_agent()
+                (string)$this->input->user_agent()
             );
         } catch (Throwable $e) {
             $this->cancel_pending_web_login();

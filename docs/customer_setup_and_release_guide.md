@@ -1,6 +1,6 @@
 # Panduan setup customer dan pemeriksaan sebelum rilis
 
-Status 2026-09-08: panduan setup web yang sudah tersedia, **bukan pernyataan
+Status 2026-09-09, source kandidat **0.1.0-alpha.8**: panduan setup web yang sudah tersedia, **bukan pernyataan
 seluruh aplikasi/installer/APK siap jual**. Status utama tetap pada roadmap
 audit `_30` dan komersialisasi `_28`.
 
@@ -152,3 +152,107 @@ bukan klaim bahwa seluruh enforcement endpoint/worker selesai.
 
 Panduan operasional seluruh modul, latihan pengguna, dan pilot non-Namua
 tetap pekerjaan C5. File ini tidak menggantikan pekerjaan tersebut.
+
+## 6. URL dan runtime instalasi — hanya admin server
+
+Mulai source alpha.8, admin dapat memakai **satu file JSON privat** tanpa edit
+`database.php` atau `config.php`. Ini opt-in: konfigurasi staging lama tidak
+diganti otomatis. `.user.ini` staging tidak boleh disalin ke customer karena
+berisi pembatasan direktori server lama; paket baru mengecualikannya.
+
+Contoh lokasi: `/etc/finance/customer-a/deployment.json`. Buat lewat editor
+server sebagai root, bukan melalui browser, Git, atau halaman Profil Usaha.
+Isi contoh berikut dengan nilai instalasi customer yang sebenarnya:
+
+```json
+{
+  "FINANCE_ENCRYPTION_KEY": "GANTI_DENGAN_KUNCI_ACAK_KHUSUS_INSTALASI",
+  "FINANCE_DB_HOST": "localhost",
+  "FINANCE_DB_NAME": "database_customer_a",
+  "FINANCE_DB_USER": "akun_database_customer_a",
+  "FINANCE_DB_PASSWORD": "GANTI_DENGAN_PASSWORD_DATABASE_CUSTOMER",
+  "FINANCE_BASE_URL": "https://kasir.customer.example/",
+  "FINANCE_SESSION_PATH": "/var/lib/finance-customer-a/sessions",
+  "FINANCE_SESSION_COOKIE": "finance_customer_a",
+  "FINANCE_LOG_PATH": "/var/lib/finance-customer-a/logs",
+  "FINANCE_CACHE_PATH": "/var/lib/finance-customer-a/cache"
+}
+```
+
+Nilai `GANTI_...` bukan credential siap pakai. Buat encryption key dengan
+`openssl rand -hex 32` di terminal privat, simpan sekali, dan masukkan dalam
+backup rahasia terenkripsi; jangan menggantinya setiap restart/update.
+DB_HOST boleh berupa path socket MariaDB, misalnya `/tmp/mysql.sock`, jika
+itulah socket di server. Jangan menyalin akun database staging ke customer.
+
+File JSON harus `root:<grup-pool-PHP-customer>` dengan mode **0640**, seluruh
+parent root-owned dan tidak group/world-writable. Tiga direktori runtime
+di atas harus sudah dibuat di luar source, dimiliki akun pool customer,
+mode **0700**. Gunakan akun pool dan direktori tersendiri tiap customer.
+Pengaturan environment eksplisit mengalahkan nilai JSON; hapus override lama
+dari pool **customer tersebut** bila ingin memakai JSON sepenuhnya.
+
+Pada konfigurasi pool PHP-FPM customer, tambahkan:
+
+```ini
+env[CI_ENV] = production
+env[FINANCE_DEPLOYMENT_FILE] = /etc/finance/customer-a/deployment.json
+```
+
+Uji konfigurasi pool dan reload **layanan customer yang benar**. Jangan
+mengganti pool/vhost aplikasi lama. Jika ada `open_basedir`, admin harus
+memasukkan source customer, file konfigurasi privat, runtime dan temporary
+directory customer yang benar. JSON invalid/tidak aman ditolak sebelum
+aplikasi melakukan koneksi database; respons browser tetap generik.
+
+`tools/install/LinuxWebProfile.php` menyediakan renderer konfigurasi Nginx
+dan PHP-FPM **percobaan Linux loopback HTTPS**, bukan provisioner domain publik
+atau installer Windows. Output hanya menjalankan front-controller `index.php`,
+menolak direktori internal/script upload, memakai socket privat serta
+`CI_ENV=production`. Pada Nginx aaPanel yang memuat Lua, `lua_root` harus
+ditetapkan ke direktori modul vendor; Nginx biasa tidak memakai opsi itu.
+Jangan membuka port percobaan ke internet untuk menggantikan deployment resmi.
+
+## 7. Penerimaan sebelum serah-terima — owner dan admin usaha
+
+Panduan ini terikat kandidat alpha.8; pengujian percobaan Linux bukan bukti
+customer nyata telah lulus. Isi kolom keputusan berikut sebelum pilot:
+
+| Keputusan | Sumber/penanggung jawab | Status |
+| --- | --- | --- |
+| Paket dan add-on | Manifest NAMUA_FINANCE yang sama dengan Control; owner memilih edisi/limit | Katalog draft, belum penawaran final |
+| Harga dan biaya implementasi/support | Owner menetapkan nominal dan cakupan tertulis | Menunggu owner |
+| Kontrak, data policy, SLA | Dokumen disetujui pihak berwenang; waktu respons dan jam layanan jelas | Menunggu dokumen final |
+| Customer pilot dan domain | Owner menunjuk customer/instance/domain serta PIC | Belum ditetapkan pada batch ini |
+| Batas produk | Linux/PHP 8.1/MariaDB 10.11 diuji; Windows dan bug operasional APK belum lulus | Harus tertulis di penawaran |
+| Go-live | Hasil install/update/restore, UAT kasir dan printer, serta risiko tersisa | Belum disetujui |
+
+Latihan admin usaha, berurutan: masuk sebagai owner → ganti nama/logo → atur
+outlet/terminal/rekening → cek pajak/service sesuai kebutuhan → cetak satu
+struk percobaan → undang pengguna dengan role yang tepat → minta pengguna
+tersebut mencoba alurnya → catat hasil. Pengujian wajib memakai data percobaan
+atau salinan customer yang disetujui, bukan mengubah aplikasi utama lama.
+
+Admin server memperlihatkan bukti backup berhasil **dipulihkan** ke database
+terpisah, bukan hanya file backup tersedia. Update tidak menjalankan kembali
+seed clean-install atau membuat owner baru. Catatan seed dari instalasi awal
+tetap dipertahankan dan checksum-nya diperiksa saat health-check upgrade.
+
+## 8. Penanganan masalah pilot — rancangan SOP support
+
+1. Pengguna melapor: URL, versi aplikasi, waktu kejadian, halaman/tindakan,
+   pesan yang tampil, dan dampaknya. Jangan mengirim password, token bot,
+   API key, nomor rekening penuh, atau dump transaksi ke grup support.
+2. Admin usaha memeriksa sesi, hak akses, pengaturan outlet/printer dan koneksi.
+   Jangan menghapus transaksi untuk mencoba memperbaiki error.
+3. Admin server memeriksa layanan, kapasitas disk, sertifikat HTTPS, koneksi
+   database, izin upload, dan log instalasi yang sesuai. Bukti disamarkan.
+4. Jika transaksi berisiko rusak: hentikan tindakan terkait, pertahankan bukti
+   dan backup, eskalasi ke engineer. Jangan menekan bayar/sinkron berulang.
+5. Rollback hanya setelah snapshot kode + database + upload + konfigurasi
+   privat cocok dan prosedur pemulihan teruji. Simpan kondisi gagal untuk audit.
+6. Catat penyebab, versi perbaikan, hasil uji pengguna, dan persetujuan penutupan.
+
+SOP ini belum menetapkan SLA berbayar atau kanal support resmi. Walkthrough
+pengguna awam, pelatihan per modul, dan pilot Starter/Operations/Control tetap
+perlu dilaksanakan; keberadaan dokumen tidak mencentang penerimaannya.
