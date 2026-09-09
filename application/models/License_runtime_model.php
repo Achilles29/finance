@@ -5,6 +5,7 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 class License_runtime_model extends CI_Model
 {
     private $verifiedRuntime;
+    private $fileRuntime;
     private const TABLES = [
         'lic_installation', 'lic_license_cache', 'lic_feature', 'lic_feature_cache',
         'lic_device_activation', 'lic_activation_audit', 'lic_runtime_audit',
@@ -18,6 +19,9 @@ class License_runtime_model extends CI_Model
 
     public function installation(): array
     {
+        $file = $this->managed_file_runtime();
+        if ($file !== null) return ['installation_id'=>$file['identity']['installation_id'] ?? '',
+            'activation_status'=>$file['verification']['status'], 'instance_id'=>$file['identity']['instance_id'] ?? ''];
         if (!$this->ready()) return [];
         $row = $this->db->from('lic_installation')->where('id', 1)->limit(1)->get()->row_array();
         return is_array($row) ? $row : [];
@@ -25,6 +29,16 @@ class License_runtime_model extends CI_Model
 
     public function current_license(): array
     {
+        $file = $this->managed_file_runtime();
+        if ($file !== null) {
+            $v = $file['verification'];
+            if (empty($v['verified'])) return [];
+            $p = $v['payload'];
+            return ['id'=>1,'verification_status'=>'VERIFIED','license_id'=>$p['license_id'],
+                'edition_code'=>$p['edition'],'rights_model'=>$p['rights_model'],'not_before_at'=>$p['issued_at'],
+                'expires_at'=>$p['expires_at'],'grace_until_at'=>$p['grace_until'],
+                'maintenance_ends_at'=>$p['maintenance_ends_at'] ?? null,'source'=>'DEPLOYMENT_CACHE'];
+        }
         if (!$this->ready()) return [];
         $row = $this->db->select('id, license_id, verification_status, edition_code, rights_model, not_before_at, expires_at, maintenance_ends_at, grace_until_at, verified_at, received_at')
             ->from('lic_license_cache')->where('is_current', 1)->order_by('id', 'DESC')->limit(1)->get()->row_array();
@@ -51,6 +65,8 @@ class License_runtime_model extends CI_Model
     public function verification(): array
     {
         if (is_array($this->verifiedRuntime)) return $this->verifiedRuntime;
+        $file = $this->managed_file_runtime();
+        if ($file !== null) return $this->verifiedRuntime = $file['verification'];
         $this->load->library('Control_license_verifier');
         $trust = Control_license_verifier::deployment_document((string)getenv('FINANCE_LICENSE_TRUST_FILE'), FCPATH);
         $identity = Control_license_verifier::deployment_document((string)getenv('FINANCE_LICENSE_IDENTITY_FILE'), FCPATH);
@@ -65,6 +81,29 @@ class License_runtime_model extends CI_Model
             $result = ['verified' => false, 'status' => 'RESTRICTED', 'code' => 'CACHE_METADATA_MISMATCH'];
         }
         return $this->verifiedRuntime = $result;
+    }
+
+    public function synchronization(): array
+    {
+        $file = $this->managed_file_runtime();
+        return $file === null ? ['configured'=>false] : ['configured'=>true,
+            'connection'=>$file['cache']['connection'] ?? 'UNAVAILABLE',
+            'synced_at'=>$file['cache']['synced_at'] ?? 0,'last_seen_at'=>$file['cache']['last_seen_at'] ?? 0];
+    }
+
+    /** Explicit managed cache never falls back to a mutable SQL cache on failure. */
+    private function managed_file_runtime(): ?array
+    {
+        $path = (string)getenv('FINANCE_LICENSE_CACHE_FILE');
+        if ($path === '') return null;
+        if (is_array($this->fileRuntime)) return $this->fileRuntime;
+        $this->load->library('Control_license_cache');
+        $trust = Control_license_verifier::deployment_document((string)getenv('FINANCE_LICENSE_TRUST_FILE'), FCPATH);
+        $identity = Control_license_verifier::deployment_document((string)getenv('FINANCE_LICENSE_IDENTITY_FILE'), FCPATH);
+        $cache = Control_license_verifier::deployment_document($path, FCPATH, 300000);
+        $v = (!$trust || !$identity || !$cache) ? ['verified'=>false,'status'=>'UNCONFIGURED','code'=>'MANAGED_CACHE_UNAVAILABLE']
+            : Control_license_cache::verification($cache, $trust, $identity);
+        return $this->fileRuntime = ['verification'=>$v,'cache'=>$cache,'identity'=>$identity];
     }
 
     /** Records only a hash of declared context; never capture request payload, token, or user data. */

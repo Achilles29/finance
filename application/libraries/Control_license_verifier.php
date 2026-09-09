@@ -70,13 +70,13 @@ final class Control_license_verifier
     }
 
     /** Trust and installation identity are deployment-owned, never editable through SQL/UI. */
-    public static function deployment_document(string $path, string $webroot): array
+    public static function deployment_document(string $path, string $webroot, int $maxBytes = 16384): array
     {
         $real = $path !== '' ? realpath($path) : false;
         $root = realpath($webroot);
-        if ($real === false || $root === false || is_link($path) || !is_file($real) || !is_readable($real)
+        if ($real === false || $real !== $path || $root === false || is_link($path) || !is_file($real) || !is_readable($real)
             || strpos(str_replace('\\', '/', $real) . '/', rtrim(str_replace('\\', '/', $root), '/') . '/') === 0
-            || filesize($real) > 16384) return [];
+            || $maxBytes < 1 || $maxBytes > 300000 || filesize($real) > $maxBytes) return [];
         if (PHP_OS_FAMILY !== 'Windows') {
             $stat = stat($real);
             // Root-owned, no group/world writes. Runtime writers cannot replace the parent either.

@@ -30,6 +30,7 @@ class License extends MY_Controller
             'installation' => $this->License_runtime_model->installation(),
             'license' => $this->License_runtime_model->current_license(),
             'verification' => $this->License_runtime_model->verification(),
+            'synchronization' => $this->License_runtime_model->synchronization(),
             'mode' => $this->feature_gate->mode(),
             'features' => $features,
         ]);

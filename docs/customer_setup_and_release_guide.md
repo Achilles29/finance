@@ -1,6 +1,6 @@
 # Panduan setup customer dan pemeriksaan sebelum rilis
 
-Status 2026-09-09, source kandidat **0.1.0-alpha.8**: panduan setup web yang sudah tersedia, **bukan pernyataan
+Status 2026-09-09, source kandidat **0.1.0-alpha.9**: panduan setup web yang sudah tersedia, **bukan pernyataan
 seluruh aplikasi/installer/APK siap jual**. Status utama tetap pada roadmap
 audit `_30` dan komersialisasi `_28`.
 
@@ -101,43 +101,141 @@ Hook Composer sekarang memakai PHP, bukan `sed`, dan melewati compatibility
 patch bila dependency development tidak terpasang. Ini memperbaiki hook
 instalasi; bukan sertifikasi seluruh installer Windows.
 
-## 4. Verifikasi lisensi — admin server dan pengelola Control
+## 4. Sambungan lisensi — pisahkan penjual dan admin server
 
-Verifikasi mengikuti envelope Control `NAMUA_LICENSE_V1`, bukan format tanda
-tangan artefak. Kunci penandatangan **lisensi** dan **paket rilis** berbeda.
-Private key penerbit tidak boleh disalin ke Finance.
+Mulai source alpha.9 tersedia agen `init → activate → poll` untuk Linux AMD64,
+PHP 8.1 CLI dengan curl/sodium/posix. Sebanyak 54 pemeriksaan fixture termasuk
+file, restart dan model aplikasi lulus. **Belum merupakan aktivasi customer
+nyata, installer satu klik, atau penerimaan enforcement.** Penjual menjalankan
+praktik melalui UI Control nanti; persiapan teknis tidak menunggu harga/kontrak.
 
-Finance dapat memeriksa dokumen cache yang telah diterbitkan Control bila
-deployment menyediakan dua file JSON di luar webroot:
+### 4.1 Penjual: nanti melalui UI Control
 
-- `FINANCE_LICENSE_TRUST_FILE`: lokasi salinan **public trust document**
-  produk `NAMUA_FINANCE` dari Control, dengan schema/purpose/key-id/fingerprint.
-- `FINANCE_LICENSE_IDENTITY_FILE`: lokasi identitas instalasi dengan field
-  `instance_id`, `installation_id`, dan `instance_public_key_sha256` yang
-  cocok dengan registrasi aktivasi Control.
+Urutan menu yang sudah ada: **Customer → Instalasi → Subscription & lisensi**.
+Customer, produk **NAMUA_FINANCE**, dan edisi harus sama pada instalasi dan
+subscription. Pilih instance yang benar, lalu **Buat kode** pada detail lisensi.
+Kode `nla_…` ditampilkan sekali dan berlaku satu jam. Serahkan melalui jalur
+privat kepada admin server; jangan tempel ke grup, Git, screenshot atau command.
+Belum perlu membuat customer/kontrak/kode apa pun saat membaca panduan ini.
 
-Pada Linux, file harus dimiliki root, parent directory juga dimiliki root,
-dan tidak boleh group/world-writable. Contoh lokasi yang dapat digunakan
-admin adalah `/etc/finance/license-trust.json` dan
-`/etc/finance/license-identity.json`; bukan folder upload atau `/tmp`.
-Whitelist **path file**, bukan private key, pada pool PHP-FPM:
+### 4.2 Admin server: siapkan identitas sebelum meminta kode
 
-```ini
-env[FINANCE_LICENSE_TRUST_FILE] = /etc/finance/license-trust.json
-env[FINANCE_LICENSE_IDENTITY_FILE] = /etc/finance/license-identity.json
-```
+Contoh di bawah untuk **instalasi baru terpisah**, bukan instruksi mengganti
+staging/website utama. Ganti `customer-a`, `customer-a-pos`, lokasi PHP/source
+dan grup `www` sesuai instalasi sebenarnya. Jangan memakai folder customer lain.
+Seluruh source yang dijalankan root (termasuk target `/opt/finance/current`)
+harus berasal dari paket verified, root-owned dan tidak dapat ditulis PHP-FPM.
+Private state terpisah dari kode dan database, tidak ikut package/upload.
 
-Nilai identitas harus berasal dari provisioning/aktivasi resmi; jangan
-mengarang ID dan jangan mengubah tabel menjadi VERIFIED untuk mencoba
-membuka lisensi. Aktivasi/polling/cache writer belum diimplementasikan pada
-batch ini, sehingga langkah provisioning end-to-end masih menunggu C4.
-Windows trust-file ACL belum disertifikasi dan reader menolak konfigurasi
-tersebut, bukan diam-diam menganggapnya tepercaya.
+1. Admin Control menyediakan **public trust** lisensi NAMUA_FINANCE dari
+   `/var/lib/namua-control/license-signing/trusted/NAMUA_FINANCE.json`.
+   Verifikasi fingerprint melalui jalur admin tepercaya; jangan ambil dari URL
+   yang belum dipercaya. Bila belum tersedia, admin Control menyiapkannya melalui
+   prosedur signing key Control. **Private key penerbit tidak pernah ke Finance**;
+   signing key paket release juga bukan trust lisensi.
+2. Sebagai root, buat direktori **baru** berikut (parent juga root-owned dan
+   tidak group/world-writable). Periksa lokasi yang sudah ada; jangan memperbaiki
+   dengan chmod rekursif atau mengganti owner data lama:
 
-**Jangan aktifkan enforcement sekarang.** Finance default tetap AUDIT_ONLY.
-`FINANCE_LICENSE_ENFORCEMENT_APPROVED` tidak disetel pada staging; perubahan
-flag mode di database saja tidak cukup untuk mengunci kasir. Pemisahan ini
-bukan klaim bahwa seluruh enforcement endpoint/worker selesai.
+   ```bash
+   install -d -o root -g root -m 0755 /var/lib/finance
+   install -d -o root -g www -m 0750 /var/lib/finance/customer-a
+   install -d -o root -g www -m 0750 /var/lib/finance/customer-a/license
+   install -d -o root -g root -m 0700 /var/lib/finance/customer-a/license/private
+   install -d -o root -g www -m 0750 /var/lib/finance/customer-a/license/public
+   ```
+
+3. Simpan salinan public trust dari langkah 1 sebagai
+   `/var/lib/finance/customer-a/license/private/issuer-trust.json`, root:root
+   mode 0600. Jalankan sekali, memakai **Instance ID yang dipilih di Control**:
+
+   ```bash
+   /usr/bin/php /opt/finance/current/tools/licensing/finance_license.php init \
+     --private-dir=/var/lib/finance/customer-a/license/private \
+     --public-dir=/var/lib/finance/customer-a/license/public --web-group=www \
+     --instance-id=customer-a-pos --control-origin=https://control.namuaprojects.com \
+     --trust-file=/var/lib/finance/customer-a/license/private/issuer-trust.json
+   ```
+
+   Hasil `PROVISIONED` berarti identitas/kunci instance sudah disimpan; **belum
+   menghubungi Control dan belum memakai slot aktivasi**. Jangan jalankan init
+   lagi, menyalin private state ke mesin lain, atau mengarang Installation ID.
+4. Pada pool PHP-FPM **milik instance ini**, tambahkan hanya tiga path berikut:
+
+   ```ini
+   env[FINANCE_LICENSE_TRUST_FILE] = /var/lib/finance/customer-a/license/public/trust.json
+   env[FINANCE_LICENSE_IDENTITY_FILE] = /var/lib/finance/customer-a/license/public/identity.json
+   env[FINANCE_LICENSE_CACHE_FILE] = /var/lib/finance/customer-a/license/public/runtime.json
+   ```
+
+   Contoh aaPanel: konfigurasi pool ada di `/www/server/php/81/etc/`; gunakan
+   berkas pool customer yang benar, **bukan pool bersama semua website**.
+   Path ini belum termasuk whitelist `deployment.json` bagian 6. Bila
+   `open_basedir` aktif, izinkan hanya direktori `license/public` untuk reader;
+   jangan izinkan `license/private`. Test konfigurasi dahulu, baru reload pool
+   customer saat jadwal yang disetujui. Tidak perlu mengedit database.php.
+
+### 4.3 Admin server: pasang kode dari UI dan sinkronkan
+
+1. Setelah penjual menekan **Buat kode**, buka editor server sebagai root.
+   Simpan **hanya kode** ke
+   `/var/lib/finance/customer-a/license/private/activation-code.txt`.
+   Pastikan root:root mode 0600. Jangan menaruh kode di argv/environment/log.
+2. Jalankan sekali:
+
+   ```bash
+   /usr/bin/php /opt/finance/current/tools/licensing/finance_license.php activate \
+     --private-dir=/var/lib/finance/customer-a/license/private \
+     --public-dir=/var/lib/finance/customer-a/license/public --web-group=www \
+     --code-file=/var/lib/finance/customer-a/license/private/activation-code.txt
+   ```
+
+   `PENDING` berarti Control menerima permintaan, **bukan lisensi sudah aktif**.
+   Kode tidak disimpan dalam state agen; file input tetap privat dan tidak
+   dihapus otomatis. Admin menangani retensinya setelah aktivasi terkonfirmasi.
+3. Worker penerbit lisensi di **server Control** harus sudah disiapkan admin
+   Control. Agen Finance tidak menerbitkan atau menyetujui lisensi sendiri.
+   Kemudian jalankan:
+
+   ```bash
+   /usr/bin/php /opt/finance/current/tools/licensing/finance_license.php poll \
+     --private-dir=/var/lib/finance/customer-a/license/private \
+     --public-dir=/var/lib/finance/customer-a/license/public --web-group=www
+   ```
+
+   Hasil yang diharapkan: `status=ACTIVE`, `verified=true`, `connection=SYNCED`.
+   Buka Finance **System → Lisensi & Aktivasi** (`/system/license`): instance,
+   status sambungan, edisi dan waktu sinkron harus sesuai Control.
+4. Setelah percobaan berhasil, admin dapat memasang template
+   `tools/licensing/systemd/finance-license.service.example` dan `.timer.example`
+   sebagai `/etc/systemd/system/finance-license.service` dan `.timer`.
+   Sesuaikan semua path, binary PHP (aaPanel: `/www/server/php/81/bin/php`), grup,
+   dan nama unit bila lebih dari satu instance. Jalankan `systemd-analyze verify`
+   atas kedua unit sebelum `systemctl daemon-reload` dan
+   `systemctl enable --now finance-license.timer`. Template menjadwalkan polling
+   sekitar lima menit; **tidak dipasang atau diaktifkan otomatis pada staging**.
+   Periksa `systemctl status finance-license.timer` dan
+   `journalctl -u finance-license.service -n 20` tanpa mengirim credential.
+
+### 4.4 Jika belum berhasil
+
+| Status/pesan | Arti dan tindakan |
+| --- | --- |
+| `PENDING` | Permintaan diterima, penerbitan belum selesai; periksa worker dan detail aktivasi Control. |
+| `SYNC_UNAVAILABLE` / exit 2 | Koneksi/response ditolak; cache sah tidak dihapus. Periksa HTTPS, waktu mesin dan status Control, lalu poll lagi. |
+| `REQUEST_UNCERTAIN` / `ACTIVATION_ALREADY_ATTEMPTED` | Request pertama mungkin sudah diterima meskipun koneksi putus. **Jangan buat key/identitas baru atau mengulang kode**; admin Control memeriksa aktivasi sebelum pemulihan terarah. Alur recovery otomatis belum tersedia. |
+| `ALREADY_PROVISIONED` | Identitas sudah ada atau init sebelumnya belum lengkap. Simpan seluruh state; admin memeriksa file yang kurang tanpa menghapus private key. |
+| `CLOCK_ROLLBACK` | Jam mundur lebih dari toleransi 5 menit; perbaiki sinkronisasi waktu, bukan watermark cache. |
+| `LEASE_REPLAY` / `LEASE_SEQUENCE_CONFLICT` | Dokumen lebih lama atau isi berbeda pada waktu penerbitan yang sama ditolak; admin memeriksa penerbitan Control. |
+| `MANAGED_CACHE_UNAVAILABLE` | Path/izin/trust/cache tidak sesuai; periksa pool dan owner. Tidak otomatis mengambil hak dari tabel SQL. |
+| `REVOKED` | Aktivasi dicabut di Control. Jangan memulihkan dokumen lama untuk mencoba membuka kembali. |
+
+**Mode tetap AUDIT_ONLY.** Tidak mengaktifkan
+`FINANCE_LICENSE_ENFORCEMENT_APPROVED`, mengubah RBAC, atau memblokir kasir.
+Lease/grace mengikuti tanggal signed, berbeda dari berakhirnya maintenance.
+Proteksi restart/rollback DB telah diuji; ini bukan proteksi terhadap root yang
+mengembalikan seluruh snapshot private state sekaligus jam mesin. Windows ACL,
+native guard, pairing/limit terminal, enforcement dan UAT nyata masih terbuka.
 
 ## 5. Checklist sebelum pelanggan benar-benar memakai aplikasi
 
@@ -215,8 +313,9 @@ Jangan membuka port percobaan ke internet untuk menggantikan deployment resmi.
 
 ## 7. Penerimaan sebelum serah-terima — owner dan admin usaha
 
-Panduan ini terikat kandidat alpha.8; pengujian percobaan Linux bukan bukti
-customer nyata telah lulus. Isi kolom keputusan berikut sebelum pilot:
+Panduan ini terikat source kandidat alpha.9; pengujian percobaan Linux bukan
+bukti customer nyata telah lulus. Keputusan berikut diisi saat praktik/pilot
+oleh owner, **bukan prasyarat melanjutkan persiapan engineering**:
 
 | Keputusan | Sumber/penanggung jawab | Status |
 | --- | --- | --- |
@@ -256,3 +355,39 @@ tetap dipertahankan dan checksum-nya diperiksa saat health-check upgrade.
 SOP ini belum menetapkan SLA berbayar atau kanal support resmi. Walkthrough
 pengguna awam, pelatihan per modul, dan pilot Starter/Operations/Control tetap
 perlu dilaksanakan; keberadaan dokumen tidak mencentang penerimaannya.
+
+## 9. Urutan praktik penjualan nanti — owner melalui UI Control
+
+Ini **rencana latihan**, belum instruksi go-live sekarang. Engineer menyiapkan
+paket verified, installer/update/rollback dan sambungan agen lebih dahulu.
+Owner tidak perlu menetapkan harga/customer untuk melanjutkan persiapan kode.
+Saat gerbang teknis siap, latihan dilakukan satu langkah per satu langkah:
+
+1. **Periksa produk dan versi.** Pastikan NAMUA_FINANCE dan edisi yang dipilih
+   sesuai katalog. Paket bertanda alpha/internal candidate bukan otomatis rilis
+   publik; evidence dan persetujuan release tetap diperiksa.
+2. **Customer** (`/customers/create`). Owner mengisi identitas customer latihan
+   dan PIC, menggunakan data yang disetujui, lalu menyimpan.
+3. **Instalasi** (`/instances/create`). Pilih customer tadi, produk/edisi, domain
+   trial terpisah, timezone dan environment yang sesuai. Catat Instance ID.
+   Secret heartbeat bila ditampilkan berbeda dari kode aktivasi lisensi.
+4. **Subscription & lisensi** (`/licensing/create`). Pilih customer dan edisi
+   yang sama, isi kode unik/batas server. Status ACTIVE hanya dipilih ketika
+   owner memang menyetujui aktivasi. Harga/kontrak adalah keputusan owner;
+   jangan menganggap formulir subscription sebagai bukti pembayaran.
+5. **Paket/deployment.** Ikuti rilis yang sudah approved di Control. Admin
+   menyiapkan instance baru dan database terpisah; jika mengambil aplikasi lama,
+   upgrade hanya pada salinan. Tidak mengubah database aplikasi utama berjalan.
+   Verifikasi paket, migration/health, URL dan restore sebelum cutover.
+6. **Buat kode** pada detail subscription, setelah admin siap menerima kode.
+   Admin menjalankan langkah 4.2–4.3; owner melihat status di detail aktivasi
+   Control dan mencocokkannya dengan halaman Lisensi & Aktivasi Finance.
+7. **Latihan customer.** Login, identitas/logo/outlet/rekening, transaksi uji,
+   struk, backup/restore dan update/rollback. Catat hasil; jangan mengklaim APK
+   atau printer fisik lulus hanya dari tes web.
+8. **Persetujuan pemakaian.** Owner meninjau hasil, batas produk, kontrak/support
+   dan risiko, baru menyetujui go-live/publikasi. Langkah ini tidak dilakukan
+   otomatis oleh engineer atau oleh keberhasilan unit test.
+
+Praktik di atas belum dijalankan pada Batch 240. Pairing/limit/native guard,
+enforcement dan installer/cutover final masih mengikuti checklist `_28`.

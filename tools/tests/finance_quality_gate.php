@@ -61,6 +61,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'c3-deployment-instance', 'file' => 'c3_deployment_instance_smoke.php'],
             ['id' => 'c3-linux-web-profile', 'file' => 'c3_linux_web_profile_smoke.php'],
             ['id' => 'c4-control-license-verifier', 'file' => 'c4_control_license_verifier_smoke.php'],
+            ['id' => 'c4-control-license-protocol-cache', 'file' => 'c4_control_license_agent_smoke.php', 'args' => ['--protocol-only']],
             ['id' => 'a3-finance-ui-shell', 'file' => 'a3_finance_ui_shell_smoke.php'],
             ['id' => 'a3-division-movement-pagination', 'file' => 'a3_division_movement_pagination_smoke.php'],
             ['id' => 'a3-pos-reservation-ui', 'file' => 'a3_pos_reservation_ui_smoke.php'],

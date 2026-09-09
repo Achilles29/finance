@@ -1,6 +1,30 @@
 # Roadmap Komersialisasi Finance POS
 
-**Hasil final Batch 239 (2026-09-09): alpha.8 `SIGNED_WEB_UPGRADE_TRIAL_PASS`.**
+**Arahan owner dan Batch 240 — 2026-09-09:** siapkan barang/engineering lebih
+dahulu; customer, paket, kontrak, aktivasi dan praktik penjualan akan dilakukan
+owner melalui UI Control. Harga/domain/pilot bukan penghambat persiapan teknis.
+Jangan membuat customer, melakukan aktivasi nyata, atau mem-publish atas nama owner.
+
+- [x] C4 source alpha.9: agen Linux AMD64 `init/activate/poll`, identitas sekali
+  buat, signed request ke kontrak Control, cache atomik di luar webroot.
+- [x] Cache/model: signature + binding, offline lease/grace, replay lintas restart,
+  jam mundur, revoke dan pemisahan izin root/web; **54 pemeriksaan fixture PASS**.
+  Tes protokol/cache 22 checks juga dimasukkan ke quality gate wajib.
+- [x] UI `/system/license` menampilkan sambungan/identitas/waktu sinkron; tidak
+  menampilkan secret, mengubah RBAC atau mengaktifkan enforcement.
+- [x] Panduan penjual UI vs admin server dipisahkan; perintah konkret dan template
+  service/timer tersedia. Template belum dipasang pada layanan operasional.
+- [ ] C3: installer layanan final, cutover/rollback dan upgrade lintas versi.
+- [ ] C4: acceptance HTTPS ke Control nyata, recovery aktivasi ambigu, native
+  guard, pairing/limit/enforcement dan Windows. Root snapshot rollback bukan
+  jaminan yang diberikan cache PHP. Bug operasional/build/UAT APK tetap ditunda.
+- [ ] C0/C1/C5: persetujuan/publikasi dan praktik customer melalui UI setelah
+  persiapan teknis; panduan per modul/walkthrough dan pilot belum dinyatakan lulus.
+
+Checklist di atas dan tabel 0.1 menggantikan status historis batch sebelumnya.
+Detail bukti/cutoff paket dicatat di log eksekusi; **C0–C5 belum seluruhnya DONE**.
+
+**Riwayat final Batch 239 (2026-09-09): alpha.8 `SIGNED_WEB_UPGRADE_TRIAL_PASS`.**
 Cutoff `39a8210`, 111 gate otomatis PASS, paket signed 1.626 file, DRAFT Control.
 Web dari ekstraksi paket tanpa edit kode lulus 22 tes HTTPS dan health setelah
 upgrade pada salinan DB sintetis. Tidak mem-publish atau mengganti aplikasi utama.
@@ -244,7 +268,7 @@ internal. Status teknis A0–A5 tetap hanya berasal dari control board `_30`.
 | C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 NAMUA_FINANCE di Control: 28 feature, 4 edition, 29 dependency, PERPETUAL dan maintenance awal 365 hari. Alpha.3 sudah DRAFT melalui Batch 230, bukan publish. Harga, EULA/SLA, data policy, add-on/override per customer dan kontrak pilot belum final. |
 | C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_HTTP_PASS` | Batch 236–237: profil/logo/login benar pada HTTPS percobaan, URL tetap dan session terisolasi. Marketing menyeluruh, preset demo, pajak/service/integrasi/privacy serta penerimaan customer tetap terbuka. Outlet/printer lama tidak diubah. |
 | C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `SIGNED_WEB_UPGRADE_TRIAL_PASS` | Batch 239: alpha.8 signed/DRAFT, 111 gates, 22 HTTPS test dari paket dan health upgrade PASS pada DB salinan sintetis. Restore 296 tabel terbukti Batch 237. Installer layanan final, upgrade lintas versi bermigrasi baru, web cutover/rollback, claim/receipt dan publish belum selesai. |
-| C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `AUDIT_ONLY_FOUNDATION` | Batch 226 menambah verifier Ed25519 sesuai envelope Control, binding instalasi, pemeriksaan lease/grace, serta entitlement dari payload signed (bukan flag SQL). FeatureGate tetap audit-only. Activation/polling/cache writer, replay/rollback lintas restart, Windows/native guard, pairing, limit dan enforcement belum selesai. Komersialisasi APK boleh berjalan; bug operasional/build dan UAT APK ditunda owner. |
+| C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `AGENT_CACHE_FIXTURE_PASS` | Batch 240: agen Linux init/activate/poll, signed file cache dan model/UI; 54 fixture checks PASS termasuk restart/replay/clock/revoke/izin. Mode tetap audit-only, belum aktivasi customer nyata. Recovery aktivasi ambigu, Windows/native guard, pairing, limit, enforcement dan acceptance HTTPS nyata masih terbuka. Komersialisasi APK boleh; bug operasional/build/UAT ditunda. |
 | C5 — pilot/operasi penjualan | `IN_PROGRESS` | `NONE` | `BLOCKED` | `SUPPORT_DRAFT_READY` | Batch 238: panduan alpha.8 admin usaha/server, latihan penerimaan dan draft SOP support tersedia. Panduan per modul, walkthrough awam, customer/domain pilot, kontrak/SLA final dan operasi penjualan belum dijalankan. |
 
 **Aturan urutan:** tidak ada enforcement lisensi atau pembangunan License Hub
@@ -264,7 +288,7 @@ tetap sejalan dengan arah produk ini:
 | C1 katalog | Manifest v2, scanner allowlist, preview/import produk-edition-feature, dependency, hak perpetual, maintenance, dan audit tersedia. | Katalog draft: 28 feature, 4 edition, 29 dependency, limit outlet/terminal awal. Alpha.3 cutoff b10fa37 sudah diregistrasikan sebagai DRAFT, belum publish. | `TERHUBUNG_DRAFT`; catalog bukan FeatureGate dan belum mengubah runtime customer. |
 | C2 identitas customer | Registry customer/PIC/instance vendor tersedia. | Profil lokal, setup admin, branding shell/login/QR/dokumen/label, locale/currency/timezone, dan fallback printer tersedia. | `TIDAK TUMPANG TINDIH`; registry vendor bukan pengganti profil usaha lokal. Template marketing/install profile tetap Finance-side. |
 | C3 delivery | Release maker-checker, private artifact, claim-once, unduhan hash-bound, dan receipt tersedia generik. Finance memiliki key terpisah, verifier dan registrar CLI DRAFT transaksional/idempotent. | Alpha.8 DRAFT: source signed, HTTPS/health upgrade salinan DB PASS. Alpha.7 clean DB install tetap valid; versi lama tidak diubah. | `SIGNED_WEB_UPGRADE_TRIAL_PASS`; installer/cutover lintas versi, claim/receipt dan publish belum selesai. |
-| C4 lisensi | Subscription, aktivasi server, lease Ed25519, grace/revoke, dan audit tersedia untuk Linux AMD64. | Registry/cache/device/audit lokal, FeatureGate audit-only dan verifier signed entitlement dengan binding instalasi tersedia (Batch 226). Activation/polling/cache writer, pairing dan enforcement belum selesai. | `VERIFIER_FOUNDATION`; signature release Batch 228 bukan aktivasi lisensi. UAT offline dan boundary enforcement tetap wajib. |
+| C4 lisensi | Subscription, aktivasi server, lease Ed25519, grace/revoke, dan audit tersedia untuk Linux AMD64. | Batch 240: agen mengirim request/poll sesuai kontrak, memverifikasi sebelum cache atomik, model membaca cache root-owned; 54 tes fixture PASS tanpa DB bisnis. | `AGENT_CACHE_FIXTURE_PASS`; bukan aktivasi nyata. HTTPS Control, recovery, native guard, pairing/limit dan enforcement masih wajib. |
 | C5 operasi | Customer/instance/monitoring/audit tersedia; pilot produk generik belum dijalankan. | Panduan setup alpha.8, latihan penerimaan dan draft SOP support tersedia. Panduan per modul, walkthrough pengguna dan pilot Finance non-Namua belum dilakukan. | `SUPPORT_DRAFT_READY`; bukan acceptance/pilot PASS. |
 
 **Keputusan sinkronisasi yang mengikat:** Finance tetap memakai lisensi
@@ -1100,6 +1124,22 @@ writer, proteksi replay/rollback lease lintas restart, native guard, pairing,
 dan enforcement lintas endpoint tetap terbuka. Sesuai arahan terbaru,
 komersialisasi APK boleh dilanjutkan, sementara bug operasional/build/UAT
 masih ditunda owner.
+
+**Progress Batch 240 (menggantikan sisa implementasi di atas):**
+
+- [x] Agen menyimpan identitas/kunci sebelum permintaan kode sekali pakai.
+- [x] Poll signed cocok kontrak Control; TLS diverifikasi, redirect ditolak,
+  timeout/ukuran respons dibatasi. Tidak membawa private key penerbit ke Finance.
+- [x] Cache atomik dengan watermark bersama dokumen, offline lease/grace,
+  replay lintas restart, revoke dan clock rollback; 54 tes fixture/model/izin PASS.
+- [x] Model memilih cache deployment tanpa fallback SQL jika rusak; halaman
+  lisensi membaca status asli tanpa secret. Tidak perlu SQL baru.
+- [x] Panduan `customer_setup_and_release_guide.md` bagian 4 dan template timer
+  disiapkan, tidak mengaktifkan scheduler staging atau membuat customer.
+- [ ] Acceptance HTTPS terhadap Control/worker nyata dan jalur pemulihan
+  aktivasi ambigu tanpa rotasi identitas buta.
+- [ ] Native guard/Windows, anti-clone yang lebih kuat daripada machine-id,
+  pairing/limit, enforcement endpoint/worker/API/APK dan UAT tetap terbuka.
 
 ### C5 — Pilot berbayar dan operasi penjualan
 

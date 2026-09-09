@@ -8194,3 +8194,61 @@
   paket atau mengaktifkan enforcement untuk menyiasati gerbang yang belum lulus.
 - Laporan lokal commit `d682029`; cutoff paket tetap `39a8210`. Ringkasan
   hasil dan sisa C0–C5 dikirim Telegram, terkonfirmasi **07:34:51 WIB**.
+
+## Batch 240 — Persiapan agen aktivasi dan signed cache Finance
+
+- Tanggal: 2026-09-09; validasi/review akhir kode **09:16–09:22 WIB**.
+  Arahan owner: siapkan barang lebih dahulu; harga/kontrak/customer, aktivasi
+  dan praktik penjualan akan owner jalankan melalui UI Control. Keputusan
+  penjualan tidak lagi dipakai sebagai penghambat engineering.
+- Prioritas C4: verifier sudah ada tetapi Finance belum mempunyai pengirim
+  aktivasi/polling dan writer cache. Fixer tunggal membandingkan kontrak
+  API/issuer Control read-only, lalu mengimplementasikan adapter NAMUA_FINANCE.
+  Tidak menyalin agen hardcoded produk lain atau mengubah Control.
+- File kode: `application/libraries/Control_license_cache.php` (baru),
+  `Control_license_verifier.php`, `application/models/License_runtime_model.php`,
+  `application/controllers/License.php`, `application/views/system/license_index.php`.
+  Baru: `tools/licensing/ControlLicenseProtocol.php`, `LicenseAgentFiles.php`,
+  `FinanceLicenseAgent.php`, `finance_license.php`, dan dua template di
+  `tools/licensing/systemd/`. `app-manifest.json` maju alpha.9; schema tetap
+  finance-20260907 dan SQL managed/checksum tidak berubah.
+- Perubahan: identitas Ed25519 persisten sebelum request sekali pakai; input
+  kode dari file privat, bukan argv. HTTPS origin eksplisit, signed polling
+  sama kontrak Control, tanpa redirect dan dengan batas waktu/ukuran respons.
+  Lisensi diverifikasi sebelum publish cache; envelope dan watermark bersama
+  pada satu file atomik. Poll token/private instance key hanya root.
+- Model membaca cache root-owned di luar webroot, signature/binding/watermark
+  diperiksa ulang. Cache yang eksplisit tetapi rusak tidak fallback ke SQL.
+  Instalasi lama tanpa env cache mempertahankan jalur read lama. UI status
+  menampilkan instance/sambungan/sinkron terakhir; RBAC dan AUDIT_ONLY tidak
+  diubah. Tidak mengaktifkan enforcement atau membuat tombol bypass lokal.
+- Validasi: **54 checks** `c4_control_license_agent_smoke.php` PASS, termasuk
+  protokol, signature, maintenance vs lease, offline/grace, replay dan clock
+  rollback lintas restart, revoke, konkurensi, machine binding, state/key
+  tidak dirotasi saat timeout, actual model tanpa DB dan proses anak akun www
+  yang bisa membaca cache tetapi tidak bisa mengubahnya/membaca private key.
+  Test menghapus hanya fixture sintetisnya sendiri di prefix khusus
+  `/var/lib/finance-license-test-*`; tidak menghapus runtime/backup pengguna.
+- **26 verifier + 14 foundation + 28 quality contract + 26 roadmap + 30 dashboard
+  checks PASS**, PHPStan application PASS baseline/errors nol. Quality registry
+  menambah 22 checks protocol-only agar wajib dan portabel; acceptance lengkap
+  file/model Linux-root dijalankan terpisah, tidak disamakan cakupannya.
+- File tes: smoke agen baru, `finance_quality_gate.php`, contract-nya, dan
+  `c2_c4_commercial_foundation_smoke.php` untuk versi. Dokumen: dua roadmap,
+  panduan customer bagian 4/7/9 dan log ini. Panduan memisahkan tindakan
+  penjual via UI dari admin server; template scheduler **belum dipasang**.
+- Review fixer: public trust memakai whitelist (private/unknown field ditolak),
+  koneksi gagal tidak menghapus cache sah, UI tidak mengklaim lisensi tersedia
+  hanya karena network gagal. Runtime root harus menjalankan source verified
+  yang tidak dapat ditulis web. Tidak ada proof melawan root memulihkan seluruh
+  private snapshot+clock; native guard masih terpisah.
+- Risiko sisa: belum acceptance HTTPS dengan Control nyata/issuer worker,
+  recovery aktivasi yang responsnya hilang masih manual review, Windows ACL,
+  native guard/pairing/limit/enforcement dan UAT belum lulus. **C4 tetap
+  IN_PROGRESS / AGENT_CACHE_FIXTURE_PASS**, bukan C0–C5 selesai.
+- Tidak ada SQL baru, query/mutasi bisnis, perubahan login/POS/APK, restart
+  layanan staging, aktivasi customer, publish/push atau secret/key rotation.
+  `_NOTE2.md` dan dua folder upload milik pengguna tetap di luar perubahan.
+- Berikutnya: paket kandidat dari cutoff terseleksi dan gate penuh; setelah
+  itu installer/cutover/rollback serta acceptance integrasi yang belum lulus.
+  Penjualan/publikasi nyata tetap menunggu praktik owner di UI Control.

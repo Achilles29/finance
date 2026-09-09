@@ -1,5 +1,20 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Delta teknis Batch 240 — 2026-09-09:** reader lisensi kini dapat memakai
+cache deployment root-owned yang ditulis atomik, bukan mempercayai flag SQL.
+
+- [x] Signature/binding dan watermark diperiksa kembali oleh model aplikasi;
+  cache rusak/tidak aman tidak diam-diam memakai tabel SQL sebagai otoritas.
+- [x] Replay lease lintas restart, jam mundur, revoke, koneksi gagal, izin akun
+  web dan isolasi private key diuji dengan fixture tanpa DB transaksi.
+- [x] 54 tes agen/model/izin dan 26 tes verifier PASS; PHPStan application
+  baseline nol PASS. FeatureGate tetap audit-only; izin kasir tidak diubah.
+- [ ] Anti-clone/native guard, pemulihan seluruh snapshot oleh root, dan
+  enforcement end-to-end bukan klaim kelulusan tes ini.
+
+Aktivasi/paket/praktik penjualan dan checklist C4 hanya pada `_28`. Tidak ada
+SQL baru, perbaikan data bisnis, pengulangan A3 atau intervensi bug APK.
+
 **Final Batch 239:** gate release dari checkout bersih lulus **111 entry**,
 tanpa menyalin `.env` backup atau marker dashboard staging. Paket alpha.8
 terverifikasi, web dari paket lulus 22 pemeriksaan HTTPS dan health upgrade
