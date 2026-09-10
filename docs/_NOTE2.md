@@ -122,3 +122,10 @@ nah menurutmu bagaimana analisa yang tepat untuk menampilkannya? jadi jika sesua
 landing page:
 - ganti namua coffee and roastery
 - About Namua kok gambar nya qr code itu apa? dari mana? ganti donk
+
+
+log user
+
+rencana untuk pengaturan nama perusahan, logo perusahaan, dan identitas lain sebagai bagian rencana penjualan aplikasi nanti apakah sudah masuk roadmap? bagian mana? apakah sudah dikerjakan?
+
+
