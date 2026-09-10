@@ -10,7 +10,7 @@ class Business_profile_model extends CI_Model
     public function menu_book_template(): string
     {
         $this->load->library('Customer_publication');
-        if (!$this->db->table_exists('sys_app_config')) return 'legacy_namua';
+        if (!$this->db->table_exists('sys_app_config')) return Customer_publication::template(null);
         $row = $this->db->select('config_value')->from('sys_app_config')
             ->where('config_key', Customer_publication::TEMPLATE_KEY)->limit(1)->get()->row_array();
         return Customer_publication::template($row['config_value'] ?? null);
@@ -72,6 +72,7 @@ class Business_profile_model extends CI_Model
         if (array_key_exists('menu_book_template', $input)) {
             $this->load->library('Customer_publication');
             if (!is_string($input['menu_book_template']) || !in_array($input['menu_book_template'], Customer_publication::TEMPLATES, true)
+                || ($input['menu_book_template'] === 'legacy_namua' && !Customer_publication::legacy_available())
                 || !$this->db->table_exists('sys_app_config')) {
                 return ['ok' => false, 'message' => 'Pilihan template Menu Book tidak valid atau pengaturan belum tersedia.'];
             }

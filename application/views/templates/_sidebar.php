@@ -31,7 +31,7 @@
             <div class="app-brand demo">
                 <a href="<?= $dashboard_url; ?>" class="app-brand-link">
                     <span class="app-brand-logo demo me-1">
-                        <img src="<?= base_url('assets/img/logo.png') ?>"
+                        <img src="<?= (is_file(FCPATH . 'assets/img/logo.png') ? base_url('assets/img/logo.png') : base_url('assets/img/business-placeholder.svg')) ?>"
                             alt="Logo Pemkab Rembang"
                             style="height:60px; width:auto; border-radius:4px; object-fit:contain;" />
                     </span>

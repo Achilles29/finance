@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /** Read-only bridge: tells Control Center whether this source can become a customer artifact. */
-require __DIR__ . '/ReleasePackagePolicy.php';
+require_once __DIR__ . '/CustomerReleaseProfile.php';
 
 function c3_fail(string $code, string $message): void { throw new RuntimeException($code . ': ' . $message); }
 function c3_manifest(string $root): array {
@@ -33,5 +33,12 @@ try {
     if (!is_array($runtime) || ($runtime['schema'] ?? '') !== 'finance.runtime-compatibility') c3_fail('runtime_contract', 'Runtime compatibility contract is invalid.');
     $catalog = c3_catalog_result($root);
     $clean = ReleasePackagePolicy::worktreeClean($root);
-    echo json_encode(['status'=>'ok','product_code'=>$manifest['product_code'],'version'=>$manifest['version'],'schema_version'=>$manifest['schema_version'] ?? null,'worktree_clean'=>$clean,'artifact_publishable'=>$clean && $enumerated['issues'] === [],'package_issues'=>count($enumerated['issues']),'migration_catalog'=>$catalog,'next'=>$clean ? 'build_signed_artifact' : 'commit_or_stash_source_before_artifact_build'], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    $profile = CustomerReleaseProfile::fromRoot($root);
+    $audit = ['status' => 'NOT_RUN_SOURCE_DIRTY'];
+    if ($clean && $enumerated['issues'] === []) {
+        $entries = [];
+        foreach ($enumerated['files'] as $path) if ($profile->allows($path)) $entries[] = ['path' => $path, 'sha256' => hash_file('sha256', $root . '/' . $path)];
+        $audit = $profile->audit($entries);
+    }
+    echo json_encode(['status'=>'ok','product_code'=>$manifest['product_code'],'version'=>$manifest['version'],'schema_version'=>$manifest['schema_version'] ?? null,'worktree_clean'=>$clean,'artifact_publishable'=>$clean && $enumerated['issues'] === [] && $audit['status'] === 'PASS','package_issues'=>count($enumerated['issues']),'migration_catalog'=>$catalog,'distribution_profile'=>CustomerReleaseProfile::ID,'seed_profile'=>'REFERENCE_ONLY','source_content_audit'=>$audit,'next'=>$clean ? 'build_signed_artifact' : 'commit_or_stash_source_before_artifact_build'], JSON_UNESCAPED_SLASHES) . PHP_EOL;
 } catch (Throwable $e) { fwrite(STDERR, json_encode(['status'=>'blocked','reason'=>explode(': ', $e->getMessage(), 2)[0]], JSON_UNESCAPED_SLASHES) . PHP_EOL); exit(1); }

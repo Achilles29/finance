@@ -17,7 +17,7 @@ class PosPrinterPreviewService
         return [
             'title' => 'Finance',
             'subtitle' => '',
-            'logo_url' => base_url('assets/img/logo.png'),
+            'logo_url' => $this->defaultLogoUrl(),
             'wifi_name' => '',
             'wifi_password' => '',
             'show_customer_point_info' => false,
@@ -565,16 +565,23 @@ class PosPrinterPreviewService
         }));
     }
 
+    private function defaultLogoUrl(): string
+    {
+        // Do not send a missing legacy logo (or an SVG) to a thermal printer.
+        if (defined('FCPATH') && !is_file(FCPATH . 'assets/img/logo.png')) return '';
+        return base_url('assets/img/logo.png');
+    }
+
     private function normalizeLogoUrl(string $url): string
     {
         $url = trim($url);
         if ($url === '') {
-            return base_url('assets/img/logo.png');
+            return $this->defaultLogoUrl();
         }
 
         $normalized = strtolower($url);
         if (strpos($normalized, 'core.namuacoffee.com/assets/img/logo') !== false) {
-            return base_url('assets/img/logo.png');
+            return $this->defaultLogoUrl();
         }
 
         $rewritten = $this->rewriteLegacyLogoUrl($url);
@@ -585,7 +592,7 @@ class PosPrinterPreviewService
         // Direct-print agents must not fetch an arbitrary remote URL supplied
         // by configuration. General Printer only persists application-managed
         // files; retain a safe fallback for legacy or malformed values.
-        return base_url('assets/img/logo.png');
+        return $this->defaultLogoUrl();
     }
 
     private function rewriteLegacyLogoUrl(string $url): string
@@ -609,7 +616,7 @@ class PosPrinterPreviewService
         }
 
         if (preg_match('~(?:^|/)assets/img/logo(?:\.[a-z0-9]+)?$~i', $path)) {
-            return base_url('assets/img/logo.png');
+            return $this->defaultLogoUrl();
         }
 
         return '';

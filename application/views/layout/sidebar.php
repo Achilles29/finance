@@ -213,7 +213,7 @@ $sb_business_name = $sb_business_name !== '' ? $sb_business_name : 'Finance';
 $sb_brand_title = trim((string)($sb_business_profile['short_name'] ?? ''));
 $sb_brand_title = $sb_brand_title !== '' ? $sb_brand_title : $sb_business_name;
 $sb_logo_url = trim((string)($sb_business_profile['logo_url'] ?? ''));
-$sb_logo_url = $sb_logo_url !== '' ? $sb_logo_url : base_url('assets/img/logo.png');
+$sb_logo_url = $sb_logo_url !== '' ? $sb_logo_url : (is_file(FCPATH . 'assets/img/logo.png') ? base_url('assets/img/logo.png') : base_url('assets/img/business-placeholder.svg'));
 ?>
 <aside id="layout-menu" class="layout-menu menu-vertical menu bg-menu-theme">
 

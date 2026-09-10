@@ -51,7 +51,7 @@ $bankNo = (string)($line['employee_bank_account_no'] ?? '-');
 $bankHolder = (string)($line['employee_bank_account_name'] ?? '-');
 $sourceAccount = trim((string)($line['source_account_name'] ?? ''));
 $sourceAccountCode = trim((string)($line['source_account_code'] ?? ''));
-$logoUrl = base_url('assets/img/logo.png');
+$logoUrl = (is_file(FCPATH . 'assets/img/logo.png') ? base_url('assets/img/logo.png') : base_url('assets/img/business-placeholder.svg'));
 ?>
 <!doctype html>
 <html lang="id">

@@ -5023,7 +5023,7 @@ public function self_order_tables_print()
             'payments' => $this->Pos_report_model->order_payment_rows((int)$id),
             'refunds' => $this->Pos_report_model->order_refund_rows((int)$id),
             'document_type' => $documentType,
-            'logo_url' => base_url('assets/img/logo.png'),
+            'logo_url' => is_file(FCPATH . 'assets/img/logo.png') ? base_url('assets/img/logo.png') : '',
             'review_url' => $reviewUrl,
         ]);
     }

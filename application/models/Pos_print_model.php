@@ -258,6 +258,7 @@ class Pos_print_model extends CI_Model
 
     public function default_logo_url(): string
     {
+        if (defined('FCPATH') && !is_file(FCPATH . 'assets/img/logo.png')) return '';
         return base_url('assets/img/logo.png');
     }
 

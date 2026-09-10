@@ -1082,6 +1082,13 @@ dokumentasi, License Hub, dan penawaran; tidak ada paket lewat source fork.
 
 ### C2 — Productization customer dan onboarding
 
+**Batch 244 — 2026-09-10, clean distribution:**
+
+- [x] Menu Book customer tidak fallback ke desain Namua bila file legacy tidak dibundel; opsi legacy tidak ditawarkan pada instalasi bersih. Staging tetap memakai desain yang tersedia, tanpa mengganti pengaturan DB.
+- [x] Logo/favikon netral untuk paket tanpa logo lama; login/sidebar/slip/label tidak menunjuk gambar bawaan yang hilang. Printer tanpa logo tidak dikirimi SVG atau URL gambar lama yang tidak ada.
+- [x] Materi menu/produk/roastery dan logo Namua dipertahankan di sumber development, tetapi tidak masuk profil `CUSTOMER_CLEAN`. Dummy bisnis tidak disertakan (`REFERENCE_ONLY`).
+- [ ] Penerimaan visual end-to-end pada instance baru hasil build Control; bukan klaim semua UAT/printer fisik sudah selesai.
+
 - Bangun profil usaha, branding, locale, dokumen, pajak/service, integrasi,
   privacy, health, dan onboarding customer.
 - Ganti hardcode identitas lama melalui urutan outlet -> profil usaha -> default
@@ -1114,6 +1121,19 @@ preset install, pajak/service, integrasi, health/privacy masih terbuka.
 Panduan awal: `docs/customer_setup_and_release_guide.md`.
 
 ### C3 — Artefak customer, installer, dan delivery update
+
+**Batch 244 — 2026-09-10, Finance saja; Control dikerjakan thread terpisah:**
+
+- [x] Builder default `CUSTOMER_CLEAN` v1: allowlist file kode/tool/docs, checksum aset generik dan 17 SQL (schema + 16 migration terkelola). Tidak membaca/dump/membersihkan DB sumber.
+- [x] Audit isi TAR menghitung file dan mengikat hasil ke artifact SHA, inner manifest SHA dan profile SHA; boolean `contains_customer_data=false` untuk paket baru hanya setelah audit lulus.
+- [x] Legacy signed tetap bisa diperiksa, tetapi `customer_clean_eligible=false`; paket alpha.10 lama tidak boleh dianggap produk bersih atau ditimpa. Versi sumber berikutnya `0.1.0-alpha.11`.
+- [x] Installer clean-install menolak paket tanpa profil sebelum koneksi DB. Upgrade tetap tidak menjalankan seed instalasi pertama; metadata katalog legacy dipertahankan tetapi skrip repair lama tidak dibundel/dijalankan.
+- [x] Client Finance mengikat profil/seed/hash dari install-plan Control dengan hasil verifikasi artifact. Tiga artifact dan format signature lama tetap dipakai.
+- [x] Tes paket tiruan mencakup determinisme, file titipan, checksum seed/aset, kelengkapan runtime, fallback Menu Book/logo, report palsu, legacy dan mismatch delivery. Tidak menggunakan DB transaksi.
+- [ ] Thread Control: UI pilihan profil, proses build, gate `CUSTOMER_CONTENT_AUDIT`, penyimpanan metadata dan field claim sesuai [kontrak bersama](customer_clean_release_contract.md).
+- [ ] Build/sign/register versi baru dari cutoff bersih dan latihan clean-install/upgrade lewat Control. Unit test bukan evidence install customer; jangan mengubah status release lama otomatis.
+
+Kontrak dan batas pekerjaan ada pada `docs/customer_clean_release_contract.md`; log eksekusi Batch 244. Tidak ada file/DB Control yang diubah oleh batch Finance ini.
 
 - Gunakan release foundation teknis dari `_30` sebagai input, bukan workspace
   developer atau dump operasional.

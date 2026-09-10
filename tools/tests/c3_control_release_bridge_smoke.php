@@ -53,7 +53,11 @@ try {
     foreach ($paths as $path) $tar->addFile($source . '/' . $path, $path);
     $tar->addFromString('RELEASE-MANIFEST.json', json_encode(['schema' => 'finance.release-artifact-manifest', 'schema_version' => 1, 'source_epoch' => 123, 'files' => $entries], JSON_UNESCAPED_SLASHES) . "\n");
     unset($tar);
-    $manifest = ControlReleaseBridge::describe($source, $archive);
+    $manifest = ControlReleaseBridge::inspect($archive);
+    $manifest['source_commit'] = trim(financeArtifactSignatureRun(['git', '-C', $source, 'rev-parse', 'HEAD'])['stdout']);
+    $manifest['source_dirty'] = false;
+    $manifest['contains_customer_data'] = false; // Reproduce the historical sidecar, not a clean qualification.
+    $reject(fn() => ControlReleaseBridge::describe($source, $archive), 'legacy bundle cannot be exported as a new customer candidate');
     $check(count($manifest['migrations']) === count($catalog['migrations']), 'SQL migration catalog is preserved exactly');
     $check(count($manifest['legacy_sql']) === count($catalog['legacy_unmanaged_sql']), 'legacy SQL is explicit and never silently scheduled');
     $check($manifest['runtime']['php'] === '>=8.1 <8.2', 'runtime matches the tested PHP line');
@@ -69,6 +73,7 @@ try {
     $sig = ControlReleaseBridge::sign($bytes, $name, $key);
     $check(sodium_crypto_sign_verify_detached(base64_decode($sig['signature_base64']), "NAMUA_RELEASE_MANIFEST_V1\n" . hash('sha256', $bytes), $pub), 'signature uses exact Control release domain, not license domain');
     $result = ControlReleaseBridge::verify($bytes, $name, $sig, $trust, $archive);
+    $check(!$result['customer_clean_eligible'] && $result['customer_content_audit']['status'] === 'NOT_AUDITED', 'legacy signature is not clean-customer evidence');
     $check($result['status'] === 'PASS' && !$result['published'] && !$result['database_changed'], 'valid signed artifact verifies without writes');
     $reject(fn() => ControlReleaseBridge::verify($bytes . ' ', $name, $sig, $trust, $archive), 'even whitespace tampering breaks original-byte signature');
     $reject(fn() => ControlReleaseBridge::verify($bytes, 'renamed.release.json', $sig, $trust, $archive), 'signed filename binding enforced');

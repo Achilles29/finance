@@ -11,7 +11,7 @@ $pageTitle = trim((string)($title ?? ''));
 $pageTitle = $pageTitle !== '' ? $pageTitle : $businessName;
 ?>
 <title><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?> — <?= htmlspecialchars($businessName, ENT_QUOTES, 'UTF-8') ?></title>
-<link rel="icon" type="image/x-icon" href="<?= base_url('assets/img/favicon.ico') ?>">
+<link rel="icon" href="<?= (is_file(FCPATH . 'assets/img/favicon.ico') ? base_url('assets/img/favicon.ico') : base_url('assets/img/business-placeholder.svg')) ?>">
 
 <!-- Google Fonts: Plus Jakarta Sans (400-800) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">

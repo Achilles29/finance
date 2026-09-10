@@ -101,7 +101,7 @@ $artifactA = $outputDirectory . '/release-a.tar';
 $artifactB = $outputDirectory . '/release-b.tar';
 $trace = $base . '/gate-trace.txt';
 $environment = ['A4_ARTIFACT_TRACE' => $trace, 'TZ' => 'UTC'];
-$arguments = static fn(string $output): array => [PHP_BINARY, $builder, '--root=' . $root, '--output=' . $output, '--source-epoch=1700000000'];
+$arguments = static fn(string $output): array => [PHP_BINARY, $builder, '--root=' . $root, '--output=' . $output, '--source-epoch=1700000000', '--profile=LEGACY_INTERNAL'];
 $buildA = $run($arguments($artifactA), $root, $environment);
 $buildB = $run($arguments($artifactB), $root, $environment);
 $check($buildA['code'] === 0 && $buildB['code'] === 0, 'two fixture builds pass all mandatory gates');

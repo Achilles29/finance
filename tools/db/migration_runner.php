@@ -158,10 +158,25 @@ function a5_validate_catalog(string $root): array
     }
 
     $legacy = [];
+    // Customer archives retain history metadata, not executable legacy repair SQL.
+    $customerArchive = false;
+    $profilePath = 'tools/release/customer_clean_profile.json';
+    if (is_file($root . '/RELEASE-MANIFEST.json') && !is_link($root . '/RELEASE-MANIFEST.json')
+        && is_file($root . '/' . $profilePath) && !is_link($root . '/' . $profilePath)) {
+        // Data only: do not load or execute PHP from the inspected release.
+        $releaseManifest = json_decode((string)file_get_contents($root . '/RELEASE-MANIFEST.json'), true);
+        foreach ($releaseManifest['files'] ?? [] as $entry) {
+            if (($entry['path'] ?? '') === $profilePath && ($entry['sha256'] ?? '') === hash_file('sha256', $root . '/' . $profilePath)) {
+                $customerArchive = true;
+            }
+        }
+    }
     foreach ($catalog['legacy_unmanaged_sql'] as $path) {
         if (!is_string($path)) a5_fail('legacy_schema', 'Legacy SQL path is malformed.');
+        if (!a5_valid_path($path)) a5_fail(strpos($path, '..') !== false ? 'path_traversal' : 'path_noncanonical', 'Legacy SQL path is not canonical.');
         if (isset($legacy[$path]) || isset($paths[$path])) a5_fail('duplicate_path', 'Acknowledged SQL paths must be unique.');
-        a5_assert_file($root, $path);
+        if (!$customerArchive) a5_assert_file($root, $path);
+        elseif (file_exists($root . '/' . $path) || is_link($root . '/' . $path)) a5_fail('customer_legacy_sql', 'Legacy repair SQL must not be bundled with a customer release.');
         $legacy[$path] = true;
     }
     foreach ($migrations as $migration) {

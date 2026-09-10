@@ -1,5 +1,11 @@
 # Paket Finance untuk Control — kandidat internal
 
+## Update clean distribution — Batch 244, 10 September 2026
+
+Source berikutnya **0.1.0-alpha.11** memakai profil `CUSTOMER_CLEAN` v1 dan `REFERENCE_ONLY`. Paket alpha.10 di bawah adalah bukti historis: masih memuat aset/menu Namua, sehingga **bukan paket bersih untuk dijual**. Jangan menimpa artifact/tag/signature lama.
+
+Thread Control wajib mengikuti [kontrak customer-clean](customer_clean_release_contract.md): default build bersih, validasi audit TAR, tambahan metadata/claim, dan gate sebelum publish. Finance hanya mengubah repository Finance; UI, registry, plan dan database Control tetap milik thread Control. Belum ada publish/register/deploy operasional oleh batch ini.
+
 ## Kandidat praktik saat ini — Batch 243
 
 **0.1.0-alpha.10 siap untuk praktik web Linux terbatas**, tercatat DRAFT/ALPHA

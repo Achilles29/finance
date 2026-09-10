@@ -10,6 +10,9 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 2);
+require_once dirname(__DIR__) . '/release/CustomerReleaseProfile.php';
+$customerProfile = CustomerReleaseProfile::fromRoot($root);
+$packagePolicy = ReleasePackagePolicy::fromFile($root . '/tools/release/package_policy.json');
 $checks = 0;
 $failures = [];
 
@@ -59,7 +62,7 @@ $allowedRuntimePlaceholders = [
     'tmp/.gitkeep',
     'output/.gitkeep',
 ];
-$runtimePrefixes = ['backup/dumps/', 'backup/logs/', 'uploads/', 'tmp/', 'output/'];
+$runtimePrefixes = ['backup/', 'assets/uploads/', 'uploads/', 'tmp/', 'output/'];
 $trackedRuntime = [];
 $trackedSecretOrGenerated = [];
 foreach ($tracked as $path) {
@@ -69,18 +72,22 @@ foreach ($tracked as $path) {
         }
     }
     if (basename($path) === '.env' || str_contains($path, '/__pycache__/')
-        || preg_match('/\.py[cod]$/D', $path) === 1 || str_ends_with($path, '.sql.gz')
+        || preg_match('/\.py[cod]$/D', $path) === 1
+        || (str_ends_with($path, '.sql.gz') && !str_starts_with($path, 'backup/'))
     ) {
         $trackedSecretOrGenerated[] = $path;
     }
 }
-$check($trackedRuntime === [], 'customer uploads, backup payloads, logs, tmp, and generated output are absent from the Git index');
-$check($trackedSecretOrGenerated === [], 'credential env, bytecode, and database archives are absent from the Git index');
+// Development and the merged backup history are intentionally retained. Never hydrate their blobs.
+// The customer artifact, not the development checkout, must be empty of all such payloads.
+$leaks = array_filter($trackedRuntime, static fn(string $path): bool => !$packagePolicy->denied($path) || $customerProfile->allows($path));
+$check($leaks === [], 'every tracked development/runtime payload is denied independently by base policy and clean profile');
+$check($trackedSecretOrGenerated === [], 'credential env, bytecode, and database archives outside the backup boundary remain forbidden in Git');
 
 sort($allowedRuntimePlaceholders, SORT_STRING);
 $trackedPlaceholders = array_values(array_intersect($tracked, $allowedRuntimePlaceholders));
 sort($trackedPlaceholders, SORT_STRING);
-$check($trackedPlaceholders === $allowedRuntimePlaceholders, 'runtime roots retain only five source-safe placeholders');
+$check($trackedPlaceholders === $allowedRuntimePlaceholders, 'five source-safe runtime placeholders remain available');
 foreach ($allowedRuntimePlaceholders as $placeholder) {
     $path = $root . '/' . $placeholder;
     $check(is_file($path) && !is_link($path), 'runtime placeholder is a regular file: ' . $placeholder);

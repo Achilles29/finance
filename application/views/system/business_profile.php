@@ -120,6 +120,7 @@ $setupSteps = [
         <label for="menu-book-template" class="form-label">Template yang dilihat pengunjung</label>
         <select id="menu-book-template" name="menu_book_template" class="form-select">
           <?php foreach (['legacy_namua' => 'Desain Namua lama — khusus instalasi lama', 'customer' => 'Katalog usaha — mengikuti profil dan produk pilihan', 'disabled' => 'Tidak dipublikasikan'] as $key => $label): ?>
+            <?php if ($key === 'legacy_namua' && !Customer_publication::legacy_available()) continue; ?>
             <option value="<?= html_escape($key) ?>" <?= ($menu_book_template ?? 'legacy_namua') === $key ? 'selected' : '' ?>><?= html_escape($label) ?></option>
           <?php endforeach; ?>
         </select>

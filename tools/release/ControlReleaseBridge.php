@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/ReleasePackagePolicy.php';
+require_once __DIR__ . '/CustomerReleaseProfile.php';
 if (!defined('FINANCE_ARTIFACT_SIGNATURE_LIBRARY_ONLY')) define('FINANCE_ARTIFACT_SIGNATURE_LIBRARY_ONLY', true);
 require_once __DIR__ . '/artifact_signature.php';
 
@@ -68,6 +69,15 @@ final class ControlReleaseBridge
         // Enforce the validator's policy too; a signed bundle cannot weaken its own exclusions.
         $policy = ReleasePackagePolicy::fromFile(__DIR__ . '/package_policy.json');
         foreach ($files as $path => $entry) self::need($policy->included($path) && !$policy->denied($path), 'FORBIDDEN_PACKAGE_PATH');
+        $customerAudit = null;
+        if (isset($files[CustomerReleaseProfile::PATH])) {
+            // A bundle cannot approve its own content by replacing its allowlist.
+            $profile = CustomerReleaseProfile::fromRoot(dirname(__DIR__, 2));
+            self::need($files[CustomerReleaseProfile::PATH]['sha256'] === $profile->digest(), 'CUSTOMER_PROFILE_UNTRUSTED');
+            $customerAudit = $profile->audit($source['files']);
+            $customerAudit['artifact_sha256'] = $before;
+            $customerAudit['source_manifest_sha256'] = $proof['manifest_sha256'];
+        }
         $app = self::json(self::member($artifact, 'app-manifest.json'));
         $runtime = self::json(self::member($artifact, 'tools/release/runtime_compatibility.json'));
         self::need(($app['manifest_version'] ?? null) === 2 && ($app['product_code'] ?? '') === 'NAMUA_FINANCE'
@@ -86,6 +96,10 @@ final class ControlReleaseBridge
         }
         $legacy = [];
         foreach (($catalog['legacy_unmanaged_sql'] ?? []) as $path) {
+            if ($customerAudit !== null) {
+                self::need(is_string($path) && !isset($files[$path]), 'CUSTOMER_LEGACY_SQL_FORBIDDEN');
+                continue;
+            }
             self::need(is_string($path) && preg_match('/\Asql\/[A-Za-z0-9_-]+\.sql\z/D', $path) === 1
                 && !isset($inventory[$path]) && isset($files[$path]), 'LEGACY_SQL_INVENTORY');
             $inventory[$path] = true;
@@ -98,16 +112,19 @@ final class ControlReleaseBridge
         $basePath = $baseline['schema']['path'] ?? '';
         self::need(isset($files[$basePath]) && ($baseline['schema']['sha256'] ?? '') === $files[$basePath]['sha256'], 'BASELINE_CHECKSUM');
         self::need(hash_equals($before, (string)hash_file('sha256', $artifact)), 'ARTIFACT_CHANGED');
-        return ['manifest_version' => 2, 'product_code' => 'NAMUA_FINANCE', 'version' => $app['version'],
+        $description = ['manifest_version' => 2, 'product_code' => 'NAMUA_FINANCE', 'version' => $app['version'],
             'schema_version' => $app['schema_version'], 'baseline_schema_version' => $app['baseline_schema_version'],
             'artifact' => basename($artifact), 'sha256' => $before, 'size_bytes' => filesize($artifact),
             'source_manifest_sha256' => $proof['manifest_sha256'], 'source_epoch' => $proof['source_epoch'],
             'policy_digests' => $proof['policy_digests'], 'runtime' => $app['runtime'],
             'migration_format' => 'finance-sql-catalog-v1', 'migrations' => $catalog['migrations'],
             'legacy_sql' => $legacy, 'baseline' => ['path' => $basePath, 'sha256' => $files[$basePath]['sha256']],
-            'contains_customer_data' => false, 'contains_secrets' => false,
+            'contains_customer_data' => $customerAudit !== null ? false : null, 'contains_secrets' => false,
             'channel' => 'ALPHA', 'readiness' => 'INTERNAL_CANDIDATE',
             'apk' => ['bundled' => false, 'commercial_work' => 'ALLOWED', 'operational_bugfixes' => 'DEFERRED', 'release_ready' => false]];
+        if ($customerAudit !== null) $description += ['distribution_profile' => CustomerReleaseProfile::ID,
+            'distribution_profile_version' => 1, 'seed_profile' => 'REFERENCE_ONLY', 'customer_content_audit' => $customerAudit];
+        return $description;
     }
 
     public static function describe(string $root, string $artifact): array
@@ -117,9 +134,12 @@ final class ControlReleaseBridge
         $revision = trim($head['stdout']);
         self::need($head['code'] === 0 && preg_match('/\A[a-f0-9]{40}\z/D', $revision) === 1, 'SOURCE_COMMIT');
         $description = self::inspect($artifact);
+        self::need(($description['distribution_profile'] ?? '') === CustomerReleaseProfile::ID, 'CUSTOMER_PROFILE_REQUIRED');
         $source = self::json(self::member($artifact, 'RELEASE-MANIFEST.json'));
         $expected = ReleasePackagePolicy::fromFile($root . '/tools/release/package_policy.json')->enumerate($root);
         self::need($expected['issues'] === [], 'SOURCE_POLICY');
+        $profile = CustomerReleaseProfile::fromRoot($root);
+        $expected['files'] = array_values(array_filter($expected['files'], fn(string $p): bool => $profile->allows($p)));
         $paths = array_column($source['files'], 'path'); sort($paths);
         $tracked = $expected['files']; sort($tracked);
         self::need($paths === $tracked, 'SOURCE_FILE_SET');
@@ -182,10 +202,24 @@ final class ControlReleaseBridge
         $manifest = self::json($bytes);
         self::need(($manifest['source_dirty'] ?? true) === false
             && preg_match('/\A[a-f0-9]{40}\z/D', (string)($manifest['source_commit'] ?? '')) === 1, 'SOURCE_ATTESTATION_INVALID');
-        foreach (self::inspect($artifact) as $field => $value) self::need(array_key_exists($field, $manifest) && $manifest[$field] === $value, 'MANIFEST_CONTENT_MISMATCH');
+        $inspection = self::inspect($artifact);
+        foreach ($inspection as $field => $value) {
+            // Historical signed v2 sidecars hardcoded this boolean. Preserve provenance, never clean eligibility.
+            if ($field === 'contains_customer_data' && $value === null && ($manifest[$field] ?? null) === false) continue;
+            self::need(array_key_exists($field, $manifest) && $manifest[$field] === $value, 'MANIFEST_CONTENT_MISMATCH');
+        }
+        $clean = ($inspection['distribution_profile'] ?? '') === CustomerReleaseProfile::ID;
+        if (!$clean) foreach (['distribution_profile', 'distribution_profile_version', 'seed_profile', 'customer_content_audit'] as $field) {
+            self::need(!array_key_exists($field, $manifest), 'LEGACY_CLEAN_CLAIM_FORBIDDEN');
+        }
         return ['status' => 'PASS', 'product_code' => 'NAMUA_FINANCE', 'version' => $manifest['version'],
             'source_commit' => $manifest['source_commit'], 'artifact_sha256' => $manifest['sha256'],
             'managed_sql' => count($manifest['migrations']), 'legacy_sql' => count($manifest['legacy_sql']),
-            'readiness' => 'INTERNAL_CANDIDATE', 'published' => false, 'database_changed' => false, 'apk_release_ready' => false];
+            'readiness' => 'INTERNAL_CANDIDATE', 'published' => false, 'database_changed' => false, 'apk_release_ready' => false,
+            'customer_clean_eligible' => $clean,
+            'distribution_profile' => $clean ? CustomerReleaseProfile::ID : 'LEGACY_INTERNAL',
+            'distribution_profile_version' => $clean ? 1 : null,
+            'seed_profile' => $clean ? 'REFERENCE_ONLY' : null,
+            'customer_content_audit' => $inspection['customer_content_audit'] ?? ['status' => 'NOT_AUDITED']];
     }
 }

@@ -2,7 +2,8 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/ReleasePackagePolicy.php';
+require_once __DIR__ . '/ReleasePackagePolicy.php';
+require_once __DIR__ . '/CustomerReleaseProfile.php';
 
 const RELEASE_ARTIFACT_DEFAULT_EPOCH = 946684800;
 
@@ -50,7 +51,7 @@ function releaseArtifactRun(array $command, string $cwd, int $timeout = 180): ar
     return ['code' => $code ?? 1, 'output' => trim($output)];
 }
 
-function releaseArtifactSnapshot(ReleasePackagePolicy $policy, string $root): array
+function releaseArtifactSnapshot(ReleasePackagePolicy $policy, string $root, ?CustomerReleaseProfile $profile = null): array
 {
     $enumerated = $policy->enumerate($root);
     if ($enumerated['issues'] !== []) {
@@ -58,6 +59,7 @@ function releaseArtifactSnapshot(ReleasePackagePolicy $policy, string $root): ar
     }
     $entries = [];
     foreach ($enumerated['files'] as $relative) {
+        if ($profile !== null && !$profile->allows($relative)) continue;
         $absolute = $root . '/' . $relative;
         clearstatcache(true, $absolute);
         $data = @file_get_contents($absolute);
@@ -92,7 +94,7 @@ if (defined('RELEASE_ARTIFACT_LIBRARY_ONLY') && RELEASE_ARTIFACT_LIBRARY_ONLY) {
     return;
 }
 
-$options = ['root' => dirname(__DIR__, 2), 'output' => null, 'source_epoch' => null];
+$options = ['root' => dirname(__DIR__, 2), 'output' => null, 'source_epoch' => null, 'profile' => CustomerReleaseProfile::ID];
 foreach (array_slice($argv ?? [], 1) as $argument) {
     if (strpos($argument, '--root=') === 0) {
         $options['root'] = substr($argument, 7);
@@ -100,8 +102,10 @@ foreach (array_slice($argv ?? [], 1) as $argument) {
         $options['output'] = substr($argument, 9);
     } elseif (strpos($argument, '--source-epoch=') === 0) {
         $options['source_epoch'] = substr($argument, 15);
+    } elseif (strpos($argument, '--profile=') === 0) {
+        $options['profile'] = substr($argument, 10);
     } else {
-        fwrite(STDERR, "Usage: php build_release_artifact.php --output=/outside/release.tar [--root=PATH] [--source-epoch=EPOCH]\n");
+        fwrite(STDERR, "Usage: php build_release_artifact.php --output=/outside/release.tar [--root=PATH] [--source-epoch=EPOCH] [--profile=CUSTOMER_CLEAN|LEGACY_INTERNAL]\n");
         exit(2);
     }
 }
@@ -114,6 +118,7 @@ if ($root === false || $outputDirectory === false || $output === '' || substr($o
     || !is_writable($outputDirectory) || strpos($outputDirectory . '/', $root . '/') === 0 || $outputDirectory === $root
     || preg_match('/\A(?:0|[1-9][0-9]{0,10})\z/D', (string)$epochRaw) !== 1 || (int)$epochRaw > 253402300799
     || file_exists($output) || is_link($output)
+    || !in_array($options['profile'], [CustomerReleaseProfile::ID, 'LEGACY_INTERNAL'], true)
 ) {
     fwrite(STDERR, "RELEASE ARTIFACT BLOCKED reason=INVALID_ARGUMENT_OR_OUTPUT\n");
     exit(2);
@@ -127,7 +132,9 @@ try {
     if (!ReleasePackagePolicy::worktreeClean($root)) {
         throw new RuntimeException('SOURCE_WORKTREE_DIRTY');
     }
-    $before = releaseArtifactSnapshot($policy, $root);
+    $profile = $options['profile'] === CustomerReleaseProfile::ID ? CustomerReleaseProfile::fromRoot($root) : null;
+    $before = releaseArtifactSnapshot($policy, $root, $profile);
+    if ($profile !== null) $profile->audit(array_values($before));
     foreach ([
         ['PREFLIGHT', 'a4_release_preflight_smoke.php'],
         ['STATIC', 'a4_static_analysis_smoke.php'],
@@ -141,7 +148,7 @@ try {
             throw new RuntimeException('GATE_' . $label . '_FAILED');
         }
     }
-    if (!ReleasePackagePolicy::worktreeClean($root) || $before !== releaseArtifactSnapshot($policy, $root)) {
+    if (!ReleasePackagePolicy::worktreeClean($root) || $before !== releaseArtifactSnapshot($policy, $root, $profile)) {
         throw new RuntimeException('SOURCE_MUTATED_DURING_BUILD');
     }
     if (!mkdir($stage, 0700)) {
@@ -180,7 +187,7 @@ try {
     if ($tar['code'] !== 0 || !is_file($temporaryArchive) || !chmod($temporaryArchive, 0644)) {
         throw new RuntimeException('ARCHIVE_CREATE_FAILED');
     }
-    if (!ReleasePackagePolicy::worktreeClean($root) || $before !== releaseArtifactSnapshot($policy, $root)) {
+    if (!ReleasePackagePolicy::worktreeClean($root) || $before !== releaseArtifactSnapshot($policy, $root, $profile)) {
         throw new RuntimeException('SOURCE_MUTATED_DURING_BUILD');
     }
     if (!rename($temporaryArchive, $output)) {

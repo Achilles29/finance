@@ -13,7 +13,7 @@
     <meta name="description" content="" />
 
     <!-- Favicon -->
-    <link rel="icon" type="image/x-icon" href="../assets/img/favicon/logo.ico" />
+    <link rel="icon" href="<?= is_file(FCPATH . 'assets/img/favicon/logo.ico') ? base_url('assets/img/favicon/logo.ico') : base_url('assets/img/business-placeholder.svg') ?>" />
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />

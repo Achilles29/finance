@@ -27,6 +27,12 @@ final class ControlDelivery
             ||!is_array($p['artifacts']??null)||count($p['artifacts'])!==3)throw new RuntimeException('PLAN_BINDING_INVALID');
         foreach(['manifest_sha256','artifact_sha256'] as $key)if(preg_match('/\A[a-f0-9]{64}\z/D',$p['release'][$key]??'')!==1)throw new RuntimeException('PLAN_RELEASE_INVALID');
         if(preg_match('/\A\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?\z/D',$p['release']['version']??'')!==1)throw new RuntimeException('PLAN_RELEASE_INVALID');
+        if (array_key_exists('distribution_profile', $p['release'])) {
+            if (($p['release']['distribution_profile'] ?? '') !== CustomerReleaseProfile::ID
+                || ($p['release']['distribution_profile_version'] ?? null) !== 1
+                || ($p['release']['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
+                || preg_match('/\A[a-f0-9]{64}\z/D', $p['release']['customer_content_profile_sha256'] ?? '') !== 1) throw new RuntimeException('PLAN_CUSTOMER_PROFILE_INVALID');
+        }
         $byType=[];
         foreach($p['artifacts'] as $a){
             if(!is_array($a)||!in_array($a['type']??'',['APPLICATION_PACKAGE','MANIFEST','OTHER'],true)||isset($byType[$a['type']])
@@ -92,10 +98,22 @@ final class ControlDelivery
             $manifest=$this->dir.'/'.$artifacts['MANIFEST']['filename'];$bytes=(string)file_get_contents($manifest);
             $verified=ControlReleaseBridge::verify($bytes,basename($manifest),ControlReleaseBridge::json((string)file_get_contents($this->dir.'/'.$artifacts['OTHER']['filename'])),ControlReleaseBridge::loadKey($trustFile),$this->dir.'/'.$artifacts['APPLICATION_PACKAGE']['filename']);
             if($verified['version']!==$state['plan']['release']['version'])throw new RuntimeException('DELIVERED_VERSION_MISMATCH');
+            self::validateCustomerBinding($state['plan'], $verified);
             $state['phase']='VERIFIED';$state['verification']=$verified;PrivateDeployment::write($file,$state);
             return ['status'=>'VERIFIED','version'=>$verified['version'],'signed_manifest'=>$manifest,'deployment_id'=>$state['plan']['deployment_id'],'installed'=>false];
         }finally{flock($lock,LOCK_UN);fclose($lock);}
     }
+    public static function validateCustomerBinding(array $plan, array $verified): void
+    {
+        $release = $plan['release'] ?? [];
+        if (!empty($verified['customer_clean_eligible'])) {
+            foreach (['distribution_profile', 'distribution_profile_version', 'seed_profile'] as $key) {
+                if (($release[$key] ?? null) !== ($verified[$key] ?? null)) throw new RuntimeException('DELIVERED_CUSTOMER_PROFILE_MISMATCH');
+            }
+            if (($release['customer_content_profile_sha256'] ?? '') !== ($verified['customer_content_audit']['profile_sha256'] ?? null)) throw new RuntimeException('DELIVERED_CUSTOMER_PROFILE_MISMATCH');
+        } elseif (isset($release['distribution_profile'])) throw new RuntimeException('DELIVERED_CUSTOMER_PROFILE_MISMATCH');
+    }
+
     public function receipt(array $identity,array $result): array
     {
         $lock=PrivateDeployment::lock($this->dir);

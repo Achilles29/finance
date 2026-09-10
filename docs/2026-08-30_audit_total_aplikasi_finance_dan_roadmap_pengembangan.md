@@ -1,5 +1,14 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Delta regresi Batch 244 — 2026-09-10:**
+
+- [x] Menu Book tidak memanggil view legacy yang absen pada paket customer; setting legacy tetap bekerja bila aset/desain tersedia di staging.
+- [x] Fallback logo/favikon/label dan default printer tidak menunjuk aset lama yang tidak ikut distribusi. Tidak mengganti logo/upload asli atau nilai pengaturan staging.
+- [x] Klaim paket bersih kini diperiksa dari allowlist dan checksum TAR, bukan boolean konstan; file titipan/SQL berubah/report palsu ditolak.
+- [ ] UAT UI/printer pada instance customer aktual sesudah integrasi thread Control tetap diperlukan.
+
+Checklist distribusi/clean-install dan sinkronisasi Control hanya di `_28` bagian C2/C3 serta `docs/customer_clean_release_contract.md`. Tidak ada perbaikan data stok, perubahan RBAC, atau SQL baru pada batch ini.
+
 **Validasi penuntasan Batch 243 — 2026-09-09:** source cutoff `15f9f62`
 lulus **113 entry release gate dari checkout bersih**, tanpa mengurangi gate
 atau baseline. Pemasangan dan upgrade dari paket alpha.10 signed masing-masing

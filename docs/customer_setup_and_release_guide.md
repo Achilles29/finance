@@ -1,5 +1,11 @@
 # Panduan setup customer dan pemeriksaan sebelum rilis
 
+**Update 10 September 2026:** untuk penjualan baru gunakan source **0.1.0-alpha.11** dengan profil `CUSTOMER_CLEAN` dan seed `REFERENCE_ONLY`, setelah artifact serta integrasi Control lulus pemeriksaan. Paket alpha.10 yang disebut dalam bukti historis di bawah belum bersih dari aset/menu Namua; jangan dipakai sebagai paket jual bersih.
+
+Instalasi bersih menampilkan usaha/katalog kosong, bukan produk contoh Namua. Nama/logo diisi melalui Profil Usaha; logo printer boleh kosong sampai logo customer diunggah. Pilihan Menu Book legacy tidak ditawarkan jika file desainnya tidak dibundel. Source development dan database staging tidak dikosongkan. Upgrade customer lama bukan clean-install/reset.
+
+Detail integrasi untuk admin dan thread Control: [kontrak paket customer bersih](customer_clean_release_contract.md).
+
 Status 2026-09-09, source kandidat **0.1.0-alpha.10**: panduan praktik web Linux; lihat **bagian 9 untuk owner**, **bagian 10 untuk admin server**. Ini **bukan pernyataan
 seluruh aplikasi/installer/APK siap jual**. Status utama tetap pada roadmap
 audit `_30` dan komersialisasi `_28`.
