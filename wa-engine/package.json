@@ -7,6 +7,9 @@
     "start": "node index.js"
   },
   "type": "commonjs",
+  "overrides": {
+    "sharp": "0.35.4"
+  },
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "mysql2": "^3.16.2",

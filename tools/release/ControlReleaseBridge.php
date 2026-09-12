@@ -11,6 +11,8 @@ final class ControlReleaseBridge
 {
     public const CONTEXT = 'NAMUA_RELEASE_MANIFEST_V1';
     public const MAX_BYTES = 1073741824; // Private CLI only, not the Control HTTP upload limit.
+    public const BUILD_GATES = ['source_clean', 'security_scan', 'install_test', 'backup_restore',
+        'customer_data_scan', 'secrets_scan', 'clean_install', 'source_untouched'];
 
     private static function need(bool $ok, string $reason): void
     {
@@ -130,7 +132,9 @@ final class ControlReleaseBridge
     public static function describe(string $root, string $artifact): array
     {
         self::need(realpath($root) === $root && ReleasePackagePolicy::worktreeClean($root), 'SOURCE_DIRTY');
-        $head = financeArtifactSignatureRun(['git', '-C', $root, 'rev-parse', '--verify', 'HEAD']);
+        // The worker is unprivileged while the approved source remains root-owned.
+        // Scope Git trust to this canonical checkout, never to a wildcard/global config.
+        $head = financeArtifactSignatureRun(['git', '-c', 'safe.directory=' . $root, '-C', $root, 'rev-parse', '--verify', 'HEAD']);
         $revision = trim($head['stdout']);
         self::need($head['code'] === 0 && preg_match('/\A[a-f0-9]{40}\z/D', $revision) === 1, 'SOURCE_COMMIT');
         $description = self::inspect($artifact);
@@ -148,7 +152,7 @@ final class ControlReleaseBridge
             self::need(!is_link($path) && is_file($path) && filesize($path) === $entry['size']
                 && hash_file('sha256', $path) === $entry['sha256'], 'SOURCE_BYTES_MISMATCH');
         }
-        $after = financeArtifactSignatureRun(['git', '-C', $root, 'rev-parse', '--verify', 'HEAD']);
+        $after = financeArtifactSignatureRun(['git', '-c', 'safe.directory=' . $root, '-C', $root, 'rev-parse', '--verify', 'HEAD']);
         self::need(ReleasePackagePolicy::worktreeClean($root) && trim($after['stdout']) === $revision, 'SOURCE_CHANGED');
         return $description + ['source_commit' => $revision, 'source_dirty' => false];
     }
@@ -187,6 +191,52 @@ final class ControlReleaseBridge
         } finally { sodium_memzero($secret); }
     }
 
+    /** Only recognized wire formats may select the archive basename. Not a signature check. */
+    public static function artifactName(array $manifest): string
+    {
+        $modern = ($manifest['schema'] ?? null) === 1 && ($manifest['context'] ?? '') === self::CONTEXT;
+        self::need($modern || ($manifest['manifest_version'] ?? null) === 2, 'MANIFEST_FORMAT');
+        $name = $manifest[$modern ? 'filename' : 'artifact'] ?? null;
+        self::need(is_string($name) && preg_match('/\A[A-Za-z0-9][A-Za-z0-9._-]*\.tar\z/D', $name) === 1
+            && strpos($name, '..') === false, 'ARTIFACT_NAME');
+        return $name;
+    }
+
+    /** Called only after authenticating the original Control bytes. Never trust archive PHP. */
+    private static function normalizeControl(array $wire, array $inspection, string $artifact, string $name): array
+    {
+        self::need(($wire['schema'] ?? null) === 1 && ($wire['context'] ?? '') === self::CONTEXT
+            && !isset($wire['manifest_version']) && !isset($wire['artifact'])
+            && ($wire['media_type'] ?? '') === 'application/x-tar'
+            && ($wire['contains_customer_data'] ?? null) === false && ($wire['contains_secrets'] ?? null) === false
+            && in_array($wire['channel'] ?? '', ['ALPHA', 'BETA', 'RC', 'STABLE'], true)
+            && preg_match('/\A[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\z/D', (string)($wire['release_public_id'] ?? '')) === 1,
+            'CONTROL_MANIFEST_CONTRACT');
+        self::need(($inspection['distribution_profile'] ?? '') === CustomerReleaseProfile::ID, 'CUSTOMER_PROFILE_REQUIRED');
+        foreach (['product_code', 'version', 'sha256', 'size_bytes'] as $field) {
+            self::need(($wire[$field] ?? null) === $inspection[$field], 'MANIFEST_CONTENT_MISMATCH');
+        }
+        self::need(self::artifactName($wire) === basename($artifact)
+            && $name === substr(basename($artifact), 0, -4) . '.release.json', 'CONTROL_ARTIFACT_BINDING');
+        foreach (['source_manifest_sha256', 'build_request_sha256', 'build_report_sha256'] as $field) {
+            self::need(preg_match('/\A[a-f0-9]{64}\z/D', (string)($wire[$field] ?? '')) === 1, 'CONTROL_DIGEST_INVALID');
+        }
+        // Control hashes app-manifest.json here; Finance v2 hashes RELEASE-MANIFEST.json.
+        // Keeping these separate prevents rejecting valid packages or accepting substituted source.
+        self::need(hash('sha256', self::member($artifact, 'app-manifest.json')) === $wire['source_manifest_sha256'], 'CONTROL_SOURCE_MANIFEST_MISMATCH');
+        $p = $wire['packaging'] ?? [];
+        self::need(is_array($p) && ($p['profile_code'] ?? '') === CustomerReleaseProfile::ID
+            && ($p['rules_sha256'] ?? '') === $inspection['customer_content_audit']['profile_sha256']
+            && ($p['audience'] ?? '') === 'CUSTOMER' && ($p['sample_data'] ?? '') === 'NONE', 'CONTROL_PROFILE_MISMATCH');
+        $gates = $wire['verification'] ?? [];
+        self::need(is_array($gates) && count($gates) === count(self::BUILD_GATES), 'CONTROL_GATES_INVALID');
+        foreach (self::BUILD_GATES as $gate) self::need(($gates[$gate]['status'] ?? '') === 'PASS'
+            && preg_match('/\A[a-f0-9]{64}\z/D', (string)($gates[$gate]['evidence_sha256'] ?? '')) === 1, 'CONTROL_GATES_INVALID');
+        $inspection['channel'] = $wire['channel'];
+        return $inspection + ['source_commit' => $wire['source_commit'], 'source_dirty' => false,
+            'control_app_manifest_sha256' => $wire['source_manifest_sha256'], 'release_public_id' => $wire['release_public_id']];
+    }
+
     public static function verify(string $bytes, string $name, array $signature, array $trust, string $artifact): array
     {
         $public = self::publicKey($trust);
@@ -200,9 +250,13 @@ final class ControlReleaseBridge
             && is_string($sig) && strlen($sig) === SODIUM_CRYPTO_SIGN_BYTES
             && sodium_crypto_sign_verify_detached($sig, self::CONTEXT . "\n" . hash('sha256', $bytes), $public), 'SIGNATURE_INVALID');
         $manifest = self::json($bytes);
-        self::need(($manifest['source_dirty'] ?? true) === false
-            && preg_match('/\A[a-f0-9]{40}\z/D', (string)($manifest['source_commit'] ?? '')) === 1, 'SOURCE_ATTESTATION_INVALID');
+        self::need(preg_match('/\A[a-f0-9]{40}\z/D', (string)($manifest['source_commit'] ?? '')) === 1, 'SOURCE_ATTESTATION_INVALID');
         $inspection = self::inspect($artifact);
+        if (($manifest['schema'] ?? null) === 1) {
+            $manifest = self::normalizeControl($manifest, $inspection, $artifact, $name);
+            $inspection['channel'] = $manifest['channel'];
+        }
+        self::need(($manifest['source_dirty'] ?? true) === false, 'SOURCE_ATTESTATION_INVALID');
         foreach ($inspection as $field => $value) {
             // Historical signed v2 sidecars hardcoded this boolean. Preserve provenance, never clean eligibility.
             if ($field === 'contains_customer_data' && $value === null && ($manifest[$field] ?? null) === false) continue;
@@ -220,6 +274,7 @@ final class ControlReleaseBridge
             'distribution_profile' => $clean ? CustomerReleaseProfile::ID : 'LEGACY_INTERNAL',
             'distribution_profile_version' => $clean ? 1 : null,
             'seed_profile' => $clean ? 'REFERENCE_ONLY' : null,
-            'customer_content_audit' => $inspection['customer_content_audit'] ?? ['status' => 'NOT_AUDITED']];
+            'customer_content_audit' => $inspection['customer_content_audit'] ?? ['status' => 'NOT_AUDITED'],
+            'install_manifest' => $manifest];
     }
 }

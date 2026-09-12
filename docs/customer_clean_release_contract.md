@@ -1,8 +1,60 @@
 # Kontrak paket customer bersih — Finance ↔ Control
 
-Status: implementasi sisi Finance untuk source **0.1.0-alpha.11**, 10 September 2026. Control dikerjakan thread lain; dokumen ini menjadi kontrak bersama. Jangan mengosongkan sumber Finance atau database development.
+Status terkini: implementasi sisi Finance **0.1.0-alpha.12**, 12 September 2026 (Batch 245). Control dikerjakan thread lain; dokumen ini menjadi kontrak bersama. Jangan mengosongkan sumber Finance atau database development.
 
-Handoff source lokal: tag `finance-web-alpha.11-clean-profile-source-20260910` (commit Finance khusus batch ini; belum push). Gunakan cutoff yang sama untuk builder dan validator. Validasi kode: **114 entry release gate PASS**, termasuk **56 pemeriksaan paket bersih**. Ini belum merupakan artifact alpha.11 yang signed/published atau bukti install customer end-to-end.
+Histori Batch 244: tag `finance-web-alpha.11-clean-profile-source-20260910`, 114 entry release gate PASS dan 56 pemeriksaan paket bersih. Jangan memakai versi/tag itu untuk adapter baru. Hasil validasi terbaru ada di execution log Batch 245. Source baru bukan otomatis artifact signed/published atau deployment customer.
+
+Handoff terbaru: tag lokal `finance-web-alpha.12-control-build-source-20260912` (belum push). Validasi: 115 entry release gate PASS, 81 customer-clean/signed checks, 20 adapter checks, serta drill adapter→verifier result/report Control aktual **PASS** memakai fixture terisolasi. Hasil DB: 296 tabel, 285 tabel non-reference kosong, 719 reference sistem, 16 migration, restore 296 checksum cocok. Pembatalan build juga diuji; parent menunggu cleanup child. Bukti ini belum menggantikan build/sign/publish dan UAT lewat UI Control.
+
+## Sinkronisasi Control terbaru (Batch 245)
+
+- `app-manifest.json` sekarang mengumumkan profil default **Customer bersih / CUSTOMER_CLEAN**, audience CUSTOMER, sample NONE, adapter `tools/build/customer_package.php` dan hash rules v1 yang tetap. Parser aktual Control telah menerima deklarasi ini. Tidak menyediakan profil demo yang belum diimplementasikan.
+- Adapter mengikuti `NAMUA_PRODUCT_BUILD_V1`: validasi request/commit/hash, source read-only, mandatory preflight/PHPStan/OSV, TAR bersih, uji instalasi dan backup–restore pada MariaDB disposable, report delapan gate, lalu pemeriksaan source ulang. Output hanya TAR dan build-report; **kunci signing tidak diterima adapter**.
+- Worker Control memulai PHP 8.4; entry Finance mendelegasikan pemeriksaan aplikasi ke PHP 8.1. Composer/PHPStan cache ada di area build, bukan source atau direktori admin. MariaDB sementara memakai socket privat, `--skip-networking` dan datadir baru; tidak memakai config/database Finance.
+- Gate advisori terbaru menemukan `sharp@0.35.3`; override/lock WA Engine diperbarui ke 0.35.4 (libheif 1.23.2) sesuai [advisory pengembang](https://github.com/lovell/sharp/security/advisories/GHSA-rgj7-g3m4-5g8c). Installer dependency paket baru mengambil versi patch; runtime/node_modules WA staging tidak diubah atau direstart. Uji gambar hanya pada dependency disposable. Builder kini menjalankan vulnerability gate sebelum analisis statis yang lebih lama; tidak mengurangi gate.
+- Seluruh tabel non-referensi diuji kosong sebelum owner sintetis dibuat. Owner dan dump uji tidak masuk paket dan dibuang bersama area uji. Tidak ada migrasi baru atau SQL ke DB Finance/Control yang aktif.
+- Verifier/installer Finance menerima **manifest Control schema 1** dan **sidecar Finance v2 historis**, sesudah signature asli diverifikasi. Nama artifact Control `filename` dinormalisasi untuk installer; hash `app-manifest.json` milik Control tidak disamakan dengan hash inner `RELEASE-MANIFEST.json` milik Finance. Semua profile/seed/plan binding tetap wajib.
+- Pemeriksaan kode Control 12 September masih menemukan penahan `FINANCE_TRUSTED_VALIDATOR_REQUIRED` pada worker serta `finance_validator_unavailable` pada model build. Finance tidak mencabut guard atau mengubah source/database Control. Thread Control perlu memasang validator tepercaya berikut sebelum membuka tombol build CUSTOMER.
+
+### Handoff validator tepercaya, sebelum Control menandatangani
+
+Control harus menjalankan validator dari **checkout Finance tepercaya yang sama dengan commit request**, bukan mengeksekusi file PHP dari TAR atau file upload customer:
+
+```sh
+/www/server/php/81/bin/php /checkout/finance/tools/build/verify_control_build.php \
+  --request=/private/build-id/request.json --output=/private/build-id/output
+```
+
+Perintah ini read-only: memeriksa binding request/source, audit TAR dengan policy lokal tepercaya, kelengkapan file dan checksum seluruh byte terhadap source. Hasil mengikat artifact SHA, source commit, inner manifest SHA dan profile SHA. Control tetap wajib menjalankan verifier result/report/eight-gates/signature miliknya; validator TAR **bukan pengganti** pemeriksaan tersebut. Pin/review seluruh dependency toolchain Finance, tidak hanya entry PHP.
+
+Setelah validator itu terpasang dan tes lintas aplikasi lulus, thread Control boleh menyesuaikan guard miliknya. Jangan hanya menghapus guard tanpa pemanggilan validator. Empat field distribution dalam install-plan/claim dan tiga nama artifact sudah ada di kode Control yang diperiksa.
+
+### Persiapan host build (administrator, satu kali)
+
+Host ini sudah memiliki akun `namua-build`, PHP 8.1/8.4, MariaDB 10.11 dan toolchain Finance. Finance memberi akun build **akses baca/eksekusi saja** ke dependency umum, bukan credential, aplikasi atau DB. Setelah refresh cache OSV, ulangi ACL karena file snapshot diganti secara atomik:
+
+```sh
+chmod 0644 tools/build/*.php tools/release/customer_clean_profile.json
+setfacl -m u:namua-build:rx /var/lib/finance-a4-static
+setfacl -R -m u:namua-build:rX /var/lib/finance-a4-static/vendor
+bash tools/tests/bootstrap_a4_security_runtime.sh --refresh
+setfacl -R -m u:namua-build:rX /var/lib/finance-a4-security
+```
+
+Cache advisori harus berumur maksimum 48 jam sesuai policy lama; jangan mengubah timestamp untuk meloloskan gate. Perintah refresh hanya mengunduh database advisori publik, bukan mengubah dependency lock. Jalankan tes integrasi terpisah bila toolchain/protocol berubah:
+
+```sh
+php tools/tests/c3_control_build_runtime_smoke.php --isolated --control-root=/www/wwwroot/control
+```
+
+Tes tersebut membuat checkout Git sintetis, menjalankan adapter sebagai namua-build dan verifier result/report Control dalam mode library-only, tanpa worker utama/DB/signing Control. Artifact fixture bukan release untuk dijual.
+
+### Langkah UI setelah handoff Control selesai
+
+1. Gunakan cutoff Finance alpha.12 yang committed dan bersih; push diperlukan jika Control membaca server/checkout lain.
+2. **Produk → Tambah dari source → Pindai sekarang**, lalu Finance → **Preview sinkronisasi → Impor**.
+3. Pastikan dropdown memuat **Customer bersih**, lalu buat draft **versi exact alpha.12**, bukan mengubah release INTERNAL lama.
+4. Minta build, periksa delapan gate dan hasil validator. Approval/publish/deployment customer tetap dilakukan melalui Control oleh user.
 
 ## Pilihan dan batas tanggung jawab
 
@@ -14,9 +66,9 @@ Handoff source lokal: tag `finance-web-alpha.11-clean-profile-source-20260910` (
 
 ## Kontrak artifact dan manifest
 
-Tetap tiga artifact: `.tar`, `.release.json`, `.release.sig.json`; mekanisme signature Ed25519 dan `manifest_version: 2` tetap. Inner `RELEASE-MANIFEST.json` tetap schema 1. Profil `tools/release/customer_clean_profile.json` termasuk file yang checksum-nya dilindungi inner manifest.
+Tetap tiga artifact delivery: `.tar`, `.release.json`, `.release.sig.json`; Ed25519 context tidak berubah. Control memakai outer `schema: 1` dan Finance export historis memakai `manifest_version: 2`; installer kini mendukung keduanya. Inner `RELEASE-MANIFEST.json` tetap schema 1. Profil `tools/release/customer_clean_profile.json` termasuk file yang checksum-nya dilindungi inner manifest.
 
-Sidecar hasil export paket baru menambahkan:
+Sidecar hasil export Finance v2 menambahkan (manifest Control schema 1 dinormalisasi setelah verifikasi):
 
 ```json
 {
@@ -64,9 +116,10 @@ Angka jumlah file di atas hanya contoh; validator menghitung isi TAR sebenarnya.
 
 ## Checklist lintas thread
 
-- [x] Finance: filter profil, audit TAR, runtime fallback netral, test regresi (56 pemeriksaan khusus dengan fixture; bukan install-test operasional).
-- [ ] Control: UI/build memakai profil eksplisit dan validator Finance terbaru.
-- [ ] Control: gate evidence dan deployment plan terikat ke artifact/profile yang sama.
+- [x] Finance: filter profil, audit TAR, fallback netral, deklarasi profil, adapter unsigned dan penerimaan format signed Control.
+- [x] Kode Control: metadata profil/seed/hash di plan/claim dan penamaan sidecar Finance sudah tersedia (inspeksi read-only).
+- [ ] Control: impor ulang source alpha.12 dan pasang validator Finance tepercaya sebelum membuka guard build CUSTOMER.
+- [ ] Bersama: delapan gate, metadata plan, signature dan validator teruji dari build UI Control aktual, bukan fixture.
 - [ ] Bersama: build release versi baru dari cutoff bersih, sign, register, clean-install terisolasi, cek layar kosong/owner dan upgrade preservasi.
 - [ ] User: latihan penjualan melalui UI Control setelah semua gate di atas lulus.
 

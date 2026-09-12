@@ -29,9 +29,10 @@ final class FinanceInstance
     {
         $path=$this->c['signed_manifest'];financeArtifactSignatureRegularFile($path,'MANIFEST_UNSAFE');
         $bytes=(string)file_get_contents($path);$m=ControlReleaseBridge::json($bytes);
-        if(substr($path,-13)!=='.release.json'||!is_string($m['artifact']??null)||basename($m['artifact'])!==$m['artifact'])throw new RuntimeException('MANIFEST_INVALID');
-        ControlReleaseBridge::verify($bytes,basename($path),ControlReleaseBridge::json((string)file_get_contents(substr($path,0,-13).'.release.sig.json')),
-            ControlReleaseBridge::loadKey($this->c['trust_file']),dirname($path).'/'.$m['artifact']);return $m;
+        if(substr($path,-13)!=='.release.json')throw new RuntimeException('MANIFEST_INVALID');
+        $name=ControlReleaseBridge::artifactName($m);
+        $verified=ControlReleaseBridge::verify($bytes,basename($path),ControlReleaseBridge::json((string)file_get_contents(substr($path,0,-13).'.release.sig.json')),
+            ControlReleaseBridge::loadKey($this->c['trust_file']),dirname($path).'/'.$name);return $verified['install_manifest'];
     }
     public function stage(): array
     {

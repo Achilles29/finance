@@ -58,6 +58,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'c3-composer-compat', 'file' => 'c3_composer_compat_smoke.php'],
             ['id' => 'c3-control-release-bridge', 'file' => 'c3_control_release_bridge_smoke.php'],
             ['id' => 'c3-customer-clean-release', 'file' => 'c3_customer_clean_release_smoke.php'],
+            ['id' => 'c3-control-build-adapter', 'file' => 'c3_control_build_adapter_smoke.php'],
             ['id' => 'c3-clean-install-database', 'file' => 'c3_clean_install_database_smoke.php'],
             ['id' => 'c3-deployment-instance', 'file' => 'c3_deployment_instance_smoke.php'],
             ['id' => 'c3-linux-web-profile', 'file' => 'c3_linux_web_profile_smoke.php'],

@@ -106,9 +106,9 @@ $buildA = $run($arguments($artifactA), $root, $environment);
 $buildB = $run($arguments($artifactB), $root, $environment);
 $check($buildA['code'] === 0 && $buildB['code'] === 0, 'two fixture builds pass all mandatory gates');
 $check(is_file($artifactA) && hash_file('sha256', $artifactA) === hash_file('sha256', $artifactB), 'two builds are byte-identical');
-$expectedTrace = array_merge(...array_fill(0, 2, ['a4_release_preflight_smoke.php', 'a4_static_analysis_smoke.php', 'a4_dependency_vulnerability_smoke.php']));
+$expectedTrace = array_merge(...array_fill(0, 2, ['a4_release_preflight_smoke.php', 'a4_dependency_vulnerability_smoke.php', 'a4_static_analysis_smoke.php']));
 $actualTrace = is_file($trace) ? file($trace, FILE_IGNORE_NEW_LINES) : [];
-$check($actualTrace === $expectedTrace, 'builder runs preflight, static, then vulnerability gates');
+$check($actualTrace === $expectedTrace, 'builder runs preflight and vulnerability before slower static analysis, retaining all gates');
 
 $policy = ReleasePackagePolicy::fromFile($root . '/tools/release/package_policy.json');
 $candidate = $policy->enumerate($root);

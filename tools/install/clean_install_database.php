@@ -30,13 +30,14 @@ function c3InstallDatabase(array $o): array
     $path = financeArtifactSignatureRegularFile($o['signed-manifest'], 'MANIFEST_UNSAFE');
     if (substr($path, -13) !== '.release.json' || filesize($path) > 1048576) throw new RuntimeException('MANIFEST_INVALID');
     $bytes = (string)file_get_contents($path); $manifest = ControlReleaseBridge::json($bytes);
-    $name = $manifest['artifact'] ?? '';
+    $name = ControlReleaseBridge::artifactName($manifest);
     if (!is_string($name) || basename($name) !== $name || strpos($name, '..') !== false) throw new RuntimeException('ARTIFACT_NAME');
     $sigPath = financeArtifactSignatureRegularFile(substr($path, 0, -13) . '.release.sig.json', 'SIGNATURE_UNSAFE');
     if (filesize($sigPath) > 16384) throw new RuntimeException('SIGNATURE_SIZE');
     $verification = ControlReleaseBridge::verify($bytes, basename($path), ControlReleaseBridge::json((string)file_get_contents($sigPath)),
         ControlReleaseBridge::loadKey($o['trust-file']), dirname($path) . '/' . $name);
     if (empty($verification['customer_clean_eligible'])) throw new RuntimeException('CUSTOMER_PROFILE_REQUIRED');
+    $manifest = $verification['install_manifest'];
     $release = a513_validate_release($o['release-root'], $o['release-root'] . '/RELEASE-MANIFEST.json');
     if ($release['manifest_sha256'] !== $manifest['source_manifest_sha256']) throw new RuntimeException('SIGNED_SOURCE_MISMATCH');
     $expected = array_merge(array_column($release['manifest']['files'], 'path'), ['RELEASE-MANIFEST.json']); sort($expected);

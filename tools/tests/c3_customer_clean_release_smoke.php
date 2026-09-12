@@ -121,6 +121,43 @@ try {
     $wrongBytes = json_encode($wrong, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     $wrongSig = ControlReleaseBridge::sign($wrongBytes, $name, $key);
     $reject(fn() => ControlReleaseBridge::verify($wrongBytes, $name, $wrongSig, $trust, $archive), 'even a signed report with false counts fails content recomputation');
+    // Exact schema emitted by Control process_release_builds.php, using a synthetic signing key.
+    $control = ['schema' => 1, 'context' => ControlReleaseBridge::CONTEXT, 'product_code' => 'NAMUA_FINANCE',
+        'release_public_id' => '00000000-0000-4000-8000-000000000002', 'version' => $manifest['version'], 'channel' => 'ALPHA',
+        'source_commit' => $manifest['source_commit'], 'source_manifest_sha256' => hash_file('sha256', $source . '/app-manifest.json'),
+        'build_request_sha256' => hash('sha256', 'synthetic build request'), 'filename' => basename($archive),
+        'media_type' => 'application/x-tar', 'size_bytes' => filesize($archive), 'sha256' => hash_file('sha256', $archive),
+        'build_report_sha256' => hash('sha256', 'synthetic build report'), 'contains_customer_data' => false, 'contains_secrets' => false,
+        'packaging' => ['profile_code' => 'CUSTOMER_CLEAN', 'rules_sha256' => $profile->digest(), 'audience' => 'CUSTOMER', 'sample_data' => 'NONE'], 'verification' => []];
+    foreach (ControlReleaseBridge::BUILD_GATES as $gate) $control['verification'][$gate] = ['status' => 'PASS', 'evidence_sha256' => hash('sha256', 'synthetic:' . $gate)];
+    $verifyControl = static function (array $wire) use ($name, $key, $trust, $archive): array {
+        $bytes = json_encode($wire, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        return ControlReleaseBridge::verify($bytes, $name, ControlReleaseBridge::sign($bytes, $name, $key), $trust, $archive);
+    };
+    $modern = $verifyControl($control);
+    $check(ControlReleaseBridge::artifactName($control) === basename($archive) && $modern['customer_clean_eligible'], 'Control schema 1 signed package accepted');
+    $check($modern['install_manifest']['source_manifest_sha256'] === $manifest['source_manifest_sha256']
+        && $modern['install_manifest']['control_app_manifest_sha256'] === $control['source_manifest_sha256'], 'installer keeps app-manifest and inner manifest hashes distinct');
+    ControlDelivery::validateCustomerBinding($plan, $modern);
+    $check(true, 'modern Control package matches distribution claims');
+    foreach (['filename', 'sha256', 'source_manifest_sha256', 'source_commit', 'size_bytes', 'contains_customer_data', 'contains_secrets'] as $field) {
+        $wrong = $control;
+        $wrong[$field] = $field === 'size_bytes' ? 1 : (str_starts_with($field, 'contains_') ? true : 'invalid');
+        $reject(fn() => $verifyControl($wrong), 'Control signed incorrect ' . $field . ' rejected');
+    }
+    foreach (['profile_code', 'rules_sha256', 'audience', 'sample_data'] as $field) {
+        $wrong = $control; $wrong['packaging'][$field] = 'invalid';
+        $reject(fn() => $verifyControl($wrong), 'Control wrong profile binding ' . $field . ' rejected');
+    }
+    foreach (ControlReleaseBridge::BUILD_GATES as $gate) {
+        $wrong = $control; unset($wrong['verification'][$gate]);
+        $reject(fn() => $verifyControl($wrong), 'Control missing mandatory gate ' . $gate . ' rejected');
+    }
+    $wrong = $control; $wrong['verification']['clean_install']['status'] = 'FAIL';
+    $reject(fn() => $verifyControl($wrong), 'Control failed clean install gate rejected even when signed');
+    $wrong = $control; $wrong['source_manifest_sha256'] = $manifest['source_manifest_sha256'];
+    $reject(fn() => $verifyControl($wrong), 'inner manifest hash cannot masquerade as Control app manifest hash');
+    $reject(fn() => ControlReleaseBridge::artifactName(['schema' => 1, 'filename' => '../bad.tar']), 'unknown format or traversal rejected');
     sodium_memzero($kp); unset($key);
 
     define('BASEPATH', $extract . '/system/'); define('FCPATH', $extract . '/');

@@ -326,7 +326,7 @@ internal. Status teknis A0–A5 tetap hanya berasal dari control board `_30`.
 | C0 — handoff/go-no-go | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `PRACTICE_HANDOFF_READY` | Batch 243: barang dan panduan UI siap untuk latihan web Linux terbatas. Bukan go-live; UAT/handoff produksi dan persetujuan owner tetap wajib. |
 | C1 — paket/katalog/kontrak | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CATALOG_DRAFT_READY` | Manifest v2 NAMUA_FINANCE di Control: 28 feature, 4 edition, 29 dependency, PERPETUAL dan maintenance awal 365 hari. Kandidat praktik terbaru alpha.10 DRAFT (Batch 243), bukan publish. Harga, EULA/SLA, data policy, add-on/override per customer dan kontrak pilot belum final. |
 | C2 — productization/onboarding | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CORE_BRANDING_HTTP_PASS` | Batch 243: profil/logo/login alpha.10 benar melalui 22 tes HTTPS pada clean install dan upgrade; upload lama terbawa. Marketing/legacy branding menyeluruh, preset demo, pajak/service/integrasi/privacy serta penerimaan customer tetap terbuka. |
-| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `LINUX_DELIVERY_TRIAL_PASS` | Batch 243: alpha.10 cutoff 15f9f62, 113 gate PASS; DRAFT Control 38, tiga artefak/lima evidence. Clean install, upgrade kode alpha.9→10, 296 checksum tabel, upload, web cutover/rollback serta HTTPS claim/download/receipt PASS. Domain/scheduler target, SQL bisnis baru, Windows/pilot dan publish owner belum dilakukan. |
+| C3 — artifact/installer/update | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `LINUX_DELIVERY_TRIAL_PASS` | Histori trial alpha.10 Batch 243 tetap valid untuk paket itu saja. Batch 245 alpha.12 menambahkan deklarasi CUSTOMER_CLEAN, adapter build dan penerimaan manifest Control; guard validator Control serta build/publish/UAT customer aktual masih pending. Lihat checklist C3 terbaru di bawah. |
 | C4 — License Hub/entitlement | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `CONTROL_HTTPS_CACHE_PASS` | Batch 242–243: 58 unit agen/model/izin, 18 HTTPS Control terisolasi PASS, recovery identitas tetap, renewal setelah offline, revoke/replay, cache terbaca web aktual. Kunci Finance root-only siap. Mode audit-only; aktivasi customer, Windows/native guard, pairing/limit dan enforcement belum diterima. Bug operasional/build/UAT APK ditunda. |
 | C5 — pilot/operasi penjualan | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | `UI_PRACTICE_GUIDE_READY` | Batch 243: halaman Control /finance/practice dan tombol dari Release tersedia, panduan owner dan admin server terpisah. Praktik customer/domain, pelatihan per modul, kontrak/SLA dan go-live tetap dilaksanakan owner, tidak otomatis oleh engineer. |
 
@@ -346,7 +346,7 @@ tetap sejalan dengan arah produk ini:
 | Batas data/monitoring | Customer/instance terpisah; heartbeat signed, outbound, tanpa database atau data bisnis customer. | Sender heartbeat Finance memakai kontrak HMAC/nonce/idempotency yang sama. Pilot `NAMUA_FINANCE` telah diarsipkan dari Control, jadi ini bukti kontrak, bukan integrasi aktif. | `SELARAS`, jangan aktifkan ulang tanpa instance runtime terpisah. |
 | C1 katalog | Manifest v2, scanner allowlist, preview/import produk-edition-feature, dependency, hak perpetual, maintenance, dan audit tersedia. | Katalog draft: 28 feature, 4 edition, 29 dependency, limit outlet/terminal awal. Alpha.3 cutoff b10fa37 sudah diregistrasikan sebagai DRAFT, belum publish. | `TERHUBUNG_DRAFT`; catalog bukan FeatureGate dan belum mengubah runtime customer. |
 | C2 identitas customer | Registry customer/PIC/instance vendor tersedia. | Profil lokal, setup admin, branding shell/login/QR/dokumen/label, locale/currency/timezone, dan fallback printer tersedia. | `TIDAK TUMPANG TINDIH`; registry vendor bukan pengganti profil usaha lokal. Template marketing/install profile tetap Finance-side. |
-| C3 delivery | Maker-checker tetap, token pengganti melalui UI dengan konfirmasi/CSRF/step-up; receipt migrasi tidak menutup deployment. DRAFT Finance 38 dengan lima evidence. | Alpha.10: installer/upgrade DB salinan, upload, web rollback, HTTPS claim/download/receipt dan 113 gate PASS. | `LINUX_DELIVERY_TRIAL_PASS`; domain/scheduler target, SQL baru, publish/pilot masih terpisah. |
+| C3 delivery | Maker-checker tetap; receipt migrasi tidak menutup deployment. Alpha.12: profil clean, adapter unsigned dan format signed Control telah diselaraskan di Finance. | Histori alpha.10: trial installer/upgrade/rollback/HTTPS PASS. Bukti ini bukan bukti clean-customer alpha.12; lihat validasi Batch 245. | `LINUX_DELIVERY_TRIAL_PASS` historis; integrasi validator Control dan publish/pilot alpha.12 masih terpisah. |
 | C4 lisensi | Recovery bertanda tangan mempertahankan instalasi/slot; issuer memeriksa eligibility kembali dan dapat renew setelah offline. Kunci Finance terpisah siap. | 18 tes HTTPS Control terisolasi + 58 unit PASS, web Finance membaca cache signed nyata. | `CONTROL_HTTPS_CACHE_PASS`; bukan aktivasi customer. Native guard, pairing/limit/enforcement masih wajib sebelum klaim proteksi penuh. |
 | C5 operasi | Halaman /finance/practice dari menu Release, urutan customer→instance→subscription→release→deployment→aktivasi. | Panduan setup/pemulihan admin dan latihan owner tersedia; keputusan harga/domain/pilot milik owner. | `UI_PRACTICE_GUIDE_READY`; bukan pilot produksi PASS. |
 
@@ -1121,6 +1121,19 @@ preset install, pajak/service, integrasi, health/privacy masih terbuka.
 Panduan awal: `docs/customer_setup_and_release_guide.md`.
 
 ### C3 — Artefak customer, installer, dan delivery update
+
+**Batch 245 — 2026-09-12, sinkronisasi kontrak Control terbaru:**
+
+- [x] Manifest alpha.12 mengumumkan profil default `CUSTOMER_CLEAN` / Customer bersih, tanpa dummy; parser aktual Control menerima profil dan hash rules yang sama.
+- [x] Adapter `NAMUA_PRODUCT_BUILD_V1` menghasilkan TAR/report unsigned, menjalankan gate kode dan instalasi/backup–restore di MariaDB disposable tanpa mengakses DB development.
+- [x] Installer/verifier Finance mendukung outer manifest Control schema 1, menjaga kompatibilitas sidecar v2 lama dan memisahkan hash app-manifest dari inner release-manifest.
+- [x] Entry validator TAR tepercaya untuk Control tersedia: `tools/build/verify_control_build.php`; handoff/prasyarat ada di [kontrak bersama](customer_clean_release_contract.md).
+- [x] Inspeksi read-only Control: empat field distribution pada plan/claim dan nama tiga artifact Finance sudah disiapkan.
+- [x] Validasi Finance: 115 entry release gate PASS; drill delapan gate adapter sebagai namua-build dan verifier result/report Control aktual PASS (library-only, fixture terisolasi). 296 tabel, 285 tabel non-reference kosong, 16 migration dan restore 296 checksum cocok; bukan publish/UAT customer aktual.
+- [ ] Thread Control: pasang validator tepercaya dan selesaikan guard `FINANCE_TRUSTED_VALIDATOR_REQUIRED` / `finance_validator_unavailable`; Finance tidak mengubah kode Control.
+- [ ] Scan/preview/impor source alpha.12, build/sign/register/publish dan UAT customer lewat UI Control aktual. Hasil fixture tidak menutup checklist ini.
+
+Histori sebelumnya (bukan cutoff adapter baru):
 
 **Batch 244 — 2026-09-10, Finance saja; Control dikerjakan thread terpisah:**
 

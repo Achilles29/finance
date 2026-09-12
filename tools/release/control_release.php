@@ -26,7 +26,7 @@ try {
         if (substr($path, -13) !== '.release.json' || filesize($path) > 1048576) throw new RuntimeException('MANIFEST_INVALID');
         $bytes = (string)file_get_contents($path);
         $manifest = ControlReleaseBridge::json($bytes);
-        $name = $manifest['artifact'] ?? '';
+        $name = ControlReleaseBridge::artifactName($manifest);
         if (!is_string($name) || basename($name) !== $name || strpos($name, '..') !== false) throw new RuntimeException('ARTIFACT_NAME');
         $signaturePath = financeArtifactSignatureRegularFile(substr($path, 0, -13) . '.release.sig.json', 'SIGNATURE_UNSAFE');
         if (filesize($signaturePath) > 16384) throw new RuntimeException('SIGNATURE_SIZE');

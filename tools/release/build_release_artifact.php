@@ -83,7 +83,8 @@ function releaseArtifactRemoveTree(string $directory): void
     if (!is_dir($directory) || is_link($directory)) {
         return;
     }
-    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST, RecursiveIteratorIterator::CATCH_GET_CHILD);
     foreach ($iterator as $item) {
         $item->isDir() && !$item->isLink() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
     }
@@ -137,8 +138,8 @@ try {
     if ($profile !== null) $profile->audit(array_values($before));
     foreach ([
         ['PREFLIGHT', 'a4_release_preflight_smoke.php'],
-        ['STATIC', 'a4_static_analysis_smoke.php'],
         ['VULNERABILITY', 'a4_dependency_vulnerability_smoke.php'],
+        ['STATIC', 'a4_static_analysis_smoke.php'],
     ] as [$label, $script]) {
         $gate = releaseArtifactRun([PHP_BINARY, $root . '/tools/tests/' . $script], $root, $label === 'STATIC' ? 420 : 180);
         if ($gate['code'] !== 0) {

@@ -1,5 +1,13 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Delta regresi Batch 245 — 2026-09-12:**
+
+- [x] Perbedaan outer manifest Control vs Finance ditangani: `filename`/`artifact` dan hash app-manifest/inner manifest tidak tertukar pada verifier/installer.
+- [x] Signature, profile/hash, kelengkapan gate dan batas instalasi database kosong tetap diperiksa; format signed historis tidak diputus.
+- [x] Build unprivileged memiliki cache Composer/PHPStan privat dan database uji socket-only; tidak membuka credential/database aplikasi yang aktif.
+- [x] Gate keamanan dengan snapshot OSV baru menemukan `sharp@0.35.3` (GHSA-rgj7-g3m4-5g8c). Lock paket WA dipatch ke 0.35.4; scan 145 paket kini nol advisory, uji gambar sintetis memakai libheif 1.23.2 PASS. Tidak me-restart WA atau mengganti node_modules/sesi layanan aktif. [Advisory pengembang](https://github.com/lovell/sharp/security/advisories/GHSA-rgj7-g3m4-5g8c).
+- Checklist komersialisasi/profile/adapter dan sisa guard Control tetap di `_28` bagian C3, tidak menggandakan fase audit. Tidak ada perubahan POS/APK atau perbaikan data bisnis dalam batch ini.
+
 **Delta regresi Batch 244 — 2026-09-10:**
 
 - [x] Menu Book tidak memanggil view legacy yang absen pada paket customer; setting legacy tetap bekerja bila aset/desain tersedia di staging.
