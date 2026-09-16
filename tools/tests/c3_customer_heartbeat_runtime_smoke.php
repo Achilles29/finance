@@ -8,9 +8,11 @@ $reject=static function(callable $call,string $code,string $label)use($check):vo
     try{$call();}catch(RuntimeException $error){$check($error->getMessage()===$code,$label);return;}
     $check(false,$label);
 };
+$fixtureUser='fixture_'.bin2hex(random_bytes(8));
+$fixturePassword=bin2hex(random_bytes(32));
 $complete=[DeploymentConfig::DB_HOST=>'localhost',DeploymentConfig::DB_NAME=>'customer_fixture',
-    DeploymentConfig::DB_USER=>'customer_fixture_user',DeploymentConfig::DB_PASSWORD=>'opaque fixture value'];
-$expected=['hostname'=>'localhost','database'=>'customer_fixture','username'=>'customer_fixture_user','password'=>'opaque fixture value'];
+    DeploymentConfig::DB_USER=>$fixtureUser,DeploymentConfig::DB_PASSWORD=>$fixturePassword];
+$expected=['hostname'=>'localhost','database'=>'customer_fixture','username'=>$fixtureUser,'password'=>$fixturePassword];
 $check(heartbeat_deployment_database(DeploymentConfig::fromSnapshot($complete))===$expected,'customer DB maps only its deployment contract without connecting');
 $check(!heartbeat_explicit_database([]),'legacy absent selectors retain the legacy branch');
 $check(!heartbeat_explicit_database(['unrelated'=>'value']),'unrelated environment never opts a master into customer DB selection');
