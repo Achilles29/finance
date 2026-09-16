@@ -1,5 +1,7 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Batch 267 — 2026-09-17 (integrasi produk saja):** domain installer menjadi metadata opsional; credential pengganti menjaga journal/binding/identitas dan tidak mengulang SQL; heartbeat memakai URL lokal tepercaya dan metadata allowlist. Proses bisnis, mismatch historis, PR-01/02/03 dan lima SQL belum managed **tidak** ditutup oleh batch ini. Checklist komersialisasi/cutoff di `_28`; [handoff dan uji](2026-09-17_installer_heartbeat_control_handoff.md).
+
 **Batch 266 — 2026-09-16 (tindak lanjut audit build Control, bukan perbaikan bug bisnis):**
 
 - [x] Tiga false positive credential fixture direview dan dikecualikan persis path/baris/kategori/hash; secret scan tetap aktif. Katalog SQL paket, implementasi konektor, safe-default settings, jumlah seed dan pemeriksaan izin installer diselaraskan. Detail pada [handoff CUSTOMER_CLEAN v4](2026-09-16_finance_customer_clean_v4_handoff.md).

@@ -39,6 +39,6 @@ try {
     exit(($result['connection'] ?? '') === 'SYNC_UNAVAILABLE' ? 2 : 0);
 } catch (Throwable $e) {
     $code = $e instanceof RuntimeException && preg_match('/\A[A-Z_]+\z/D', $e->getMessage()) ? $e->getMessage() : 'LICENSE_AGENT_FAILED';
-    fwrite(STDERR, json_encode(['status'=>'ACTION_REQUIRED','code'=>$code,'enforcement_changed'=>false]) . "\n");
+    fwrite(STDERR, json_encode(['status'=>'ACTION_REQUIRED','code'=>$code,'recovery'=>FinanceLicenseAgent::recoveryMessage($code),'enforcement_changed'=>false]) . "\n");
     exit(1);
 }

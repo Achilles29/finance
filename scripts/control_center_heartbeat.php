@@ -7,9 +7,39 @@ if (PHP_SAPI !== 'cli') {
     exit(1);
 }
 
-const FINANCE_ROOT = '/www/wwwroot/finance';
+const FINANCE_ROOT = __DIR__.'/..';
 const HEARTBEAT_CONFIG = '/var/lib/finance-config/control-center-heartbeat.json';
 const PRIVATE_DATABASE_CONFIG = '/var/lib/finance-config/database.php';
+require_once dirname(__DIR__).'/application/libraries/DeploymentConfig.php';
+require_once dirname(__DIR__).'/tools/licensing/LicenseAgentFiles.php';
+
+/** Only explicitly selected monitoring metadata, never an HTTP request host or registry domain. */
+function heartbeat_runtime(array $config, ?string $baseUrl): ?array
+{
+    if(!array_key_exists('runtime_fields',$config))return null; // Old senders/configs keep registry metadata.
+    $fields=$config['runtime_fields'];
+    if(!is_array($fields))throw new RuntimeException('RUNTIME_FIELDS_INVALID');
+    foreach($fields as $field)if(!is_string($field))throw new RuntimeException('RUNTIME_FIELDS_INVALID');
+    if(!is_array($fields)||array_diff($fields,['primary_domain','region'])||count(array_unique($fields))!==count($fields))throw new RuntimeException('RUNTIME_FIELDS_INVALID');
+    $runtime=[];
+    if(in_array('primary_domain',$fields,true)){
+        $url=$baseUrl??($config['public_url']??'');
+        $host='';
+        if($url!==''){
+            $url=DeploymentConfig::fromSnapshot(['FINANCE_BASE_URL'=>$url])->canonicalBaseUrl('',true);
+            $host=strtolower(rtrim(trim((string)parse_url($url,PHP_URL_HOST),'[]'),'.'));
+            if(strlen($host)>190||preg_match('/[\x00-\x20\x7f]/',$host)
+                ||(filter_var($host,FILTER_VALIDATE_IP)===false&&(preg_match('/^[0-9.]+$/D',$host)||preg_match('/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\z/D',$host)!==1)))throw new RuntimeException('RUNTIME_DOMAIN_INVALID');
+        }
+        $runtime['primary_domain']=$host;
+    }
+    if(in_array('region',$fields,true)){
+        $region=$config['region']??'';
+        if(!is_string($region)||strlen($region)>320||preg_match('//u',$region)!==1||preg_match_all('/./us',$region)>80||preg_match('/\p{Cc}/u',$region))throw new RuntimeException('RUNTIME_REGION_INVALID');
+        $runtime['region']=$region;
+    }
+    return $runtime;
+}
 
 function heartbeat_fail(string $code, string $message): void
 {
@@ -19,11 +49,13 @@ function heartbeat_fail(string $code, string $message): void
 
 function heartbeat_private_json(string $path): array
 {
+    try{LicenseAgentFiles::securePath($path,dirname(__DIR__));}
+    catch(Throwable $error){heartbeat_fail('config_permissions','Heartbeat configuration must be root-owned outside the application, without writable parent directories.');}
     if (!is_file($path) || is_link($path)) {
         heartbeat_fail('config_missing', 'Private heartbeat configuration is unavailable.');
     }
     $stat = @stat($path);
-    if (!is_array($stat) || (($stat['mode'] ?? 0) & 0007) !== 0) {
+    if (!is_array($stat) || (($stat['mode'] ?? 0) & 0027) !== 0) {
         heartbeat_fail('config_permissions', 'Private heartbeat configuration permissions are unsafe.');
     }
     try {
@@ -40,6 +72,12 @@ function heartbeat_private_json(string $path): array
     if (!str_starts_with($config['endpoint'], 'https://') || !str_starts_with($config['public_url'], 'https://')) {
         heartbeat_fail('config_invalid', 'Heartbeat endpoints must use HTTPS.');
     }
+    // Same customer-local HTTPS URL rules used by the application, without request-host fallback.
+    try {
+        DeploymentConfig::fromSnapshot(['FINANCE_BASE_URL'=>$config['public_url']])->canonicalBaseUrl('',true);
+        DeploymentConfig::fromSnapshot(['FINANCE_BASE_URL'=>$config['endpoint']])->canonicalBaseUrl('',true);
+    }
+    catch(Throwable $error){heartbeat_fail('config_invalid','Local base URL must be a valid HTTPS URL.');}
     return $config;
 }
 
@@ -102,6 +140,9 @@ function heartbeat_http_status(string $url): string
         CURLOPT_NOBODY => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_CONNECTTIMEOUT => 5,
         CURLOPT_TIMEOUT => 10,
         CURLOPT_USERAGENT => 'Namua-Finance-Heartbeat/1.0',
@@ -128,10 +169,18 @@ function heartbeat_random_token(int $bytes): string
     return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
 }
 
+if(defined('FINANCE_HEARTBEAT_LIBRARY_ONLY')&&FINANCE_HEARTBEAT_LIBRARY_ONLY)return;
+
 $config = heartbeat_private_json(HEARTBEAT_CONFIG);
+try{
+    $deployment=new DeploymentConfig();
+    $localUrl=$deployment->get(DeploymentConfig::BASE_URL,$config['public_url']);
+    $runtime=heartbeat_runtime($config,$localUrl);
+    if($localUrl!=='')$localUrl=DeploymentConfig::fromSnapshot(['FINANCE_BASE_URL'=>$localUrl])->canonicalBaseUrl('',true);
+}catch(Throwable $error){heartbeat_fail('runtime_metadata_invalid','Check the trusted local base URL, runtime_fields and region configuration.');}
 $components = [
     'database' => 'UNKNOWN',
-    'http' => heartbeat_http_status($config['public_url']),
+    'http' => heartbeat_http_status($localUrl!==''?$localUrl:$config['public_url']),
     'schema_migration' => 'UNKNOWN',
     'runtime_queue' => 'UNKNOWN',
     'backup' => heartbeat_backup_status(),
@@ -203,6 +252,7 @@ $payload = [
     'components' => $components,
     'metrics' => $metrics,
 ];
+if($runtime!==null)$payload['runtime']=$runtime?:new stdClass();
 $body = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 $payloadHash = hash('sha256', $body);
 $canonical = implode("\n", ['POST','/api/v1/heartbeats',$config['instance_id'],$config['key_id'],$timestamp,$nonce,$idempotencyKey,$payloadHash]);
@@ -216,6 +266,10 @@ for ($attempt = 1; $attempt <= 2; $attempt++) {
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $body,
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_CONNECTTIMEOUT => 10,
         CURLOPT_TIMEOUT => 30,
         CURLOPT_HTTPHEADER => [

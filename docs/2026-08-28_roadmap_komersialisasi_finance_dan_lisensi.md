@@ -1,6 +1,14 @@
 # Roadmap Komersialisasi Finance POS
 
-Batch 266 — 2026-09-16: tindak lanjut audit Control cutoff `db76e809…`. Kandidat **alpha.13 / CUSTOMER_CLEAN v4 / ISOLATED_BUILD_PASS / NOT_APPROVED / NOT_RELEASED**. Blocker tiga fixture preflight telah diperbaiki tanpa melonggarkan scan. SQL Roast Connect dan implementasinya masuk profil baru; seed/default/izin installer konsisten. **Build penuh terakhir exit 0, seluruh delapan gate dan validator independen PASS**, termasuk clean-install/backup–restore MariaDB disposable; 0 customer/demo/secret findings. Tidak mengubah Control atau persetujuan cutoff. [Laporan, hash dan handoff](2026-09-16_finance_customer_clean_v4_handoff.md).
+Batch 267 — 2026-09-17: kandidat **alpha.14 / CUSTOMER_CLEAN v4 / ISOLATED_BUILD_PASS / NOT_APPROVED / NOT_RELEASED**. [Handoff integrasi installer dan heartbeat](2026-09-17_installer_heartbeat_control_handoff.md) menjadi acuan review cutoff baru; release 66 PUBLISHED tidak ditimpa. Build akhir delapan gate + verifier independen PASS; 1.135 anggota profil cocok dengan snapshot, tanpa mismatch.
+
+- [x] Domain NULL/kosong/berbeda/berubah diterima sebagai metadata, bukan batas lisensi; FINANCE_BASE_URL tetap konfigurasi lokal customer.
+- [x] Replacement credential dengan journal/evidence lama dipertahankan, binding release/plan/instance/identitas tetap, tidak ada replay SQL otomatis. Kuota server dan masa hak tetap otoritas Control; tidak ada deadline mulai instalasi baru.
+- [x] Heartbeat runtime opsional primary_domain/region, allowlist/ukuran/karakter tervalidasi dan ditandatangani; sender lama kompatibel.
+- [x] Tes terisolasi delivery HTTPS, profil/hash/signature, agent/kuota, URL lokal dan validator Control read-only lulus; rincian/batas pembuktian pada handoff.
+- [ ] Control review commit final dan hash/dependency, uji cutoff persis, approve/build sebagai release baru. Tidak mengubah trust atau source/database Control dari Finance.
+
+Riwayat Batch 266 — 2026-09-16: audit cutoff `db76e809…`, kandidat alpha.13/profile v4 lulus delapan gate + validator independen termasuk clean-install/restore disposable. Ini bukti historis batch sebelumnya, bukan approval otomatis alpha.14 atau status release 66. [Laporan v4](2026-09-16_finance_customer_clean_v4_handoff.md).
 
 Profil v3/alpha.12 historis tidak ditimpa; user tidak perlu menjalankan SQL ke Finance aktif. Register lima SQL development yang belum masuk paket dan bug bisnis tetap terbuka di `_30`. Control perlu mereview commit/hash/profil v4 serta menjalankan ulang gate pada cutoff final yang persis, baru scan/impor produk yang sama dan praktik build melalui UI. Kelulusan build terisolasi bukan izin publish.
 

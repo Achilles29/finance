@@ -66,11 +66,16 @@ final class FinanceLicenseAgent
         $lock = $this->private->lock();
         try {
             $s = $this->state();
-            if (!in_array($s['activation_state'] ?? '', ['NOT_REQUESTED','INPUT_REJECTED'], true)) throw new RuntimeException('ACTIVATION_ALREADY_ATTEMPTED');
+            if (!in_array($s['activation_state'] ?? '', ['NOT_REQUESTED','INPUT_REJECTED','DENIED'], true)) throw new RuntimeException('ACTIVATION_ALREADY_ATTEMPTED');
+            $attempts=$s['activation_attempts']??[];$codeHash=hash('sha256',$code);
+            if(in_array($codeHash,array_column($attempts,'credential_sha256'),true))throw new RuntimeException('ACTIVATION_REPLACEMENT_REQUIRED');
+            if(count($attempts)>=200)throw new RuntimeException('ACTIVATION_HISTORY_REQUIRES_REVIEW');
             $secret = base64_decode($s['secret_key_base64'], true);
             $payload = ControlLicenseProtocol::activation($s['identity'], sodium_crypto_sign_publickey_from_secretkey($secret), $this->fingerprint, $code);
             sodium_memzero($secret);
             $s['activation_state'] = 'REQUEST_UNCERTAIN';
+            $attempts[]=['credential_sha256'=>$codeHash,'at'=>gmdate(DATE_ATOM,($this->clock)()),'status'=>'REQUEST_UNCERTAIN'];
+            $s['activation_attempts']=$attempts;
             $this->private->write('agent.json', $s, 0600);
             // A timeout may have consumed the code. Never auto-create a new identity or retry blindly.
             $r = ($this->transport)($s['origin'], ControlLicenseProtocol::REQUEST_PATH, json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), []);
@@ -82,6 +87,7 @@ final class FinanceLicenseAgent
                 $secret = base64_decode($s['secret_key_base64'], true);
                 ControlLicenseProtocol::poll($activation, $secret, ($this->clock)(), bin2hex(random_bytes(16))); sodium_memzero($secret);
                 $s['activation'] = $activation; $s['activation_state'] = 'PENDING';
+                $s['activation_attempts'][count($attempts)-1]['status']='PENDING';
                 $this->private->write('agent.json', $s, 0600);
                 $cache = $this->public->read('runtime.json', 0640);
                 $cache = Control_license_cache::transition($cache, 202, ['status'=>'PENDING'], $this->public->read('trust.json', 0640), $s['identity'], ($this->clock)());
@@ -90,10 +96,23 @@ final class FinanceLicenseAgent
             }
             if (in_array($r['http'], [401,422], true) && in_array($json['code'] ?? '', ['activation_code_invalid','payload_schema_invalid','payload_invalid'], true)) {
                 $s['activation_state'] = 'INPUT_REJECTED';
+                $s['activation_attempts'][count($attempts)-1]['status']='INPUT_REJECTED';
                 $this->private->write('agent.json', $s, 0600);
+                throw new RuntimeException('ACTIVATION_CREDENTIAL_REJECTED');
+            }
+            if($r['http']===409&&($json['code']??'')==='instance_limit_exceeded'){
+                $s['activation_state']='DENIED';$s['activation_attempts'][count($attempts)-1]['status']='INSTANCE_LIMIT_EXCEEDED';
+                $this->private->write('agent.json',$s,0600);throw new RuntimeException('INSTANCE_LIMIT_EXCEEDED');
             }
             throw new RuntimeException('ACTIVATION_REQUIRES_REVIEW');
         } finally { flock($lock, LOCK_UN); fclose($lock); }
+    }
+
+    public static function recoveryMessage(string $code): string
+    {
+        if($code==='INSTANCE_LIMIT_EXCEEDED')return 'Kuota instalasi server ditolak Control. Minta operator memeriksa slot; jangan buat ulang installation ID, fingerprint atau kunci agent. Jika kuota sudah tersedia, gunakan kode aktivasi pengganti pada agent yang sama.';
+        if(in_array($code,['ACTIVATION_CREDENTIAL_REJECTED','ACTIVATION_REPLACEMENT_REQUIRED'],true))return 'Kode aktivasi tidak valid, kedaluwarsa, dicabut atau sudah digunakan; bukan berarti hak instalasi berakhir. Minta kode pengganti dari operator Control dan jalankan activate --code-file pada direktori agent yang sama. Journal, installation ID dan kunci tetap dipertahankan; tidak ada SQL yang diulang.';
+        return 'Pertahankan state agent. Jika respons aktivasi hilang, gunakan recover dengan credential percobaan tersebut untuk memulihkan respons terikat identitas, bukan untuk melewati expiry. Jika Control menolak, minta pemeriksaan operator; jangan reset identitas atau mencoba credential baru pada REQUEST_UNCERTAIN.';
     }
 
     public function poll(): array
@@ -138,7 +157,9 @@ final class FinanceLicenseAgent
             $activation=['activation_id'=>$r['json']['activation_id']??'','poll_token'=>$r['json']['poll_token']??''];
             $secret=base64_decode($s['secret_key_base64'],true);
             ControlLicenseProtocol::poll($activation,$secret,($this->clock)(),bin2hex(random_bytes(16))); sodium_memzero($secret);
-            $s['activation']=$activation; $s['activation_state']='PENDING'; $this->private->write('agent.json',$s,0600);
+            $s['activation']=$activation; $s['activation_state']='PENDING';
+            if(!empty($s['activation_attempts'])){$last=count($s['activation_attempts'])-1;$s['activation_attempts'][$last]['recovered_at']=gmdate(DATE_ATOM,($this->clock)());}
+            $this->private->write('agent.json',$s,0600);
             return ['status'=>'PENDING','recovered'=>true,'activation_id'=>$activation['activation_id'],'identity_changed'=>false];
         } finally { flock($lock,LOCK_UN); fclose($lock); }
     }

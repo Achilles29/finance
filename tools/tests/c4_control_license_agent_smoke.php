@@ -213,5 +213,27 @@ try {
     $afterRecovery=$p2->read('agent.json',0600);
     $check($recovered['status']==='PENDING'&&!isset($recovered['poll_token']),'recovery stores new credential without printing it');
     $check($beforeRecovery['secret_key_base64']===$afterRecovery['secret_key_base64']&&$beforeRecovery['identity']===$afterRecovery['identity'],'recovery preserves installation and key after process restart');
+    // Replacement credentials use the same durable identity and retain every attempt.
+    mkdir($base.'/private3',0700);mkdir($base.'/public3',0750);chmod($base.'/public3',0750);chgrp($base.'/public3',$gid);
+    $p3=new LicenseAgentFiles($base.'/private3',$root,0,true);$v3=new LicenseAgentFiles($base.'/public3',$root,$gid,false);
+    $replacementResponse=['http'=>401,'json'=>['code'=>'activation_code_invalid']];$requests=0;
+    $replacementTransport=static function()use(&$replacementResponse,&$requests):array{$requests++;return $replacementResponse;};
+    $a3=new FinanceLicenseAgent($p3,$v3,$fingerprint,$replacementTransport,$clock);
+    $a3->initialize('fixture-replacement','https://control.example.invalid',$trust);$original=$p3->read('agent.json',0600);
+    $reject(fn()=>$a3->activate('malformed'),'ACTIVATION_INPUT_INVALID','malformed credential never reaches Control');
+    $check($requests===0,'invalid local activation input makes no network request');
+    $reject(fn()=>$a3->activate('nla_'.str_repeat('C',40)),'ACTIVATION_CREDENTIAL_REJECTED','expired/invalid/used code produces recovery guidance');
+    $oldAttempt=$p3->read('agent.json',0600)['activation_attempts'][0];
+    $reject(fn()=>$a3->activate('nla_'.str_repeat('C',40)),'ACTIVATION_REPLACEMENT_REQUIRED','known rejected code is never reused');
+    $check($requests===1,'repeat rejected credential blocked before transport');
+    $replacementResponse=['http'=>409,'json'=>['code'=>'instance_limit_exceeded']];
+    $reject(fn()=>$a3->activate('nla_'.str_repeat('D',40)),'INSTANCE_LIMIT_EXCEEDED','Control server quota rejection is not converted into activation');
+    $check($p3->read('agent.json',0600)['activation_state']==='DENIED'&&!isset($v3->read('runtime.json',0640)['envelope']),'quota denial publishes no license or active cache');
+    $replacementResponse=['http'=>202,'json'=>['status'=>'PENDING']+$activation];
+    $check($a3->activate('nla_'.str_repeat('E',40))['status']==='PENDING','replacement accepted only after a fresh Control decision');
+    $after=$p3->read('agent.json',0600);
+    $check(count($after['activation_attempts'])===3&&$after['activation_attempts'][0]===$oldAttempt,'failed attempts retained after successful replacement');
+    foreach(['identity','secret_key_base64','fingerprint','origin'] as $field)$check($after[$field]===$original[$field],'replacement preserves '.$field);
+    $check(strpos(json_encode($after),'nla_')===false,'history contains hashes, never raw activation credentials');
 } finally { $remove($base); umask($oldMask); sodium_memzero($secret); sodium_memzero($keypair); }
 echo "All {$checks} Control license agent checks passed.\n";

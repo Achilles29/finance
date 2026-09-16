@@ -1,5 +1,7 @@
 # Finance sebagai Pilot Control Center
 
+Update 2026-09-17: sender memakai root paket relatif dan mendukung metadata runtime opsional dari URL konfigurasi lokal, tanpa domain lock. Langkah opt-in, batas konfigurasi, dan handoff customer: [installer/heartbeat Control](2026-09-17_installer_heartbeat_control_handoff.md). Tidak ada perubahan cron/credential staging otomatis. Path pada dokumen ini adalah contoh pilot internal, bukan alamat wajib customer.
+
 Finance pada `https://pos.namuacoffee.com` adalah instalasi internal pertama
 untuk Namua Application Control Center.
 

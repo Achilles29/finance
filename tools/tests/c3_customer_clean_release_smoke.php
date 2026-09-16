@@ -153,6 +153,10 @@ try {
         && $modern['install_manifest']['control_app_manifest_sha256'] === $control['source_manifest_sha256'], 'installer keeps app-manifest and inner manifest hashes distinct');
     ControlDelivery::validateCustomerBinding($plan, $modern);
     $check(true, 'modern Control package matches distribution claims');
+    if(in_array('--delivery', $argv, true)){
+        require __DIR__.'/c3_control_delivery_runtime_cases.php';
+        c3DeliveryRuntimeCases($control,$key,$trust,$archive,$plan['release'],$check);
+    }
     foreach (['filename', 'sha256', 'source_manifest_sha256', 'source_commit', 'size_bytes', 'contains_customer_data', 'contains_secrets'] as $field) {
         $wrong = $control;
         $wrong[$field] = $field === 'size_bytes' ? 1 : (str_starts_with($field, 'contains_') ? true : 'invalid');
