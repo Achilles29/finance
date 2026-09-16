@@ -1,9 +1,33 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
+require_once __DIR__ . '/../libraries/Finance_settlement_control.php';
 
 class Finance_reports extends MY_Controller
 {
     private const PERIOD_CLOSE_CSRF_KEY = 'finance_period_close_csrf';
+    private const RECON_CSRF_KEY = 'finance_reconciliation_csrf';
+
+    private function reconciliation_csrf(): string
+    {
+        $token = $this->session->userdata(self::RECON_CSRF_KEY);
+        if (!is_string($token) || preg_match('/\A[0-9a-f]{64}\z/D', $token) !== 1) {
+            $token = bin2hex(random_bytes(32));
+            $this->session->set_userdata(self::RECON_CSRF_KEY, $token);
+        }
+        return $token;
+    }
+
+    private function require_reconciliation_csrf(): bool
+    {
+        $provided = $this->input->get_request_header('X-Finance-Reconciliation-CSRF', false);
+        $expected = $this->session->userdata(self::RECON_CSRF_KEY);
+        if ($this->input->method(true) !== 'POST' || !is_string($provided) || !is_string($expected)
+            || preg_match('/\A[0-9a-f]{64}\z/D', $expected) !== 1 || !hash_equals($expected, $provided)) {
+            $this->cash_reconciliation_json(['ok' => false, 'message' => 'Sesi formulir tidak valid. Muat ulang halaman rekonsiliasi.'], 403);
+            return false;
+        }
+        return true;
+    }
 
     public function __construct()
     {
@@ -83,11 +107,14 @@ class Finance_reports extends MY_Controller
         $dashboard = $this->Finance_cash_reconciliation_model->dashboard($reconciliationDate, $reconciliationId);
         $this->render('finance/cash_reconciliation', [
             'page_title' => 'Rekonsiliasi Kas',
+            'reconciliation_csrf' => $this->reconciliation_csrf(),
             'active_menu' => 'finance.cash_reconciliation',
             'finance_tab_active' => 'cash-reconciliation',
             'dashboard' => $dashboard,
             'reconciliation_date' => $reconciliationDate,
             'can_reconcile_edit' => $this->can('finance.cash_reconciliation.index', 'edit'),
+            'report_categories' => Finance_mutation_policy::categories(),
+            'settlement_options' => Finance_settlement_control::options($this->db),
             'round_create_url' => site_url('finance-reports/cash-reconciliation/round-create'),
             'save_url' => site_url('finance-reports/cash-reconciliation/line-save'),
             'post_url' => site_url('finance-reports/cash-reconciliation/line-post'),
@@ -97,6 +124,7 @@ class Finance_reports extends MY_Controller
 
     public function cash_reconciliation_line_save()
     {
+        if (!$this->require_reconciliation_csrf()) return;
         if ($this->input->method() !== 'post') {
             show_404();
         }
@@ -128,6 +156,7 @@ class Finance_reports extends MY_Controller
 
     public function cash_reconciliation_line_post()
     {
+        if (!$this->require_reconciliation_csrf()) return;
         if ($this->input->method() !== 'post') {
             show_404();
         }
@@ -159,6 +188,7 @@ class Finance_reports extends MY_Controller
 
     public function cash_reconciliation_round_create()
     {
+        if (!$this->require_reconciliation_csrf()) return;
         if ($this->input->method() !== 'post') {
             show_404();
         }
@@ -201,10 +231,13 @@ class Finance_reports extends MY_Controller
         $reconciliationId = max(0, (int)$this->input->get('reconciliation_id', true));
         $this->render('finance/revenue_reconciliation', [
             'page_title' => 'Rekonsiliasi Pendapatan',
+            'reconciliation_csrf' => $this->reconciliation_csrf(),
             'active_menu' => 'finance.cash_reconciliation',
             'finance_tab_active' => 'revenue-reconciliation',
             'dashboard' => $this->Finance_revenue_reconciliation_model->dashboard($reconciliationDate, $revenueDate, $reconciliationId),
             'can_reconcile_edit' => $this->can('finance.revenue_reconciliation.index', 'edit'),
+            'report_categories' => Finance_mutation_policy::categories(),
+            'settlement_options' => Finance_settlement_control::options($this->db),
             'save_url' => site_url('finance-reports/revenue-reconciliation/line-save'),
             'post_url' => site_url('finance-reports/revenue-reconciliation/line-post'),
             'round_create_url' => site_url('finance-reports/revenue-reconciliation/round-create'),
@@ -213,6 +246,7 @@ class Finance_reports extends MY_Controller
 
     public function revenue_reconciliation_line_save()
     {
+        if (!$this->require_reconciliation_csrf()) return;
         if ($this->input->method() !== 'post') show_404();
         $this->require_permission('finance.revenue_reconciliation.index', 'edit');
         $payload = $this->cash_reconciliation_payload();
@@ -222,6 +256,7 @@ class Finance_reports extends MY_Controller
 
     public function revenue_reconciliation_line_post()
     {
+        if (!$this->require_reconciliation_csrf()) return;
         if ($this->input->method() !== 'post') show_404();
         $this->require_permission('finance.revenue_reconciliation.index', 'edit');
         $payload = $this->cash_reconciliation_payload();
@@ -231,6 +266,7 @@ class Finance_reports extends MY_Controller
 
     public function revenue_reconciliation_round_create()
     {
+        if (!$this->require_reconciliation_csrf()) return;
         if ($this->input->method() !== 'post') show_404();
         $this->require_permission('finance.revenue_reconciliation.index', 'edit');
         $payload = $this->cash_reconciliation_payload();

@@ -15,7 +15,7 @@ $isPurchaseScope = !empty($is_purchase_scope);
 $canVerify = !empty($can_verify);
 $requestId = (int)($request_id ?? 0);
 $showVendorColumn = $canVerify;
-$lineColumnCount = $canVerify ? 10 : ($showVendorColumn ? 15 : 14);
+$lineColumnCount = $canVerify ? 12 : ($showVendorColumn ? 15 : 14);
 $defaultRequestDate = (string)($header['request_date'] ?? date('Y-m-d'));
 $defaultNeededDate = (string)($header['needed_date'] ?? date('Y-m-d', strtotime('+1 day')));
 
@@ -120,7 +120,7 @@ if (!function_exists('finance_dreq_location_label')) {
   .dreq-line-table td { padding: .45rem .4rem; }
   .dreq-line-table { min-width: 1890px; }
   .dreq-line-table.is-verify {
-    min-width: 940px;
+    min-width: 1200px;
     table-layout: fixed;
   }
   .dreq-line-table.is-verify th,
@@ -129,25 +129,29 @@ if (!function_exists('finance_dreq_location_label')) {
     word-break: break-word;
   }
   .dreq-line-table.is-verify th:nth-child(1),
-  .dreq-line-table.is-verify td:nth-child(1) { width: 22%; }
+  .dreq-line-table.is-verify td:nth-child(1) { width: 20%; }
   .dreq-line-table.is-verify th:nth-child(2),
-  .dreq-line-table.is-verify td:nth-child(2) { width: 7%; }
+  .dreq-line-table.is-verify td:nth-child(2) { width: 6%; }
   .dreq-line-table.is-verify th:nth-child(3),
-  .dreq-line-table.is-verify td:nth-child(3) { width: 8%; }
+  .dreq-line-table.is-verify td:nth-child(3) { width: 7%; }
   .dreq-line-table.is-verify th:nth-child(4),
-  .dreq-line-table.is-verify td:nth-child(4) { width: 14%; }
+  .dreq-line-table.is-verify td:nth-child(4) { width: 11%; }
   .dreq-line-table.is-verify th:nth-child(5),
-  .dreq-line-table.is-verify td:nth-child(5) { width: 10%; }
+  .dreq-line-table.is-verify td:nth-child(5) { width: 8%; }
   .dreq-line-table.is-verify th:nth-child(6),
-  .dreq-line-table.is-verify td:nth-child(6) { width: 9%; }
+  .dreq-line-table.is-verify td:nth-child(6) { width: 7%; }
   .dreq-line-table.is-verify th:nth-child(7),
-  .dreq-line-table.is-verify td:nth-child(7) { width: 11%; }
+  .dreq-line-table.is-verify td:nth-child(7) { width: 7%; }
   .dreq-line-table.is-verify th:nth-child(8),
-  .dreq-line-table.is-verify td:nth-child(8) { width: 6%; }
+  .dreq-line-table.is-verify td:nth-child(8) { width: 8%; }
   .dreq-line-table.is-verify th:nth-child(9),
-  .dreq-line-table.is-verify td:nth-child(9) { width: 7%; }
+  .dreq-line-table.is-verify td:nth-child(9) { width: 9%; }
   .dreq-line-table.is-verify th:nth-child(10),
-  .dreq-line-table.is-verify td:nth-child(10) { width: 6%; }
+  .dreq-line-table.is-verify td:nth-child(10) { width: 5%; }
+  .dreq-line-table.is-verify th:nth-child(11),
+  .dreq-line-table.is-verify td:nth-child(11) { width: 7%; }
+  .dreq-line-table.is-verify th:nth-child(12),
+  .dreq-line-table.is-verify td:nth-child(12) { width: 5%; }
   .dreq-search-scroll { max-height: 260px; overflow: auto; }
   .dreq-manual-card { display: none; }
   .dreq-search-table th, .dreq-search-table td { vertical-align: middle; }
@@ -535,10 +539,8 @@ if (!function_exists('finance_dreq_location_label')) {
               <?php if ($showVendorColumn): ?><th>Vendor PO</th><?php endif; ?>
               <th>UOM</th>
               <th>Pemakaian</th>
-              <?php if (!$canVerify): ?>
-              <th class="text-end">Stok Beli</th>
-              <th class="text-end">Stok Isi</th>
-              <?php endif; ?>
+              <th class="text-end">Snapshot Gudang (Beli)</th>
+              <th class="text-end">Snapshot Gudang (Isi)</th>
               <th>Input Request</th>
               <th>Ke SR</th>
               <th>Ke PO</th>
@@ -559,6 +561,7 @@ if (!function_exists('finance_dreq_location_label')) {
   </div>
 
   <input type="hidden" name="lines_json" id="fieldLinesJson" value="">
+  <?php $this->load->view('procurement/_stock_review_panel', ['stock_review_csrf'=>$stock_review_csrf ?? '', 'request_id'=>$requestId, 'can_verify'=>$canVerify]); ?>
 
   <div class="d-flex justify-content-end gap-2 mb-4">
     <a href="<?php echo $requestId > 0 ? site_url('procurement/division-po-sr/detail/' . $requestId) : site_url('procurement/division-po-sr'); ?>" class="btn btn-light">Batal</a>
@@ -2158,6 +2161,7 @@ if (!function_exists('finance_dreq_location_label')) {
         delete payload.suggestion_query;
         return payload;
       }));
+      document.dispatchEvent(new CustomEvent('procurement-lines-changed'));
     }
   }
 
@@ -2262,6 +2266,8 @@ if (!function_exists('finance_dreq_location_label')) {
           + vendorCellHtml
           + '<td class="dreq-uom-cell"><div class="fw-semibold">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</div><div class="small text-muted">' + esc(packSummary(row)) + '</div></td>'
           + usageCellHtml
+          + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_buy_balance) + '</td>'
+          + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_content_balance) + '</td>'
           + '<td><div class="dreq-request-stack">' + requestDisplayHtml + (hasMode && requestSummary ? '<div class="small text-muted">~ ' + esc(requestSummary) + '</div>' : '<div class="small text-muted">' + esc(requestCaption) + '</div>') + '</div></td>'
           + '<td>' + srDisplayHtml + '</td>'
           + '<td><div class="dreq-request-stack">' + poDisplayHtml + (hasMode && poSummary ? '<div class="small text-muted">~ ' + esc(poSummary) + '</div>' : '<div class="small text-muted">' + esc(poCaption) + '</div>') + '</div></td>'

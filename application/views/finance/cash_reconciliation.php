@@ -275,6 +275,18 @@ $accountOptions = $rows;
                       <?php endif; ?>
                     </div>
                     <div class="recon-note-wrap">
+                      <label class="form-label"><?= $isPosted ? 'Kategori saat posting (riwayat)' : 'Kategori laporan (untuk mutasi masuk/keluar)' ?></label>
+                      <?php if ($isPosted): ?><div class="small text-muted mb-1">Koreksi kategori laporan terkini melalui <a href="<?= site_url('finance/mutations') ?>">Mutasi Rekening</a>; kategori saat posting tetap sebagai riwayat.</div><?php endif; ?>
+                      <select class="form-select form-select-sm" data-role="report-category" <?= (!$canEdit || $isPosted) ? 'disabled' : '' ?>>
+                        <option value="">Pilih kategori sebelum posting...</option>
+                        <?php foreach ((array)($report_categories ?? []) as $code => $option): ?>
+                          <option value="<?= html_escape($code) ?>" data-direction="<?= html_escape($option['direction']) ?>" <?= (string)($row['report_category'] ?? '') === $code ? 'selected' : '' ?>><?= html_escape($option['label']) ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                      <small class="text-muted">Modal/prive/koreksi saldo saja tidak menjadi hasil operasional. Jangan catat biaya yang sudah dipotong di POS atau rekonsiliasi pendapatan.</small>
+                      <?php $this->load->view('finance/_settlement_select',['settlement_options'=>$settlement_options??[],'settlement_selected'=>$row['settlement_control_id']??0,'settlement_charge_selected'=>$row['settlement_charge_id']??0,'settlement_disabled'=>!$canEdit||$isPosted]); ?>
+                    </div>
+                    <div class="recon-note-wrap">
                       <label class="form-label">Catatan / Alasan</label>
                       <input class="form-control form-control-sm" data-role="resolution-note" maxlength="255" placeholder="Opsional, tetapi dianjurkan untuk selisih." value="<?= html_escape((string)($row['resolution_note'] ?? '')) ?>" <?= (!$canEdit || $isPosted) ? 'disabled' : '' ?>>
                     </div>
@@ -378,7 +390,7 @@ $accountOptions = $rows;
   const request = async (url, payload) => {
     const body = { ...payload };
     if (csrfName && csrfHash) body[csrfName] = csrfHash;
-    const response = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(body) });
+    const response = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Finance-Reconciliation-CSRF': <?= json_encode($reconciliation_csrf ?? '') ?> }, body: JSON.stringify(body) });
     const data = await response.json().catch(() => ({ ok: false, message: 'Respons server tidak dapat dibaca.' }));
     if (!response.ok || !data.ok) throw new Error(data.message || 'Permintaan rekonsiliasi gagal.');
     return data;
@@ -422,6 +434,12 @@ $accountOptions = $rows;
       if (type.selectedOptions[0]?.disabled) type.value = 'NONE';
     }
     if (counter) counter.classList.toggle('show', type && type.value === 'TRANSFER');
+    const category=card.querySelector('[data-role="report-category"]');
+    if(category && type && !posted){
+      category.disabled=type.value==='TRANSFER';
+      for(const option of category.options) option.disabled=!!option.value && ['IN','OUT'].includes(type.value) && option.dataset.direction!=='BOTH' && option.dataset.direction!==type.value;
+      if(category.selectedOptions[0]?.disabled)category.value='';
+    }
     if (post) post.disabled = !canPostLiveAdjustment || posted || !card.dataset.lineId || difference === null || Math.abs(difference) < .005 || !type || type.value === 'NONE';
     if (!hint) return;
     if (posted) { hint.textContent = 'Penyesuaian sudah direkam. Gunakan riwayat mutasi untuk menelusuri dampaknya.'; return; }
@@ -455,9 +473,10 @@ $accountOptions = $rows;
     const type = card.querySelector('[data-role="resolution-type"]'); if (type) type.value = line.resolution_type || 'NONE';
     const counter = card.querySelector('[data-role="counter-account"]'); if (counter) counter.value = line.counter_account_id || '';
     const note = card.querySelector('[data-role="resolution-note"]'); if (note) note.value = line.resolution_note || '';
+    const category = card.querySelector('[data-role="report-category"]'); if (category) category.value = line.report_category || '';
     const save = card.querySelector('[data-role="save"]'); const post = card.querySelector('[data-role="post"]');
     if (line.status === 'POSTED') {
-      [actual, type, counter, note, save, post].filter(Boolean).forEach(el => { el.disabled = true; });
+      [actual, type, counter, note, category, save, post].filter(Boolean).forEach(el => { el.disabled = true; });
       const postedNote = card.querySelector('[data-role="posted-note"]');
       if (postedNote) { postedNote.classList.remove('d-none'); postedNote.innerHTML = `<i class="ri-shield-check-line"></i>Diposting ${line.resolved_at || ''}${line.mutation_no ? ` · ${line.mutation_no}` : ''}`; }
       stateText(card, 'Terkunci setelah penyesuaian diposting.', 'saved');
@@ -505,6 +524,9 @@ $accountOptions = $rows;
     resolution_type: card.querySelector('[data-role="resolution-type"]').value,
     counter_account_id: Number(card.querySelector('[data-role="counter-account"]')?.value || 0),
     resolution_note: card.querySelector('[data-role="resolution-note"]')?.value || '',
+    report_category: card.querySelector('[data-role="report-category"]')?.value || '',
+    settlement_control_id: Number(card.querySelector('[data-role="settlement-control"]')?.value || 0),
+    settlement_charge_id: Number(card.querySelector('[data-role="settlement-charge"]')?.value || 0),
   });
   const saveCard = async (card, silent = false) => {
     const payload = payloadFor(card);
@@ -556,7 +578,7 @@ $accountOptions = $rows;
       stateText(card, 'Belum tersimpan. Pindah dari field atau tekan Simpan.', '');
       updateActionUi(card);
     });
-    [type, counter, note].filter(Boolean).forEach(el => el.addEventListener('change', () => {
+    [type, counter, note, card.querySelector('[data-role="report-category"]'), card.querySelector('[data-role="settlement-control"]'), card.querySelector('[data-role="settlement-charge"]')].filter(Boolean).forEach(el => el.addEventListener('change', () => {
       markDirty();
       updateActionUi(card);
       if (parseMoney(actual?.value) !== null) saveCard(card, true);

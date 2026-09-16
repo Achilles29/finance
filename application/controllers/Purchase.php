@@ -1,5 +1,6 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
+require_once __DIR__ . '/../libraries/Finance_settlement_control.php';
 
 class Purchase extends MY_Controller
 {
@@ -120,6 +121,9 @@ class Purchase extends MY_Controller
             'editability' => $this->Purchase_model->get_order_data_editability($purchaseOrderId),
             'purchase_mutation_csrf_token' => $this->purchase_mutation_csrf(),
         ];
+
+        $this->load->model('Procurement_model');
+        $data['stock_review_history'] = $this->Procurement_model->stock_review_history('PO',$purchaseOrderId);
 
         $this->render('purchase/order_detail', $data);
     }
@@ -687,6 +691,10 @@ class Purchase extends MY_Controller
 
         $data = [
             'title' => 'Mutasi Keuangan Rekening',
+            'report_categories' => Finance_mutation_policy::categories(),
+            'settlement_options' => Finance_settlement_control::options($this->db),
+            'category_schema_ready' => $this->db->field_exists('report_category', 'fin_account_mutation_log'),
+            'can_classify_mutation' => $this->can(self::PAGE_ORDER, 'edit'),
             'active_menu' => 'finance.mutation',
             'accounts' => $this->Purchase_model->list_active_company_accounts(),
             'summary' => $this->Purchase_model->get_account_mutation_summary($accountId, $dateFrom, $dateTo, $scope, $mutationType, $moduleFilter),
@@ -705,6 +713,18 @@ class Purchase extends MY_Controller
         ];
 
         $this->render('purchase/finance_mutation_index', $data);
+    }
+
+    public function finance_mutation_classify()
+    {
+        $this->require_permission(self::PAGE_ORDER, 'edit');
+        if (!$this->require_purchase_mutation_csrf()) {
+            return;
+        }
+        $result = $this->Purchase_model->classify_account_mutation($this->requestPayload(),
+            (int)($this->current_user['id'] ?? 0), (string)$this->input->ip_address());
+        $this->output->set_status_header(!empty($result['ok']) ? 200 : 422)
+            ->set_content_type('application/json')->set_output(json_encode($result));
     }
 
     public function finance_mutation_store()

@@ -16,7 +16,7 @@
         "audience": "CUSTOMER",
         "sample_data": "NONE",
         "rules_path": "tools/release/customer_clean_profile.json",
-        "rules_sha256": "77d6352569e2ed3ee22f22ed357e68280423b5ab9a413d58256fc16aa34ed570",
+        "rules_sha256": "02940e1fa103fc99211e531d02f954ab131e5c35282918b5c276cc8627750466",
         "default": true
       }
     ]

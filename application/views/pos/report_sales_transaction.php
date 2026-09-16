@@ -161,6 +161,34 @@ $this->load->view('pos/_report_styles');
 ?>
 
 <style>
+	.pos-tx-page,
+	.pos-tx-page .pos-report-shell,
+	.pos-tx-page .pos-report-section {
+		min-width: 0;
+		max-width: 100%;
+	}
+	.pos-tx-page .pos-report-kv {
+		grid-template-columns: auto minmax(0, 1fr);
+	}
+	.pos-tx-page .pos-report-kv > span {
+		overflow-wrap: anywhere;
+	}
+	.pos-tx-page .pos-report-hero,
+	.pos-tx-page .pos-report-card,
+	.pos-tx-mini-card,
+	.pos-tx-doc {
+		overflow-wrap: anywhere;
+	}
+	.pos-tx-header-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: .5rem;
+		align-items: center;
+	}
+	.pos-tx-header-actions .btn {
+		min-height: 44px !important;
+		white-space: normal;
+	}
 	.pos-tx-grid {
 		display: grid;
 		grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -400,6 +428,48 @@ $this->load->view('pos/_report_styles');
 		}
 	}
 	@media (max-width: 575.98px) {
+		.pos-tx-page .pos-report-shell {
+			padding: .5rem;
+			border-radius: 18px;
+		}
+		.pos-tx-page .pos-report-hero {
+			padding: 1rem;
+		}
+		.pos-tx-page .pos-report-title {
+			font-size: 1.3rem;
+		}
+		.pos-tx-header-actions {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			width: 100%;
+		}
+		.pos-tx-header-actions .btn {
+			padding: .6rem .4rem;
+			font-size: .82rem;
+		}
+		.pos-tx-page .pos-report-kv {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.pos-tx-page .pos-report-kv > span {
+			margin-bottom: .4rem;
+			overflow-wrap: anywhere;
+		}
+		.pos-tx-page .pos-report-chip {
+			max-width: 100%;
+			flex-wrap: wrap;
+			overflow-wrap: anywhere;
+		}
+		.pos-tx-doc-head,
+		.pos-tx-line-head,
+		.pos-tx-breakdown-head {
+			flex-wrap: wrap;
+		}
+		.pos-tx-doc-head > *,
+		.pos-tx-line-head > * {
+			min-width: 0;
+			max-width: 100%;
+			overflow-wrap: anywhere;
+		}
 		.pos-tx-grid,
 		.pos-tx-breakdown,
 		.pos-tx-loyalty-grid {
@@ -408,7 +478,7 @@ $this->load->view('pos/_report_styles');
 	}
 </style>
 
-<div class="container-xxl py-3">
+<div class="container-xxl py-3 pos-tx-page">
 	<div class="pos-report-shell">
 		<div class="pos-report-hero mb-3">
 			<div class="d-flex flex-wrap justify-content-between gap-3">
@@ -416,7 +486,7 @@ $this->load->view('pos/_report_styles');
 					<div class="pos-report-title">Detail Transaksi POS</div>
 					<p class="pos-report-copy mb-0">Lihat nilai tagihan, penjualan bersih, HPP saat transaksi dibuat, pembalikan HPP refund, dan koreksi biaya setelah defisit stok terselesaikan dalam satu audit transaksi.</p>
 				</div>
-				<div class="d-flex gap-2">
+				<div class="pos-tx-header-actions" role="group" aria-label="Dokumen dan navigasi transaksi">
 					<a href="<?php echo site_url('pos/reports/sales/print/' . (int)($header['id'] ?? 0) . '/invoice'); ?>" target="_blank" rel="noopener" class="btn btn-primary"><i class="ri-file-text-line me-1"></i>Invoice</a>
 					<a href="<?php echo site_url('pos/reports/sales/print/' . (int)($header['id'] ?? 0) . '/receipt'); ?>" target="_blank" rel="noopener" class="btn btn-outline-primary"><i class="ri-bill-line me-1"></i>Kwitansi</a>
 					<a href="<?php echo site_url('pos/reports/sales'); ?>" class="btn btn-outline-secondary">Kembali ke Penjualan</a>

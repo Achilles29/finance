@@ -1,5 +1,6 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
+require_once __DIR__ . '/../libraries/Finance_mutation_policy.php';
 
 class Purchase_model extends CI_Model
 {
@@ -641,6 +642,9 @@ class Purchase_model extends CI_Model
             return [];
         }
 
+        $this->db->select($this->db->field_exists('report_category', 'fin_account_mutation_log')
+            ? 'm.report_category' : 'NULL AS report_category', false);
+
         $this->db
             ->select('m.id, m.mutation_no, m.mutation_date, m.account_id, m.mutation_type, m.amount, m.balance_before, m.balance_after')
             ->select('m.ref_module, m.ref_table, m.ref_id, m.ref_no, m.notes, m.created_at, a.account_code, a.account_name')
@@ -708,7 +712,7 @@ class Purchase_model extends CI_Model
         $scope = strtolower(trim($scope));
         $fieldPrefix = $alias !== '' ? ($alias . '.') : '';
         if ($scope === 'manual') {
-            $this->db->where_in($fieldPrefix . 'ref_module', ['FINANCE', 'FINANCE_RECON', 'FINANCE_TRANSFER']);
+            $this->db->where_in($fieldPrefix . 'ref_module', ['FINANCE', 'FINANCE_RECON', 'REVENUE_RECON', 'FINANCE_TRANSFER']);
         }
     }
 
@@ -921,7 +925,7 @@ class Purchase_model extends CI_Model
             $whereParts[] = "mutation_date <= " . $this->db->escape($to);
         }
         if (strtolower(trim($scope)) === 'manual') {
-            $whereParts[] = "ref_module IN ('FINANCE','FINANCE_RECON','FINANCE_TRANSFER')";
+            $whereParts[] = "ref_module IN ('FINANCE','FINANCE_RECON','REVENUE_RECON','FINANCE_TRANSFER')";
         }
         $mutationType = strtoupper(trim($mutationType));
         if (in_array($mutationType, ['IN', 'OUT'], true)) {
@@ -949,6 +953,70 @@ class Purchase_model extends CI_Model
             ->result_array();
     }
 
+    /** Metadata-only correction. Financial posting fields and balances stay immutable. */
+    public function classify_account_mutation(array $payload, int $userId, string $sourceIp = ''): array
+    {
+        $id = (int)($payload['mutation_id'] ?? 0);
+        $category = strtoupper(trim((string)($payload['report_category'] ?? '')));
+        $expected = (string)($payload['expected_category'] ?? '');
+        $reason = trim((string)($payload['reason'] ?? ''));
+        if ($id <= 0 || $reason === '' || mb_strlen($reason) > 255) {
+            return ['ok' => false, 'message' => 'Pilih mutasi dan isi alasan klasifikasi (maksimal 255 karakter).'];
+        }
+        if (!$this->db->field_exists('report_category', 'fin_account_mutation_log')
+            || !$this->db->table_exists('aud_transaction_log')) {
+            return ['ok' => false, 'message' => 'Schema kategori/audit belum siap. Jalankan migrasi terlebih dahulu.'];
+        }
+        $original = $this->db->get_where('fin_account_mutation_log', ['id' => $id], 1)->row_array();
+        if (!$original) {
+            return ['ok' => false, 'message' => 'Mutasi tidak ditemukan.'];
+        }
+        if ($this->db->trans_begin() === false) {
+            return ['ok' => false, 'message' => 'Transaksi klasifikasi gagal dimulai.'];
+        }
+        try {
+            Finance_mutation_policy::assert_open_period($this->db, (string)$original['mutation_date']);
+            $this->db->query('SELECT id FROM fin_company_account WHERE id=? FOR UPDATE',[(int)$original['account_id']]);
+            $row = $this->db->query('SELECT * FROM fin_account_mutation_log WHERE id = ? FOR UPDATE', [$id])->row_array();
+            if (!$row || (string)$row['mutation_date'] !== (string)$original['mutation_date']
+                || !Finance_mutation_policy::manual_module((string)$row['ref_module'])) {
+                throw new RuntimeException('Hanya mutasi manual/rekonsiliasi yang dapat diklasifikasikan di sini.');
+            }
+            if (!empty($row['reversal_of_mutation_id']) || $this->db->where('reversal_of_mutation_id', $id)->count_all_results('fin_account_mutation_log') > 0) {
+                throw new RuntimeException('Mutasi yang sudah dibatalkan atau merupakan pembalikan tidak dapat diklasifikasikan.');
+            }
+            if (!Finance_mutation_policy::valid($category, (string)$row['mutation_type'])) {
+                throw new RuntimeException('Kategori tidak sesuai arah mutasi.');
+            }
+            if ((string)($row['report_category'] ?? '') !== $expected) {
+                throw new RuntimeException('Kategori telah diubah pengguna lain. Muat ulang halaman sebelum melanjutkan.');
+            }
+            if ($category === $expected) {
+                throw new RuntimeException('Tidak ada perubahan kategori.');
+            }
+            if (!empty($row['settlement_control_id'])) {
+                require_once APPPATH . 'libraries/Finance_settlement_control.php';
+                Finance_settlement_control::assert_post($this->db,(int)$row['settlement_control_id'],$category,(int)$row['account_id'],(string)$row['mutation_date'],'CLASSIFY',$id,(int)($row['settlement_charge_id']??0));
+            }
+            $updated = $this->db->where('id', $id)->update('fin_account_mutation_log', ['report_category' => $category]);
+            $audit = $this->db->insert('aud_transaction_log', [
+                'module_code' => 'FINANCE', 'action_code' => 'MUTATION_CLASSIFY',
+                'entity_table' => 'fin_account_mutation_log', 'entity_id' => $id,
+                'transaction_no' => $row['mutation_no'], 'actor_user_id' => $userId ?: null,
+                'source_ip' => $sourceIp ?: null, 'notes' => $reason,
+                'before_payload' => json_encode(['report_category' => $expected]),
+                'after_payload' => json_encode(['report_category' => $category]),
+            ]);
+            if (!$updated || !$audit || $this->db->trans_status() === false || $this->db->trans_commit() === false) {
+                throw new RuntimeException('Klasifikasi atau audit gagal disimpan; perubahan dibatalkan.');
+            }
+            return ['ok' => true, 'message' => 'Kategori diperbarui. Saldo dan nilai mutasi tidak berubah; laporan berjalan memakai kategori baru.'];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
     public function apply_manual_account_mutation(array $payload, int $userId, string $sourceIp = ''): array
     {
         if (!$this->db->table_exists('fin_company_account') || !$this->db->table_exists('fin_account_mutation_log')) {
@@ -962,9 +1030,32 @@ class Purchase_model extends CI_Model
         $mutationType = strtoupper(trim((string)($payload['mutation_type'] ?? '')));
         $toAccountId = (int)($payload['to_account_id'] ?? 0);
         $amount = round((float)($payload['amount'] ?? 0), 2);
+        if (!is_numeric($payload['amount'] ?? null) || !is_finite($amount) || $amount > 9999999999999999.99) {
+            return ['ok' => false, 'message' => 'Nominal mutasi tidak valid atau melebihi batas.'];
+        }
         $mutationDate = $this->normalizeDate((string)($payload['mutation_date'] ?? date('Y-m-d')));
         $referenceNo = $this->nullableString($payload['reference_no'] ?? null);
         $notes = $this->nullableString($payload['notes'] ?? null);
+        $category = strtoupper(trim((string)($payload['report_category'] ?? '')));
+        $requestKey = trim((string)($payload['client_request_key'] ?? ''));
+        $settlementId = max(0, (int)($payload['settlement_control_id'] ?? 0));
+        $chargeId = max(0, (int)($payload['settlement_charge_id'] ?? 0));
+        if ($mutationType !== 'TRANSFER') {
+            if (!$this->db->field_exists('report_category', 'fin_account_mutation_log')
+                || !$this->db->field_exists('client_request_key', 'fin_account_mutation_log')) {
+                return ['ok' => false, 'message' => 'Kategori mutasi belum tersedia. Jalankan migrasi 2026-09-13a sebelum menyimpan.'];
+            }
+            if (!Finance_mutation_policy::valid($category, $mutationType)) {
+                return ['ok' => false, 'message' => 'Pilih kategori laporan yang sesuai dengan arah dana masuk/keluar.'];
+            }
+            if (!preg_match('/\A[a-f0-9]{32}\z/D', $requestKey)) {
+                return ['ok' => false, 'message' => 'Identitas permintaan tidak valid. Muat ulang halaman sebelum menyimpan.'];
+            }
+            if (in_array($category, ['PROMO_EXPENSE', 'PLATFORM_FEE'], true)
+                && ($referenceNo === null || ($payload['settlement_confirmed'] ?? null) !== true)) {
+                return ['ok' => false, 'message' => 'Isi referensi settlement dan konfirmasi biaya ini belum dipotong di POS atau mutasi lain.'];
+            }
+        }
 
         if ($mutationType === 'TRANSFER') {
             if ($accountId <= 0 || $toAccountId <= 0 || $accountId === $toAccountId || $amount <= 0 || $mutationDate === null) {
@@ -1167,6 +1258,40 @@ class Purchase_model extends CI_Model
                 return $rollback('Akun rekening tidak ditemukan atau tidak aktif.');
             }
 
+            // Serialize by account; an HTTP retry must not debit/credit twice.
+            $previous = $this->db->get_where('fin_account_mutation_log', [
+                'account_id' => $accountId, 'client_request_key' => $requestKey,
+            ], 1)->row_array();
+            if ($previous) {
+                if ((string)$previous['mutation_type'] !== $mutationType
+                    || abs((float)$previous['amount'] - $amount) >= .005
+                    || (string)$previous['mutation_date'] !== $mutationDate
+                    || (string)$previous['report_category'] !== $category
+                    || (int)($previous['settlement_control_id'] ?? 0) !== $settlementId
+                    || (int)($previous['settlement_charge_id'] ?? 0) !== $chargeId
+                    || (string)($previous['ref_no'] ?? '') !== (string)$referenceNo
+                    || (string)($previous['notes'] ?? '') !== (string)$notes) {
+                    return $rollback('Permintaan ini sudah dipakai untuk mutasi berbeda. Muat ulang halaman.');
+                }
+                $this->db->trans_rollback();
+                return ['ok' => true, 'replayed' => true, 'message' => 'Mutasi ini sudah tersimpan; saldo tidak diubah lagi.'];
+            }
+            if (!$chargeId && in_array($category, ['PROMO_EXPENSE', 'PLATFORM_FEE'], true)) {
+                $duplicate = $this->db->where([
+                    'account_id' => $accountId, 'ref_module' => 'FINANCE', 'report_category' => $category,
+                    'ref_no' => $referenceNo, 'mutation_date' => $mutationDate,
+                ])->where('reversal_of_mutation_id IS NULL', null, false)
+                    ->where('NOT EXISTS (SELECT 1 FROM fin_account_mutation_log rv WHERE rv.reversal_of_mutation_id=fin_account_mutation_log.id)', null, false)
+                    ->limit(1)->get('fin_account_mutation_log')->row_array();
+                if ($duplicate) {
+                    return $rollback('Kategori biaya dengan referensi dan tanggal ini sudah tercatat. Periksa riwayat mutasi agar tidak terpotong dua kali.');
+                }
+            }
+
+            require_once APPPATH . 'libraries/Finance_settlement_control.php';
+            try {
+                Finance_settlement_control::assert_post($this->db,$settlementId,$category,$accountId,$mutationDate,'FINANCE',0,$chargeId,$amount,$mutationType);
+            } catch (Throwable $e) { return $rollback($e->getMessage()); }
             $balanceBefore = (float)($account['current_balance'] ?? 0);
             $balanceAfter = $mutationType === 'IN'
                 ? round($balanceBefore + $amount, 2)
@@ -1196,6 +1321,10 @@ class Purchase_model extends CI_Model
                 'balance_before' => $balanceBefore,
                 'balance_after' => $balanceAfter,
                 'ref_module' => 'FINANCE',
+                'report_category' => $category,
+                'client_request_key' => $requestKey,
+                ...($this->db->field_exists('settlement_control_id','fin_account_mutation_log') ? ['settlement_control_id'=>$settlementId ?: null] : []),
+                ...($this->db->field_exists('settlement_charge_id','fin_account_mutation_log') ? ['settlement_charge_id'=>$chargeId ?: null] : []),
                 'ref_table' => null,
                 'ref_id' => null,
                 'ref_no' => $referenceNo,
@@ -1225,6 +1354,7 @@ class Purchase_model extends CI_Model
                         'balance_before' => $balanceBefore,
                         'balance_after' => $balanceAfter,
                         'mutation_date' => $mutationDate,
+                        'report_category' => $category,
                     ]),
                     'notes' => 'Mutasi rekening manual',
                 ]);

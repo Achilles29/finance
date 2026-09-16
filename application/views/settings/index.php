@@ -41,6 +41,10 @@ $lastLogin = trim((string)($user['last_login_at'] ?? ''));
     </div>
   </div>
 
+  <?php if (!empty($can_manage_roast_connect)): ?>
+  <div class="card mb-4"><div class="card-header">Integrasi aplikasi</div><div class="card-body"><h6>NAMUA × FINANCE</h6><p class="text-muted small">Buat token koneksi dan atur akses katalog stok untuk Roast Studio, termasuk ketika berjalan di server berbeda.</p><a class="btn btn-outline-primary" href="<?= site_url('system/roast-connect') ?>">Integrasi Roast Studio</a></div></div>
+  <?php endif; ?>
+
   <!-- Ganti Password -->
   <div class="card">
     <div class="card-header">Ganti Password</div>

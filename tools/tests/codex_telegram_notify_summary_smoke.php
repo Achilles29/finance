@@ -33,6 +33,9 @@ $check(strpos($summary, 'hidden-in-code') === false, 'fenced code is removed');
 $check(strpos($summary, 'internal.example.test') === false, 'link target is removed');
 $check(strpos($message, 'Ringkasan hasil:') !== false, 'notification has a user-facing summary heading');
 $check(strlen($message) < 4096, 'message remains below Telegram text limit');
+$pairCode = str_repeat('Q', 32);
+$check(strpos(finance_codex_notify_summary(['last-assistant-message' => '/codex pair ' . $pairCode]), $pairCode) === false,
+    'private owner pairing code never leaks into the group completion summary');
 $check(
     finance_codex_notify_summary(['last-assistant-message' => '']) === 'Tugas selesai. Detail hasil tersedia di thread Finance.',
     'empty final response uses a safe fallback'

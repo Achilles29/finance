@@ -213,6 +213,7 @@ class Procurement extends MY_Controller
             'title' => 'Store Request / Detail',
             'active_menu' => 'procurement.store-request',
             'detail' => $detail,
+            'stock_review_history' => $this->Procurement_model->stock_review_history('SR',$id),
         ];
 
         $this->render('procurement/store_request_detail', $data);
@@ -412,6 +413,7 @@ class Procurement extends MY_Controller
             'vendor_options' => $this->Purchase_model->list_active_vendors(),
             'is_purchase_scope' => $scope['is_purchase'],
             'can_verify' => false,
+            'stock_review_csrf' => $this->procurement_mutation_csrf(),
         ]);
     }
 
@@ -457,6 +459,7 @@ class Procurement extends MY_Controller
         $lines = (array)($detail['lines'] ?? []);
 
         if (strtolower((string)$this->input->method()) === 'post') {
+            if ($canVerify && !$this->require_division_verification_csrf()) return;
             [$headerInput, $linesInput] = $this->readDivisionRequestFormPayload();
             if ($headerInput !== null) {
                 $header = array_merge($header, $headerInput);
@@ -508,7 +511,58 @@ class Procurement extends MY_Controller
             'vendor_options' => $this->Purchase_model->list_active_vendors(),
             'is_purchase_scope' => $scope['is_purchase'],
             'can_verify' => $canVerify,
+            'stock_review_csrf' => $this->procurement_mutation_csrf(),
         ]);
+    }
+
+    public function division_stock_preview()
+    {
+        $scope = $this->divisionPoSrScope();
+        if (!$scope['can_view']) { $this->jsonError('Akses pengajuan tidak tersedia.',403); return; }
+        if (!$this->require_procurement_mutation_csrf()) return;
+        $this->output->set_header('Cache-Control: private, no-store');
+        $raw = (string)$this->input->raw_input_stream;
+        $payload = strlen($raw)<=131072 ? json_decode($raw,true,16) : null;
+        if (!is_array($payload) || !is_array($payload['header'] ?? null) || !is_array($payload['lines'] ?? null)
+            || count($payload['lines'])>100 || !is_scalar($payload['request_id'] ?? 0)) {
+            $this->jsonError('Data pemeriksaan stok tidak valid atau terlalu besar.',400); return;
+        }
+        $id = (int)($payload['request_id'] ?? 0); $header = $payload['header'];
+        foreach ($payload['lines'] as $line) {
+            if (!is_array($line)) { $this->jsonError('Baris pengajuan tidak valid.',400); return; }
+            foreach ($line as $value) {
+                if ($value!==null && !is_scalar($value)) { $this->jsonError('Isian baris pengajuan tidak valid.',400); return; }
+            }
+        }
+        if ($id<0 || !is_scalar($header['division_id'] ?? null) || !is_string($header['destination_type'] ?? null)) {
+            $this->jsonError('Divisi/lokasi stok tidak valid.',400); return;
+        }
+        $dbDebugBefore = (bool)$this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            if ($id>0) {
+                $query = $this->db->query('SELECT * FROM pur_division_request WHERE id=?',[$id]);
+                $existing = $query ? $query->row_array() : [];
+                if (!$existing) { $this->jsonError('Pengajuan tidak ditemukan.',404); return; }
+                $header['division_id'] = (int)$existing['division_id'];
+                $header['updated_at'] = (string)($existing['updated_at'] ?? '');
+            }
+            $divisionId = (int)$header['division_id'];
+            if ($divisionId<=0 || !$this->isDivisionRequestAccessible($divisionId,$scope)) {
+                $this->jsonError('Divisi berada di luar akses Anda.',403); return;
+            }
+            $guards = $this->Procurement_model->build_destination_guard_map($scope['division_options']);
+            $destination = strtoupper(trim($header['destination_type']));
+            if (!in_array($destination,$guards[$divisionId] ?? [],true)) {
+                $this->jsonError('Pilih lokasi stok yang sesuai divisi.',422); return;
+            }
+            $header['destination_type'] = $destination;
+            $result = $this->Procurement_model->preview_division_stock($id,$header,$payload['lines'],(int)($this->current_user['id'] ?? 0));
+            $this->output->set_status_header(!empty($result['ok'])?200:422)->set_content_type('application/json')
+                ->set_output(json_encode($result,JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE));
+        } catch (Throwable $e) {
+            $this->jsonError('Pemeriksaan stok belum tersedia. Jangan menganggap saldo nol; coba lagi atau hubungi pengelola.',503);
+        } finally { $this->db->db_debug = $dbDebugBefore; }
     }
 
     public function division_po_sr_profile_search()
@@ -608,12 +662,14 @@ class Procurement extends MY_Controller
             'can_reject' => $scope['can_verify'] && $status === 'SUBMITTED',
             'can_void' => $canVoid,
             'is_purchase_scope' => $scope['is_purchase'],
+            'stock_review_history' => $this->Procurement_model->stock_review_history('REQUEST',$id),
         ]);
     }
 
     public function division_po_sr_verify(int $id = 0)
     {
         $this->require_permission(self::PAGE_DIVISION, 'edit');
+        if (!$this->require_procurement_mutation_csrf()) return;
         if ($id <= 0) {
             $this->jsonError('Request ID tidak valid.', 422);
             return;
@@ -1359,12 +1415,16 @@ class Procurement extends MY_Controller
             return [null, []];
         }
 
+        $reviewJson = $this->input->post('stock_review_json',false);
+        $review = is_string($reviewJson) && strlen($reviewJson)<=8192 ? json_decode($reviewJson,true,8) : null;
+
         return [[
             'request_date' => $requestDate,
             'needed_date' => $neededDate,
             'division_id' => $divisionId,
             'destination_type' => $destinationType,
             'notes' => $notes,
+            'stock_review' => is_array($review) ? $review : [],
         ], $decodedLines];
     }
 
@@ -1391,6 +1451,17 @@ class Procurement extends MY_Controller
         }
 
         return $token;
+    }
+
+    private function require_division_verification_csrf(): bool
+    {
+        $token = $this->input->post('procurement_csrf',false);
+        $expected = $this->session->userdata(self::PROCUREMENT_MUTATION_CSRF_SESSION_KEY);
+        if ($this->input->method(true)!=='POST' || !is_string($token) || !is_string($expected)
+            || !preg_match('/\A[a-f0-9]{64}\z/D',$expected) || !hash_equals($expected,$token)) {
+            $this->jsonError('Sesi verifikasi tidak valid. Muat ulang halaman pengajuan.',403); return false;
+        }
+        return true;
     }
 
     private function require_procurement_mutation_csrf(): bool

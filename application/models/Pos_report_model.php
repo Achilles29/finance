@@ -105,6 +105,50 @@ class Pos_report_model extends CI_Model
      * the same order/refund/HPP summaries as the margin reports, so audit
      * results never need to rebuild inventory or mutate POS history.
      */
+    /** Management P&L: recognition dates, never live recipe costs or stock repairs. */
+    public function financial_profit_loss_basis(string $from, string $to): array
+    {
+        $end = date('Y-m-d', strtotime($to . ' +1 day'));
+        $read = function (string $sql, array $args): array {
+            $q = $this->db->query($sql, $args);
+            if ($q === false) throw new RuntimeException('Sumber laba-rugi tidak dapat dibaca.');
+            return $q->row_array();
+        };
+        // Refund mutates remaining order lines but retains the original paid_total.
+        // Restore original sale HPP first, then recognize refunds on their own date.
+        $sales = $read("SELECT COUNT(*) order_count,
+            COALESCE(SUM(CASE WHEN COALESCE(rf.amount,0)>0 AND o.paid_total>0 THEN o.paid_total ELSE o.grand_total END),0) billing,
+            COALESCE(SUM(o.tax_amount),0) tax,
+            COALESCE(SUM(COALESCE(hp.hpp_sale_amount,0)+COALESCE(rc.hpp_refund_reversed_amount,0)),0) sale_hpp
+            FROM pos_order o LEFT JOIN " . $this->order_hpp_summary_subquery() . " hp ON hp.order_id=o.id
+            LEFT JOIN " . $this->order_refund_hpp_summary_subquery() . " rc ON rc.order_id=o.id
+            LEFT JOIN (SELECT order_id,SUM(refund_amount) amount FROM pos_refund WHERE refund_status='POSTED' GROUP BY order_id) rf ON rf.order_id=o.id
+            WHERE o.paid_at>=? AND o.paid_at<? AND o.status NOT IN ('DRAFT','PENDING','VOID','PAID_PARTIAL')", [$from,$end]);
+        $refunds = $read("SELECT COALESCE(SUM(r.refund_amount),0) refund,
+            COALESCE(SUM(COALESCE(rl.hpp,0)),0) refund_hpp FROM pos_refund r
+            JOIN pos_order o ON o.id=r.order_id
+            LEFT JOIN (SELECT refund_id,SUM(cost_reversed) hpp FROM pos_refund_line GROUP BY refund_id) rl ON rl.refund_id=r.id
+            WHERE r.refund_status='POSTED' AND r.refunded_at>=? AND r.refunded_at<? AND o.paid_at IS NOT NULL
+            AND o.status NOT IN ('DRAFT','PENDING','VOID','PAID_PARTIAL')", [$from,$end]);
+        $correction = 0.; $reversal = 0.;
+        $correctionReady = $this->sales_hpp_audit_deficit_schema_ready();
+        if ($correctionReady) {
+            $correction = (float)$read("SELECT COALESCE(SUM(a.variance_amount),0) amount
+                FROM inv_stock_deficit_cogs_adjustment a JOIN pos_order o ON o.id=a.order_id
+                WHERE a.status='POSTED' AND a.recognition_date>=? AND a.recognition_date<? AND o.paid_at IS NOT NULL
+                AND o.status NOT IN ('DRAFT','PENDING','VOID','PAID_PARTIAL')", [$from,$end])['amount'];
+            if ($this->db->table_exists('inv_stock_deficit_cogs_reversal')) {
+                $reversal = (float)$read("SELECT COALESCE(SUM(r.variance_amount_reversed),0) amount
+                    FROM inv_stock_deficit_cogs_reversal r JOIN inv_stock_deficit_cogs_adjustment a ON a.id=r.cogs_adjustment_id
+                    JOIN pos_order o ON o.id=a.order_id WHERE a.status='POSTED' AND r.reversal_date>=? AND r.reversal_date<?
+                    AND o.paid_at IS NOT NULL AND o.status NOT IN ('DRAFT','PENDING','VOID','PAID_PARTIAL')", [$from,$end])['amount'];
+            }
+        }
+        return $sales + $refunds + ['correction'=>$correction,'reversal'=>$reversal,'correction_ready'=>$correctionReady,
+            'net_sales'=>round((float)$sales['billing']-(float)$sales['tax']-(float)$refunds['refund'],2),
+            'hpp'=>round((float)$sales['sale_hpp']-(float)$refunds['refund_hpp']+$correction-$reversal,2)];
+    }
+
     public function sales_hpp_integrity_audit(array $filters): array
     {
         $limit = max(1, min(50, (int)($filters['limit'] ?? 10)));
@@ -929,7 +973,7 @@ class Pos_report_model extends CI_Model
         $finalHppExpression = $this->sales_order_final_hpp_expression();
 
         return $this->db->select("\n                o.id,\n                o.order_no,\n                o.status,\n                o.order_scope,\n                o.service_type,\n                o.table_no,\n                o.ordered_at,\n                o.confirmed_at,\n                o.paid_at,\n                po.outlet_name,\n                m.member_no,\n                m.member_name,\n                {$customerExpr} AS customer_display_name,\n                e.employee_name AS cashier_name,\n                COALESCE(ls.line_count, 0) AS line_count,\n                COALESCE(ls.qty_total, 0) AS qty_total,\n                COALESCE(o.subtotal_amount, 0) + COALESCE(rf.refund_gross_amount, rf.refund_amount, 0) AS subtotal_amount,\n                COALESCE(o.discount_amount, 0) AS discount_amount,\n                COALESCE(o.promo_amount, 0) AS promo_amount,\n                COALESCE(o.voucher_amount, 0) AS voucher_amount,\n                COALESCE(o.point_redeem_amount, 0) AS point_redeem_amount,\n                COALESCE(o.compliment_amount, 0) AS compliment_amount,\n                COALESCE(o.discount_amount, 0)\n                    + COALESCE(o.promo_amount, 0)\n                    + COALESCE(o.voucher_amount, 0)\n                    + COALESCE(o.point_redeem_amount, 0)\n                    + COALESCE(o.compliment_amount, 0) AS sales_discount_amount,\n                COALESCE(o.tax_amount, 0) AS tax_amount,\n                COALESCE(o.service_amount, 0) AS service_amount,\n                COALESCE(o.grand_total, 0) AS grand_total,\n                {$billingBeforeRefundExpression} AS billing_before_refund,\n                COALESCE(o.paid_total, 0) AS paid_total,\n                COALESCE(o.change_total, 0) AS change_total,\n                COALESCE(rf.refund_amount, 0) AS refund_amount,\n                COALESCE(vd.void_amount, 0) AS void_amount,\n                {$netSalesExpression} AS net_sales,\n                {$hppAtSaleExpression} AS hpp_sale_amount,\n                COALESCE(rc.hpp_refund_reversed_amount, 0) AS hpp_refund_reversed_amount,\n                COALESCE(dc.hpp_deficit_correction_amount, 0) AS hpp_deficit_correction_amount,\n                {$finalHppExpression} AS hpp_final_amount,\n                ({$netSalesExpression} - {$finalHppExpression}) AS gross_profit,\n                CASE\n                    WHEN ABS({$netSalesExpression}) > 0.00001\n                    THEN ROUND((({$netSalesExpression} - {$finalHppExpression})\n                        / {$netSalesExpression}) * 100, 2)\n                    ELSE 0\n                END AS margin_percent,\n                COALESCE(pm.method_names, '') AS payment_method_names\n            ", false)
-            ->order_by('COALESCE(o.paid_at, o.confirmed_at, o.ordered_at)', 'DESC', false)
+            ->order_by('o.ordered_at', 'DESC')
             ->order_by('o.id', 'DESC')
             ->limit($limit, $offset)
             ->get()

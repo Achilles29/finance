@@ -17,6 +17,9 @@ $route['dashboard/production-suggestions'] = 'dashboard/production_suggestions';
 $route['settings']                  = 'settings/index';
 $route['settings/change-password']  = 'settings/change_password';
 
+// Read-only customer handbook; server chapters have a separate permission.
+$route['guide'] = 'user_guide/index';
+
 // Attendance
 $route['attendance/settings'] = 'attendance/settings';
 $route['attendance/daily'] = 'attendance/daily';
@@ -161,6 +164,7 @@ $route['procurement/division-po-sr/pdf'] = 'procurement/division_po_sr_pdf';
 $route['procurement/division-po-sr/create'] = 'procurement/division_po_sr_create';
 $route['procurement/division-po-sr/edit/(:num)'] = 'procurement/division_po_sr_edit/$1';
 $route['procurement/division-po-sr/profile-search'] = 'procurement/division_po_sr_profile_search';
+$route['procurement/division-po-sr/stock-preview'] = 'procurement/division_stock_preview';
 $route['procurement/division-po-sr/store'] = 'procurement/division_po_sr_store';
 $route['procurement/division-po-sr/detail/(:num)'] = 'procurement/division_po_sr_detail/$1';
 $route['procurement/division-po-sr/verify/(:num)'] = 'procurement/division_po_sr_verify/$1';
@@ -208,6 +212,7 @@ $route['purchase/payment/apply'] = 'purchase/payment_apply';
 $route['finance/accounts'] = 'master/index/company-account';
 $route['finance/mutations'] = 'purchase/finance_mutation_index';
 $route['finance/mutations/store'] = 'purchase/finance_mutation_store';
+$route['finance/mutations/classify'] = 'purchase/finance_mutation_classify';
 $route['finance/utang'] = 'finance/utang';
 $route['finance/utang/store'] = 'finance/utang_store';
 $route['finance/utang/update/(:num)'] = 'finance/utang_update/$1';
@@ -831,6 +836,15 @@ $route['pos/reports/sales-detail'] = 'pos/report_sales_detail';
 $route['pos/reports/sales-detail/(:num)'] = 'pos/report_sales_transaction/$1';
 $route['pos/reports/sales-extra'] = 'pos/report_sales_extra';
 $route['pos/reports/sales-audit'] = 'pos/report_sales_audit';
+$route['finance-reports/control'] = 'finance_insights/index';
+$route['finance-reports/accounting'] = 'finance_accounting/index';
+$route['finance-reports/accounting/post'] = 'finance_accounting/post';
+$route['finance-reports/accounting/settings/account'] = 'finance_accounting/save_setup/account';
+$route['finance-reports/accounting/settings/mapping'] = 'finance_accounting/save_setup/mapping';
+$route['finance-reports/control/lookup/(:any)'] = 'finance_insights/lookup/$1';
+$route['finance-reports/control/evidence/upload'] = 'finance_insights/evidence_upload';
+$route['finance-reports/control/evidence/(:num)'] = 'finance_insights/evidence_download/$1';
+$route['finance-reports/control/save/(:any)'] = 'finance_insights/save/$1';
 $route['pos/reports/payments'] = 'pos/report_payments';
 $route['pos/reports/payments/(:num)'] = 'pos/report_payment_detail/$1';
 $route['pos/reports/payment-methods'] = 'pos/report_payment_methods';
@@ -962,6 +976,9 @@ $route['dbtools/action/failover']               = 'system_tools/action_failover'
 $route['dbtools/action/restart-replication']    = 'system_tools/action_restart_replication';
 $route['system/activity-audit']                 = 'activity_audit/index';
 $route['system/business-profile']               = 'business_profile/index';
+$route['system/roast-connect'] = 'roast_integrations/index';
+$route['system/roast-connect/save'] = 'roast_integrations/save';
+$route['system/roast-connect/token'] = 'roast_integrations/rotate';
 $route['system/license']                        = 'license/index';
 
 $route['purchase/item-price-history']           = 'purchase/item_price_history';

@@ -33,6 +33,7 @@ $actionLabel = static function (string $action): string {
     return $labels[$key] ?? ($key !== '' ? $key : '-');
 };
 ?>
+<?php $this->load->view('procurement/_stock_review_history', ['stock_review_history'=>$stock_review_history ?? []]); ?>
 
 <style>
   .sr-detail-action-wrap { display: inline-flex; gap: 8px; flex-wrap: wrap; }

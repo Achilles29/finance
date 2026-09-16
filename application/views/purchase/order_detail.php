@@ -67,6 +67,7 @@ foreach (($statusTransitions[$currentStatus] ?? []) as $nextStatus) {
     }
 }
 ?>
+<?php $this->load->view('procurement/_stock_review_history', ['stock_review_history'=>$stock_review_history ?? []]); ?>
 
 <style>
     .po-timeline {

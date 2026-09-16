@@ -1,5 +1,6 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
+require_once __DIR__.'/../libraries/Procurement_stock_review.php';
 
 class Procurement_model extends CI_Model
 {
@@ -492,9 +493,11 @@ class Procurement_model extends CI_Model
         return [
             ['value' => 'BAR', 'label' => 'BAR (Reguler)'],
             ['value' => 'KITCHEN', 'label' => 'KITCHEN (Reguler)'],
+            ['value' => 'ROASTERY', 'label' => 'ROASTERY (Reguler)'],
             ['value' => 'OFFICE', 'label' => 'OFFICE'],
             ['value' => 'BAR_EVENT', 'label' => 'BAR EVENT'],
             ['value' => 'KITCHEN_EVENT', 'label' => 'KITCHEN EVENT'],
+            ['value' => 'ROASTERY_EVENT', 'label' => 'ROASTERY EVENT'],
             ['value' => 'OTHER', 'label' => 'OTHER'],
         ];
     }
@@ -1578,6 +1581,48 @@ class Procurement_model extends CI_Model
         ];
     }
 
+    private function stock_review_service(): Procurement_stock_review
+    {
+        $key = $this->session->userdata('procurement_stock_review_key');
+        if (!is_string($key) || !preg_match('/\A[a-f0-9]{64}\z/D',$key)) {
+            $key = bin2hex(random_bytes(32));
+            $this->session->set_userdata('procurement_stock_review_key',$key);
+        }
+        return new Procurement_stock_review($this->db,$key);
+    }
+
+    private function stock_review_context(int $requestId, array $header, int $userId): array
+    {
+        return ['request_id'=>$requestId,'division_id'=>(int)($header['division_id'] ?? 0),
+            'destination_type'=>(string)($header['destination_type'] ?? ''),'user_id'=>$userId,
+            'request_revision'=>(string)($header['updated_at'] ?? ''),'month'=>date('Y-m-01')];
+    }
+
+    public function preview_division_stock(int $requestId, array $header, array $lines, int $userId): array
+    {
+        if (count($lines)>100) return ['ok'=>false,'message'=>'Maksimal 100 baris untuk satu pemeriksaan stok.'];
+        $normalized = $this->normalize_division_request_lines($lines);
+        if (empty($normalized['ok'])) return $normalized;
+        $service = $this->stock_review_service();
+        $snapshot = $service->snapshot($this->stock_review_context($requestId,$header,$userId),$normalized['lines']);
+        return ['ok'=>true,'data'=>$service->preview($snapshot,time())];
+    }
+
+    public function stock_review_history(string $type, int $id): array
+    {
+        if ($id<=0 || !in_array($type,['REQUEST','SR','PO'],true) || !$this->db->table_exists('pur_division_stock_review')) return [];
+        $sql = 'SELECT v.*,r.request_no,u.username AS reviewer_name FROM pur_division_stock_review v
+            JOIN pur_division_request r ON r.id=v.request_id LEFT JOIN auth_user u ON u.id=v.reviewed_by';
+        $params = [$id];
+        if ($type==='REQUEST') $sql .= ' WHERE v.request_id=?';
+        else {
+            $sql .= ' WHERE EXISTS (SELECT 1 FROM pur_division_request_link l WHERE l.request_id=v.request_id AND l.doc_id=? AND l.doc_type=?)';
+            $params[] = $type;
+        }
+        $query = $this->db->query($sql.' ORDER BY v.id DESC LIMIT 10',$params);
+        return $query ? $query->result_array() : [];
+    }
+
     public function verify_division_request(int $requestId, array $header, array $lines, int $userId, string $sourceIp = ''): array
     {
         if (!$this->has_division_request_schema()) {
@@ -1607,7 +1652,8 @@ class Procurement_model extends CI_Model
 
         $requestDate = $this->normalize_date((string)($header['request_date'] ?? (string)($existing['request_date'] ?? '')));
         $neededDate = $this->normalize_date((string)($header['needed_date'] ?? (string)($existing['needed_date'] ?? '')));
-        $divisionId = (int)($header['division_id'] ?? (int)($existing['division_id'] ?? 0));
+        // A review may edit the destination, not move someone else's request to another division.
+        $divisionId = (int)($existing['division_id'] ?? 0);
         $destinationType = $this->resolve_division_request_destination_type($divisionId, (string)($header['destination_type'] ?? (string)($existing['destination_type'] ?? '')));
         $notes = $this->nullable_string($header['notes'] ?? ($existing['notes'] ?? null));
         if ($requestDate === null || $divisionId <= 0 || $destinationType === null) {
@@ -1621,6 +1667,18 @@ class Procurement_model extends CI_Model
         $lineRows = (array)($normalized['lines'] ?? []);
         if (empty($lineRows)) {
             return ['ok' => false, 'message' => 'Minimal 1 baris hasil verifikasi wajib diisi.'];
+        }
+
+        if (count($lineRows)>100) return ['ok'=>false,'message'=>'Maksimal 100 baris untuk satu verifikasi.'];
+        $reviewService = $this->stock_review_service();
+        $reviewContext = $this->stock_review_context($requestId,array_merge($existing,[
+            'division_id'=>$divisionId,'destination_type'=>$destinationType]),$userId);
+        $confirmation = is_array($header['stock_review'] ?? null) ? $header['stock_review'] : [];
+        try {
+            $snapshot = $reviewService->snapshot($reviewContext,$lineRows);
+            $reviewEvidence = $reviewService->validate($snapshot,$confirmation,time());
+        } catch (Throwable $e) {
+            return ['ok'=>false,'message'=>$e instanceof InvalidArgumentException ? $e->getMessage() : 'Pemeriksaan stok gagal. Tidak ada verifikasi yang disimpan.'];
         }
 
         $prepared = $this->prepare_division_request_routes((string)($existing['request_no'] ?? ''), $lineRows);
@@ -1637,7 +1695,33 @@ class Procurement_model extends CI_Model
             return ['ok' => false, 'message' => 'Purchase type inventory untuk draft PO belum tersedia.'];
         }
 
-        $this->db->trans_begin();
+        if ($this->db->trans_begin() === false) {
+            return ['ok'=>false,'message'=>'Transaksi verifikasi belum dapat dimulai. Tidak ada hasil yang disimpan.'];
+        }
+        // Serialize verification of this request; the stock review is point-in-time, not a reservation.
+        $lockedQuery = $this->db->query('SELECT * FROM pur_division_request WHERE id=? FOR UPDATE',[$requestId]);
+        $locked = $lockedQuery ? $lockedQuery->row_array() : [];
+        if (!$locked || $locked['status']!=='SUBMITTED' || (int)$locked['division_id']!==$divisionId
+            || (string)($locked['updated_at'] ?? '')!==(string)($existing['updated_at'] ?? '')) {
+            $this->db->trans_rollback();
+            return ['ok'=>false,'message'=>'Pengajuan sudah berubah atau diverifikasi pengguna lain. Muat ulang halaman.'];
+        }
+        try {
+            $snapshot = $reviewService->snapshot($reviewContext,$lineRows);
+            $reviewEvidence = $reviewService->validate($snapshot,$confirmation,time());
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok'=>false,'message'=>$e instanceof InvalidArgumentException ? $e->getMessage() : 'Pemeriksaan stok gagal. Tidak ada verifikasi yang disimpan.'];
+        }
+        if ($reviewEvidence) {
+            $savedReview = $this->db->insert('pur_division_stock_review',$reviewEvidence+[
+                'request_id'=>$requestId,'reviewed_by'=>$userId,'reviewed_at'=>date('Y-m-d H:i:s'),
+                'source_ip'=>substr($sourceIp,0,45)]);
+            if (!$savedReview) {
+                $this->db->trans_rollback();
+                return ['ok'=>false,'message'=>'Bukti konfirmasi stok gagal disimpan. Verifikasi dibatalkan.'];
+            }
+        }
 
         $this->db->where('request_id', $requestId)->delete('pur_division_request_link');
         $this->db->where('request_id', $requestId)->delete('pur_division_request_line');
@@ -1746,7 +1830,10 @@ class Procurement_model extends CI_Model
             return ['ok' => false, 'message' => 'Gagal menyimpan hasil verifikasi purchase.'];
         }
 
-        $this->db->trans_commit();
+        if ($this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
+            return ['ok'=>false,'message'=>'Penyimpanan verifikasi belum dapat dipastikan. Muat ulang pengajuan sebelum mencoba lagi.'];
+        }
 
         return [
             'ok' => true,

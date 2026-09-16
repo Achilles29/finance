@@ -1,5 +1,6 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
+require_once __DIR__ . '/../libraries/Finance_mutation_policy.php';
 
 class Finance_report_model extends CI_Model
 {
@@ -421,45 +422,8 @@ class Finance_report_model extends CI_Model
         $dateEnd = date('Y-m-t', strtotime($dateStart));
         $salaryMap = $this->attendance_salary_daily_map($dateStart, $dateEnd);
         $dailyMutationMap = [];
-
-        if ($this->db->table_exists('fin_account_mutation_log')) {
-            $mutationQuery = $this->db->select("
-                    mutation_date,
-                    COALESCE(SUM(CASE
-                        WHEN ref_module = 'POS'
-                         AND mutation_type = 'IN'
-                        THEN amount ELSE 0 END), 0) AS sales_total,
-                    COALESCE(SUM(CASE
-                        WHEN ref_module = 'POS'
-                         AND mutation_type = 'OUT'
-                         AND ref_table = 'pos_refund'
-                        THEN amount ELSE 0 END), 0) AS refund_total,
-                    COALESCE(SUM(CASE
-                        WHEN mutation_type = 'OUT'
-                         AND NOT (ref_module = 'POS' AND ref_table = 'pos_refund')
-                         AND COALESCE(ref_module, '') NOT IN ('FINANCE_TRANSFER', 'FINANCE_PAYABLE', 'FINANCE_RECEIVABLE', 'PAYROLL')
-                        THEN amount ELSE 0 END), 0) AS expense_total
-                ", false)
-                ->from('fin_account_mutation_log')
-                ->where('mutation_date >=', $dateStart)
-                ->where('mutation_date <=', $dateEnd);
-            $this->apply_effective_account_mutation_filter($mutationQuery);
-            $mutationRows = $mutationQuery
-                ->group_by('mutation_date')
-                ->order_by('mutation_date', 'ASC')
-                ->get()->result_array();
-
-            foreach ($mutationRows as $row) {
-                $key = (string)($row['mutation_date'] ?? '');
-                if ($key === '') {
-                    continue;
-                }
-                $dailyMutationMap[$key] = [
-                    'sales_total' => round((float)($row['sales_total'] ?? 0), 2),
-                    'refund_total' => round((float)($row['refund_total'] ?? 0), 2),
-                    'expense_total' => round((float)($row['expense_total'] ?? 0), 2),
-                ];
-            }
+        foreach ($this->estimation_mutation_rows($dateStart, $dateEnd, true) as $row) {
+            $dailyMutationMap[(string)$row['mutation_date']] = Finance_mutation_policy::totals($row);
         }
 
         $rows = [];
@@ -470,6 +434,15 @@ class Finance_report_model extends CI_Model
             'total_gross_profit' => 0.0,
             'total_salary' => 0.0,
             'total_final_profit' => 0.0,
+            'total_other_income' => 0.0,
+            'total_other_expense' => 0.0,
+            'total_other_pos_out' => 0.0,
+            'total_purchase' => 0.0,
+            'total_unclassified_in' => 0.0,
+            'total_unclassified_out' => 0.0,
+            'total_balance_only_in' => 0.0,
+            'total_balance_only_out' => 0.0,
+            'unclassified_count' => 0,
             'attendance_days_with_data' => 0,
             'days_in_month' => (int)date('t', strtotime($dateStart)),
         ];
@@ -478,7 +451,7 @@ class Finance_report_model extends CI_Model
         $endCursor = strtotime($dateEnd);
         while ($cursor <= $endCursor) {
             $day = date('Y-m-d', $cursor);
-            $mutation = (array)($dailyMutationMap[$day] ?? []);
+            $mutation = Finance_mutation_policy::totals((array)($dailyMutationMap[$day] ?? []));
             $salary = (array)($salaryMap[$day] ?? []);
             $salesTotal = round((float)($mutation['sales_total'] ?? 0), 2);
             $refundTotal = round((float)($mutation['refund_total'] ?? 0), 2);
@@ -486,7 +459,7 @@ class Finance_report_model extends CI_Model
             $salaryTotal = round((float)($salary['salary_total'] ?? 0), 2);
             $attendanceBase = round((float)($salary['attendance_base_total'] ?? max(0, $salaryTotal - (float)($salary['overtime_total'] ?? 0))), 2);
             $overtimeTotal = round((float)($salary['overtime_total'] ?? 0), 2);
-            $grossProfit = round($salesTotal - $refundTotal - $expenseTotal, 2);
+            $grossProfit = (float)$mutation['gross_profit'];
             $finalProfit = round($grossProfit - $salaryTotal, 2);
             $hasAttendance = !empty($salary['has_attendance']);
 
@@ -494,7 +467,7 @@ class Finance_report_model extends CI_Model
                 $overview['attendance_days_with_data']++;
             }
 
-            $rows[] = [
+            $rows[] = array_merge($mutation, [
                 'date' => $day,
                 'sales_total' => $salesTotal,
                 'refund_total' => $refundTotal,
@@ -505,7 +478,7 @@ class Finance_report_model extends CI_Model
                 'overtime_total' => $overtimeTotal,
                 'final_profit' => $finalProfit,
                 'has_attendance' => $hasAttendance,
-            ];
+            ]);
 
             $overview['total_sales'] += $salesTotal;
             $overview['total_refund'] += $refundTotal;
@@ -513,11 +486,15 @@ class Finance_report_model extends CI_Model
             $overview['total_gross_profit'] += $grossProfit;
             $overview['total_salary'] += $salaryTotal;
             $overview['total_final_profit'] += $finalProfit;
+            foreach (['other_income', 'other_expense', 'other_pos_out', 'purchase', 'unclassified_in', 'unclassified_out', 'balance_only_in', 'balance_only_out'] as $part) {
+                $overview['total_' . $part] += (float)$mutation[$part . '_total'];
+            }
+            $overview['unclassified_count'] += (int)$mutation['unclassified_count'];
             $cursor = strtotime('+1 day', $cursor);
         }
 
         foreach ($overview as $key => $value) {
-            if ($key === 'attendance_days_with_data' || $key === 'days_in_month') {
+            if ($key === 'attendance_days_with_data' || $key === 'days_in_month' || $key === 'unclassified_count') {
                 $overview[$key] = (int)$value;
                 continue;
             }
@@ -532,7 +509,26 @@ class Finance_report_model extends CI_Model
             'month_label' => $this->month_label_id($dateStart),
             'overview' => $overview,
             'rows' => $rows,
+            'category_schema_ready' => $this->table_has_field('fin_account_mutation_log', 'report_category'),
         ];
+    }
+
+    private function estimation_mutation_rows(string $dateStart, string $dateEnd, bool $daily = false): array
+    {
+        if (!$this->db->table_exists('fin_account_mutation_log')) {
+            return [];
+        }
+        $select = $daily ? ['mutation_date'] : [];
+        foreach (Finance_mutation_policy::expressions($this->table_has_field('fin_account_mutation_log', 'report_category')) as $name => $expression) {
+            $select[] = $expression . ' AS ' . $name;
+        }
+        $query = $this->db->select(implode(', ', $select), false)->from('fin_account_mutation_log')
+            ->where('mutation_date >=', $dateStart)->where('mutation_date <=', $dateEnd);
+        $this->apply_effective_account_mutation_filter($query);
+        if ($daily) {
+            $query->group_by('mutation_date')->order_by('mutation_date', 'ASC');
+        }
+        return $query->get()->result_array();
     }
 
     public function bank_daily_recap(string $month): array
@@ -4256,51 +4252,27 @@ class Finance_report_model extends CI_Model
 
     private function estimated_profit_summary(string $dateStart, string $dateEnd): array
     {
-        $netRevenue = 0.0;
-        $expenseTotal = 0.0;
-        if ($this->db->table_exists('fin_account_mutation_log')) {
-            $mutationQuery = $this->db->select("
-                    COALESCE(SUM(CASE
-                        WHEN ref_module = 'POS'
-                         AND mutation_type = 'IN'
-                        THEN amount ELSE 0 END), 0) AS sales_total,
-                    COALESCE(SUM(CASE
-                        WHEN ref_module = 'POS'
-                         AND mutation_type = 'OUT'
-                         AND ref_table = 'pos_refund'
-                        THEN amount ELSE 0 END), 0) AS refund_total,
-                    COALESCE(SUM(CASE
-                        WHEN mutation_type = 'OUT'
-                         AND NOT (ref_module = 'POS' AND ref_table = 'pos_refund')
-                         AND COALESCE(ref_module, '') NOT IN ('FINANCE_TRANSFER', 'FINANCE_PAYABLE', 'FINANCE_RECEIVABLE', 'PAYROLL')
-                        THEN amount ELSE 0 END), 0) AS expense_total
-                ", false)
-                ->from('fin_account_mutation_log')
-                ->where('mutation_date >=', $dateStart)
-                ->where('mutation_date <=', $dateEnd);
-            $this->apply_effective_account_mutation_filter($mutationQuery);
-            $row = $mutationQuery
-                ->get()->row_array();
-
-            $netRevenue = round((float)($row['sales_total'] ?? 0) - (float)($row['refund_total'] ?? 0), 2);
-            $expenseTotal = round((float)($row['expense_total'] ?? 0), 2);
-        }
+        $totals = Finance_mutation_policy::totals($this->estimation_mutation_rows($dateStart, $dateEnd)[0] ?? []);
+        $netRevenue = (float)$totals['net_revenue'];
+        $expenseTotal = (float)$totals['expense_total'];
 
         $planning = $this->planning_summary($dateStart, $dateEnd);
         $salaryTotal = round((float)($planning['salary_estimate_running'] ?? 0), 2);
-        $estimatedProfit = round($netRevenue - $expenseTotal - $salaryTotal, 2);
+        $estimatedProfit = round($totals['gross_profit'] - $salaryTotal, 2);
         $estimatedProfitPercent = $netRevenue > 0 ? round(($estimatedProfit / $netRevenue) * 100, 2) : 0.00;
         $payrollSourceMode = strtoupper((string)($planning['salary_source_mode'] ?? 'ESTIMATE'));
 
         return [
             'net_revenue' => $netRevenue,
             'expense_total' => $expenseTotal,
+            'other_income_total' => $totals['other_income_total'],
+            'unclassified_count' => (int)$totals['unclassified_count'],
             'salary_total' => $salaryTotal,
             'estimated_profit_value' => $estimatedProfit,
             'estimated_profit_percent' => $estimatedProfitPercent,
-            'notes' => $payrollSourceMode === 'ACTUAL'
-                ? 'Profit estimasi = omzet bersih - pengeluaran - gaji aktual yang sudah tergenerate.'
-                : 'Profit estimasi = omzet bersih - pengeluaran - estimasi gaji berjalan.',
+            'notes' => 'Estimasi operasional berbasis kas = penerimaan POS - refund + pendapatan lain - pengeluaran - '
+                . ($payrollSourceMode === 'ACTUAL' ? 'gaji aktual tergenerate.' : 'estimasi gaji berjalan.')
+                . ' Bukan laba-rugi akuntansi. Mutasi perlu klasifikasi: ' . (int)$totals['unclassified_count'] . '.',
         ];
     }
 

@@ -47,6 +47,7 @@
     "output/",
     "sql/_old/",
     "tmp/",
+    "tools/telegram/codex_bridge/",
     "uploads/",
     "vendor/"
   ],

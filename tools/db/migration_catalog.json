@@ -247,6 +247,47 @@
         "clean_install",
         "upgrade"
       ]
+    },
+    {
+      "id": "2026-09-12a-roast-connect-catalog",
+      "order": 2026091201,
+      "path": "sql/2026-09-12a_roast_connect_catalog.sql",
+      "sha256": "bfef6af7479929d8fa99671b2156a65570ab67e3013d52980afec1d56c444847",
+      "dependencies": [
+        "2026-09-04c-a5-schema-migration-registry-foundation"
+      ],
+      "classification": "schema",
+      "policies": [
+        "clean_install",
+        "upgrade"
+      ]
+    },
+    {
+      "id": "2026-09-13a-finance-mutation-reporting-category",
+      "order": 2026091301,
+      "path": "sql/2026-09-13a_finance_mutation_reporting_category.sql",
+      "sha256": "42c2d3e122ff776254a8838d622fd99dacdced60d38fbc5336104772dcb975f9",
+      "dependencies": ["2026-09-04c-a5-schema-migration-registry-foundation"],
+      "classification": "schema",
+      "policies": ["clean_install", "upgrade"]
+    },
+    {
+      "id": "2026-09-14a-finance-control-workspace",
+      "order": 2026091401,
+      "path": "sql/2026-09-14a_finance_control_workspace.sql",
+      "sha256": "5ba57770cdd2b4b12d67cb06acb340423ea454e60bb19234f60546adaad4567e",
+      "dependencies": ["2026-09-13a-finance-mutation-reporting-category"],
+      "classification": "schema",
+      "policies": ["clean_install", "upgrade"]
+    },
+    {
+      "id": "2026-09-14b-finance-control-operations",
+      "order": 2026091402,
+      "path": "sql/2026-09-14b_finance_control_operations.sql",
+      "sha256": "9034c6db9dbea17054ff78ade67ee281d5a07f885c56a77f21a152d2e7b0f2af",
+      "dependencies": ["2026-09-14a-finance-control-workspace"],
+      "classification": "schema",
+      "policies": ["clean_install", "upgrade"]
     }
   ]
 }

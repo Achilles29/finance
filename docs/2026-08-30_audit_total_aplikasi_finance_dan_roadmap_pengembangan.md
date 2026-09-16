@@ -1,5 +1,173 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Review Batch 265 — 2026-09-16 (lintas perbaikan Batch 1–264, bukan hanya pengajuan divisi):**
+
+- [x] Disusun [checklist UAT seluruh perbaikan Finance](2026-09-16_checklist_uat_seluruh_perbaikan_finance.md): **98 skenario / 23 kelompok modul**, langkah/hasil yang diharapkan dan batas tes tulis/perangkat/admin. Ini lembar penerimaan, bukan roadmap ketiga. Semua kotak tes manual tetap kosong.
+- [x] Regresi terpilih **22 suite / 1.606 assertion agregat PASS**, serta lint **62 file PHP application** yang berubah/baru PASS. Source/fixture/SQLite memory/DOM sintetis; bukan bukti UAT, kesesuaian nominal produksi atau E2E semua modul.
+- [ ] PR-01/02/03 pada Batch 264 tetap terbuka. Jurnal belum mencakup seluruh pengakuan akrual otomatis; uji browser/perangkat/konkurensi MariaDB dan penerimaan pengguna belum lengkap. Prioritas engineer tetap PR-01 → PR-02 → PR-03; pengguna dapat mulai skenario FIN/REC/CTL/ALC/GL/POS/HR secara terisolasi.
+- [x] Katalog/profil paket diperiksa read-only; beberapa SQL dan kode terbaru belum terdaftar untuk customer. Handoff ini dicatat di `_28`, tidak ditutup oleh tes source. Tidak ada perubahan runtime/SQL/database/server/credential/bridge, push atau deploy pada review ini.
+
+**Review Batch 264 — 2026-09-16 06:21 WIB (A3 procurement: REVIEW_OPEN):**
+
+- [x] SQL `2026-09-16a` ditandai **USER_REPORTED_APPLIED** sesuai konfirmasi pengguna; tidak dijalankan ulang/diubah checksum. Postcheck metadata/UI belum diterima; bukan SCHEMA_VERIFIED.
+- [x] Review source dan ulang tes existing **185** pemeriksaan fitur + **102** pendukung lulus; dua probe tambahan justru mereproduksi **tiga temuan terbuka**, bukan dinyatakan PASS. Fixture SQLite/DOM sintetis, tidak membaca transaksi aplikasi. [Bukti teknis + 19 checklist tes manual U01–U19](2026-09-16_konfirmasi_stok_pengajuan_divisi.md).
+- [ ] **PR-01 Tinggi:** jalur edit memeriksa status/link sebelum transaksi tanpa lock/recheck. Dalam interleaving dengan verifikasi, dapat mengembalikan request VERIFIED menjadi SUBMITTED dan mengganti baris meskipun sudah ada PO/bukti. Perbaiki locking/recheck writer edit dan review reject/void; hindari edit-verifikasi simultan sementara.
+- [ ] **PR-02 Sedang:** barang OPERASIONAL yang terkait material bisa hilang dari review bila lookup pemetaan gagal. Bedakan bukan material yang valid dari lookup gagal; jangan menerima snapshot kosong akibat kegagalan layanan.
+- [ ] **PR-03 Sedang:** fetch preview tanpa timeout aplikasi membuat refresh nonaktif dan verifikasi tertahan bila jaringan tidak menyelesaikan respons. Perlu abort/timeout dan retry tanpa snapshot lama.
+- [x] Scope turn ini hanya review/checklist/docs/probe; tidak memperbaiki runtime, mengubah SQL/schema/konfigurasi, atau menyatakan UAT/release selesai. Prioritas berikut: PR-01 → PR-02 → PR-03, regression/UAT, baru outstanding procurement.
+
+**Delta Batch 263 — 2026-09-16 (A3: kontrol stok saat verifikasi pengajuan divisi; implementasi, lihat temuan review Batch 264):**
+
+- [x] Kolom snapshot gudang yang tersembunyi pada mode verifikasi ditampilkan. Panel baru membandingkan kuantitas pengajuan dengan saldo sistem divisi peminta dan gudang dalam satuan isi yang sama, terpisah per lokasi reguler/event.
+- [x] Stok divisi tersisa/negatif atau saldo tidak diketahui memerlukan nama pihak divisi, alasan dan pernyataan konfirmasi. Tidak melarang pengadaan yang memang diperlukan; saldo tidak terbaca tidak dianggap nol. Saldo divisi diketahui nol tidak memerlukan alasan tambahan jika gudang terbaca normal.
+- [x] Server memeriksa ulang saldo dan isi pengajuan, mengikat bukti ke request/actor/sesi/lokasi serta batas 15 menit. POST/CSRF/scope dijaga. Riwayat konfirmasi, snapshot, waktu dan pelaku disimpan atomik dengan hasil verifikasi dan ditampilkan pada detail pengajuan serta SR/PO turunannya.
+- [x] Tes reader/policy/view **52**, model verifikasi/HTTP **114**, client **19 PASS**, required gate terdaftar. Tidak membaca/mengubah transaksi nyata, menghitung ulang stok, atau mengganti alur pembagian SR/PO. [Laporan modul dan langkah aktivasi](2026-09-16_konfirmasi_stok_pengajuan_divisi.md).
+- [x] SQL `2026-09-16a_procurement_stock_review.sql` **USER_REPORTED_APPLIED**, konfirmasi dicatat 2026-09-16 06:21 WIB. Harus tersedia pada database instance aplikasi sebelum verifikasi bahan baku disimpan; belum postcheck langsung. Pengajuan operasional murni tanpa material tidak memerlukan tabel baru.
+- [ ] Postcheck MariaDB, UAT desktop/mobile dan konkurensi nyata belum dilakukan; tiga temuan Batch 264 tetap terbuka.
+- [ ] Batch lanjutan terpisah: tampilkan kebutuhan lain yang masih berjalan (pengajuan/SR/PO outstanding) tanpa double count. Guard ini ada pada verifikasi **pengajuan divisi**, belum pada SR/PO manual yang dibuat langsung. Kesiapan paket customer tetap di `_28`.
+
+**Delta Batch 262 — 2026-09-15 (A3: urutan Laporan Penjualan POS):**
+
+- [x] `/pos/reports/sales` memakai `ordered_at DESC, id DESC`, bukan waktu pembayaran/konfirmasi. Sorting dilakukan sebelum pagination; tabel desktop dan kartu mobile memakai dataset yang sama. Caption urutan diperjelas.
+- [x] Filter periode, status, outlet, scope, metode pembayaran, agregat dan HPP tidak diubah. Tes model/query ordering dengan fixture SQLite memory **18 PASS**; required gate `pos-sales-order-sort` ditambahkan. Tidak membaca/mengubah data transaksi atau membuat SQL baru.
+- [ ] UAT browser pada filter yang biasa digunakan belum dilakukan. Detail perubahan/bukti pada execution log Batch 262; handoff artifact tetap pada `_28`.
+
+**Delta Batch 261 — 2026-09-15 (A3: pusat panduan aplikasi, implementasi pendukung C5):**
+
+- [x] `/guide`: 26 bab terkurasi, enam topik, pencarian/peran, satu bab per layar, navigasi dropdown mobile, langkah → hasil yang dicek → peringatan → tautan modul sesuai izin. Bukan pembaca folder docs internal.
+- [x] Bab UI dan admin server dipisahkan. `system.guide.index` wajib; empat bab server memerlukan tambahan `system.guide.server`. Filter/pencarian/navigasi dilakukan setelah pembatasan server; halaman hanya GET, contoh perintah tidak dieksekusi dan secret/config runtime tidak dibaca. Versi sumber dari field manifest terpilih, bukan klaim artifact/deployment terverifikasi.
+- [x] Panduan instalasi/konfigurasi/cron/backup/update; alur POS, pembelian/stok/produksi, presensi/payroll/aset, kas/rekon/jurnal/tutup bulan. Keterbatasan APK dan jurnal otomatis dijelaskan. Scheduler staging lama, repair dan seed tidak ditawarkan sebagai cron customer rutin.
+- [x] Tes controller/library/view dan seed metadata SQLite memory **398 PASS**, JS salin/cetak **10 PASS**; keduanya required quality gate. Detail dan UAT pada [laporan modul panduan](2026-09-15_pusat_panduan_aplikasi.md).
+- [x] SQL `2026-09-15c_application_user_guide.sql` **USER_REPORTED_APPLIED**: pengguna mengonfirmasi sudah dijalankan, dicatat 2026-09-15 11:24 WIB. Dua page, satu menu di Sistem, izin awal View SUPERADMIN; metadata/sidebar/izin belum diverifikasi langsung. Agent tidak mengubah database, file SQL/checksum atau mengulang apply. Perintah pada laporan kini hanya arsip.
+- [ ] Aktivasi sidebar/izin nyata, replay MariaDB, browser desktop/mobile/cetak dan walkthrough pengguna awam belum dibuktikan. Registrasi migrasi/paket customer dan acceptance C5 tetap pada `_28`, bukan ditutup oleh tes kode.
+
+**Delta Batch 260 — 2026-09-15 (A4.3: regresi presensi PH otomatis):**
+
+- [x] Penyebab pesan “Layanan validasi PH belum tersedia” terbukti: guard memeriksa method `load` padahal loader CodeIgniter adalah properti. Diperbaiki di auto PH dan sinkron GRANT/USE setelah presensi reguler pada `My_portal_model`, tanpa bypass hak/saldo/masa berlaku PH atau kontrak aktif.
+- [x] Jadwal PH/PHB dengan hak/saldo valid diproses saat membuka Absensi Saya. Refresh tidak memakai jatah kedua; tidak menciptakan GRANT dari pemakaian PH. Status PH di UI jelas, tanpa tombol check-in/out/lokasi/GPS; shift biasa tetap menggunakan alur reguler. Catatan existing lain tidak ditimpa/dianggap sukses PH.
+- [x] Hasil insert/status transaksi diperiksa sebelum commit. Tes aktual model portal/PH dengan fixture SQLite **58 PASS**, A4.3 contract **253**, meal policy **7**, regresi jurnal **346 + 38**, quality gate **28**, roadmap **26**. Tes `attendance-auto-ph` menjadi required gate. [Laporan modul PH](2026-09-15_presensi_ph_otomatis.md).
+- [ ] UAT pegawai di staging dan konkurensi MariaDB belum dijalankan; agent tidak membuka halaman presensi live karena dapat menulis kehadiran. Tidak ada SQL PH baru, repair/backfill data lama, perubahan DB/config/credential, push/deploy atau perubahan bridge.
+- [x] SQL jurnal **15b USER_REPORTED_APPLIED** berdasarkan konfirmasi pengguna, dicatat 2026-09-15 10:25 WIB. Bukan schema/izin terverifikasi; tidak dijalankan ulang. Langkah jurnal berikut: postcheck/UAT, lalu integrasi jurnal sumber bertahap tanpa duplikasi pengakuan/pembayaran, baru kelengkapan tutup buku/penerbitan.
+
+**Delta Batch 259 — 2026-09-15 (A2/A3: asisten jurnal, pengaturan akun dan panduan awam):**
+
+- [x] Tab **Pengaturan Akun**: tambah/perjelas nama akun nonkas, aktif/nonaktif terbatas, serta pemetaan 15 jenis transaksi ke akun/kelompok arus kas. Izin `finance.accounting.settings` terpisah dari izin posting; kas/perantara/kode/kelompok existing dilindungi. Tidak menghapus akun, menghitung ulang jurnal atau memindahkan uang.
+- [x] Asisten pada **Belum Dijurnal → Tinjau & jurnal**: pilihan jenis berdasarkan arah/kategori sumber, penjelasan dan konfirmasi bukti sebelum mengisi satu akun lawan. Stok/aset, biaya, pelunasan, pinjaman, DP dan modal dibedakan. Bukan auto-post; edit manual membatalkan penanda saran. Mapping/hash akun stale/nonaktif ditolak server, provenance dicatat dalam audit; pembalik tetap memakai akun jurnal asal.
+- [x] Tab **Panduan** diperluas: pembagian tugas admin/operator/pengelola, langkah UI, kamus, contoh nominal, pencegahan pengakuan ganda dan checklist akhir bulan. Pengaturan/panduan tidak menampilkan filter bulan yang tidak relevan.
+- [x] Model/controller/partial render **346 PASS** SQLite memory; event/payload JS **38 PASS** DOM sintetis. Detail validasi dan sisa pada [laporan modul akuntansi](2026-09-15_akuntansi_jurnal_dan_arus_kas.md#batch-259--asisten-dan-pengaturan-akun). Uji browser kembali gagal memulai `read ECONNRESET`, bukan kelulusan visual/UAT.
+- [x] SQL **2026-09-15b USER_REPORTED_APPLIED**: pengguna mengonfirmasi sudah menjalankan (dicatat Batch 260). Target pada perintah `db_finance`, prasyarat 15a. Tidak mengulang apply atau menyamakan konfirmasi dengan verifikasi schema/izin. UAT dan postcheck tetap terbuka.
+- [ ] Berikutnya tetap postcheck/DDL MariaDB/UAT melalui IDE, lalu integrasi pengakuan dokumen per modul tanpa duplikasi pembayaran. Posting otomatis, kelengkapan akrual dan penerbitan/tutup buku belum selesai. Handoff customer hanya di `_28`; tidak mengubah Control/DB/credential/bridge atau push/deploy.
+
+**Delta Batch 258 — 2026-09-15 (A2/A3: arus kas aktual + fondasi jurnal, SQL dijalankan pengguna; belum diverifikasi):**
+
+- [x] Halaman `/finance-reports/accounting`: arus kas seluruh sumber (termasuk non-sales/non-purchase dan VOID menurut tanggal), semua rekening termasuk nonaktif dipisahkan per mata uang. Saldo awal + IN − OUT direkonsiliasi ke saldo akhir; selisih saldo tersimpan ditampilkan, bukan diperbaiki otomatis.
+- [x] Kode jurnal debit–kredit IDR: saldo awal satu kali, mutasi sumber ditinjau manual, penyesuaian nonkas, pembalik nonkas dan jurnal pembalik kas menurut sumber. POST/CSRF/RBAC, periode CLOSED, integer sen, unique source/request, lock, audit atomik; tidak menulis saldo/transaksi sumber atau menghapus jurnal.
+- [x] Buku besar, neraca saldo, laba-rugi, neraca dan perubahan ekuitas dari jurnal yang sama. Antrean belum dijurnal, sumber stale, perantara transfer dan selisih kas GL ditampilkan. **Laporan draf, bukan klaim pengakuan akrual otomatis lengkap/SAK/IFRS tersahkan.** HPP/pajak/payroll/penyusutan/penjualan kredit masih memerlukan jurnal berdasarkan bukti.
+- [x] 162 tes sintetis model/controller/render PASS; regresi 392/72, gate contract 28, UI shell 54 dan route collision PASS. Required gate `finance-accounting`; laporan modul dan daftar sisa: [akuntansi, jurnal dan arus kas](2026-09-15_akuntansi_jurnal_dan_arus_kas.md).
+- [x] Pengguna mengonfirmasi SQL `2026-09-15a_finance_general_ledger.sql` sudah dijalankan (konfirmasi dicatat 2026-09-15 09:35 WIB). Status **USER_REPORTED_APPLIED**, bukan schema/sidebar/RBAC terverifikasi. Tidak mengulang SQL atau menulis registry secara otomatis.
+- [ ] Berikutnya: postcheck/UAT melalui IDE, integrasi pengakuan otomatis serta kelengkapan penerbitan/tutup buku akuntansi. DDL/concurrency MariaDB dan browser belum lulus; browser sebelumnya gagal dimulai (`read ECONNRESET`). Handoff katalog/allowlist dan uji customer hanya di `_28`. Jangan menyamakan fondasi ini dengan selesainya seluruh akuntansi.
+
+**Pencatatan SQL — kesepakatan pengguna 2026-09-14:** setiap SQL baru yang belum bisa dieksekusi wajib ditandai **BELUM DIJALANKAN**, disertai target database, prasyarat/dampak dan perintah terminal siap salin tanpa password. Setelah pengguna mengonfirmasi eksekusi, tandai **DIJALANKAN PENGGUNA — BELUM DIVERIFIKASI**; naikkan ke **TERVERIFIKASI** hanya setelah ada hasil pemeriksaan schema/ledger yang sesuai. Status staging, validasi, dan kesiapan paket customer tidak disamakan. Catatan eksekusi disimpan di execution log; register SQL di dokumen ini menjadi acuan terkini.
+
+**Delta Batch 257 — 2026-09-14 (status SQL staging terverifikasi; tidak perlu apply ulang):**
+
+- [x] Pemeriksaan langsung dengan izin eskalasi pada `db_finance`, MariaDB 10.11.10, pukul 19:46:50 WIB: 95 kondisi diterima lengkap; seluruh kondisi struktur lulus. SQL `2026-09-14c` sudah terpasang, termasuk empat tabel metadata, tiga kolom rekening lawan dan enum TRANSFER.
+- [x] Seluruh 19 migrasi katalog ber-policy `upgrade` mempunyai catatan/checksum yang cocok, termasuk Roast Connect. Hash lokal seluruh 20 entri katalog juga cocok. Satu entri `2026-09-05d` khusus `clean_install` sengaja tidak dipasang pada staging berisi data. Tujuh SQL legacy tidak diperiksa ulang struktur keseluruhannya dan tidak dijalankan ulang.
+- [x] Tidak ditemukan SQL upgrade tertunda dalam cakupan tersebut; tidak mengeksekusi DDL/DML, mengubah saldo, konfigurasi, credential, atau menerapkan seed instalasi kosong.
+- [ ] SQL `2026-09-14c`: **SCHEMA_VERIFIED_LEDGER_PENDING**. Struktur nyata sesuai, tetapi apply manual belum tercatat di `sys_schema_migration` dan belum terdaftar di katalog/allowlist customer. Registrasi terkontrol, uji migrasi/replay/konkurensi dan UAT tetap terpisah; bukan alasan mengulang DDL. Bukti rinci: [laporan modul](2026-09-14_finance_alokasi_bank_rekonsiliasi.md#verifikasi-staging--batch-257).
+
+**Delta Batch 256 — 2026-09-14 (alat postcheck read-only; hasil ditindaklanjuti Batch 257):**
+
+- [x] Menyiapkan satu perintah terminal untuk memeriksa 95 kondisi target/schema/index/metadata prasyarat dan checksum catatan migrasi. Hanya SELECT pada information_schema dan sys_schema_migration; tidak membaca/menulis transaksi atau credential. Panduan/perintah: [postcheck pada laporan modul](2026-09-14_finance_alokasi_bank_rekonsiliasi.md#pemeriksaan-setelah-sql-dijalankan--batch-256).
+- [x] Membedakan struktur sesuai + ledger kosong akibat apply manual dari schema/checksum salah. Tidak menganjurkan apply ulang otomatis, menulis ledger, atau menyamakan hasil parsial dengan kelulusan. Output diikat fingerprint file sumber dan harus lengkap.
+- [x] 241 pemeriksaan alat pada metadata sintetis, regresi integrasi 392, workspace 27, quality-gate 28 dan PHP lint PASS; required gate baru finance-allocation-postcheck. Tidak ada SQL migrasi baru/perubahan runtime aplikasi.
+- [x] **Postcheck staging selesai pada Batch 257** setelah izin eskalasi: struktur lulus, catatan migrasi manual 14c belum ada. Batas sandbox pada Batch 256 adalah riwayat; UAT/konkurensi/registrasi customer belum selesai.
+
+**Delta Batch 255 — 2026-09-14 (integrasi rekonsiliasi, mutasi dan laporan; tanpa SQL baru):**
+
+- [x] Uji lintas model nyata: NONE/draft tidak mengubah kas; sembilan kategori IN/OUT sinkron ke Mutasi Rekening, estimasi harian/bulanan dan laba-rugi manajemen; transfer dua sisi menjaga total saldo serta tidak menambah laba/biaya. Posting ulang ditolak.
+- [x] Klasifikasi ulang mengubah laporan saja; identitas biaya sama tidak dapat diposting lagi lewat Rekon Kas/Mutasi Kas. VOID biaya tertaut mengembalikan saldo dan sisa selisih, retry idempotent, koreksi di sesi baru dihitung sekali.
+- [x] Regresi Rekon Kas terkonfirmasi dan diperbaiki: transfer ke rekening bersaldo negatif tidak lagi memaksa saldo tujuan menjadi nol. Nominal transfer sama dengan perubahan saldo; guard kecukupan sumber OUT tetap. Tidak memperbaiki/mengubah data historis.
+- [x] 217 pemeriksaan tambahan, total required gate `finance-allocation-bank` **392 PASS** in-memory; PHP lint tiga file dan regresi terkait PASS. Kasus baru berada pada suite existing, bukan fase/fitur baru terpisah.
+- [ ] Schema/ledger MariaDB setelah eksekusi pengguna, concurrency, browser dan UAT masih terbuka. SQL `2026-09-14c` tetap **USER_REPORTED_APPLIED**, bukan terverifikasi; registrasi paket customer menunggu bukti lanjutan. Rincian: [laporan modul](2026-09-14_finance_alokasi_bank_rekonsiliasi.md#batch-255--integrasi-rekonsiliasi--mutasi--laporan).
+
+**Delta Batch 254 — 2026-09-14 (pelurusan Rekonsiliasi Pendapatan harian, menggantikan pembatasan pasangan metode Batch 253):**
+
+- [x] Rekonsiliasi Pendapatan adalah cek penerimaan harian, bukan wajib settlement platform. UI menjelaskan perbedaan dengan seluruh saldo rekening dan memisahkan Simpan hasil cek dari Posting mutasi.
+- [x] Selisih boleh NONE/biarkan terbuka, IN, OUT, atau TRANSFER antar rekening. Transfer tidak perlu baris/metode lawan atau selisih simetris; rekening lawan boleh tanpa metode POS. Dua rekening aktif berbeda/mata uang sama, saldo sumber, snapshot terbaru, periode, audit atomik dan larangan posting ulang tetap diperiksa.
+- [x] Satu baris menyimpan kedua mutasi transfer; tidak menutup baris lain. Atribusi metode lawan hanya opsional untuk koreksi salah metode, dengan pembacaan kompatibel pasangan lama tanpa hitung ganda. Total uang tidak bertambah; saldo tujuan negatif tidak dinormalisasi diam-diam.
+- [x] Sembilan kategori IN/OUT sama dengan Mutasi Kas dan Rekon Kas. Selisih biasa tidak dipaksa memakai rekap settlement; promo/platform tetap memakai rincian/bukti/persetujuan sesuai kebijakan bersama. Kategori, referensi biaya dan settlement tidak dibawa ke transfer/NONE.
+- [x] 175 tes sintetis SQLite in-memory; regresi 72/27/35/28, PHP lint empat file dan JS hasil render PASS. Tidak memperbaiki data transaksi asli.
+- [x] Pengguna mengonfirmasi SQL `2026-09-14c` sudah dijalankan lewat terminal pada staging `db_finance` (konfirmasi diterima 2026-09-14). Status **USER_REPORTED_APPLIED**, bukan bukti verifikasi otomatis. Tidak ada SQL tambahan Batch 254.
+- [ ] Verifikasi hasil schema/ledger MariaDB, browser dan UAT tetap terbuka karena koneksi DB sesi ini ditolak sandbox. Jangan mengulang migrasi hanya karena pemeriksaan belum tersedia. Laporan modul: [alur dan validasi terkini](2026-09-14_finance_alokasi_bank_rekonsiliasi.md).
+
+**Delta Batch 253 — 2026-09-14 (Kontrol Keuangan + regresi rekonsiliasi; kode siap uji IDE, SQL belum aktif):**
+
+- [x] Perbaikan Rekon Pendapatan: sisa selisih dihitung ulang setelah posting; nilai saat posting tetap riwayat terpisah. Rekon Kas menolak posting jika saldo/selisih berubah setelah disimpan. Kategori IN/OUT sesuai arah, koreksi saldo BOTH tetap tersedia, transfer kas berbeda mata uang ditolak.
+- [x] Kode alokasi satu transfer ke beberapa rekap: batas nominal/rekening/tanggal, sisa belum dialokasikan, saldo konfirmasi lama dipertahankan, revisi/audit/VOID seluruh rekap terkait tanpa kas kedua kali.
+- [x] Kode realisasi parsial rencana: batas total satu mutasi, kompatibel tautan lama, sisa/VOID/riwayat per bagian; bukan realisasi ulang POS/purchase/payroll.
+- [x] Kode CSV rekening koran: pratinjau terikat rekening/pemetaan, konfirmasi impor, deduplikasi identik, pencocokan manual satu-ke-satu, audit lepas dan status stale setelah mutasi berubah. Tidak memposting kas otomatis.
+- [x] Implementasi awal transfer koreksi metode; **batas wajib pasangan dan penutupan dua baris digantikan Batch 254 di atas**. Gunakan alur transfer rekening bebas dengan atribusi metode opsional pada laporan modul terkini, bukan aturan awal Batch 253.
+- [x] 108 tes sintetis in-memory, regresi 72/27/35/28, PHP lint 20 file dan sintaks JS PASS. Test masuk required gate `finance-allocation-bank`.
+- [x] Status historis Batch 253: SQL baru disiapkan. **Pembaruan 2026-09-14: pengguna sudah menjalankannya di staging**, lihat Batch 254/register. Validasi MariaDB/konkurensi, registrasi migrasi, browser dan UAT belum dinyatakan selesai.
+
+Laporan dan langkah pengguna: [finance_alokasi_bank_rekonsiliasi](2026-09-14_finance_alokasi_bank_rekonsiliasi.md). Keterbatasan satu-transfer/satu-rencana pada Batch 249 tetap berlaku **sebelum SQL baru diaktifkan**; tidak mengklaim delta ini selesai operasional.
+
+**Delta regresi Batch 252 — 2026-09-14 (A1, void/refund produk tanpa resep):**
+
+- [x] Reproduksi kode: konfirmasi web/mobile memberi status stok `NOT_REQUIRED` tanpa membuat snapshot, tetapi preview void/refund menolak snapshot kosong. Tes sintetis gagal sebelum patch dan lulus setelah patch.
+- [x] Model bersama mengizinkan plan stok kosong hanya untuk status tersimpan `NOT_REQUIRED` ketika snapshot memang tidak ada. Produk event tetap masuk pemilihan pembatalan/refund; tidak membuat snapshot, lot, pengembalian stok, atau adjustment palsu.
+- [x] Snapshot yang sudah ada tetap diproses, termasuk order campuran/append event dengan header `NOT_REQUIRED`. Snapshot hilang pada `POSTED`/`FAILED`/status lain tetap ditolak. Batas uang refund, qty tersisa, lock transaksi, CSRF/RBAC/step-up tidak diubah.
+- [x] 45 pemeriksaan baru DB-free lulus, ditambahkan ke required gate A1; suite reversal, availability, step-up web/mobile, CSRF transaksi dan mobile financial writer juga lulus. Tidak ada SQL, akses data transaksi, perubahan APK/bridge Telegram, atau deploy.
+- [ ] UAT pengguna: void order event belum dibayar; refund penuh/sebagian order event sudah dibayar; order campuran event + produk stok. Gunakan transaksi uji yang disiapkan pengguna. Tes batch ini tidak memposting pembatalan/refund pada DB aplikasi.
+
+**Delta Batch 249 — 2026-09-14 (lanjutan Kontrol Keuangan, urutan 1 → 2 → 4 → 3 → 5):**
+
+- [x] Pencairan per transfer: tanggal, referensi unik per rekening, nominal, bukti, riwayat VOID, retry/revisi/audit. Rekap baru mulai nol; konfirmasi lama dipertahankan sebagai saldo konfirmasi awal saat rincian mulai digunakan. Tidak menambah saldo bank kedua kali.
+- [x] Identitas biaya memakai nomor dokumen + baris biaya per rekening. Beberapa biaya satu kategori diperbolehkan; satu identitas efektif tidak boleh diposting ulang lewat Mutasi/Rekon Kas/Rekon Pendapatan. Mutasi lama tanpa identitas harus ditautkan eksplisit, bukan ditebak atau diposting ulang.
+- [x] Pencarian seluruh settlement, termasuk melewati batas lama 200, dengan filter tanggal/teks dan pagination 25. Pilihan settlement/biaya lama tetap tersimpan di formulir rekonsiliasi; tidak membuat rekap duplikat.
+- [x] Rencana kas → mutasi manual aktual → sisa proyeksi. Satu mutasi utuh untuk satu rencana; taut/lepas tidak mengubah kas. VOID mengembalikan sisa otomatis, over-realisasi ditampilkan. POS/tagihan/payroll otomatis tidak boleh ditautkan sebagai realisasi manual kedua kali. Tanggal proyeksi payroll dapat diatur, tanpa mengubah perhitungan gaji/uang makan.
+- [x] Bukti PDF/JPG/PNG privat di luar webroot, maksimal 5 MB, download berizin/attachment, verifikasi isi/hash dan CSRF. Kompatibel dengan PHP tanpa Fileinfo. Pengaturan persetujuan dan bukti **default tidak wajib**; hak kebijakan/pemeriksa terpisah. Persetujuan posting/VOID tertaut mengikat nominal, rekening, rincian, bukti, revisi settlement dan kebijakan; pembuat/pengaju tidak boleh menyetujui sendiri, perubahan mengharuskan pengajuan ulang.
+- [x] SQL `2026-09-14b` applied + pemeriksaan ulang ledger di staging saja. Enam tabel metadata, kolom tautan/konfirmasi, dua page izin dan default kebijakan. Folder bukti privat staging serta allowlist `open_basedir` disiapkan; tidak memperbaiki/menghapus transaksi, upload, backup atau credential lama.
+- [ ] UAT owner dengan bukti nyata: rincian pencairan parsial → biaya terpisah → posting → rencana/realisasi → koreksi/VOID. Identitas dokumen yang benar tetap tanggung jawab operator; ini bukan pencocokan semantik atau impor otomatis platform. Laporan tetap indikatif/manajemen, bukan akrual lengkap.
+
+Batch 249 menggantikan batas **satu kategori/200 terbaru/H+1 tetap** pada catatan Batch 248 di bawah; fase lama tidak dibuka ulang. Panduan dan validasi ada pada [laporan Kontrol Keuangan](2026-09-14_finance_control_workspace.md), execution log Batch 249. Handoff paket tetap hanya di `_28`.
+
+**Delta Batch 248 — 2026-09-14 (A2 kontrol finance + A3 penelusuran, permintaan 1–5):**
+
+- [x] `/finance-reports/control`: satu halaman bertab untuk settlement, kualitas laporan, proyeksi kas, dan laba-rugi manajemen HPP. Sidebar Keuangan dan page `finance.control.index`; grant awal hanya SUPERADMIN, izin staf tetap diatur pemilik.
+- [x] Rekap settlement per tanggal pembayaran/metode: sumber POS + refund, promo yang sudah masuk POS, biaya tertaut, penerimaan kumulatif, status sebagian/lengkap, dan pemeriksaan fingerprint/revisi. Simpan konfirmasi **tidak memposting kas lagi**.
+- [x] Referensi settlement bersama pada Mutasi Rekening, Rekon Kas, Rekon Pendapatan. Promo/fee baru wajib referensi; kategori efektif yang sama tidak boleh diposting dua kali. Ronde pendapatan memperhitungkan penyesuaian tertaut dari modul lain. Settlement sebagian tertaut tidak boleh diubah menjadi biaya rekonsiliasi. VOID melepaskan klaim kategori; pasangan VOID tetap tidak dihitung.
+- [x] Kualitas laporan menampilkan mutasi belum berkategori, cakupan settlement non-tunai yang belum ditinjau, pending/selisih/sumber berubah, saldo vs ledger, dan audit HPP. Tidak memperbaiki data otomatis.
+- [x] Proyeksi 7/30 hari: saldo buku dikurangi pending settlement terlacak, lalu jadwal pencairan ditambah sekali; hutang, piutang, payroll final belum dibayar, dan rencana manual dengan audit/revisi/retry key. Komitmen dan perkiraan dipisahkan, rekening non-IDR dikecualikan.
+- [x] Laba-rugi **manajemen transaksi lunas**, terpisah dari estimasi kas lama: snapshot HPP + extra, refund berdasarkan tanggal refund, koreksi/reversal HPP berdasarkan tanggal pengakuan, pajak penjualan dipisahkan, pendapatan/biaya berkategori, payroll final. Pembelian stok dan pencairan payroll tidak dipotong lagi; kasbon bukan pengurang beban gaji.
+- [x] SQL `2026-09-14a` diterapkan/replay di staging; dua tabel metadata, tiga kolom tautan nullable, sidebar/RBAC dan ledger migration. Tidak backfill, tidak membaca transaksi staging untuk fixture, tidak menjalankan SQL lain.
+- [ ] UAT pengguna: cocokkan satu rekap platform nyata dan kategori historis, serta tanggal pencairan/payroll yang sesungguhnya. Referensi biaya historis tidak diinferensikan dari catatan bebas; guard bukan detektor semantik jika kejadian sama diberi kategori/referensi berbeda.
+- [ ] Batas laporan: proyeksi bukan saldo bank terverifikasi, cakupan settlement perlu dilengkapi; satu kontrol adalah rekap harian/metode (bukan impor otomatis API platform). Laba-rugi belum akrual lengkap, depresiasi/pajak penghasilan/biaya belum dicatat belum tercakup. Beban payroll rentang parsial tidak diprorata otomatis.
+
+Detail penggunaan dan bukti: [laporan modul Kontrol Keuangan](2026-09-14_finance_control_workspace.md), execution log Batch 248. Distribusi/profil customer hanya dicatat pada `_28`; APK dan Control tidak diubah.
+
+**Delta laporan Batch 247 — 2026-09-13 (A2 finance + A3 keterlacakan):**
+
+- [x] Mutasi pendapatan lain/biaya operasional, promo, platform, dan selisih kas terverifikasi ikut estimasi melalui kategori eksplisit. Modal, prive, transfer, dan koreksi saldo saja dipisahkan dari hasil operasional.
+- [x] Estimasi harian dan metrik profit global memakai satu aturan mutasi, termasuk pengecualian pasangan VOID. Basis gaji tidak diubah: harian dari absensi, global dari payroll tergenerate bila tersedia.
+- [x] UI estimasi menampilkan komposisi, peringatan data belum diklasifikasikan, panduan settlement, dan tautan mutasi. Mutasi lama dapat diklasifikasikan dengan alasan/audit tanpa mengubah saldo, nominal, atau tanggal; periode CLOSED dan mutasi VOID ditolak.
+- [x] Rekonsiliasi kas/pendapatan menyimpan kategori; posting tanpa kategori ditolak. Rekonsiliasi pendapatan ronde berikutnya hanya memposting sisa selisih, menolak draf stale dan penimpaan baris POSTED. Mutasi manual IN/OUT memakai identitas permintaan untuk mencegah retry menggandakan saldo.
+- [x] Migrasi sempit `2026-09-13a` diterapkan di staging, tanpa backfill atau perubahan data transaksi. SQL/kode baru masuk katalog dan allowlist Finance; tidak menjalankan SQL Roast Connect atau menyentuh Control/APK.
+- [ ] User meninjau kategori mutasi historis dan memverifikasi contoh settlement nyata. Belum diklasifikasikan: IN belum menambah estimasi, OUT tetap pengurang sementara dengan peringatan. Tidak menebak catatan bebas, mengubah snapshot CLOSED, atau menjanjikan otomatis mendeteksi duplikasi lintas modul.
+- [ ] Estimasi tetap berbasis arus kas pembelian + estimasi gaji, **bukan laba-rugi akrual berbasis HPP**. Penyusunan laba-rugi akuntansi penuh merupakan pekerjaan terpisah.
+
+Bukti uji dan batas rilis dicatat di execution log Batch 247; status distribusi/Control tetap di `_28`, tidak mengulang fase yang sudah selesai.
+
+**Delta bug/UI Batch 246 — 2026-09-13 (A2 procurement + A3 mobile):**
+
+- [x] Tujuan Store Request Roastery kosong: opsi `ROASTERY` dan `ROASTERY_EVENT` sekarang tersedia dari model bersama, sesuai guard divisi yang sudah ada. Form halaman/modal dan PO/SR Divisi memakai daftar yang sama; tidak membuka tujuan divisi lain.
+- [x] Detail transaksi POS `/pos/reports/sales-detail/{id}`: tombol Invoice, Kwitansi dan navigasi membungkus pada layar sempit; mobile memakai dua kolom, target sentuh 44px. Identitas/catatan panjang tidak lagi memaksa halaman melebar.
+- [x] Purchase Order: **Per Nota, Per Rincian, Per Tgl Paid** memakai kartu berlabel di ponsel; desktop tetap tabel, tablet dapat menggeser tabel. Nilai/status tidak dipotong, kontrol status/aksi tidak diduplikasi dan izin/CSRF tetap.
+- [x] 48 tes regresi data sintetis + 55 kontrak Purchase/SR + 20 layout browser (360/390/600/768/1280px) lulus. Tes PHP baru masuk required quality gate; tidak membaca/menulis DB transaksi.
+- [ ] UAT pengguna: coba pilih Roastery Reguler/Event pada SR, simpan permintaan yang memang diperlukan, lalu cek ketiga tab PO dan tombol invoice di perangkat sendiri. Simpan transaksi aktual tidak dilakukan oleh tes ini.
+- Tidak ada SQL baru, perubahan APK/Control/Roast Connect, atau pengulangan fase yang sudah ditutup. Bukti dan batas validasi: execution log Batch 246; status komersialisasi tetap di `_28`.
+
 **Delta regresi Batch 245 — 2026-09-12:**
 
 - [x] Perbedaan outer manifest Control vs Finance ditangani: `filename`/`artifact` dan hash app-manifest/inner manifest tidak tertukar pada verifier/installer.
@@ -380,7 +548,7 @@ merupakan sisa A1 yang membutuhkan batch/kebijakan terpisah.
 | `AUD-A2-DASH-01` | P1-02 | P1 / A2 | Dashboard dahulu menyembunyikan mismatch nilai. | Quantity dan value mismatch dibedakan, dijelaskan, dan diuji. | `CODE_PASS` | `AUTO_PASS` | `PROD_READY` | Batch 48 dan regression dashboard. |
 | `AUD-A3-NAV-01` | P1-03 | P1 / A3.1 | Sidebar mempunyai dua sumber kebenaran. | Renderer hanya memakai registry database terotorisasi. | `CODE_PASS` | `STAGING_PASS` | `PROD_READY` | Batch 100–101. |
 | `AUD-A3-NAV-02` | P1-04 | P1 / A3.1 | Favorite/menu dapat berbeda dari permission resolver. | Favorite, pin, reorder, dan menu memakai resolver yang sama serta fail-closed. | `CODE_PASS` | `STAGING_PASS` | `PROD_READY` | Batch 102. |
-| `AUD-A3-NAV-03` | P1-05 | P1 / A3.1 | Duplikasi URL dan alias page implisit. | URL/alias/parent/sort/icon kanonis tanpa collision. | `CODE_PASS` | `STAGING_PASS` | `PROD_READY` | SQL A3 dijalankan dua kali; Batch 100 dan 103. |
+| `AUD-A3-NAV-03` | P1-05 | P1 / A3.1 | Duplikasi URL dan alias page implisit. | URL/alias/parent/sort/icon kanonis tanpa collision. | `CODE_PASS` | `STAGING_PASS` | `PROD_READY` | SQL A3 dijalankan dua kali; Batch 100 dan 108. |
 | `AUD-A3-IA-01` | P1-06 | P1 / A3.2 | Struktur menu dahulu memisahkan POS, SDM/payroll, Menu Book, dan integrasi pada akar yang tidak mengikuti tugas user. | Sidebar memusatkan area kerja, hanya menata `sys_menu` (label/parent/urutan), tidak mengubah route atau izin, tidak menampilkan grup kosong, dan lulus UAT. | `CODE_PASS` | `STAGING_PASS` | `N/A` | Batch 209 menyelesaikan workspace lintas halaman. Batch 210 menyatukan POS di Penjualan & Pesanan; SDM+payroll; Produk+Menu Book; serta WA+Telegram. Visual UAT role/desktop/mobile tetap menjadi gerbang A3. |
 | `AUD-A3-UI-00` | P1-07 | P1 / A3.2 | Adopsi design system belum menyeluruh. | Seluruh wave 8.3 selesai, duplikasi dibersihkan, dan visual UAT lulus. | `CODE_PASS` | `STAGING_PASS` | `N/A` | `A3-CODE-CLOSED` pada Batch 211: wave 1–9 tidak lagi masuk antrean implementasi ulang. Checklist 0.4 menjadi bukti scope; visual UAT tetap pekerjaan operasional terpisah. |
 | `AUD-C2-BRAND-01` | P1-08 | P1 / A0+A5→C2 | Branding/tenant dan hardcode identitas belum terpusat. | Boundary config/secret teknis selesai di `_30`; UI profil usaha/onboarding dikerjakan pada C2 `_28`. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 219–220 memusatkan jalur inti Profil Usaha: setup admin tiga langkah, login/sidebar/footer, QR ulasan, label aset, kontrak, dan fallback printer tanpa mengganti override outlet/layout. Template Menu Book/marketing, URL/SEO/customer install profile, pajak/service, dan integrasi tetap C2 terbuka; tidak ditangani sebagai bug transaksi `_30`. |
@@ -403,6 +571,12 @@ merupakan sisa A1 yang membutuhkan batch/kebijakan terpisah.
 | `AUD-A1-FIN-01` | NEW-03 | P0 / A1 | Writer draft, close, dan reopen periode keuangan pernah hanya mengandalkan login/RBAC; redirect proses juga menerima URL kiriman. | Semua mutasi periode wajib izin aksi, POST, CSRF scoped, token tidak bercampur, form mengikuti hak aksi, redirect tetap lokal, serta reopen lock/transaksi dengan update bersyarat. | `CODE_PASS` | `AUTO_PASS` | `BLOCKED` | Batch 154 mengunci boundary controller/form; Batch 155 mengunci row `CLOSED`, rollback gagal lock/write/commit, dan menolak reopen kedua; Batch 157 menambah reauth password sebelum writer reopen. UAT akun finance nyata tetap terbuka. |
 | `AUD-A1-STEP-01` | NEW-04 | P0 / A1 | Tindakan finansial sensitif hanya bergantung pada sesi login/RBAC sehingga transaksi yang ditinggal di perangkat kasir dapat dipakai ulang. | Reauth tidak mengubah matrix izin: password diverifikasi pada endpoint scoped atau form server-side, mengeluarkan proof acak satu-kali yang terikat sesi/token+user+aksi+target, lalu writer mengonsumsi proof sebelum model. | `IN_PROGRESS` | `STAGING_PASS` | `BLOCKED` | Batch 156: Void Kasir dan Refund Pesanan Terbayar **web** memakai password masked, CSRF transaksi, proof hash 180 detik, one-use, dan limiter kegagalan lokal sesi. Batch 157 memakai kontrak proof sama untuk Reopen Periode Keuangan web tanpa meneruskan password ke model. Batch 158 menutup Cetak Ulang Order Kasir web dan menambahkan CSRF sebelum target printer dibuat. Batch 159–160 menutup Post/VOID Adjustment Base/Prepare. Batch 161 menutup **Post/VOID Adjustment Stok Gudang dan Divisi web** dengan CSRF header scoped dan proof `STOCK_ADJUSTMENT_POST`/`STOCK_ADJUSTMENT_VOID`. Batch 162 menutup Save/Delete Draft dan Post/VOID Component Batch Produksi web dengan token `X-Production-Component-Batch-Csrf` serta proof `COMPONENT_BATCH_POST`/`COMPONENT_BATCH_VOID` sebelum `ComponentStockWriter`; jalur Quick Batch dan Quick Adjustment Daily Component mengikuti token/proof endpoint resmi. Batch 163 menutup Daily Recon Component; Batch 164 menutup Transfer Stok Divisi; Batch 166–167 menutup seluruh writer Stock Opening. Batch 176 menutup Void/Refund POS Mobile, Batch 177 Reprint, Batch 186 Tutup Kasir, Batch 190 pengembalian DP saat penolakan reservasi APK, dan Batch 191 pengembalian DP saat penolakan atau pembatalan reservasi web. Proof web maupun mobile satu-kali terikat aktor, aksi, dan target tepat; consume gagal tertutup sebelum writer. Password tidak diteruskan ke writer. Aksi mobile lain, MFA, dan UAT role/perangkat masih terbuka. |
 
+Temuan tambahan September 13:
+
+| ID | Sumber | Prioritas/fase | Masalah | Solusi/acceptance | Implementasi | Validasi | Release/data | Bukti atau langkah berikutnya |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `AUD-A2-FIN-04` | NEW-20260913 | P1 / A2 | Estimasi mengabaikan pemasukan manual, tidak membedakan modal/prive, dan settlement ronde ulang berpotensi terposting ganda. | Kategori eksplisit, agregasi bersama, koreksi metadata teraudit, posting sisa settlement, guard CSRF/closed/retry. | `CODE_PASS` | `AUTO_PASS` | `UAT_PENDING` | Batch 247: fixture SQLite/MariaDB dan browser; schema staging terpasang tanpa perubahan transaksi lama. UAT user serta review kategori historis tetap diperlukan. |
+
 ### 0.4 Checklist rollout UI 8.3
 
 | ID | Gelombang | Scope/acceptance | Implementasi | Validasi | Status nyata |
@@ -423,6 +597,11 @@ SQL baru yang menjadi bagian implementasi wajib direview, dibackup/preflight,
 langsung dijalankan di staging, diuji ulang bila idempoten, dan dicatat. Server
 utama tetap dijalankan oleh pemilik. SQL repair data historis atau destructive
 tidak otomatis dijalankan.
+
+Pengecualian otorisasi Batch 253: transport Telegram melarang perubahan database.
+SQL baru dicatat **PREPARED_NOT_APPLIED**, tidak otomatis dijalankan maupun
+didaftarkan auto-apply. Validasi MariaDB, registrasi runner dan staging apply
+dilanjutkan melalui IDE; checkbox aktivasi tetap terbuka.
 
 | File SQL | Klasifikasi | Status staging | Bukti staging | Status server utama | Tindakan berikutnya |
 | --- | --- | --- | --- | --- | --- |
@@ -449,19 +628,37 @@ tidak otomatis dijalankan.
 | `2026-09-06h_roastery_label_template_studio.sql` | Managed schema migration | `STAGING_PASS` | Runner policy `upgrade`: applied 1, skipped 12. Menambah penyimpanan template Label Studio serta dua template awal `Classic Portrait` dan `Retail Wide`; label lama tidak dihapus atau diubah. | `PENDING_OWNER` | Jalankan hanya melalui migration runner policy `upgrade`; jangan menjalankan file manual. Template kustom tersimpan di tabel baru dan dibawa oleh backup database customer. |
 | `2026-09-06i_a3_sidebar_task_oriented_layout.sql` | Managed seed | `STAGING_PASS` | Runner `upgrade`: applied 1, skipped 13; replay applied 0, skipped 14. Postcheck: 12 root kerja, 0 collision urutan, dan parent POS/SDM/Menu Book/integrasi sesuai layout. Hanya `sys_menu` (label/parent/urutan) berubah. | `FRESH_INSTALL_OR_UPGRADE` | Paket customer menerapkan migration ini lewat runner; tidak perlu SQL manual terpisah. Route, page registry, dan RBAC tidak berubah. |
 | `2026-09-07a_c2_c4_business_profile_license_runtime_foundation.sql` | Managed schema migration | `STAGING_PASS` | Runner `upgrade`: applied 1, skipped 14; replay applied 0, skipped 15. Membuat 9 tabel metadata profil/lisensi, 2 page/menu System, dan grant SUPERADMIN. Tidak mengubah transaksi, stok, HPP, kas, payroll, atau data historis; FeatureGate default audit-only. | `FRESH_INSTALL_OR_UPGRADE` | Paket customer menerapkannya melalui migration runner, bukan manual. Enforcement lisensi dilarang sampai signed entitlement, verifier, dan UAT offline tersedia. |
-| `baseline/2026-09-05_clean_install_schema.sql` | Clean-install schema-only | `CODE_PASS` | 296 tabel dan checksum terkunci; catalog clean-install berisi enam belas migration termasuk profil usaha dan fondasi lisensi audit-only. | `NOT_FOR_UPGRADE` | Hanya titik awal database customer baru, dilanjutkan migration runner policy clean_install. |
+| `2026-09-12a_roast_connect_catalog.sql` | Managed schema, pekerjaan thread Roast Connect | `LEDGER_VERIFIED` | Batch 257: ID/path/checksum ledger staging cocok dengan katalog dan file sumber. Tidak dijalankan ulang; schema modul dan UAT tidak diaudit pada batch ini. | `PENDING` | Pemilik modul perlu memverifikasi kesiapan allowlist customer dan uji rilis secara terpisah; catatan apply staging bukan bukti kelulusan paket. |
+| `2026-09-13a_finance_mutation_reporting_category.sql` | Managed schema migration | `STAGING_PASS` | Tiga kolom kategori nullable, request key nullable dan unique index; fixture migration dua kali PASS, staging applied dan ledger tercatat; tidak mengubah nominal/saldo/data lama. | `FRESH_INSTALL_OR_UPGRADE` | Dibawa release baru melalui runner clean_install/upgrade; tidak menjalankan SQL manual pada aplikasi utama lama. |
+| `2026-09-14a_finance_control_workspace.sql` | Managed schema + metadata sidebar | `STAGING_PASS` | Dua tabel kontrol/rencana kosong, tiga kolom tautan nullable, page/menu dan grant SUPERADMIN; applied/replay dengan checksum ledger. Tidak mengubah transaksi/saldo lama. | `FRESH_INSTALL_OR_UPGRADE` | Melalui runner setelah 2026-09-13a; perlu kode Kontrol Keuangan dan profil customer v2 di cutoff baru. |
+| `2026-09-14b_finance_control_operations.sql` | Managed schema + metadata kontrol | `STAGING_PASS` | Rincian transfer/biaya, realisasi rencana, bukti privat, kebijakan dan persetujuan; izin awal SUPERADMIN, kebijakan approval OFF. Applied + ledger replay staging tanpa backfill transaksi. | `FRESH_INSTALL_OR_UPGRADE` | Setelah 2026-09-14a; runtime/profil customer v3, folder bukti privat dan akses PHP-FPM. |
+| `2026-09-14c_finance_allocation_bank_review.sql` | Metadata + enum; manual staging, belum managed | `SCHEMA_VERIFIED_LEDGER_PENDING` | Batch 257, 2026-09-14 19:46:50 WIB: postcheck langsung db_finance/MariaDB 10.11.10 lengkap 95 kondisi, struktur sesuai; catatan/checksum tiga prasyarat cocok. Hanya ledger 14c belum ada. Tidak mengulang SQL atau menulis ledger otomatis. | `NOT_RELEASED` | Tinjau pencatatan apply manual dan registrasi hash/dependency/allowlist; uji migrasi clean-install/upgrade, concurrency serta UAT sebelum rilis customer. Struktur terpasang bukan berarti seluruh pengujian selesai. |
+| `2026-09-15a_finance_general_ledger.sql` | Jurnal metadata + COA/registry/sidebar; belum managed | `USER_REPORTED_APPLIED` | Pengguna mengonfirmasi sudah menjalankan SQL, dicatat 2026-09-15 09:35 WIB; target yang diberikan db_finance. Empat tabel/24 COA/sidebar/izin belum diverifikasi langsung. Tidak mengulang SQL atau menganggap tes SQLite sebagai validasi DDL MariaDB. | `NOT_RELEASED` | Postcheck schema/sidebar/izin dan UAT; registrasi katalog/allowlist serta uji clean-install/upgrade terpisah. Perintah apply pada laporan modul hanya arsip, bukan instruksi mengulang. |
+| `2026-09-15b_finance_journal_assistant.sql` | Konfigurasi akun/saran + izin pengaturan; belum managed | `USER_REPORTED_APPLIED` | Pengguna mengonfirmasi sudah dijalankan, dicatat 2026-09-15 10:25 WIB; target pada perintah db_finance, prasyarat 15a. Tabel/FK/page/izin belum diverifikasi langsung. Tidak mengulang SQL atau mengubah checksum sumber. | `NOT_RELEASED` | Postcheck schema/izin dan UAT melalui IDE; registrasi hash/dependency/allowlist, replay/clean-install/upgrade belum selesai. Perintah apply pada laporan modul sekarang hanya arsip. |
+| `2026-09-15c_application_user_guide.sql` | Sidebar + izin panduan; metadata-only, belum managed | `USER_REPORTED_APPLIED` | Pengguna mengonfirmasi sudah dijalankan, dicatat 2026-09-15 11:24 WIB; target pada perintah db_finance. Output postcheck belum diterima. Tidak mengulang SQL atau mengubah checksum. | `NOT_RELEASED` | Postcheck metadata/sidebar/izin dan UAT; registrasi hash/dependency/allowlist serta clean-install/upgrade sebelum paket customer. Perintah pada laporan hanya arsip. |
+| `2026-09-16a_procurement_stock_review.sql` | Tabel bukti cek/konfirmasi stok pengajuan divisi; belum managed | `USER_REPORTED_APPLIED` | Pengguna mengonfirmasi apply, dicatat 2026-09-16 06:21 WIB; target perintah sebelumnya db_finance. Belum menerima postcheck. Agent tidak mengulang apply atau mengubah checksum. | `NOT_RELEASED` | Perbaiki PR-01/02/03, postcheck MariaDB/UAT, kemudian registrasi hash/dependency/allowlist clean-install/upgrade. Tabel bukti kosong untuk customer; jangan membawa konfirmasi/data staging. |
+| `baseline/2026-09-05_clean_install_schema.sql` | Clean-install schema-only | `CODE_PASS` | 296 tabel dan checksum baseline tetap terkunci; katalog berisi 20 migration, 14c/15a/15b/15c belum managed. Keberadaan katalog bukan bukti semua migration sudah diuji customer. | `NOT_FOR_UPGRADE` | Hanya titik awal database customer baru, dilanjutkan migration runner policy clean_install. |
 
-Migration runner kini mengelola enam belas file: `2026-09-04c`, clean-install-only
+Migration runner kini mengelola dua puluh file: `2026-09-04c`, clean-install-only
 `2026-09-05d`, repeat-safe `2026-09-05e`, `2026-09-05a`–`2026-09-05c`, dan
 `2026-09-06a`–`2026-09-06b` Formula Component history/restore serta
 `2026-09-06c`–`2026-09-06d` proof reversal/reprint POS Mobile dan
 `2026-09-06e` registry aktivitas serta `2026-09-06f` proof Tutup Kasir dan
 `2026-09-06g` proof Refund DP Reservasi POS Mobile serta `2026-09-06h` Label
 Studio template, `2026-09-06i` layout sidebar berbasis tugas, dan `2026-09-07a`
-fondasi profil usaha/lisensi audit-only.
+fondasi profil usaha/lisensi audit-only, `2026-09-12a` Roast Connect (pekerjaan
+thread lain, kelayakan rilis belum diverifikasi di Batch 247), serta `2026-09-13a`
+kategori mutasi keuangan, `2026-09-14a` Kontrol Keuangan dan `2026-09-14b` operasi kontrol. Upgrade memuat 19 entri, tanpa seed clean-install-only.
 Tujuh file lain tetap legacy/non-deployable, tetapi disposition-nya sudah final
 dan dijaga otomatis: 1 baseline, 4 enroll via fingerprint, 1 replace, dan
 1 retire. Jangan menjalankan seluruh folder `sql/` sekaligus.
+
+Lima SQL tambahan di luar 20 managed + 7 legacy: `2026-09-14c`
+SCHEMA_VERIFIED_LEDGER_PENDING, `2026-09-15a` USER_REPORTED_APPLIED,
+`2026-09-15b` USER_REPORTED_APPLIED, `2026-09-15c` USER_REPORTED_APPLIED,
+dan `2026-09-16a` USER_REPORTED_APPLIED (postcheck belum diterima).
+Jumlah top-level SQL **32**;
+ini tidak mengubah jumlah migration deployable atau membuktikan kesiapan customer.
 
 ### 0.6 Register tahap terlewat dan ditunda
 
@@ -2109,6 +2306,8 @@ Paket, lisensi, FeatureGate, Product Control Center, pilot, dan penjualan baru
 masuk antrean setelah gerbang Fase A5 lulus dan dikerjakan berdasarkan `_28`.
 
 ## 12. Matrix Pengujian Wajib
+
+Lembar tes pengguna terkonsolidasi: [98 checklist lintas modul, hasil yang diharapkan dan bukti regresi Batch 265](2026-09-16_checklist_uat_seluruh_perbaikan_finance.md). Gunakan ID skenario untuk laporan LULUS/GAGAL/BELUM DIUJI; hasil otomatis tidak mencentang UAT. Matrix di bawah tetap menjadi cakupan teknis, bukan pengganti penerimaan pengguna.
 
 ### RBAC
 

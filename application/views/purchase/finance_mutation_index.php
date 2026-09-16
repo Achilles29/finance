@@ -1,4 +1,6 @@
 <?php
+$reportCategories = (array)($report_categories ?? []);
+$canClassify = !empty($can_classify_mutation) && !empty($category_schema_ready);
 $storeUrl = site_url('finance/mutations/store');
 $baseUrl  = site_url('finance/mutations');
 $pg       = $pg ?? ['page' => 1, 'total_pages' => 1, 'per_page' => 25, 'total' => 0];
@@ -107,7 +109,7 @@ $scopeTabs = [
     ],
     'manual' => [
         'label' => 'Mutasi Manual',
-        'desc' => 'Hanya mutasi yang diinput dari halaman ini: antar rekening, mutasi IN, dan mutasi OUT.',
+        'desc' => 'Mutasi IN/OUT manual, antar rekening, rekonsiliasi kas, dan rekonsiliasi pendapatan.',
     ],
 ];
 $moduleFilterOptions = [
@@ -427,6 +429,13 @@ $moduleFilterOptions = [
 
 <div id="mut-alert-area" class="mb-2"></div>
 
+<div class="alert alert-info" role="note">
+  <strong>Kategori menjelaskan tujuan dana.</strong> Gunakan tombol <strong>Kategori</strong> pada mutasi manual atau rekonsiliasi untuk memperbaiki pengaruhnya ke estimasi. Saldo dan nominal tidak berubah; alasan koreksi dicatat di log aktivitas. Periode yang sudah ditutup harus dibuka kembali melalui prosedur resmi.
+</div>
+<?php if (empty($category_schema_ready)): ?>
+  <div class="alert alert-warning">Input masuk/keluar memerlukan migrasi kategori 2026-09-13a. Hubungi administrator; riwayat tetap dapat dibaca.</div>
+<?php endif; ?>
+
 <?php if ((int)($filter_account_id ?? 0) > 0): ?>
   <div class="alert <?php echo $hasAccountAsOfSnapshot && !empty($accountAsOfSnapshot['ledger_matches_live']) ? 'alert-info' : 'alert-warning'; ?> border-0 shadow-sm mb-3" role="status">
     <div class="d-flex gap-2 align-items-start">
@@ -689,6 +698,16 @@ $moduleFilterOptions = [
                   <?php else: ?>
                     <span class="text-muted">–</span>
                   <?php endif; ?>
+                  <?php if (in_array($mod, ['FINANCE', 'FINANCE_RECON', 'REVENUE_RECON'], true)): ?>
+                    <div class="small mt-1 <?php echo empty($r['report_category']) ? 'text-warning' : 'text-muted'; ?>">
+                      <?php echo html_escape((string)($reportCategories[$r['report_category'] ?? '']['label'] ?? 'Belum diklasifikasikan')); ?>
+                    </div>
+                    <?php if ($canClassify): ?>
+                      <button type="button" class="btn btn-sm btn-outline-secondary mt-1 mutation-classify"
+                        data-id="<?php echo (int)$r['id']; ?>" data-category="<?php echo html_escape((string)($r['report_category'] ?? '')); ?>"
+                        data-direction="<?php echo $isIn ? 'IN' : 'OUT'; ?>" data-document="<?php echo html_escape((string)($r['mutation_no'] ?? '') . ' · ' . ($isIn ? 'Masuk ' : 'Keluar ') . number_format((float)$r['amount'], 2, ',', '.')); ?>">Kategori</button>
+                    <?php endif; ?>
+                  <?php endif; ?>
                 </td>
                 <td class="mut-col-amt <?php echo $isIn ? 'mut-amt-in' : 'mut-amt-out'; ?>" data-label="Nominal">
                   <?php echo ($isIn ? '+' : '-'); ?>Rp&nbsp;<?php echo number_format((float)($r['amount'] ?? 0), 0, ',', '.'); ?>
@@ -812,8 +831,19 @@ $moduleFilterOptions = [
             <label class="form-label">Jumlah <span class="text-danger">*</span></label>
             <input type="number" min="0.01" step="0.01" class="form-control" id="amount" placeholder="0" required>
           </div>
+          <div class="col-12" id="mutation-category-wrap">
+            <label class="form-label" for="report_category">Kategori laporan <span class="text-danger">*</span></label>
+            <select id="report_category" class="form-select" required></select>
+            <?php $this->load->view('finance/_settlement_select',['settlement_options'=>$settlement_options??[]]); ?>
+            <small id="category-effect" class="text-muted">Pilih sesuai tujuan dana, bukan hanya arah masuk/keluar.</small>
+          </div>
+          <div class="col-12 d-none" id="settlement-confirm-wrap">
+            <label class="d-flex gap-2 align-items-start"><input type="checkbox" id="settlement-confirmed" class="form-check-input">
+              <span>Biaya ini ditanggung usaha dan <strong>belum dipotong</strong> di nilai POS, rekonsiliasi, atau mutasi lain. Saya sudah memeriksa bukti settlement.</span>
+            </label>
+          </div>
           <div class="col-12">
-            <label class="form-label">Reference No</label>
+            <label class="form-label">Reference No (wajib untuk promo/biaya platform)</label>
             <input type="text" class="form-control" id="reference_no" placeholder="Opsional">
           </div>
           <div class="col-12">
@@ -832,8 +862,45 @@ $moduleFilterOptions = [
   </div>
 </div>
 
+<div class="modal fade" id="mutationCategoryModal" tabindex="-1" aria-labelledby="mutationCategoryTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 id="mutationCategoryTitle" class="modal-title">Klasifikasi laporan</h5><button class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button></div>
+    <div class="modal-body">
+      <p id="classification-document" class="fw-semibold"></p>
+      <div class="alert alert-info">Hanya mengubah pengelompokan laporan. Nominal, saldo, tanggal, dan posting mutasi tidak berubah. Periode CLOSED tidak dapat diubah.</div>
+      <label for="classification-category" class="form-label">Kategori</label><select id="classification-category" class="form-select mb-3"></select>
+      <label for="classification-reason" class="form-label">Alasan perubahan</label><textarea id="classification-reason" class="form-control" maxlength="255" rows="2" required></textarea>
+      <div id="classification-alert" class="mt-2" role="alert"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button><button type="button" class="btn btn-primary" id="classification-save">Simpan kategori</button></div>
+  </div></div>
+</div>
+
 <script>
 (function () {
+  var categories = <?php echo json_encode($reportCategories, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_HEX_APOS); ?>;
+  var requestKey = <?php echo json_encode(bin2hex(random_bytes(16))); ?>;
+  var categoryEl = document.getElementById('report_category');
+  function categoryOptions(select, direction, selected) {
+    select.innerHTML = '';
+    select.add(new Option('Pilih kategori laporan...', ''));
+    Object.keys(categories).forEach(function (key) {
+      if (categories[key].direction === 'BOTH' || categories[key].direction === direction) {
+        select.add(new Option(categories[key].label, key));
+      }
+    });
+    select.value = selected || '';
+  }
+  function syncCategoryEffect() {
+    var option = categories[categoryEl.value];
+    document.getElementById('category-effect').textContent = !option ? 'Pilih sesuai tujuan dana, bukan hanya arah masuk/keluar.'
+      : option.effect === 'income' ? 'Menambah estimasi hasil operasional.' : option.effect === 'expense'
+      ? 'Mengurangi estimasi hasil operasional.' : 'Hanya saldo yang berubah; tidak menjadi pendapatan atau biaya operasional.';
+    var settlement = ['PROMO_EXPENSE', 'PLATFORM_FEE'].indexOf(categoryEl.value) >= 0;
+    document.getElementById('settlement-confirm-wrap').classList.toggle('d-none', !settlement);
+    document.getElementById('settlement-confirmed').checked = false;
+  }
+  categoryEl.addEventListener('change', syncCategoryEffect);
   var storeUrl      = <?php echo json_encode($storeUrl); ?>;
   var purchaseMutationCsrfToken = <?php echo json_encode($purchaseMutationCsrfToken); ?>;
   var alertArea     = document.getElementById('mut-alert-area');
@@ -845,13 +912,18 @@ $moduleFilterOptions = [
   var submitBtn     = document.getElementById('btn-save-mutation');
 
   function showAlert(el, type, msg) {
-    el.innerHTML = '<div class="alert alert-' + type + ' alert-dismissible py-2 mb-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button>' + msg + '</div>';
+    el.innerHTML = '<div class="alert alert-' + type + ' alert-dismissible py-2 mb-2"><button type="button" class="btn-close" data-bs-dismiss="alert"></button><span></span></div>';
+    el.querySelector('span').textContent = msg;
   }
 
   function syncForm() {
     var isT = (mutTypeEl.value || 'IN') === 'TRANSFER';
     toWrapEl.classList.toggle('d-none', !isT);
     toAcctEl.required = isT;
+    document.getElementById('mutation-category-wrap').classList.toggle('d-none', isT);
+    categoryEl.required = !isT;
+    categoryOptions(categoryEl, mutTypeEl.value, '');
+    syncCategoryEffect();
     var lbl = isT ? 'Rekening Sumber <span class="text-danger">*</span>' : 'Rekening <span class="text-danger">*</span>';
     acctLabelEl.innerHTML = lbl;
   }
@@ -872,6 +944,11 @@ $moduleFilterOptions = [
       account_id:    Number(document.getElementById('account_id').value || 0),
       to_account_id: Number(toAcctEl.value || 0),
       mutation_type: type,
+      report_category: categoryEl.value,
+      client_request_key: requestKey,
+      settlement_control_id: type==='TRANSFER'?0:Number(document.querySelector('#mutation-form [data-role="settlement-control"]')?.value || document.querySelector('[data-role="settlement-control"]')?.value || 0),
+      settlement_charge_id: type==='TRANSFER'?0:Number(document.querySelector('#mutation-form [data-role="settlement-charge"]')?.value || document.querySelector('[data-role="settlement-charge"]')?.value || 0),
+      settlement_confirmed: document.getElementById('settlement-confirmed').checked,
       mutation_date: document.getElementById('mutation_date').value,
       amount:        Number(document.getElementById('amount').value || 0),
       reference_no:  document.getElementById('reference_no').value || null,
@@ -885,6 +962,9 @@ $moduleFilterOptions = [
     if (type === 'TRANSFER' && (!payload.to_account_id || payload.to_account_id === payload.account_id)) {
       showAlert(modalAlert, 'warning', 'Rekening tujuan wajib dipilih dan harus berbeda dari rekening sumber.');
       return;
+    }
+    if (type !== 'TRANSFER' && !payload.report_category) {
+      showAlert(modalAlert, 'warning', 'Pilih kategori laporan terlebih dahulu.'); return;
     }
 
     var origHtml = submitBtn.innerHTML;
@@ -901,7 +981,7 @@ $moduleFilterOptions = [
       if (res.status >= 400 || !res.json || !res.json.ok) {
         throw new Error((res.json && res.json.message) ? res.json.message : 'Gagal simpan mutasi.');
       }
-      showAlert(alertArea, 'success', 'Mutasi berhasil disimpan. Halaman akan dimuat ulang&hellip;');
+      showAlert(alertArea, 'success', 'Mutasi berhasil disimpan. Halaman akan dimuat ulang...');
       var modal = bootstrap.Modal.getInstance(document.getElementById('mutInputModal'));
       if (modal) modal.hide();
       window.setTimeout(function () { window.location.reload(); }, 600);
@@ -911,6 +991,34 @@ $moduleFilterOptions = [
       submitBtn.disabled = false;
       submitBtn.innerHTML = origHtml;
     });
+  });
+  var classification = null;
+  document.querySelectorAll('.mutation-classify').forEach(function (button) {
+    button.addEventListener('click', function () {
+      classification = { mutation_id: Number(button.dataset.id), expected_category: button.dataset.category || '' };
+      document.getElementById('classification-document').textContent = button.dataset.document;
+      categoryOptions(document.getElementById('classification-category'), button.dataset.direction, classification.expected_category);
+      document.getElementById('classification-reason').value = '';
+      document.getElementById('classification-alert').textContent = '';
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('mutationCategoryModal')).show();
+    });
+  });
+  document.getElementById('classification-save').addEventListener('click', function () {
+    if (!classification) return;
+    var button = this;
+    var body = Object.assign({}, classification, {
+      report_category: document.getElementById('classification-category').value,
+      reason: document.getElementById('classification-reason').value.trim()
+    });
+    if (!body.report_category || !body.reason) {
+      showAlert(document.getElementById('classification-alert'), 'warning', 'Kategori dan alasan wajib diisi.'); return;
+    }
+    button.disabled = true;
+    fetch(<?php echo json_encode(site_url('finance/mutations/classify')); ?>, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Purchase-Mutation-CSRF': purchaseMutationCsrfToken }, body: JSON.stringify(body)
+    }).then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.ok) throw Error(j.message || 'Klasifikasi gagal.'); return j; }); })
+      .then(function () { window.location.reload(); })
+      .catch(function (e) { showAlert(document.getElementById('classification-alert'), 'danger', e.message); button.disabled = false; });
   });
 })();
 </script>

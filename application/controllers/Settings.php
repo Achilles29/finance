@@ -19,6 +19,7 @@ class Settings extends MY_Controller
         $this->render('settings/index', [
             'title'       => 'Pengaturan Akun',
             'active_menu' => 'settings',
+            'can_manage_roast_connect' => $this->is_superadmin(),
             'user'        => $user ?: $this->current_user,
         ]);
     }

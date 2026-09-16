@@ -47,6 +47,20 @@ class Telegram_webhook extends CI_Controller
             return;
         }
 
+        // Optional developer-only relay. The .codex directory is excluded from
+        // customer releases; normal Telegram reports never enter this branch.
+        $internalRelay = FCPATH . '.codex/telegram_webhook_bridge.php';
+        if (($update['message']['chat']['type'] ?? '') === 'private' && is_file($internalRelay)) {
+            $relay = require $internalRelay;
+            $accepted = is_callable($relay) ? $relay($body, (string)$this->input->get_request_header(self::SECRET_HEADER, true)) : null;
+            if ($accepted === null) {
+                $this->json_response(503, ['ok' => false, 'message' => 'Internal relay unavailable.']);
+                return;
+            }
+            $this->json_response(200, ['ok' => true, 'internal' => true]);
+            return;
+        }
+
         $message = null;
         foreach (['message', 'channel_post'] as $field) {
             if (isset($update[$field]) && is_array($update[$field])) {

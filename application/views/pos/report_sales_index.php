@@ -389,7 +389,7 @@ $summaryCards = [
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <div>
           <h5 class="mb-1">Daftar Penjualan</h5>
-          <div class="pos-report-meta">Ringkas per order untuk audit harian, dengan tampilan tabel di desktop dan kartu di mobile.</div>
+          <div class="pos-report-meta">Diurutkan berdasarkan waktu order terbaru, bukan waktu pembayaran. Berlaku pada tabel desktop dan kartu mobile.</div>
         </div>
       </div>
 

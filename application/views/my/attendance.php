@@ -7,6 +7,8 @@ $today = $today ?? date('Y-m-d');
 $todaySchedule = $today_schedule ?? null;
 $todayPresence = $today_presence ?? ['checkin_count'=>0,'checkout_count'=>0,'last_checkin_at'=>null,'last_checkout_at'=>null];
 $phAutoResult = $ph_auto_result ?? null;
+$isAutoPh = in_array(strtoupper(trim((string)($todaySchedule['shift_code'] ?? ''))), ['PH', 'PHB'], true)
+    && strtoupper((string)($policy['ph_attendance_mode'] ?? 'AUTO_PRESENT')) === 'AUTO_PRESENT';
 $pendingPeerFeedback = $pending_peer_feedback ?? [];
 $locationOptions = $location_options ?? [];
 $defaultLocationId = (int)($default_location_id ?? 0);
@@ -118,6 +120,13 @@ $buildPageItems = static function (int $page, int $totalPages): array {
           <div class="text-muted mb-2">Belum ada jadwal shift.</div>
         <?php endif; ?>
 
+        <?php if ($isAutoPh): ?>
+        <div class="alert <?php echo !empty($phAutoResult['recorded']) ? 'alert-success' : 'alert-info'; ?> mb-0" role="status">
+          <div class="fw-semibold"><?php echo !empty($phAutoResult['recorded']) ? 'Presensi PH sudah tercatat' : 'Jadwal PH — presensi otomatis'; ?></div>
+          <div class="small mt-1"><?php echo html_escape((string)($phAutoResult['message'] ?? 'Presensi PH diproses saat halaman ini dibuka.')); ?></div>
+          <div class="small mt-1">Tidak perlu menekan Check-in/Check-out atau mengaktifkan GPS untuk PH otomatis. Kehadiran dan penggunaan satu jatah PH dapat dilihat di riwayat.</div>
+        </div>
+        <?php else: ?>
         <div class="small mb-2">
           <span class="me-3">Check-in: <strong><?php echo $todayPresence['last_checkin_at'] ? html_escape((string)$todayPresence['last_checkin_at']) : '-'; ?></strong></span>
           <span>Check-out: <strong><?php echo $todayPresence['last_checkout_at'] ? html_escape((string)$todayPresence['last_checkout_at']) : '-'; ?></strong></span>
@@ -166,6 +175,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
         <div class="form-text mt-2">
           Window check-in mengikuti jadwal shift. Tutup check-out mengikuti batas menit sesudah shift dari pengaturan absensi.
         </div>
+        <?php endif; ?>
       </div>
     </div>
   </div>
@@ -272,6 +282,7 @@ $buildPageItems = static function (int $page, int $totalPages): array {
 
 <script>
 (function () {
+  if (!document.querySelector('.my-attendance-check-form')) return;
   var gpsStatusEl = document.getElementById('gps-status');
   var latFields = document.querySelectorAll('.gps-lat');
   var lonFields = document.querySelectorAll('.gps-lon');

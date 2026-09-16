@@ -95,7 +95,7 @@ try {
     foreach ($forbidden as $path) $check(!file_exists($extract . '/' . $path) && is_file($source . '/' . $path), 'build omits trap without deleting source');
     $check(CustomerReleaseProfile::installed($extract), 'installed profile is bound to inner manifest');
     $release = a513_validate_release($extract, $extract . '/RELEASE-MANIFEST.json');
-    $check(count($release['catalog']['migrations']) === 16 && $release['baseline']['ok'], 'installer accepts complete clean baseline without legacy repair files');
+    $check(count($release['catalog']['migrations']) === 20 && $release['baseline']['ok'], 'installer accepts complete clean baseline without legacy repair files');
     $cleanPlan = array_column(a5_plan($release['catalog'], 'clean_install'), 'path');
     $upgradePlan = array_column(a5_plan($release['catalog'], 'upgrade'), 'path');
     $check(in_array('sql/2026-09-05d_a5_clean_install_reference_seed.sql', $cleanPlan, true)
@@ -110,7 +110,7 @@ try {
     $signature = ControlReleaseBridge::sign($bytes, $name, $key);
     $verified = ControlReleaseBridge::verify($bytes, $name, $signature, $trust, $archive);
     $check($verified['customer_clean_eligible'], 'signed clean candidate returns explicit validator eligibility');
-    $plan = ['release' => ['distribution_profile' => 'CUSTOMER_CLEAN', 'distribution_profile_version' => 1,
+    $plan = ['release' => ['distribution_profile' => 'CUSTOMER_CLEAN', 'distribution_profile_version' => $profile->version(),
         'seed_profile' => 'REFERENCE_ONLY', 'customer_content_profile_sha256' => $profile->digest()]];
     ControlDelivery::validateCustomerBinding($plan, $verified);
     $check(true, 'Control delivery binds signed profile and seed');

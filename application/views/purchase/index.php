@@ -86,13 +86,14 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
 
 <style>
     .po-table-wrap {
-        overflow-x: visible;
-        overflow-y: visible;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
     }
     .po-table {
         table-layout: fixed;
         width: 100%;
-        min-width: 0;
+        min-width: 960px;
     }
     .po-table > :not(caption) > * > * {
         padding: 0.5rem 0.55rem;
@@ -122,8 +123,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         width: 11%;
     }
     .po-col-action {
-        width: 7%;
-        min-width: 86px;
+        width: 110px;
     }
     .po-status-next {
         min-width: 0;
@@ -192,7 +192,7 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         gap: 0.3rem;
         align-items: center;
         justify-content: center;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
     }
     .po-status-note {
         font-size: 0.66rem;
@@ -294,6 +294,9 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
         color: #243445;
         line-height: 1.2;
         margin-top: 0.12rem;
+    }
+    .po-rincian-table {
+        min-width: 1100px;
     }
     .po-rincian-table th,
     .po-rincian-table td {
@@ -730,6 +733,109 @@ $canEditPo = !empty($current_user['is_superadmin']) || !empty($user_perms['purch
             width: 100%;
             justify-content: center;
         }
+        /* Reuse the same rows/controls: no duplicated status-update handlers. */
+        .po-table-wrap {
+            overflow: visible;
+        }
+        .po-table,
+        .po-table tbody {
+            display: block;
+            width: 100%;
+            min-width: 0;
+        }
+        .po-table colgroup {
+            display: none;
+        }
+        .po-table thead {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+        }
+        .po-table tbody tr {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-bottom: .85rem;
+            border: 1px solid #eadcd2;
+            border-radius: 16px;
+            background: #fffdfb;
+            padding: .4rem;
+        }
+        .po-table tbody td,
+        .po-table.po-rincian-table tbody td {
+            display: block;
+            width: auto;
+            min-width: 0;
+            padding: .55rem;
+            border: 0;
+            text-align: left !important;
+            overflow-wrap: anywhere;
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+            box-shadow: none;
+            background: transparent;
+            font-size: .875rem;
+        }
+        .po-table tbody td::before {
+            content: attr(data-label);
+            display: block;
+            color: #7b625e;
+            font-size: .72rem;
+            font-weight: 600;
+            margin-bottom: .3rem;
+        }
+        .po-table td.po-mobile-wide,
+        .po-table td[colspan],
+        .po-table td.action-cell,
+        .po-table td.po-action-cell {
+            grid-column: 1 / -1;
+        }
+        .po-table td[colspan]::before {
+            display: none;
+        }
+        .po-table .po-cell-title,
+        .po-table .po-rincian-main,
+        .po-table .po-money-main {
+            font-size: .875rem;
+            text-align: left;
+        }
+        .po-table .po-cell-subtext {
+            font-size: .78rem;
+            line-height: 1.4;
+        }
+        .po-table .po-status-cell {
+            align-items: flex-start;
+            justify-content: flex-start;
+        }
+        .po-table .po-status-next {
+            width: 100%;
+            min-height: 44px !important;
+            font-size: .8rem;
+        }
+        .po-table .po-status-pill {
+            white-space: normal;
+            overflow-wrap: anywhere;
+            line-height: 1.35;
+            font-size: .7rem;
+        }
+        .po-board-card .po-table .action-icon-btn {
+            width: 44px !important;
+            height: 44px !important;
+            min-width: 44px !important;
+        }
+        .po-purpose-flare-list {
+            grid-template-columns: minmax(0, 1fr);
+        }
+        .po-month-unpaid-item {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
+    @media (max-width: 399.98px) {
+        .po-table tbody tr {
+            grid-template-columns: minmax(0, 1fr);
+        }
     }
 </style>
 
@@ -1089,22 +1195,22 @@ $ptTotal = array_sum(array_column($typeBreakdown, 'total_value'));
                                     <?php $canEditData = in_array($statusCurrent, ['DRAFT', 'APPROVED'], true); ?>
                                     <?php $requiresEditReview = (int)($r['requires_edit_review'] ?? 0) === 1; ?>
                                     <tr>
-                                        <td>
+                                        <td data-label="PO &amp; Tanggal" class="po-mobile-wide">
                                             <div class="po-cell-title"><?php echo html_escape((string)($r['po_no'] ?? '-')); ?></div>
                                             <span class="po-cell-subtext"><?php echo html_escape((string)($r['request_date'] ?? '-')); ?></span>
                                         </td>
-                                        <td>
+                                        <td data-label="Vendor">
                                             <div class="po-cell-title"><?php echo html_escape((string)($r['vendor_name'] ?? '-')); ?></div>
                                             <span class="po-cell-subtext"><?php echo html_escape((string)($r['destination_type'] ?? '-')); ?></span>
                                         </td>
-                                        <td>
+                                        <td data-label="Pembelian">
                                             <div><?php echo html_escape((string)($r['purchase_type_name'] ?? '-')); ?></div>
                                             <span class="po-cell-subtext"><?php echo html_escape(trim((string)($r['payment_account_name'] ?? '')) !== '' ? (string)($r['payment_account_name'] ?? '') : '-'); ?></span>
                                         </td>
-                                        <td class="text-end">
+                                        <td class="text-end" data-label="Nilai">
                                             <div class="po-money-main"><?php echo number_format((float)($r['grand_total'] ?? 0), 2, ',', '.'); ?></div>
                                         </td>
-                                        <td>
+                                        <td data-label="Status">
                                             <div class="po-status-cell">
                                                 <div><span class="badge <?php echo $statusBadgeClass($statusCurrent); ?> po-status-pill"><?php echo html_escape($statusCurrent); ?></span></div>
                                             <?php
@@ -1138,7 +1244,7 @@ $ptTotal = array_sum(array_column($typeBreakdown, 'total_value'));
                                                 <?php endif; ?>
                                             </div>
                                         </td>
-                                        <td class="action-cell">
+                                        <td class="action-cell" data-label="Aksi">
                                             <div class="d-flex gap-1 flex-nowrap justify-content-end">
                                                 <a href="<?php echo site_url('purchase-orders/detail/' . (int)($r['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-info action-icon-btn" data-bs-toggle="tooltip" title="Detail" aria-label="Detail">
                                                     <i class="ri ri-eye-line"></i>
@@ -1233,14 +1339,14 @@ $ptTotal = array_sum(array_column($typeBreakdown, 'total_value'));
                                         $paymentAcct = trim((string)($lr['payment_account_name'] ?? ''));
                                     ?>
                                     <tr>
-                                        <td class="rincian-text-left">
-                                            <div class="po-cell-title" style="font-size:.76rem;"><?php echo html_escape((string)($lr['po_no'] ?? '-')); ?></div>
+                                        <td class="rincian-text-left po-mobile-wide" data-label="PO &amp; Tanggal">
+                                            <div class="po-cell-title"><?php echo html_escape((string)($lr['po_no'] ?? '-')); ?></div>
                                             <span class="po-cell-subtext"><?php echo html_escape((string)($lr['request_date'] ?? '-')); ?></span>
                                         </td>
-                                        <td class="rincian-text-left">
+                                        <td class="rincian-text-left" data-label="Tipe Belanja">
                                             <span class="po-rincian-main"><?php echo html_escape((string)($lr['purchase_type_name'] ?? '-')); ?></span>
                                         </td>
-                                        <td class="rincian-text-left">
+                                        <td class="rincian-text-left" data-label="Rincian">
                                             <div class="po-rincian-main"><?php echo html_escape($lineName); ?></div>
                                             <?php if ($lineBrand !== ''): ?>
                                             <span class="po-cell-subtext"><?php echo html_escape($lineBrand); ?></span>
@@ -1249,22 +1355,22 @@ $ptTotal = array_sum(array_column($typeBreakdown, 'total_value'));
                                             <span class="po-cell-subtext"><?php echo html_escape($lineDesc); ?></span>
                                             <?php endif; ?>
                                         </td>
-                                        <td class="rincian-number">
+                                        <td class="rincian-number" data-label="Qty">
                                             <span class="po-rincian-main"><?php echo number_format((float)($lr['qty_buy'] ?? 0), 2, ',', '.'); ?></span>
                                         </td>
-                                        <td class="rincian-number">
+                                        <td class="rincian-number" data-label="UOM Isi">
                                             <span class="po-rincian-main">
                                                 <?php echo number_format((float)($lr['content_per_buy'] ?? 0), 2, ',', '.'); ?>
                                                 <?php echo html_escape((string)($lr['snapshot_content_uom_code'] ?? '-')); ?>
                                             </span>
                                         </td>
-                                        <td class="rincian-number">
+                                        <td class="rincian-number" data-label="Nilai">
                                             <span class="po-rincian-main"><?php echo number_format((float)($lr['line_subtotal'] ?? 0), 2, ',', '.'); ?></span>
                                         </td>
-                                        <td class="rincian-text-left">
+                                        <td class="rincian-text-left" data-label="Rekening Pembayaran">
                                             <span class="po-rincian-main"><?php echo html_escape($paymentAcct !== '' ? $paymentAcct : '-'); ?></span>
                                         </td>
-                                        <td class="rincian-center">
+                                        <td class="rincian-center" data-label="Status">
                                             <span class="badge <?php echo $statusBadgeClass($st); ?> po-status-pill po-status-pill--xs"><?php echo html_escape($st); ?></span>
                                         </td>
                                     </tr>
@@ -1320,25 +1426,25 @@ $ptTotal = array_sum(array_column($typeBreakdown, 'total_value'));
                             <?php else: ?>
                                 <?php foreach ($paidRows as $pr): ?>
                                     <tr>
-                                        <td>
+                                        <td data-label="Tgl Paid">
                                             <div class="po-cell-title" style="color:#0f766e;"><?php echo html_escape((string)($pr['paid_date'] ?? '-')); ?></div>
                                         </td>
-                                        <td>
+                                        <td data-label="PO &amp; Tanggal" class="po-mobile-wide">
                                             <div class="po-cell-title"><?php echo html_escape((string)($pr['po_no'] ?? '-')); ?></div>
                                             <span class="po-cell-subtext"><?php echo html_escape((string)($pr['request_date'] ?? '-')); ?></span>
                                         </td>
-                                        <td>
+                                        <td data-label="Vendor">
                                             <div class="po-cell-title"><?php echo html_escape((string)($pr['vendor_name'] ?? '-')); ?></div>
                                             <span class="po-cell-subtext"><?php echo html_escape((string)($pr['destination_type'] ?? '-')); ?></span>
                                         </td>
-                                        <td>
+                                        <td data-label="Pembelian">
                                             <div><?php echo html_escape((string)($pr['purchase_type_name'] ?? '-')); ?></div>
                                             <span class="po-cell-subtext"><?php echo html_escape(trim((string)($pr['payment_account_name'] ?? '')) !== '' ? (string)$pr['payment_account_name'] : '-'); ?></span>
                                         </td>
-                                        <td class="text-end">
+                                        <td class="text-end" data-label="Nilai">
                                             <div class="po-money-main"><?php echo number_format((float)($pr['grand_total'] ?? 0), 2, ',', '.'); ?></div>
                                         </td>
-                                        <td class="po-action-cell">
+                                        <td class="po-action-cell" data-label="Aksi">
                                             <a href="<?php echo site_url('purchase-orders/detail/' . (int)($pr['id'] ?? 0)); ?>" class="btn btn-sm btn-outline-secondary action-icon-btn" title="Detail"><i class="ri ri-eye-line"></i></a>
                                         </td>
                                     </tr>

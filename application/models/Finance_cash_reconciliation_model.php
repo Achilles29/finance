@@ -1,5 +1,6 @@
 <?php
 defined('BASEPATH') OR exit('No direct script access allowed');
+require_once __DIR__ . '/../libraries/Finance_mutation_policy.php';
 
 /**
  * Rekonsiliasi kas disimpan terpisah dari mutasi rekening. Saldo fisik yang
@@ -320,6 +321,9 @@ class Finance_cash_reconciliation_model extends CI_Model
             'actual_balance' => $actual,
             'difference_amount' => round((float)($line['difference_amount'] ?? 0), 2),
             'resolution_type' => (string)($line['resolution_type'] ?? 'NONE'),
+            'report_category' => (string)($line['report_category'] ?? ''),
+            'settlement_control_id' => (int)($line['settlement_control_id'] ?? 0),
+            'settlement_charge_id' => (int)($line['settlement_charge_id'] ?? 0),
             'counter_account_id' => (int)($line['counter_account_id'] ?? 0),
             'counter_account_code' => (string)($line['counter_account_code'] ?? ''),
             'counter_account_name' => (string)($line['counter_account_name'] ?? ''),
@@ -442,6 +446,9 @@ class Finance_cash_reconciliation_model extends CI_Model
                 'actual_balance' => $actualBalance,
                 'difference_amount' => $difference,
                 'resolution_type' => (string)($line['resolution_type'] ?? 'NONE'),
+                'report_category' => (string)($line['report_category'] ?? ''),
+                'settlement_control_id' => (int)($line['settlement_control_id'] ?? 0),
+                'settlement_charge_id' => (int)($line['settlement_charge_id'] ?? 0),
                 'counter_account_id' => (int)($line['counter_account_id'] ?? 0),
                 'counter_account_code' => (string)($line['counter_account_code'] ?? ''),
                 'counter_account_name' => (string)($line['counter_account_name'] ?? ''),
@@ -520,6 +527,11 @@ class Finance_cash_reconciliation_model extends CI_Model
         $accountId = (int)($payload['account_id'] ?? 0);
         $actualBalance = $this->normalize_amount($payload['actual_balance'] ?? null);
         $resolutionType = strtoupper(trim((string)($payload['resolution_type'] ?? 'NONE')));
+        $reportCategory = strtoupper(trim((string)($payload['report_category'] ?? '')));
+        if ($reportCategory !== '' && in_array($resolutionType, ['IN', 'OUT'], true)
+            && !Finance_mutation_policy::valid($reportCategory, $resolutionType)) {
+            return ['ok' => false, 'message' => 'Kategori laporan tidak sesuai arah mutasi.'];
+        }
         $counterAccountId = (int)($payload['counter_account_id'] ?? 0);
         $resolutionNote = $this->normalize_note($payload['resolution_note'] ?? '');
 
@@ -617,7 +629,16 @@ class Finance_cash_reconciliation_model extends CI_Model
                 'entered_at' => $now,
                 'updated_at' => $now,
             ];
+            if ($this->db->field_exists('report_category', self::LINE_TABLE)) {
+                $linePayload['report_category'] = in_array($resolutionType, ['IN', 'OUT'], true) ? ($reportCategory ?: null) : null;
+            } elseif ($reportCategory !== '') {
+                throw new RuntimeException('Jalankan migrasi kategori mutasi 2026-09-13a terlebih dahulu.');
+            }
 
+            if ($this->db->field_exists('settlement_control_id', self::LINE_TABLE)) {
+                $linePayload['settlement_control_id'] = in_array($resolutionType,['IN','OUT'],true) ? (max(0,(int)($payload['settlement_control_id']??0)) ?: null) : null;
+            }
+            if ($this->db->field_exists('settlement_charge_id', self::LINE_TABLE)) $linePayload['settlement_charge_id']=in_array($resolutionType,['IN','OUT'],true)?(max(0,(int)($payload['settlement_charge_id']??0))?:null):null;
             if ($existing) {
                 $this->db->where('id', (int)$existing['id'])->update(self::LINE_TABLE, $linePayload);
                 $lineId = (int)$existing['id'];
@@ -696,8 +717,13 @@ class Finance_cash_reconciliation_model extends CI_Model
         string $reconciliationNo,
         string $notes,
         int $actorUserId,
-        string $suffix
+        string $suffix,
+        ?string $reportCategory = null,
+        int $settlementId = 0,
+        int $chargeId = 0
     ): array {
+        require_once APPPATH . 'libraries/Finance_settlement_control.php';
+        Finance_settlement_control::assert_post($this->db,$settlementId,(string)$reportCategory,(int)$account['id'],$mutationDate,$moduleCode,0,$chargeId,$amount,$mutationType);
         $mutationType = strtoupper($mutationType);
         $amount = round($amount, 2);
         $balanceBefore = round((float)($account['current_balance'] ?? 0), 2);
@@ -708,9 +734,8 @@ class Finance_cash_reconciliation_model extends CI_Model
         if ($mutationType === 'OUT' && $balanceAfter < -0.004) {
             throw new RuntimeException('Saldo rekening sumber tidak cukup untuk menyelesaikan penyesuaian ini.');
         }
-        if ($balanceAfter < 0) {
-            $balanceAfter = 0.0;
-        }
+        // A destination may already have a negative balance. Credit exactly the
+        // posted amount; clamping to zero would create cash without a mutation.
 
         $this->db->where('id', (int)$account['id'])->update(self::ACCOUNT_TABLE, [
             'current_balance' => $balanceAfter,
@@ -729,6 +754,9 @@ class Finance_cash_reconciliation_model extends CI_Model
             'balance_before' => $balanceBefore,
             'balance_after' => $balanceAfter,
             'ref_module' => $moduleCode,
+            'report_category' => $reportCategory,
+            ...($this->db->field_exists('settlement_control_id',self::MUTATION_TABLE) ? ['settlement_control_id'=>$settlementId ?: null] : []),
+            ...($this->db->field_exists('settlement_charge_id',self::MUTATION_TABLE) ? ['settlement_charge_id'=>$chargeId ?: null] : []),
             'ref_table' => self::LINE_TABLE,
             'ref_id' => $lineId,
             'ref_no' => $reconciliationNo,
@@ -804,6 +832,14 @@ class Finance_cash_reconciliation_model extends CI_Model
             if (!in_array($resolutionType, ['IN', 'OUT', 'TRANSFER'], true)) {
                 throw new RuntimeException('Pilih mutasi masuk, keluar, atau transfer antar rekening sebelum posting.');
             }
+            Finance_mutation_policy::assert_open_period($this->db, (string)$line['reconciliation_date']);
+            $reportCategory = (string)($line['report_category'] ?? '');
+            if (!$this->db->field_exists('report_category', self::MUTATION_TABLE)) {
+                throw new RuntimeException('Jalankan migrasi kategori mutasi 2026-09-13a terlebih dahulu.');
+            }
+            if ($resolutionType !== 'TRANSFER' && !Finance_mutation_policy::valid($reportCategory, $resolutionType)) {
+                throw new RuntimeException('Pilih kategori laporan dan simpan sebelum memposting penyesuaian.');
+            }
 
             $accountId = (int)$line['account_id'];
             $counterAccountId = (int)($line['counter_account_id'] ?? 0);
@@ -820,11 +856,17 @@ class Finance_cash_reconciliation_model extends CI_Model
             if ($resolutionType === 'TRANSFER' && !isset($lockedAccounts[$counterAccountId])) {
                 throw new RuntimeException('Rekening lawan transfer sudah tidak aktif.');
             }
+            if ($resolutionType === 'TRANSFER' && (string)($lockedAccounts[$accountId]['currency_code']??'') !== (string)($lockedAccounts[$counterAccountId]['currency_code']??'')) {
+                throw new RuntimeException('Transfer rekonsiliasi hanya untuk rekening dengan mata uang sama.');
+            }
 
             // Rekening sudah terkunci dalam transaksi ini, sehingga selisih
             // berikut memakai saldo sistem live yang sama dengan yang diposting.
             $systemBalance = round((float)$lockedAccounts[$accountId]['current_balance'], 2);
             $difference = round((float)$line['actual_balance'] - $systemBalance, 2);
+            if (abs($systemBalance-(float)$line['system_balance'])>=.005 || abs($difference-(float)$line['difference_amount'])>=.005) {
+                throw new RuntimeException('Saldo berubah setelah hasil cek disimpan. Muat ulang, periksa saldo riil, lalu simpan dan konfirmasi kembali; nominal lama tidak diposting.');
+            }
             if (abs($difference) < 0.005) {
                 throw new RuntimeException('Tidak ada selisih pada saldo sistem live yang perlu diposting.');
             }
@@ -849,12 +891,12 @@ class Finance_cash_reconciliation_model extends CI_Model
             if ($resolutionType === 'IN') {
                 $primaryMutation = $this->post_locked_mutation(
                     $lockedAccounts[$accountId], 'IN', $amount, (string)$line['reconciliation_date'], 'FINANCE_RECON',
-                    $lineId, (string)$line['reconciliation_no'], $note, $actorUserId, 'IN'
+                    $lineId, (string)$line['reconciliation_no'], $note, $actorUserId, 'IN', $reportCategory, (int)($line['settlement_control_id']??0), (int)($line['settlement_charge_id']??0)
                 );
             } elseif ($resolutionType === 'OUT') {
                 $primaryMutation = $this->post_locked_mutation(
                     $lockedAccounts[$accountId], 'OUT', $amount, (string)$line['reconciliation_date'], 'FINANCE_RECON',
-                    $lineId, (string)$line['reconciliation_no'], $note, $actorUserId, 'OUT'
+                    $lineId, (string)$line['reconciliation_no'], $note, $actorUserId, 'OUT', $reportCategory, (int)($line['settlement_control_id']??0), (int)($line['settlement_charge_id']??0)
                 );
             } elseif ($difference > 0) {
                 $counterMutation = $this->post_locked_mutation(
@@ -908,7 +950,9 @@ class Finance_cash_reconciliation_model extends CI_Model
             if (!$this->db->trans_status()) {
                 throw new RuntimeException('Posting penyesuaian tidak selesai.');
             }
-            $this->db->trans_commit();
+            if ($this->db->trans_commit() === false) {
+                throw new RuntimeException('Posting penyesuaian gagal disimpan.');
+            }
 
             return [
                 'ok' => true,

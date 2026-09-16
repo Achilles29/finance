@@ -1,5 +1,66 @@
 # Roadmap Komersialisasi Finance POS
 
+Review Batch 265 — 2026-09-16: [checklist penerimaan lintas aplikasi](2026-09-16_checklist_uat_seluruh_perbaikan_finance.md) kini menyatukan 98 skenario / 23 kelompok, termasuk identitas customer, panduan, perangkat dan clean-install/update/lisensi. Detail bug/kode tetap di `_30`; daftar ini bukan roadmap ketiga dan belum menandakan UAT lulus atau C0–C5 selesai.
+
+Pemeriksaan read-only katalog/profil mengonfirmasi SQL `2026-09-14c`, `15a`, `15b`, `15c`, `16a` belum managed/allowlisted; SQL `2026-09-12a` sudah di katalog tetapi belum allowlist SQL customer. Contoh kode belum allowlisted: `Finance_accounting_model`, `Procurement_stock_review`, `User_guide`, `Finance_user_guide`. Sebelum paket berikut dirilis: selaraskan dependency/checksum/allowlist, tutup temuan review, lalu buktikan clean-install/upgrade dan penerimaan customer. Tidak mengubah Control, katalog/profil/artifact atau database dalam review; 22 suite source/fixture PASS tidak membuktikan isi artifact/deployment. Riwayat release lama harus dibaca sesuai cutoff, bukan dianggap memuat seluruh working tree terbaru.
+
+Review Batch 264 — 2026-09-16: handoff procurement **REVIEW_OPEN / NOT_RELEASED**. PR-01 (edit-verifikasi bersamaan), PR-02 (lookup material gagal) dan PR-03 (preview menggantung) menjadi acceptance blocker sebelum fitur ini dibawa ke customer. Rincian bug/reproduksi dan 19 checklist UAT hanya pada `_30` dan laporan modul, tidak diduplikasi di roadmap penjualan. Apply SQL oleh pengguna tidak menutup acceptance kode atau membuktikan paket customer sudah diperbarui.
+
+Handoff Batch 263, status diperbarui Batch 264 — 2026-09-16 (**IMPLEMENTED / REVIEW_OPEN / NOT_RELEASED**): kontrol stok pada verifikasi pengajuan divisi dan riwayat terkait SR/PO ditambahkan di source. Checklist teknis/UAT hanya di `_30` dan [laporan modul](2026-09-16_konfirmasi_stok_pengajuan_divisi.md). SQL `2026-09-16a` **USER_REPORTED_APPLIED**, dicatat 06:21 WIB berdasarkan konfirmasi pengguna; belum postcheck langsung dan belum managed/allowlisted. Paket berikut harus membawa library, controller/model/view, route dan JS bersama migrasi tabel bukti; clean-install menggunakan tabel kosong, tidak menyalin nama pihak/alasan/IP/snapshot staging. Sebelum rilis: perbaiki temuan review, registrasi dependency/checksum/allowlist, replay MariaDB, clean-install/upgrade dan UAT. Tidak mengubah Control, manifest/profil, registry atau artifact; perubahan source bukan bukti artifact customer sudah diperbarui.
+
+Handoff Batch 262 — 2026-09-15: paket berikut perlu membawa pembaruan `Pos_report_model.php` dan view `pos/report_sales_index.php` untuk urutan laporan penjualan berdasarkan waktu order. Rincian teknis/checklist tetap hanya di `_30` dan execution log. Tidak ada SQL baru, perubahan Control atau build/push/deploy; perubahan source bukan bukti artifact customer sudah diperbarui.
+
+Pembaruan Batch 261 — 2026-09-15 (**C5 panduan, CODE_READY / NOT_RELEASED**): pusat Panduan Aplikasi `/guide` tersedia di source: 26 bab, UI/peran dan admin server terpisah, navigasi mobile/pencarian, contoh konfigurasi/scheduler dan alur sampai laporan/jurnal. Detail teknis/checklist hanya pada `_30` dan laporan modul. SQL `2026-09-15c` metadata menu/izin **USER_REPORTED_APPLIED**, konfirmasi pengguna dicatat 11:24 WIB; postcheck belum diterima. Agent tidak mengubah DB/Control, checksum atau mengulang apply. Paket berikut perlu membawa controller/library/catalog/view/CSS/JS/routes dan seed izin yang sudah direview; migrasi belum managed/allowlisted. Versi yang tampil adalah versi sumber manifest, bukan bukti paket terpublikasi. C5 tetap **IN_PROGRESS**: verifikasi sidebar/izin, browser/print, walkthrough awam dan validasi artifact customer/clean-install/upgrade belum selesai.
+
+Pembaruan Batch 260 — 2026-09-15: pengguna mengonfirmasi SQL jurnal 15b sudah dijalankan; status terkini **USER_REPORTED_APPLIED** (dicatat 10:25 WIB), menggantikan BELUM DIJALANKAN pada riwayat Batch 259 di bawah. Tidak mengulang SQL/checksum; postcheck/izin/UAT dan handoff katalog/customer tetap terbuka. Perbaikan regresi PH pada `My_portal_model` + view `my/attendance` dicatat pada `_30`/laporan modul PH; required gate baru `attendance-auto-ph`. Tidak ada SQL PH baru, perubahan profil/Control atau paket/deploy pada batch ini. Perbaikan workspace bukan bukti artifact customer sudah membawa perubahan.
+
+Pembaruan Batch 259 — 2026-09-15 (**C3 handoff, NOT_RELEASED**): UI akun/pemetaan dan asisten/panduan jurnal sudah ditambahkan; rincian/checklist teknis tetap pada `_30` dan laporan modul akuntansi. Dependency kode tambahan: `Finance_accounting_setup.php`, `Finance_journal_assistant.php`, partial view `accounting_settings.php`/`accounting_guide.php`, pembaruan controller/model/routes/JS. SQL baru `2026-09-15b_finance_journal_assistant.sql` **BELUM DIJALANKAN**, membutuhkan 15a (USER_REPORTED_APPLIED, belum postcheck). Tabel mapping harus kosong pada paket baru; pemetaan customer tidak boleh diambil dari staging. Seed izin pengaturan terpisah, tanpa saldo/jurnal/transaksi bisnis. Kedua SQL dan dependency kode accounting belum didaftarkan/dibuktikan lewat allowlist/release; bukan janji fitur sudah dibawa alpha.10. Registrasi hash/dependency, replay MariaDB, clean-install/upgrade dan UAT tetap terbuka. Tidak mengubah Control, paket, registry, credential, atau menjalankan deployment.
+
+Pembaruan 2026-09-15 09:35 WIB / tindak lanjut Batch 258: pengguna mengonfirmasi SQL `2026-09-15a` sudah dijalankan; status terkini **USER_REPORTED_APPLIED**, menggantikan BELUM DIJALANKAN pada catatan historis berikut. Postcheck/schema/sidebar/RBAC, UAT, pengakuan otomatis lintas modul dan registrasi paket customer tetap belum selesai. Tidak mengulang SQL, mengubah registry/Control atau menyatakan rilis siap.
+
+Catatan terkini 2026-09-15 / Batch 258 (C3 handoff, **belum dirilis**): fondasi arus kas/jurnal/laporan akuntansi dicatat pada `_30` dan laporan modul `2026-09-15_akuntansi_jurnal_dan_arus_kas.md`. SQL `2026-09-15a_finance_general_ledger.sql` **BELUM DIJALANKAN**, belum managed/allowlisted; jangan memasukkannya ke paket customer sebagai fitur siap pakai. Paket setelah review harus membawa controller `Finance_accounting`, model `Finance_accounting_model`, library `Finance_journal_policy`, view `finance/accounting`, JS `finance-accounting`, perubahan route/tab, serta seed COA/sidebar/izin metadata-only. Gate required `finance-accounting` telah ditambahkan, tetapi DDL/replay/concurrency, browser/UAT, registrasi hash/dependency/allowlist, clean-install/upgrade dan aktivasi belum selesai. Belum ada auto-post akrual semua modul/penerbitan laporan standar; tidak mengubah Control, profil/manifest atau membuat artifact/push/deploy. Detail status teknis tetap hanya di `_30`/laporan modul, bukan checklist fase baru paralel.
+
+Catatan terkini 2026-09-14 / Batch 257 (bukti staging, bukan rilis): pemeriksaan langsung MariaDB mengonfirmasi struktur SQL `2026-09-14c` sudah terpasang; tidak ada SQL upgrade tertunda dalam 19 entri katalog yang diperiksa. Status 14c **SCHEMA_VERIFIED_LEDGER_PENDING**: pencatatan apply manual dan registrasi katalog/allowlist customer masih perlu ditinjau, dilanjutkan uji clean-install/upgrade, concurrency dan UAT. Tidak mengulang SQL, membuat paket atau mengubah Control. Detail bukti hanya di `_30` dan laporan modul; catatan batch sebelumnya di bawah adalah status pada waktu pengerjaannya.
+
+Catatan 2026-09-14 / Batch 256 (alat bukti staging, bukan aktivasi/rilis): postcheck read-only 95 kondisi disiapkan beserta required gate 241 tes sintetis. Detail/cara menjalankan tetap pada `_30` dan laporan modul. Hasil DB belum diterima; status SQL 2026-09-14c masih USER_REPORTED_APPLIED. Alat membedakan schema sesuai dari ledger manual yang belum tercatat; tidak menulis registry atau mengubah migrasi/allowlist/profil/Control. Verifikasi pascamigrasi menjadi masukan review registrasi customer, bukan pengganti uji clean-install/upgrade, concurrency atau UAT.
+
+Catatan 2026-09-14 / Batch 255 (C3 handoff kode, bukan rilis): perbaikan transfer Rekon Kas ke saldo tujuan negatif dan hasil integrasi dicatat pada `_30`/laporan modul. Paket berikutnya perlu membawa `Finance_cash_reconciliation_model.php` terbaru; gate `finance-allocation-bank` kini 392 pemeriksaan termasuk kasus lintas laporan. Tidak ada SQL baru, perubahan Control/profil/allowlist, build atau deploy. SQL `2026-09-14c` tetap USER_REPORTED_APPLIED; validasi schema/ledger, concurrency, browser/UAT dan registrasi migrasi customer belum selesai.
+
+Catatan 2026-09-14 / Batch 254 (C3 handoff, bukan fase/rilis baru): aturan Rekonsiliasi Pendapatan harian diperbaiki pada `_30`; paket berikutnya harus mengambil model, trait transfer dan view terbaru beserta gate 175 pemeriksaan. Tidak mengubah kontrak/allowlist/profil Control dan tidak menambah SQL. Pengguna mengonfirmasi SQL `2026-09-14c` sudah dijalankan di staging `db_finance` (**USER_REPORTED_APPLIED**, belum diverifikasi schema/ledger). SQL belum didaftarkan auto-apply/allowlist customer; validasi migrasi MariaDB, browser/UAT dan blocker distribusi Batch 253 tetap terbuka. Panduan pengguna terbaru ada di [laporan modul](2026-09-14_finance_alokasi_bank_rekonsiliasi.md).
+
+Catatan 2026-09-14 / Batch 253 (C3 handoff, bukan rilis/aktivasi):
+
+- [x] Library/view/JS alokasi, pembanding bank dan transfer rekonsiliasi masuk allowlist **kode** customer agar dependency runtime tidak hilang. Profil tetap v3; hash kerja `02940e1fa103fc99211e531d02f954ab131e5c35282918b5c276cc8627750466`, terikat manifest. Hash batch sebelumnya adalah cutoff historis.
+- [x] Required gate `finance-allocation-bank` menguji data sintetis in-memory; semua perbaikan bisnis/checklist tetap di delta Batch 253 `_30` dan laporan modul, tidak diduplikasi sebagai fase komersialisasi baru.
+- [ ] SQL `2026-09-14c` **belum didaftarkan auto-apply/katalog/allowlist SQL**. Eksekusi staging sudah dilaporkan pengguna (pembaruan Batch 254), tetapi bukan bukti kesiapan distribusi. Wajib verifikasi schema/ledger staging, MariaDB disposable, registrasi hash/dependency serta kebersihan tabel metadata pada clean install/upgrade sebelum distribusi fitur ini.
+- [ ] Belum browser UAT (sandbox tidak mengizinkan Chromium), concurrency MariaDB, artifact/cutoff, build, deploy, push atau perubahan Control. Blocker distribusi terdahulu tetap berlaku; paket global tidak dinyatakan siap jual oleh batch ini.
+
+Catatan 2026-09-14 / Batch 252 (C3 handoff regresi POS, bukan fase baru): perbaikan void/refund produk tanpa resep dicatat di `_30` / A1. Paket berikutnya perlu mengambil `Pos_model.php` yang sudah menangani `NOT_REQUIRED` tanpa snapshot dan lulus gate `a1-pos-reversal-no-stock`. Tidak ada SQL/migrasi, perubahan kontrak profil/Control/APK, build, deploy atau publish pada batch ini; UAT pengguna tetap terbuka.
+
+Catatan 2026-09-14 / Batch 249 (C3 handoff lanjutan Kontrol Keuangan):
+
+- [x] Runtime rincian transfer/biaya, realisasi rencana, bukti privat dan persetujuan opsional beserta SQL `2026-09-14b` masuk katalog/allowlist Finance. Schema diterapkan di staging; **tidak mengemas bukti, konfirmasi, biaya, pengajuan, rencana atau transaksi development**. Clean install hanya mendapat tabel kosong dan satu kebijakan awal (approval/bukti wajib OFF, tanggal proyeksi payroll 1).
+- [x] Profil kerja dinaikkan menjadi **CUSTOMER_CLEAN v3**, SHA `e167cc4f826f90976a59b023606d8af5aa0a43304e73c85ac346226238c48781`, terikat manifest. Finance mengenali v1/v2/v3 dengan verifikasi hash/signature/plan yang tetap ketat; versi asing ditolak. Catatan v2 di Batch 248 adalah cutoff historis, bukan profil kerja terkini.
+- [ ] Control: scan ulang source/digest dan gunakan versi profil hasil inspeksi (sekarang 3), bukan nilai hardcode. Sebelum mengaktifkan unggah bukti di customer, siapkan direktori privat per instance dan izin PHP-FPM/open_basedir sesuai panduan modul. `.user.ini` staging bukan file distribusi dan tidak boleh disalin mentah ke customer.
+- [ ] Blocker Roast Connect belum berubah: migration `2026-09-12a` milik thread lain masih belum disetujui dalam allowlist paket customer. Tidak menambahkan/menghapus modul tersebut atau mengubah Control untuk meloloskan gate.
+- [ ] Setelah pemilik modul menyelesaikan blocker: cutoff/version baru → gate → build → clean-install/upgrade disposable → UAT owner. Tidak ada commit/push/publish, perubahan artifact alpha.12, atau eksekusi server utama dalam Batch 249. Checklist bisnis tetap di `_30`.
+
+Catatan 2026-09-14 / Batch 248 (C3 handoff untuk pengembangan finance 1–5, bukan membuka fase baru):
+
+- [x] Kode Kontrol Keuangan dan SQL `2026-09-14a` masuk allowlist/katalog Finance. Migration sudah applied/replay hanya di staging, tanpa isi data customer/master/transaksi contoh.
+- [x] Revisi isi profil dibuat eksplisit sebagai **CUSTOMER_CLEAN profile_version 2**, sesuai aturan versioning profil. SHA profil `b9de222acc42e1a2ecffd70607e4d7560999900db4bfd874e5e6243f86669b9b`, terikat `app-manifest.json`. Ini menggantikan profil kerja v1 Batch 247, bukan mengubah artifact/tag lama. Verifier/installer Finance menerima versi 1 atau 2 yang dikenal, tetap memeriksa trusted-local hash, signature dan kesesuaian plan/artifact; tidak mempercayai allowlist buatan archive.
+- [ ] Handoff Control sebelum build/publish berikutnya: scan ulang cutoff/digest, baca `distribution_profile_version` dari hasil inspeksi Finance (sekarang 2), jangan hardcode 1. Thread ini tidak mengedit aplikasi Control atau mem-publish paket.
+- [ ] Blocker paket customer Roast Connect dari Batch 247 tetap: SQL `2026-09-12a` ada di katalog tetapi belum dalam allowlist customer. Pemilik modul perlu memutuskan kelayakan penyertaan dan menguji; tidak disisipkan atau dihapus diam-diam dalam pekerjaan finance ini.
+- [ ] Setelah blocker tersebut selesai: cutoff/version baru, ulang gate, build, install/upgrade disposable dan UAT owner. Tidak mengklaim alpha.12 yang sudah diterbitkan otomatis memuat perubahan ini. Perubahan bisnis/UAT detail hanya di `_30` dan laporan modul.
+
+Catatan 2026-09-13 / Batch 247 (C3 handoff, bukan fase baru): perbaikan klasifikasi mutasi/estimasi dicatat di `_30`. Migration `2026-09-13a` sudah terpasang hanya di staging; paket customer berikutnya harus menyertakan `Finance_mutation_policy.php` dan SQL tersebut melalui katalog `clean_install`/`upgrade`. Allowlist dan binding `app-manifest.json` diperbarui; kontrak profil tetap versi 1, identitas konten berubah melalui SHA-256 `4d92a4c7fafd9204cdeef93860f4b4945a763c476021171210da3e413b16dba4`. Tidak mengubah Control, versi/tag release terdahulu, menjalankan SQL di server utama, commit/push, atau publish.
+
+- [x] Kode dan SQL perubahan estimasi diakui allowlist Finance; data transaksi customer/source tidak dibundel atau dibersihkan.
+- [ ] Sebelum build customer berikutnya, pemilik Roast Connect menyelaraskan migration `2026-09-12a` dengan profil customer dan menuntaskan validasinya. Gate paket customer masih fail-closed pada `MIGRATION_CHECKSUM` karena SQL tersebut belum ada di allowlist; tidak dilonggarkan dalam batch laporan.
+- [ ] Setelah integrasi tersebut, tetapkan versi/cutoff release baru, scan ulang source/digest melalui Control, lalu ulang clean-install/upgrade/UAT customer. Artefak alpha.12 lama tidak otomatis memuat perubahan working tree ini.
+
+Catatan 2026-09-13 / Batch 246: perbaikan tujuan SR Roastery dan layout mobile POS/PO dicatat pada `_30` (A2/A3), bukan fase komersialisasi baru. Tidak mengubah kontrak Control, profil distribusi, SQL atau status publish; paket rilis berikutnya perlu mengambil cutoff yang memuat perbaikan ini.
+
 ## Status praktik owner — Batch 243, 2026-09-09
 
 **Barang siap untuk praktik penjualan web Linux terbatas di UI Control.**
@@ -312,8 +373,10 @@ gerbang audit; `[ ]` belum dibangun atau belum dibuktikan.
 - `[~]` Product Control Center multi-produk tersedia terpisah di
   `control.namuaprojects.com`; adopsi Finance tetap fase tersendiri dan belum
   boleh diklaim selesai.
-- `[ ]` Panduan aplikasi versi release: pengguna per peran/modul, admin
-  aplikasi, admin server, serta troubleshooting/integrasi.
+- `[~]` Panduan aplikasi versi release: `/guide` sudah diimplementasikan pada
+  source (Batch 261), mencakup peran/modul, admin UI/server dan troubleshooting.
+  Aktivasi/sidebar, walkthrough pengguna awam dan pembuktian panduan + migrasi
+  benar-benar ikut artifact customer tetap terbuka; belum penerimaan C5 penuh.
 - `[ ]` Pilot berbayar, support operation, dan penjualan resmi.
 
 ### 0.1 Status kanonis fase C0–C5
@@ -1234,6 +1297,17 @@ masih ditunda owner.
   pairing/limit, enforcement endpoint/worker/API/APK dan UAT tetap terbuka.
 
 ### C5 — Pilot berbayar dan operasi penjualan
+
+- [x] Source pusat panduan `/guide` (Batch 261): pembagian UI/admin server,
+  langkah operasional, cron dan pemulihan; detail teknis hanya pada `_30`.
+- [x] Pengguna mengonfirmasi apply SQL sidebar/izin 15c; dicatat 2026-09-15
+  11:24 WIB sebagai **USER_REPORTED_APPLIED**, bukan auto-apply Telegram.
+- [ ] Verifikasi sidebar/izin nyata dan uji role, desktop/mobile/cetak;
+  konfirmasi apply bukan bukti postcheck/UAT lulus.
+- [ ] Tinjau dan sertakan kode, asset serta migrasi panduan pada artifact
+  customer, lalu buktikan clean-install/upgrade tanpa data/secret staging.
+- [ ] Walkthrough operator non-programmer, admin server dan pemilik; catat
+  feedback, keterbatasan paket serta bukti persetujuan serah-terima.
 
 - Siapkan website/penawaran, kontrak, invoice lisensi, dokumentasi, training,
   support playbook, incident runbook, dan channel support.

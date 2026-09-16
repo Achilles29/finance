@@ -31,6 +31,7 @@ function finance_codex_notify_summary(array $event): string
     }
 
     $replacements = [
+        '#/codex(?:@[A-Za-z0-9_]+)?\s+pair\s+[A-Za-z0-9_-]{20,}#i' => '/codex pair [kode pribadi disembunyikan]',
         '/-----BEGIN [^-]+PRIVATE KEY-----.*?-----END [^-]+PRIVATE KEY-----/si' => '[private key disembunyikan]',
         '/```.*?```/s' => '[blok kode disembunyikan]',
         '/\b[0-9]{8,12}:[A-Za-z0-9_-]{30,}\b/' => '[token Telegram disembunyikan]',

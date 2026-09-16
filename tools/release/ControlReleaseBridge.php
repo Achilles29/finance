@@ -125,7 +125,7 @@ final class ControlReleaseBridge
             'channel' => 'ALPHA', 'readiness' => 'INTERNAL_CANDIDATE',
             'apk' => ['bundled' => false, 'commercial_work' => 'ALLOWED', 'operational_bugfixes' => 'DEFERRED', 'release_ready' => false]];
         if ($customerAudit !== null) $description += ['distribution_profile' => CustomerReleaseProfile::ID,
-            'distribution_profile_version' => 1, 'seed_profile' => 'REFERENCE_ONLY', 'customer_content_audit' => $customerAudit];
+            'distribution_profile_version' => $profile->version(), 'seed_profile' => 'REFERENCE_ONLY', 'customer_content_audit' => $customerAudit];
         return $description;
     }
 
@@ -272,7 +272,7 @@ final class ControlReleaseBridge
             'readiness' => 'INTERNAL_CANDIDATE', 'published' => false, 'database_changed' => false, 'apk_release_ready' => false,
             'customer_clean_eligible' => $clean,
             'distribution_profile' => $clean ? CustomerReleaseProfile::ID : 'LEGACY_INTERNAL',
-            'distribution_profile_version' => $clean ? 1 : null,
+            'distribution_profile_version' => $clean ? $inspection['distribution_profile_version'] : null,
             'seed_profile' => $clean ? 'REFERENCE_ONLY' : null,
             'customer_content_audit' => $inspection['customer_content_audit'] ?? ['status' => 'NOT_AUDITED'],
             'install_manifest' => $manifest];

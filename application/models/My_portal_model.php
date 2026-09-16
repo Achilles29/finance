@@ -733,7 +733,7 @@ class My_portal_model extends CI_Model
 
     public function ensure_auto_ph_presence(int $employeeId, string $date, array $policy): array
     {
-        $noop = ['ok' => true, 'created' => false, 'message' => ''];
+        $noop = ['ok' => true, 'created' => false, 'recorded' => false, 'message' => ''];
         if ($employeeId <= 0 || strtoupper((string)($policy['ph_attendance_mode'] ?? 'AUTO_PRESENT')) !== 'AUTO_PRESENT') {
             return $noop;
         }
@@ -744,25 +744,33 @@ class My_portal_model extends CI_Model
         }
 
         $CI = get_instance();
-        if (!$CI || !method_exists($CI, 'load')) {
+        // CI exposes its loader as a property, not a load() method.
+        if (!$CI || !isset($CI->load) || !is_callable([$CI->load, 'model'])) {
             return ['ok' => false, 'created' => false, 'message' => 'Layanan validasi PH belum tersedia.'];
         }
         $CI->load->model('Attendance_model');
-        if (!isset($CI->Attendance_model) || !method_exists($CI->Attendance_model, 'validate_scheduled_ph_use')) {
+        if (!isset($CI->Attendance_model)
+            || !method_exists($CI->Attendance_model, 'validate_scheduled_ph_use')
+            || !method_exists($CI->Attendance_model, 'sync_ph_use_for_employee_date')) {
             return ['ok' => false, 'created' => false, 'message' => 'Layanan validasi saldo PH belum tersedia. Jalankan deploy attendance terbaru.'];
         }
 
-        $exists = $this->db->select('id')
-            ->from('att_daily')
-            ->where('employee_id', $employeeId)
-            ->where('attendance_date', $date)
+        $exists = $this->db->select('ad.id, ad.attendance_status, s.shift_code')
+            ->from('att_daily ad')
+            ->join('att_shift s', 's.id = ad.shift_id', 'left')
+            ->where('ad.employee_id', $employeeId)
+            ->where('ad.attendance_date', $date)
             ->limit(1)
             ->get()->row_array();
         if ($exists) {
             $used = $CI->Attendance_model->sync_ph_use_for_employee_date($employeeId, $date, 0);
+            $recorded = in_array(strtoupper(trim((string)($exists['shift_code'] ?? ''))), ['PH', 'PHB'], true)
+                && in_array(strtoupper((string)($exists['attendance_status'] ?? '')), ['HOLIDAY', 'PRESENT', 'LATE'], true);
             return empty($used['ok'])
                 ? ['ok' => false, 'created' => false, 'message' => (string)($used['message'] ?? 'Saldo PH tidak cukup.')]
-                : $noop;
+                : array_replace($noop, ['recorded' => $recorded, 'message' => $recorded
+                    ? 'Presensi PH dan penggunaan jatahnya sudah tercatat. Membuka ulang halaman tidak memakai jatah tambahan.'
+                    : 'Presensi tanggal ini sudah memiliki catatan lain. Minta admin meninjau status/shift; data tidak diganti otomatis.']);
         }
 
         $capacity = $CI->Attendance_model->validate_scheduled_ph_use(
@@ -793,8 +801,10 @@ class My_portal_model extends CI_Model
             $minutes = (int)floor(($endTs - $startTs) / 60);
         }
 
-        $this->db->trans_begin();
-        $this->db->insert('att_daily', [
+        if ($this->db->trans_begin() === false) {
+            return ['ok' => false, 'created' => false, 'message' => 'Presensi PH belum dapat diproses. Silakan muat ulang halaman.'];
+        }
+        $inserted = $this->db->insert('att_daily', [
             'attendance_date' => $date,
             'employee_id' => $employeeId,
             'shift_id' => (int)$schedule['shift_id'],
@@ -812,7 +822,7 @@ class My_portal_model extends CI_Model
             'created_at' => date('Y-m-d H:i:s'),
         ]);
 
-        $insertedId = (int)$this->db->insert_id();
+        $insertedId = $inserted ? (int)$this->db->insert_id() : 0;
         if ($insertedId <= 0) {
             $this->db->trans_rollback();
             return ['ok' => false, 'created' => false, 'message' => 'Gagal membuat kehadiran otomatis untuk shift PH.'];
@@ -823,12 +833,16 @@ class My_portal_model extends CI_Model
             $this->db->trans_rollback();
             return ['ok' => false, 'created' => false, 'message' => (string)($used['message'] ?? 'Saldo PH tidak cukup.')];
         }
-        $this->db->trans_commit();
         if (!$this->db->trans_status()) {
+            $this->db->trans_rollback();
+            return ['ok' => false, 'created' => false, 'message' => 'Gagal menyimpan kehadiran PH.'];
+        }
+        if ($this->db->trans_commit() === false) {
+            $this->db->trans_rollback();
             return ['ok' => false, 'created' => false, 'message' => 'Gagal menyimpan kehadiran PH.'];
         }
 
-        return ['ok' => true, 'created' => true, 'message' => 'Shift PH otomatis ditandai hadir dan satu jatah PH dipakai.'];
+        return ['ok' => true, 'created' => true, 'recorded' => true, 'message' => 'Shift PH otomatis ditandai hadir dan satu jatah PH dipakai.'];
     }
 
     private function compute_and_store_ph_salary(int $dailyId, int $employeeId, string $date, array $policy, array $compensation): void
@@ -1304,7 +1318,7 @@ class My_portal_model extends CI_Model
         // Keep both PH mutations in sync. A normal national-holiday shift may
         // grant PH, while an actual PH shift consumes it.
         $CI = get_instance();
-        if ($CI && method_exists($CI, 'load')) {
+        if ($CI && isset($CI->load) && is_callable([$CI->load, 'model'])) {
             $CI->load->model('Attendance_model');
             if (isset($CI->Attendance_model) && method_exists($CI->Attendance_model, 'sync_ph_grant_for_employee_date')) {
                 $CI->Attendance_model->sync_ph_grant_for_employee_date($employeeId, $date, 0);

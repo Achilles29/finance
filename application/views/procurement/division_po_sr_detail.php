@@ -47,6 +47,7 @@ if (!function_exists('finance_dreq_usage_label')) {
     }
   }
 ?>
+<?php $this->load->view('procurement/_stock_review_history', ['stock_review_history'=>$stock_review_history ?? []]); ?>
 
 <style>
   .dreq-action-wrap {

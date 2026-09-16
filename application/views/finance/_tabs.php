@@ -6,6 +6,8 @@ $workspace_tabs = [
   ['label' => 'Pihak Luar', 'url' => site_url('finance/relasi'), 'active' => $active === 'party'],
   ['label' => 'Keuangan Harian', 'url' => site_url('finance-reports/daily-overview'), 'active' => $active === 'daily-overview'],
   ['label' => 'Estimasi Keuangan', 'url' => site_url('finance-reports/financial-estimation'), 'active' => $active === 'financial-estimation'],
+  ['label' => 'Kontrol Keuangan', 'url' => site_url('finance-reports/control'), 'active' => $active === 'control'],
+  ['label' => 'Akuntansi dan Jurnal', 'url' => site_url('finance-reports/accounting'), 'active' => $active === 'accounting'],
   ['label' => 'Rekap Rekening', 'url' => site_url('finance-reports/rekap-rekening-harian'), 'active' => $active === 'bank-daily-recap'],
   ['label' => 'Posisi Kas', 'url' => site_url('finance-reports/cash-position'), 'active' => $active === 'cash-position'],
   ['label' => 'Brankas Harian', 'url' => site_url('finance-reports/cash-vault-daily'), 'active' => $active === 'cash-vault'],

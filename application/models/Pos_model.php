@@ -11649,6 +11649,15 @@ class Pos_model extends CI_Model
             ->get()
             ->result_array();
         if (empty($snapshotHeaders)) {
+            // Confirmation intentionally skips snapshots for products without
+            // recipe consumption (e.g. event items). Financial cancellation is
+            // still valid; only the inventory reversal is a no-op. Use the
+            // persisted order state, never today's mutable product recipe.
+            // Check actual snapshots FIRST: an event-only append can leave a
+            // NOT_REQUIRED header on an order that already consumed stock.
+            if (strtoupper(trim((string)($order['header']['stock_commit_status'] ?? ''))) === 'NOT_REQUIRED') {
+                return ['ok' => true, 'headers' => [], 'lines' => [], 'stock_reversal_required' => false];
+            }
             return ['ok' => false, 'message' => 'Snapshot stock commit belum tersedia.'];
         }
 
