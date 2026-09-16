@@ -340,4 +340,25 @@ if (ENVIRONMENT === 'production')
  *
  * And away we go...
  */
+// Customer-only bootstrap gate. The verified installer configures these root-owned
+// paths explicitly; source masters and existing deployments without them are unchanged.
+$customer_environment = array();
+foreach (array('FINANCE_CUSTOMER_INSTALLATION_FILE', 'FINANCE_LICENSE_TRUST_FILE',
+    'FINANCE_LICENSE_IDENTITY_FILE', 'FINANCE_LICENSE_CACHE_FILE') as $customer_key) {
+    $customer_value = getenv($customer_key);
+    $customer_environment[$customer_key] = $customer_value === false ? '' : $customer_value;
+}
+if (implode('', $customer_environment) !== '') {
+    require_once APPPATH.'libraries/Control_license_cache.php';
+    $customer_decision = Control_license_cache::customer_guard(FCPATH, $customer_environment, $_SERVER);
+    if (empty($customer_decision['allowed'])) {
+        http_response_code(423);
+        header('Cache-Control: no-store, private');
+        header('Content-Type: text/html; charset=UTF-8');
+        echo '<!doctype html><html lang="id"><meta charset="utf-8"><title>Lisensi instalasi</title>'
+            . '<h1>Instalasi belum berlisensi aktif</h1><p>Akses aplikasi ditahan. Periksa aktivasi dan sinkronisasi lisensi instalasi di Control.</p>'
+            . '<p>Kode: <code>' . htmlspecialchars((string)$customer_decision['code'], ENT_QUOTES, 'UTF-8') . '</code></p></html>';
+        exit(1);
+    }
+}
 require_once BASEPATH.'core/CodeIgniter.php';

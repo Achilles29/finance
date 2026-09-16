@@ -3,6 +3,8 @@ declare(strict_types=1);
 require_once __DIR__.'/PrivateDeployment.php';
 require_once __DIR__.'/LinuxWebProfile.php';
 require_once dirname(__DIR__,2).'/application/libraries/Control_license_verifier.php';
+require_once dirname(__DIR__,2).'/application/libraries/Control_license_cache.php';
+require_once dirname(__DIR__,2).'/application/libraries/DeploymentConfig.php';
 if(!defined('C3_CLEAN_INSTALL_LIBRARY_ONLY'))define('C3_CLEAN_INSTALL_LIBRARY_ONLY',true);
 require_once __DIR__.'/clean_install_database.php';
 
@@ -54,6 +56,50 @@ final class FinanceInstance
         $d=PrivateDeployment::read($this->descriptor());
         if(($d['config_sha256']??'')!==hash('sha256',json_encode($this->c)))throw new RuntimeException('INSTANCE_CONFIGURATION_CHANGED');return $d;
     }
+    /** Publish only metadata authenticated by manifest(), never activation codes or private keys. */
+    private function customerContext(array $m): string
+    {
+        $c=$this->c;
+        if (($m['customer_runtime_guard']??'')!=='FINANCE_CUSTOMER_SERVER_V1') throw new RuntimeException('CUSTOMER_RUNTIME_GUARD_REQUIRED');
+        if (!is_string($c['license_public_dir']??null) || !is_string($c['instance_id']??null)
+            || $c['instance_id']==='') throw new RuntimeException('CUSTOMER_LICENSE_CONFIGURATION_REQUIRED');
+        $public=new LicenseAgentFiles($c['license_public_dir'],$c['release_root'],$c['gid'],false);
+        $identity=$public->read('identity.json',0640);
+        $public->read('trust.json',0640);$public->read('runtime.json',0640);
+        if (count($identity)!==3 || ($identity['instance_id']??null)!==$c['instance_id']) throw new RuntimeException('CUSTOMER_IDENTITY_MISMATCH');
+        $release=a513_validate_release($c['release_root'],$c['release_root'].'/RELEASE-MANIFEST.json');
+        $inventory=[];foreach($release['manifest']['files']as$entry)$inventory[$entry['path']]=$entry['sha256'];
+        $core=[];foreach(Control_license_cache::customer_core_files()as$relative){
+            if(!is_string($inventory[$relative]??null))throw new RuntimeException('CUSTOMER_CORE_MISSING');
+            $core[$relative]=$inventory[$relative];
+        }
+        $bytes=(string)file_get_contents($c['signed_manifest']);
+        $trust=ControlReleaseBridge::loadKey($c['trust_file']);$publicTrust=[];
+        foreach(['schema','product_code','algorithm','key_id','status','public_key_base64','public_key_sha256']as$key)$publicTrust[$key]=$trust[$key]??null;
+        $context=['schema'=>1,'purpose'=>'FINANCE_CUSTOMER_INSTALLATION','product_code'=>'NAMUA_FINANCE',
+            'release_root'=>$c['release_root'],'release_public_id'=>$m['release_public_id']??'',
+            'version'=>$m['version'],'source_commit'=>$m['source_commit'],
+            'artifact_sha256'=>$m['sha256'],'release_manifest_sha256'=>hash('sha256',$bytes),
+            'app_manifest_sha256'=>$m['control_app_manifest_sha256']??'',
+            'source_manifest_sha256'=>$m['source_manifest_sha256'],
+            'distribution_profile'=>$m['distribution_profile']??'',
+            'distribution_profile_version'=>$m['distribution_profile_version']??null,
+            'profile_sha256'=>$m['customer_content_audit']['profile_sha256']??'',
+            'identity'=>$identity,'machine_fingerprint_sha256'=>Control_license_cache::customer_machine_fingerprint(),
+            'customer_runtime_guard'=>$m['customer_runtime_guard'],
+            'core_sha256'=>$core,'release_manifest_base64'=>base64_encode($bytes),
+            'release_signature'=>ControlReleaseBridge::json((string)file_get_contents(substr($c['signed_manifest'],0,-13).'.release.sig.json')),
+            'release_trust'=>$publicTrust,
+            'license_trust_file'=>$c['license_public_dir'].'/trust.json',
+            'license_identity_file'=>$c['license_public_dir'].'/identity.json',
+            'license_cache_file'=>$c['license_public_dir'].'/runtime.json'];
+        $file=$c['runtime_dir'].'/customer-installation.json';
+        if(file_exists($file)||is_link($file))throw new RuntimeException('CUSTOMER_CONTEXT_EXISTS');
+        PrivateDeployment::write($file,$context);
+        if(!chgrp($file,$c['gid'])||!chmod($file,0640))throw new RuntimeException('CUSTOMER_CONTEXT_WRITE_FAILED');
+        Control_license_cache::customer_context($c['release_root'],$file);
+        return $file;
+    }
     public function install(): array
     {
         $lock=PrivateDeployment::lock($this->c['private_dir']);
@@ -62,6 +108,10 @@ final class FinanceInstance
             $c=$this->c;$m=$this->manifest();$dbName=a5_read_database_name(dirname(__DIR__,2),$c['database_name_file']);
             $option=a5_assert_apply_security(dirname(__DIR__,2),$c['defaults_extra_file']);
             $settings=Control_license_verifier::deployment_document($c['deployment_file'], $c['release_root']);
+            $baseUrl=DeploymentConfig::fromSnapshot($settings)->canonicalBaseUrl('',true);
+            $url=parse_url($baseUrl);
+            if (!is_array($url)||($url['path']??'/')!=='/'||!is_string($url['host']??null)
+                ||preg_match('/\A[A-Za-z0-9.-]+\z/D',$url['host'])!==1)throw new RuntimeException('CUSTOMER_WEB_URL_UNSUPPORTED');
             $login=parse_ini_file($option,true,INI_SCANNER_RAW)['client']??[];
             if(($settings['FINANCE_DB_NAME']??'')!==$dbName||($settings['FINANCE_DB_USER']??'')!==($login['user']??null)
                 ||!is_string($settings['FINANCE_DB_PASSWORD']??null)||!hash_equals((string)($login['password']??''),$settings['FINANCE_DB_PASSWORD'])
@@ -91,6 +141,7 @@ final class FinanceInstance
             foreach (['SESSION'=>'sessions','LOG'=>'logs','CACHE'=>'cache'] as $key=>$dir) if (($settings['FINANCE_'.$key.'_PATH']??'')!==$c['runtime_dir'].'/'.$dir) throw new RuntimeException('RUNTIME_DIRECTORY_BINDING_MISMATCH');
             $profile=['app_root'=>$c['release_root'],'state_root'=>$c['runtime_dir'],'deployment_file'=>$c['deployment_file'],'tls_certificate'=>$c['tls_certificate'],'tls_key'=>$c['tls_key'],'mime_types'=>$c['mime_types'],'user'=>$c['user'],'group'=>$c['group'],'port'=>$c['port'],'daemonize'=>true];
             foreach(['lua_root','license_public_dir']as$key)if(isset($c[$key]))$profile[$key]=$c[$key];
+            $profile['customer_installation_file']=$this->customerContext($m);
             $configs=LinuxWebProfile::render($profile);
             foreach (array_keys($configs) as $name) if (file_exists($c['runtime_dir'].'/'.$name)||is_link($c['runtime_dir'].'/'.$name)) throw new RuntimeException('SERVICE_CONFIG_EXISTS');
             $d['status']='INSTALLING';PrivateDeployment::write($this->descriptor(),$d);
@@ -166,6 +217,8 @@ final class FinanceInstance
     public function health(): array
     {
         $this->assertDescriptor();$c=$this->c;$m=$this->manifest();$release=a513_validate_release($c['release_root'],$c['release_root'].'/RELEASE-MANIFEST.json');
+        $license=Control_license_cache::customer_verification($c['release_root'],$c['runtime_dir'].'/customer-installation.json');
+        if(empty($license['verified'])||!in_array($license['status']??'', ['ACTIVE','GRACE'], true))throw new RuntimeException('CUSTOMER_LICENSE_NOT_READY');
         $dbName=a5_read_database_name(dirname(__DIR__,2),$c['database_name_file']);$health=a513_check_database($release,$c['mode'],$c['defaults_extra_file'],$dbName);
         $settings=Control_license_verifier::deployment_document($c['deployment_file'],$c['release_root']);$host=parse_url($settings['FINANCE_BASE_URL']??'',PHP_URL_HOST);
         if(!is_string($host)||preg_match('/\A[A-Za-z0-9.-]+\z/D',$host)!==1)throw new RuntimeException('HEALTH_HOST_INVALID');
@@ -173,6 +226,7 @@ final class FinanceInstance
         if(isset($c['health_ca']))curl_setopt($h,CURLOPT_CAINFO,$c['health_ca']);$body=curl_exec($h);$code=(int)curl_getinfo($h,CURLINFO_RESPONSE_CODE);curl_close($h);
         if($code!==200||!is_string($body)||strpos($body,'name="identifier"')===false)throw new RuntimeException('WEB_HEALTH_FAILED');
         $r=['status'=>'PASS','web_verified'=>true,'health'=>$health,'version'=>$m['version'],'artifact_sha256'=>$m['sha256'],
+            'license_status'=>$license['status'],'machine_binding_verified'=>true,
             'from_schema'=>$c['from_schema']??$m['baseline_schema_version'],'to_schema'=>$m['schema_version'],
             'migration_versions'=>array_column(a5_plan($release['catalog'],$c['mode']),'id'),'backup_sha256'=>$c['backup_sha256']??null,'at'=>date(DATE_ATOM)];
         PrivateDeployment::write($c['private_dir'].'/result.json',$r);return $r;

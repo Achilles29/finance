@@ -11,7 +11,69 @@ const FINANCE_ROOT = __DIR__.'/..';
 const HEARTBEAT_CONFIG = '/var/lib/finance-config/control-center-heartbeat.json';
 const PRIVATE_DATABASE_CONFIG = '/var/lib/finance-config/database.php';
 require_once dirname(__DIR__).'/application/libraries/DeploymentConfig.php';
+require_once dirname(__DIR__).'/application/libraries/Control_license_cache.php';
 require_once dirname(__DIR__).'/tools/licensing/LicenseAgentFiles.php';
+
+/** Capture only deployment selectors/DB fields; never emit these values in output. */
+function heartbeat_deployment_environment(): array
+{
+    $environment=[];
+    foreach(['FINANCE_DEPLOYMENT_FILE','FINANCE_CUSTOMER_INSTALLATION_FILE','FINANCE_HEARTBEAT_CONFIG_FILE',
+        DeploymentConfig::DB_HOST,DeploymentConfig::DB_NAME,DeploymentConfig::DB_USER,DeploymentConfig::DB_PASSWORD] as $name){
+        $value=getenv($name);
+        if($value!==false)$environment[$name]=$value;
+    }
+    return $environment;
+}
+
+function heartbeat_config_path(?array $environment=null): string
+{
+    if($environment===null){
+        $value=getenv('FINANCE_HEARTBEAT_CONFIG_FILE');
+        $environment=$value===false?[]:['FINANCE_HEARTBEAT_CONFIG_FILE'=>$value];
+    }
+    if(!array_key_exists('FINANCE_HEARTBEAT_CONFIG_FILE',$environment))return HEARTBEAT_CONFIG;
+    $path=$environment['FINANCE_HEARTBEAT_CONFIG_FILE'];
+    if(!is_string($path)||$path===''||$path[0]!=='/'||strpos($path,"\0")!==false)throw new RuntimeException('HEARTBEAT_CONFIG_PATH_INVALID');
+    return $path;
+}
+
+/** Any explicit customer/deployment selection prohibits the legacy master DB fallback. */
+function heartbeat_explicit_database(array $environment): bool
+{
+    foreach(['FINANCE_DEPLOYMENT_FILE','FINANCE_CUSTOMER_INSTALLATION_FILE','FINANCE_HEARTBEAT_CONFIG_FILE',
+        DeploymentConfig::DB_HOST,DeploymentConfig::DB_NAME,DeploymentConfig::DB_USER,DeploymentConfig::DB_PASSWORD] as $name)
+        if(array_key_exists($name,$environment))return true;
+    return false;
+}
+
+/** Pure mapping of this installation's production contract to the read-only sender. */
+function heartbeat_deployment_database(DeploymentConfig $deployment): array
+{
+    $config=[];
+    foreach(['hostname'=>DeploymentConfig::DB_HOST,'database'=>DeploymentConfig::DB_NAME,
+        'username'=>DeploymentConfig::DB_USER,'password'=>DeploymentConfig::DB_PASSWORD] as $key=>$name){
+        $value=$deployment->get($name,'');
+        if(!is_string($value)||trim($value)===''||strpos($value,"\0")!==false)throw new RuntimeException('HEARTBEAT_DATABASE_CONFIG_INCOMPLETE');
+        $config[$key]=$value;
+    }
+    $host=$config['hostname'];
+    if(strlen($host)>255||preg_match('/[\x00-\x20\x7f;]/',$host)
+        ||(filter_var($host,FILTER_VALIDATE_IP)===false&&preg_match('/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\z/iD',$host)!==1)
+        ||preg_match('/\A[A-Za-z0-9_]{1,64}\z/D',$config['database'])!==1)throw new RuntimeException('HEARTBEAT_DATABASE_ENDPOINT_INVALID');
+    return $config;
+}
+
+/** Context has already been verified by customer_context(), independent of license state. */
+function heartbeat_release_version(string $root, ?array $context): string
+{
+    if($context===null)return heartbeat_git_version($root);
+    if(($context['purpose']??'')!=='FINANCE_CUSTOMER_INSTALLATION'||($context['product_code']??'')!=='NAMUA_FINANCE'
+        ||($context['release_root']??null)!==realpath($root)||!is_string($context['version']??null)
+        ||strlen($context['version'])>50||preg_match('/\A\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?\z/D',$context['version'])!==1)
+        throw new RuntimeException('HEARTBEAT_RELEASE_VERSION_INVALID');
+    return $context['version'];
+}
 
 /** Only explicitly selected monitoring metadata, never an HTTP request host or registry domain. */
 function heartbeat_runtime(array $config, ?string $baseUrl): ?array
@@ -81,8 +143,15 @@ function heartbeat_private_json(string $path): array
     return $config;
 }
 
-function heartbeat_database_config(): array
+function heartbeat_database_config(?DeploymentConfig $deployment=null, ?array $environment=null): array
 {
+    $environment=$environment??heartbeat_deployment_environment();
+    if(heartbeat_explicit_database($environment)){
+        // A blank selector must not silently select a different installation.
+        foreach(['FINANCE_DEPLOYMENT_FILE','FINANCE_CUSTOMER_INSTALLATION_FILE','FINANCE_HEARTBEAT_CONFIG_FILE'] as $name)
+            if(array_key_exists($name,$environment)&&(!is_string($environment[$name])||$environment[$name]===''))throw new RuntimeException('HEARTBEAT_DATABASE_CONFIG_INCOMPLETE');
+        return heartbeat_deployment_database($deployment??new DeploymentConfig());
+    }
     if (!is_file(PRIVATE_DATABASE_CONFIG) || is_link(PRIVATE_DATABASE_CONFIG)) {
         heartbeat_fail('database_config', 'Private database configuration is unavailable.');
     }
@@ -171,13 +240,22 @@ function heartbeat_random_token(int $bytes): string
 
 if(defined('FINANCE_HEARTBEAT_LIBRARY_ONLY')&&FINANCE_HEARTBEAT_LIBRARY_ONLY)return;
 
-$config = heartbeat_private_json(HEARTBEAT_CONFIG);
+try{$configPath=heartbeat_config_path();}
+catch(Throwable $error){heartbeat_fail('config_invalid','Check the private heartbeat configuration path.');}
+$config = heartbeat_private_json($configPath);
 try{
     $deployment=new DeploymentConfig();
+    $customerContext=null;
+    $contextFile=getenv('FINANCE_CUSTOMER_INSTALLATION_FILE');
+    if($contextFile!==false){
+        $customerContext=Control_license_cache::customer_context(FINANCE_ROOT,$contextFile);
+        if(($customerContext['identity']['instance_id']??null)!==$config['instance_id'])throw new RuntimeException('HEARTBEAT_CUSTOMER_INSTANCE_MISMATCH');
+    }
+    $appVersion=heartbeat_release_version(FINANCE_ROOT,$customerContext);
     $localUrl=$deployment->get(DeploymentConfig::BASE_URL,$config['public_url']);
     $runtime=heartbeat_runtime($config,$localUrl);
     if($localUrl!=='')$localUrl=DeploymentConfig::fromSnapshot(['FINANCE_BASE_URL'=>$localUrl])->canonicalBaseUrl('',true);
-}catch(Throwable $error){heartbeat_fail('runtime_metadata_invalid','Check the trusted local base URL, runtime_fields and region configuration.');}
+}catch(Throwable $error){heartbeat_fail('runtime_metadata_invalid','Check the verified customer context, instance identity, trusted local base URL and monitoring metadata.');}
 $components = [
     'database' => 'UNKNOWN',
     'http' => heartbeat_http_status($localUrl!==''?$localUrl:$config['public_url']),
@@ -189,7 +267,7 @@ $metrics = ['queue_pending'=>0, 'queue_failed'=>0];
 $schemaVersion = '';
 
 try {
-    $dbConfig = heartbeat_database_config();
+    $dbConfig = heartbeat_database_config($deployment);
     $database = new PDO(
         'mysql:host='.$dbConfig['hostname'].';dbname='.$dbConfig['database'].';charset=utf8mb4',
         $dbConfig['username'],
@@ -245,7 +323,7 @@ $idempotencyKey = 'hb-'.bin2hex(random_bytes(16));
 $payload = [
     'instance_id' => $config['instance_id'],
     'sent_at' => $timestamp,
-    'app_version' => heartbeat_git_version(FINANCE_ROOT),
+    'app_version' => $appVersion,
     'schema_version' => $schemaVersion,
     'environment' => $config['environment'],
     'health' => $health,

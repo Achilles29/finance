@@ -33,6 +33,16 @@ final class Control_license_verifier
                     || !hash_equals($identity[$field], $payload[$field])) throw new RuntimeException('INSTALLATION_MISMATCH');
             }
             if (preg_match('/\A[a-f0-9]{64}\z/D', $identity['instance_public_key_sha256']) !== 1) throw new RuntimeException('INSTALLATION_MISMATCH');
+            // Older deployments keep their identity triple. Managed customer installs additionally
+            // require the Control-signed host fingerprint, never an unsigned cache hint.
+            if (array_key_exists('machine_fingerprint_sha256', $identity)) {
+                if (!is_string($identity['machine_fingerprint_sha256'])
+                    || preg_match('/\A[a-f0-9]{64}\z/D', $identity['machine_fingerprint_sha256']) !== 1
+                    || !is_string($payload['machine_fingerprint_sha256'] ?? null)
+                    || !hash_equals($identity['machine_fingerprint_sha256'], $payload['machine_fingerprint_sha256'])) {
+                    throw new RuntimeException('MACHINE_BINDING_MISMATCH');
+                }
+            }
             $issued = self::timestamp($payload['issued_at'] ?? null);
             $expires = self::timestamp($payload['expires_at'] ?? null);
             $grace = self::timestamp($payload['grace_until'] ?? null);

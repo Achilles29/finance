@@ -205,6 +205,8 @@ final class ControlReleaseBridge
     /** Called only after authenticating the original Control bytes. Never trust archive PHP. */
     private static function normalizeControl(array $wire, array $inspection, string $artifact, string $name): array
     {
+        self::need(!isset($wire['customer_runtime_guard'])
+            || $wire['customer_runtime_guard'] === 'FINANCE_CUSTOMER_SERVER_V1', 'CONTROL_RUNTIME_GUARD_UNSUPPORTED');
         self::need(($wire['schema'] ?? null) === 1 && ($wire['context'] ?? '') === self::CONTEXT
             && !isset($wire['manifest_version']) && !isset($wire['artifact'])
             && ($wire['media_type'] ?? '') === 'application/x-tar'
@@ -233,8 +235,10 @@ final class ControlReleaseBridge
         foreach (self::BUILD_GATES as $gate) self::need(($gates[$gate]['status'] ?? '') === 'PASS'
             && preg_match('/\A[a-f0-9]{64}\z/D', (string)($gates[$gate]['evidence_sha256'] ?? '')) === 1, 'CONTROL_GATES_INVALID');
         $inspection['channel'] = $wire['channel'];
-        return $inspection + ['source_commit' => $wire['source_commit'], 'source_dirty' => false,
+        $normalized = $inspection + ['source_commit' => $wire['source_commit'], 'source_dirty' => false,
             'control_app_manifest_sha256' => $wire['source_manifest_sha256'], 'release_public_id' => $wire['release_public_id']];
+        if (isset($wire['customer_runtime_guard'])) $normalized['customer_runtime_guard'] = $wire['customer_runtime_guard'];
+        return $normalized;
     }
 
     public static function verify(string $bytes, string $name, array $signature, array $trust, string $artifact): array

@@ -151,6 +151,18 @@ try {
     $check(ControlReleaseBridge::artifactName($control) === basename($archive) && $modern['customer_clean_eligible'], 'Control schema 1 signed package accepted');
     $check($modern['install_manifest']['source_manifest_sha256'] === $manifest['source_manifest_sha256']
         && $modern['install_manifest']['control_app_manifest_sha256'] === $control['source_manifest_sha256'], 'installer keeps app-manifest and inner manifest hashes distinct');
+    $check(!isset($modern['install_manifest']['customer_runtime_guard']), 'historical signed packages do not acquire a guard capability');
+    $guardedControl = $control; $guardedControl['customer_runtime_guard'] = 'FINANCE_CUSTOMER_SERVER_V1';
+    $guarded = $verifyControl($guardedControl);
+    $check($guarded['install_manifest']['customer_runtime_guard'] === 'FINANCE_CUSTOMER_SERVER_V1', 'verified new customer guard capability survives normalization');
+    $wrongGuard = $control; $wrongGuard['customer_runtime_guard'] = 'UNKNOWN_GUARD';
+    $reject(fn() => $verifyControl($wrongGuard), 'unknown signed customer guard capability is rejected');
+    require_once dirname(__DIR__).'/install/FinanceInstance.php';
+    $instanceReflection = new ReflectionClass(FinanceInstance::class);
+    $bareInstance = $instanceReflection->newInstanceWithoutConstructor();
+    $instanceConfig = $instanceReflection->getProperty('c'); $instanceConfig->setAccessible(true); $instanceConfig->setValue($bareInstance, []);
+    $contextMethod = $instanceReflection->getMethod('customerContext'); $contextMethod->setAccessible(true);
+    $reject(fn() => $contextMethod->invoke($bareInstance, $modern['install_manifest']), 'new installer cannot treat historical unguarded code as protected customer runtime');
     ControlDelivery::validateCustomerBinding($plan, $modern);
     $check(true, 'modern Control package matches distribution claims');
     if(in_array('--delivery', $argv, true)){

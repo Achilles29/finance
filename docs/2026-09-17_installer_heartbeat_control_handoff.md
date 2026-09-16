@@ -1,5 +1,7 @@
 # Handoff Finance–Control: domain metadata, credential pengganti, heartbeat
 
+> Lanjutan review 17 September: Control menemukan DB/versi heartbeat masih bergantung konfigurasi master/Git, serta kebutuhan boundary lisensi customer yang terpisah dari mode audit master. Penyesuaian integrasi lanjutan ditujukan untuk kandidat alpha.15 pada [handoff readiness customer](2026-09-17_customer_package_control_readiness_handoff.md). Identitas dan hasil alpha.14 di bawah tetap bukti historis; bukan persetujuan otomatis untuk source lanjutan.
+
 Batch 267 — 2026-09-16/17 WIB. Scope hanya integrasi produk. Parent Finance `65bc4c2c0d6d6149264282318db5c6c45ccb1391`. Kandidat baru **0.1.0-alpha.14**, bukan penggantian artefak release **66 PUBLISHED**. Commit final adalah commit Finance yang memuat laporan ini; hash disampaikan setelah commit. Tidak push/publish/deploy, tidak mengubah source/database Control, konfigurasi/credential server, atau data development.
 
 ## Checklist implementasi

@@ -6,6 +6,11 @@ umask(0077);
 $s=$argv[1]??'';$manifest=$argv[2]??'';$old=$argv[3]??null;
 if(PHP_SAPI!=='cli'||posix_geteuid()!==0||preg_match('~\A/var/lib/finance-web-[0-9]{8}[.][A-Za-z0-9]{6}\z~D',$s)!==1||realpath($s)!==$s||is_file($s.'/private/config.json'))throw new RuntimeException('FRESH_DISPOSABLE_DIRECTORY_REQUIRED');
 $account=posix_getpwnam('finance_c3_trial');if(!$account||$account['uid']===0)throw new RuntimeException('TEST_ACCOUNT_REQUIRED');
+if(!isset($argv[4]))throw new RuntimeException('EXPLICIT_FIXTURE_LICENSE_PUBLIC_DIRECTORY_REQUIRED');
+$licenseFiles=new LicenseAgentFiles($argv[4],dirname(__DIR__,2),(int)$account['gid'],false);
+$licenseIdentity=$licenseFiles->read('identity.json',0640);
+$licenseFiles->read('trust.json',0640);$licenseFiles->read('runtime.json',0640);
+if(!is_string($licenseIdentity['instance_id']??null)||$licenseIdentity['instance_id']==='')throw new RuntimeException('FIXTURE_LICENSE_IDENTITY_REQUIRED');
 chgrp($s,$account['gid']);chmod($s,0750);mkdir($s.'/private',0700);mkdir($s.'/fixture',0700);
 $name='c3_finance_test_'.bin2hex(random_bytes(6));$password=bin2hex(random_bytes(24));
 $write=static function(string $p,string $bytes,int $mode=0600):void{if(file_exists($p)||is_link($p))throw new RuntimeException('FIXTURE_OUTPUT_EXISTS');$h=fopen($p,'xb');if(!$h||fwrite($h,$bytes)!==strlen($bytes))throw new RuntimeException('FIXTURE_WRITE_FAILED');fclose($h);chmod($p,$mode);};
@@ -16,7 +21,7 @@ $write($s.'/fixture/disposable-client.cnf',"[client]\nprotocol=socket\nsocket=/t
 $write($s.'/fixture/disposable-database.name',$name."\n");
 $settings=['FINANCE_DB_HOST'=>'localhost','FINANCE_DB_USER'=>$name,'FINANCE_DB_PASSWORD'=>$password,'FINANCE_DB_NAME'=>$name,'FINANCE_BASE_URL'=>'https://127.0.0.1:18443/','FINANCE_ENCRYPTION_KEY'=>bin2hex(random_bytes(32)),'FINANCE_SESSION_COOKIE'=>'finance_c3_instance_session'];unset($password);
 $c=['private_dir'=>$s.'/private','runtime_dir'=>$s,'release_root'=>$s.'/app','signed_manifest'=>$manifest,'trust_file'=>'/var/lib/namua-control/release-signing/trusted/NAMUA_FINANCE.json','deployment_file'=>$s.'/deployment.json','defaults_extra_file'=>$s.'/fixture/disposable-client.cnf','database_name_file'=>$s.'/fixture/disposable-database.name','owner_file'=>$s.'/fixture/disposable-owner.json','php_fpm'=>'/www/server/php/81/sbin/php-fpm','nginx'=>'/www/server/nginx/sbin/nginx','user'=>'finance_c3_trial','group'=>'finance_c3_trial','port'=>18443,'tls_certificate'=>$s.'/tls.crt','tls_key'=>$s.'/tls.key','health_ca'=>$s.'/tls.crt','mime_types'=>'/www/server/nginx/conf/mime.types','lua_root'=>'/www/server/nginx/lib/lua','composer'=>'/usr/bin/composer','mode'=>'clean_install'];
-if(isset($argv[4]))$c['license_public_dir']=$argv[4];
+$c['license_public_dir']=$argv[4];$c['instance_id']=$licenseIdentity['instance_id'];
 if($old!==null){
     if(preg_match('~\A/var/lib/finance-web-[0-9]{8}[.][A-Za-z0-9]{6}\z~D',$old)!==1||realpath($old)!==$old)throw new RuntimeException('DISPOSABLE_SOURCE_REQUIRED');
     $previous=PrivateDeployment::read($old.'/private/config.json');$descriptor=PrivateDeployment::read($old.'/private/instance.json');

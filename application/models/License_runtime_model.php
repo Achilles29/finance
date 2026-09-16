@@ -95,9 +95,21 @@ class License_runtime_model extends CI_Model
     private function managed_file_runtime(): ?array
     {
         $path = (string)getenv('FINANCE_LICENSE_CACHE_FILE');
-        if ($path === '') return null;
+        $context=(string)getenv('FINANCE_CUSTOMER_INSTALLATION_FILE');
+        if ($path === '' && $context === '') return null;
         if (is_array($this->fileRuntime)) return $this->fileRuntime;
         $this->load->library('Control_license_cache');
+        if ($context!=='') {
+            $v=Control_license_cache::customer_verification(FCPATH,$context);
+            try {
+                $c=Control_license_cache::customer_context(FCPATH,$context);
+                $identity=Control_license_verifier::deployment_document($c['license_identity_file'],FCPATH);
+                $cache=Control_license_verifier::deployment_document($c['license_cache_file'],FCPATH,300000);
+            } catch (Throwable $error) {
+                $identity=[];$cache=[];
+            }
+            return $this->fileRuntime=['verification'=>$v,'cache'=>$cache,'identity'=>$identity];
+        }
         $trust = Control_license_verifier::deployment_document((string)getenv('FINANCE_LICENSE_TRUST_FILE'), FCPATH);
         $identity = Control_license_verifier::deployment_document((string)getenv('FINANCE_LICENSE_IDENTITY_FILE'), FCPATH);
         $cache = Control_license_verifier::deployment_document($path, FCPATH, 300000);

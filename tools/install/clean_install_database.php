@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
-require dirname(__DIR__) . '/release/ControlReleaseBridge.php';
-define('A513_POST_INSTALL_HEALTH_LIBRARY_ONLY', true);
-require dirname(__DIR__) . '/db/post_install_health_check.php';
-define('FINANCE_A512_OWNER_BOOTSTRAP_LIBRARY_ONLY', true);
-require dirname(__DIR__) . '/db/bootstrap_first_owner.php';
+require_once dirname(__DIR__) . '/release/ControlReleaseBridge.php';
+if (!defined('A513_POST_INSTALL_HEALTH_LIBRARY_ONLY')) define('A513_POST_INSTALL_HEALTH_LIBRARY_ONLY', true);
+require_once dirname(__DIR__) . '/db/post_install_health_check.php';
+if (!defined('FINANCE_A512_OWNER_BOOTSTRAP_LIBRARY_ONLY')) define('FINANCE_A512_OWNER_BOOTSTRAP_LIBRARY_ONLY', true);
+require_once dirname(__DIR__) . '/db/bootstrap_first_owner.php';
 
 /** Installs a verified release into an already provisioned EMPTY database, never upgrades or wipes one. */
 function c3InstallEmptyDatabase(array $marker): void

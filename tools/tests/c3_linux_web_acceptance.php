@@ -6,6 +6,9 @@ $s = $argv[1] ?? '';
 $fixture = $argv[2] ?? '';
 if (PHP_SAPI !== 'cli' || posix_geteuid() !== 0 || preg_match('~\A/var/lib/finance-web-[0-9]{8}[.][A-Za-z0-9]{6}\z~D', $s) !== 1
     || realpath($s) !== $s || !is_dir($fixture)) throw new RuntimeException('EXPLICIT_DISPOSABLE_TRIAL_REQUIRED');
+require_once dirname(__DIR__,2).'/application/libraries/Control_license_cache.php';
+$license=Control_license_cache::customer_verification($s.'/app',$s.'/customer-installation.json');
+if(empty($license['verified'])||!in_array($license['status']??'', ['ACTIVE','GRACE'], true))throw new RuntimeException('LICENSED_DISPOSABLE_TRIAL_REQUIRED');
 $deployment = json_decode((string)file_get_contents($s . '/deployment.json'), true, 32, JSON_THROW_ON_ERROR);
 if (preg_match('/\Ac3_finance_test_[a-f0-9]{12}\z/D', $deployment['FINANCE_DB_NAME'] ?? '') !== 1
     || $deployment['FINANCE_DB_NAME'] !== trim((string)file_get_contents($fixture . '/disposable-database.name'))

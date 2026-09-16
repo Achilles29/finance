@@ -5,6 +5,220 @@ require_once __DIR__ . '/Control_license_verifier.php';
 /** Pure cache transitions; the agent owns storage, the web process only reads it. */
 final class Control_license_cache
 {
+    /** Small immutable bootstrap set; uploads and business controllers are not runtime-rehashed. */
+    public static function customer_core_files(): array
+    {
+        return ['index.php', 'application/libraries/Control_license_cache.php',
+            'application/libraries/Control_license_verifier.php', 'application/libraries/DeploymentConfig.php',
+            'application/config/config.php', 'application/config/routes.php',
+            'system/core/CodeIgniter.php', 'system/core/URI.php', 'system/core/Router.php',
+            'tools/release/customer_clean_profile.json'];
+    }
+
+    private static function customer_source_file(string $root, string $relative): string
+    {
+        $path = $root . '/' . $relative;
+        if (realpath($path) !== $path || !is_file($path) || is_link($path) || !is_readable($path)) {
+            throw new RuntimeException('CUSTOMER_CORE_MISSING');
+        }
+        for ($part = $path; ; $part = dirname($part)) {
+            $stat = stat($part);
+            if (!is_array($stat) || (int)$stat['uid'] !== 0 || ($stat['mode'] & 0022) !== 0) {
+                throw new RuntimeException('CUSTOMER_CORE_UNSAFE');
+            }
+            if ($part === dirname($part)) break;
+        }
+        return $path;
+    }
+
+    /** Root-owned per-release context. Loading it does not require an activated lease. */
+    public static function customer_context(string $webroot, string $contextFile): array
+    {
+        $root = realpath($webroot);
+        if (PHP_OS_FAMILY !== 'Linux' || $root === false) throw new RuntimeException('CUSTOMER_PLATFORM_UNSUPPORTED');
+        $c = Control_license_verifier::deployment_document($contextFile, $root, 300000);
+        if (($c['schema'] ?? null) !== 1 || ($c['purpose'] ?? '') !== 'FINANCE_CUSTOMER_INSTALLATION'
+            || ($c['product_code'] ?? '') !== 'NAMUA_FINANCE' || ($c['release_root'] ?? '') !== $root
+            || ($c['customer_runtime_guard'] ?? '') !== 'FINANCE_CUSTOMER_SERVER_V1'
+            || ($c['distribution_profile'] ?? '') !== 'CUSTOMER_CLEAN'
+            || !is_int($c['distribution_profile_version'] ?? null) || $c['distribution_profile_version'] < 1
+            || !is_array($c['identity'] ?? null) || !is_array($c['core_sha256'] ?? null)
+            || !is_string($c['version'] ?? null) || preg_match('/\A\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\z/D', $c['version']) !== 1
+            || !is_string($c['source_commit'] ?? null) || preg_match('/\A[a-f0-9]{40}\z/D', $c['source_commit']) !== 1) {
+            throw new RuntimeException('CUSTOMER_CONTEXT_INVALID');
+        }
+        if (!is_string($c['release_public_id'] ?? null)
+            || preg_match('/\A[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\z/D', $c['release_public_id']) !== 1) {
+            throw new RuntimeException('CUSTOMER_CONTEXT_INVALID');
+        }
+        foreach (['artifact_sha256', 'release_manifest_sha256', 'app_manifest_sha256',
+            'source_manifest_sha256', 'profile_sha256', 'machine_fingerprint_sha256'] as $key) {
+            if (!is_string($c[$key] ?? null) || preg_match('/\A[a-f0-9]{64}\z/D', $c[$key]) !== 1) {
+                throw new RuntimeException('CUSTOMER_CONTEXT_INVALID');
+            }
+        }
+        foreach (['instance_id', 'installation_id', 'instance_public_key_sha256'] as $key) {
+            if (!is_string($c['identity'][$key] ?? null) || $c['identity'][$key] === '') {
+                throw new RuntimeException('CUSTOMER_CONTEXT_INVALID');
+            }
+        }
+        if (count($c['identity']) !== 3 || preg_match('/\A[a-f0-9]{64}\z/D', $c['identity']['instance_public_key_sha256']) !== 1) {
+            throw new RuntimeException('CUSTOMER_CONTEXT_INVALID');
+        }
+        foreach (['license_trust_file', 'license_identity_file', 'license_cache_file'] as $key) {
+            if (!is_string($c[$key] ?? null) || $c[$key] === '') throw new RuntimeException('CUSTOMER_CONTEXT_INVALID');
+        }
+        self::customer_release_proof($c);
+        $appPath = self::customer_source_file($root, 'app-manifest.json');
+        $innerPath = self::customer_source_file($root, 'RELEASE-MANIFEST.json');
+        if (!hash_equals($c['app_manifest_sha256'], (string)hash_file('sha256', $appPath))
+            || !hash_equals($c['source_manifest_sha256'], (string)hash_file('sha256', $innerPath))) {
+            throw new RuntimeException('CUSTOMER_SOURCE_MISMATCH');
+        }
+        $app = json_decode((string)file_get_contents($appPath), true, 32, JSON_THROW_ON_ERROR);
+        $inner = json_decode((string)file_get_contents($innerPath), true, 64, JSON_THROW_ON_ERROR);
+        if (!is_array($app) || ($app['product_code'] ?? '') !== $c['product_code'] || ($app['version'] ?? '') !== $c['version']
+            || !is_array($inner) || !is_array($inner['files'] ?? null)) throw new RuntimeException('CUSTOMER_SOURCE_MISMATCH');
+        $inventory = [];
+        foreach ($inner['files'] as $entry) {
+            if (!is_array($entry) || !is_string($entry['path'] ?? null) || isset($inventory[$entry['path']])) {
+                throw new RuntimeException('CUSTOMER_SOURCE_MISMATCH');
+            }
+            $inventory[$entry['path']] = $entry['sha256'] ?? null;
+        }
+        foreach (self::customer_core_files() as $relative) {
+            $expected = $c['core_sha256'][$relative] ?? null;
+            if (!is_string($expected) || preg_match('/\A[a-f0-9]{64}\z/D', $expected) !== 1
+                || ($inventory[$relative] ?? null) !== $expected
+                || !hash_equals($expected, (string)hash_file('sha256', self::customer_source_file($root, $relative)))) {
+                throw new RuntimeException('CUSTOMER_CORE_MISMATCH');
+            }
+        }
+        $profilePath = self::customer_source_file($root, 'tools/release/customer_clean_profile.json');
+        $profile = json_decode((string)file_get_contents($profilePath), true, 32, JSON_THROW_ON_ERROR);
+        if (!hash_equals($c['profile_sha256'], (string)hash_file('sha256', $profilePath)) || !is_array($profile)
+            || ($profile['profile'] ?? '') !== 'CUSTOMER_CLEAN'
+            || ($profile['profile_version'] ?? null) !== $c['distribution_profile_version']) {
+            throw new RuntimeException('CUSTOMER_PROFILE_MISMATCH');
+        }
+        return $c;
+    }
+
+    /** Re-authenticate original signed Control bytes; root context never substitutes a signature. */
+    private static function customer_release_proof(array $c): void
+    {
+        $encoded = $c['release_manifest_base64'] ?? null;
+        $raw = is_string($encoded) ? base64_decode($encoded, true) : false;
+        $signature = $c['release_signature'] ?? null; $trust = $c['release_trust'] ?? null;
+        if (!is_string($raw) || $raw === '' || strlen($raw) > 100000 || base64_encode($raw) !== $encoded
+            || !hash_equals($c['release_manifest_sha256'], hash('sha256', $raw)) || !is_array($signature) || !is_array($trust)) {
+            throw new RuntimeException('CUSTOMER_RELEASE_PROOF_INVALID');
+        }
+        $public = base64_decode((string)($trust['public_key_base64'] ?? ''), true);
+        $sig = base64_decode((string)($signature['signature_base64'] ?? ''), true);
+        if (($trust['schema'] ?? null) !== 1 || ($trust['product_code'] ?? '') !== 'NAMUA_FINANCE'
+            || ($trust['algorithm'] ?? '') !== 'Ed25519' || ($trust['status'] ?? '') !== 'ACTIVE'
+            || !is_string($public) || strlen($public) !== 32
+            || ($trust['public_key_sha256'] ?? '') !== hash('sha256', $public)
+            || ($signature['schema'] ?? null) !== 1 || ($signature['product_code'] ?? '') !== 'NAMUA_FINANCE'
+            || ($signature['algorithm'] ?? '') !== 'Ed25519' || ($signature['context'] ?? '') !== 'NAMUA_RELEASE_MANIFEST_V1'
+            || ($signature['key_id'] ?? null) !== ($trust['key_id'] ?? null)
+            || ($signature['public_key_sha256'] ?? '') !== hash('sha256', $public)
+            || ($signature['manifest_sha256'] ?? '') !== $c['release_manifest_sha256']
+            || !is_string($sig) || strlen($sig) !== 64 || !function_exists('sodium_crypto_sign_verify_detached')
+            || !sodium_crypto_sign_verify_detached($sig, "NAMUA_RELEASE_MANIFEST_V1\n" . $c['release_manifest_sha256'], $public)) {
+            throw new RuntimeException('CUSTOMER_RELEASE_PROOF_INVALID');
+        }
+        $m = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+        if (!is_array($m) || ($m['schema'] ?? null) !== 1 || ($m['context'] ?? '') !== 'NAMUA_RELEASE_MANIFEST_V1'
+            || ($m['product_code'] ?? '') !== $c['product_code'] || ($m['version'] ?? '') !== $c['version']
+            || ($m['source_commit'] ?? '') !== $c['source_commit'] || ($m['sha256'] ?? '') !== $c['artifact_sha256']
+            || ($m['source_manifest_sha256'] ?? '') !== $c['app_manifest_sha256']
+            || ($m['customer_runtime_guard'] ?? '') !== 'FINANCE_CUSTOMER_SERVER_V1'
+            || ($m['release_public_id'] ?? '') !== $c['release_public_id']
+            || ($m['distribution_profile'] ?? '') !== $c['distribution_profile']
+            || ($m['distribution_profile_version'] ?? null) !== $c['distribution_profile_version']
+            || ($m['customer_content_audit']['status'] ?? '') !== 'PASS'
+            || ($m['customer_content_audit']['profile_sha256'] ?? '') !== $c['profile_sha256']
+            || ($m['customer_content_audit']['artifact_sha256'] ?? '') !== $c['artifact_sha256']
+            || ($m['customer_content_audit']['source_manifest_sha256'] ?? '') !== $c['source_manifest_sha256']
+            || ($m['packaging']['profile_code'] ?? '') !== $c['distribution_profile']
+            || ($m['packaging']['rules_sha256'] ?? '') !== $c['profile_sha256']
+            || ($m['packaging']['audience'] ?? '') !== 'CUSTOMER' || ($m['packaging']['sample_data'] ?? '') !== 'NONE'
+            || ($m['contains_customer_data'] ?? null) !== false || ($m['contains_secrets'] ?? null) !== false
+            || !is_string($m['filename'] ?? null) || preg_match('/\A[A-Za-z0-9][A-Za-z0-9._-]*\.tar\z/D', $m['filename']) !== 1
+            || ($signature['signed_file'] ?? '') !== substr($m['filename'], 0, -4) . '.release.json') {
+            throw new RuntimeException('CUSTOMER_RELEASE_BINDING_MISMATCH');
+        }
+    }
+
+    public static function customer_machine_fingerprint(): string
+    {
+        if (PHP_OS_FAMILY !== 'Linux' || !in_array(strtolower(php_uname('m')), ['x86_64', 'amd64'], true)) {
+            throw new RuntimeException('CUSTOMER_PLATFORM_UNSUPPORTED');
+        }
+        $machine = trim((string)@file_get_contents('/etc/machine-id'));
+        if (preg_match('/\A[a-f0-9]{32}\z/D', $machine) !== 1) throw new RuntimeException('CUSTOMER_MACHINE_ID_UNAVAILABLE');
+        return hash('sha256', 'NAMUA_FINANCE' . "\0" . $machine . "\0linux-amd64");
+    }
+
+    /** No SQL/network access. Root health uses this too, so an unlocked login is not license proof. */
+    public static function customer_verification(string $webroot, string $contextFile, ?int $now = null): array
+    {
+        try {
+            $c = self::customer_context($webroot, $contextFile);
+            $identity = Control_license_verifier::deployment_document($c['license_identity_file'], $webroot);
+            if ($identity !== $c['identity']) throw new RuntimeException('CUSTOMER_IDENTITY_MISMATCH');
+            $machine = self::customer_machine_fingerprint();
+            if (!hash_equals($c['machine_fingerprint_sha256'], $machine)) throw new RuntimeException('CUSTOMER_MACHINE_MISMATCH');
+            $trust = Control_license_verifier::deployment_document($c['license_trust_file'], $webroot);
+            $cache = Control_license_verifier::deployment_document($c['license_cache_file'], $webroot, 300000);
+            $v = self::verification($cache, $trust, $identity, $now);
+            if (empty($v['verified']) || !in_array($v['status'] ?? '', ['ACTIVE', 'GRACE'], true)) return $v;
+            return Control_license_verifier::verify($cache['envelope'], $trust,
+                $identity + ['machine_fingerprint_sha256' => $machine], $now);
+        } catch (Throwable $e) {
+            return ['verified' => false, 'status' => 'RESTRICTED',
+                'code' => $e instanceof RuntimeException ? $e->getMessage() : 'CUSTOMER_CONTEXT_INVALID'];
+        }
+    }
+
+    /** Called before CI starts. No customer flags means unchanged master/legacy behaviour. */
+    public static function customer_guard(string $webroot, array $environment, array $server, ?int $now = null): array
+    {
+        $managed = false;
+        foreach (['FINANCE_CUSTOMER_INSTALLATION_FILE', 'FINANCE_LICENSE_TRUST_FILE',
+            'FINANCE_LICENSE_IDENTITY_FILE', 'FINANCE_LICENSE_CACHE_FILE'] as $key) {
+            if (($environment[$key] ?? '') !== '') $managed = true;
+        }
+        if (!$managed) return ['allowed' => true, 'managed' => false, 'status' => 'LEGACY', 'code' => 'CUSTOMER_GUARD_NOT_CONFIGURED'];
+        try {
+            $path = $environment['FINANCE_CUSTOMER_INSTALLATION_FILE'] ?? '';
+            if (!is_string($path) || $path === '') throw new RuntimeException('CUSTOMER_CONTEXT_REQUIRED');
+            $c = self::customer_context($webroot, $path);
+            foreach (['TRUST' => 'license_trust_file', 'IDENTITY' => 'license_identity_file', 'CACHE' => 'license_cache_file'] as $key => $field) {
+                $configured = $environment['FINANCE_LICENSE_' . $key . '_FILE'] ?? '';
+                if ($configured !== '' && $configured !== $c[$field]) throw new RuntimeException('CUSTOMER_LICENSE_PATH_MISMATCH');
+            }
+            $v = self::customer_verification($webroot, $path, $now);
+            $allowed = !empty($v['verified']) && in_array($v['status'] ?? '', ['ACTIVE', 'GRACE'], true);
+            $method = $server['REQUEST_METHOD'] ?? ''; $uri = $server['REQUEST_URI'] ?? '';
+            $route = is_string($uri) ? parse_url($uri, PHP_URL_PATH) : false;
+            $query = is_string($uri) ? parse_url($uri, PHP_URL_QUERY) : false; $args = [];
+            if (is_string($query)) parse_str($query, $args);
+            $recovery = !isset($args['c']) && !isset($args['m']) && !isset($args['d'])
+                && ((($method === 'GET' || $method === 'HEAD') && in_array($route,
+                    ['/login', '/auth', '/auth/index', '/system/license', '/license', '/license/index'], true))
+                    || ($method === 'POST' && $route === '/auth/do_login')
+                    || (($method === 'GET' || $method === 'POST') && in_array($route, ['/logout', '/auth/logout'], true)));
+            return ['allowed' => $allowed || $recovery, 'managed' => true, 'recovery_only' => !$allowed && $recovery,
+                'status' => $v['status'] ?? 'RESTRICTED', 'code' => $v['code'] ?? 'CUSTOMER_LICENSE_REQUIRED'];
+        } catch (Throwable $e) {
+            return ['allowed' => false, 'managed' => true, 'status' => 'RESTRICTED',
+                'code' => $e instanceof RuntimeException ? $e->getMessage() : 'CUSTOMER_CONTEXT_INVALID'];
+        }
+    }
+
     public static function initial(array $identity): array
     {
         return ['schema'=>1, 'purpose'=>'FINANCE_CONTROL_CACHE', 'identity'=>$identity,

@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once dirname(__DIR__,2).'/application/libraries/Control_license_cache.php';
 
 /** Private Linux profile renderer. No service restarts, database access or public listeners. */
 final class LinuxWebProfile
@@ -94,6 +95,17 @@ NGINX;
                 if (!is_file($dir.'/'.$file)||is_link($dir.'/'.$file)) throw new RuntimeException('PROFILE_LICENSE_PATH_INVALID');
                 $fpm.='env[FINANCE_LICENSE_'.$key.'_FILE] = '.$dir.'/'.$file."\n";
             }
+        }
+        if (isset($p['customer_installation_file'])) {
+            if (!is_string($p['customer_installation_file']) || !isset($p['license_public_dir'])) {
+                throw new RuntimeException('PROFILE_CUSTOMER_CONTEXT_REQUIRED');
+            }
+            $context=Control_license_cache::customer_context($app,$p['customer_installation_file']);
+            foreach (['TRUST'=>'license_trust_file','IDENTITY'=>'license_identity_file','CACHE'=>'license_cache_file']as$key=>$field) {
+                $name=['TRUST'=>'trust.json','IDENTITY'=>'identity.json','CACHE'=>'runtime.json'][$key];
+                if($context[$field]!==$p['license_public_dir'].'/'.$name)throw new RuntimeException('PROFILE_CUSTOMER_LICENSE_MISMATCH');
+            }
+            $fpm.='env[FINANCE_CUSTOMER_INSTALLATION_FILE] = '.$p['customer_installation_file']."\n";
         }
         return ['php-fpm.conf' => $fpm, 'nginx.conf' => $nginx . "\n"];
     }
