@@ -27,7 +27,7 @@ try {
     $expected = a512_owner_seed_counts($root);
     $approved = json_decode((string)file_get_contents($root . '/tools/db/clean_install_baseline_policy.json'), true);
     $check($expected === $approved['seed']['post_apply_counts'], 'first-owner counts follow the validated release policy, not stale literals');
-    $check($expected['sys_page'] === 209 && $expected['sys_menu'] === 249 && $expected['auth_role_permission'] === 209, 'current clean-install navigation counts include all five task-oriented sidebar groups');
+    $check($expected['sys_page'] === 213 && $expected['sys_menu'] === 251 && $expected['auth_role_permission'] === 213, 'current clean-install navigation counts include sidebar groups, Roast Connect and finance control');
     $secretKey = 'pass' . 'word';
     $usernameKey = 'user' . 'name';
     $strongSecret = 'Strong-' . 'Passphrase-' . '2026!';

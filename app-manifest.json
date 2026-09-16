@@ -3,7 +3,7 @@
   "product_code": "NAMUA_FINANCE",
   "name": "Namua Finance POS",
   "description": "Aplikasi operasional usaha dan kasir: POS web/mobile, persediaan, produksi, keuangan, HR, aset, serta integrasi terpilih.",
-  "version": "0.1.0-alpha.12",
+  "version": "0.1.0-alpha.13",
   "packaging": {
     "contract_version": 1,
     "adapter": "tools/build/customer_package.php",
@@ -16,7 +16,7 @@
         "audience": "CUSTOMER",
         "sample_data": "NONE",
         "rules_path": "tools/release/customer_clean_profile.json",
-        "rules_sha256": "02940e1fa103fc99211e531d02f954ab131e5c35282918b5c276cc8627750466",
+        "rules_sha256": "3ada4d1e0881dacf55d911016c8b3083831de50674f87fd57bda8db5c93452bc",
         "default": true
       }
     ]

@@ -2,6 +2,7 @@
 $e=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8');
 $money=static fn($c)=>number_format(((int)$c)/100,2,',','.');
 $decimal=static fn($v)=>Finance_journal_policy::cents($v);
+$month=(string)($month??date('Y-m'));
 $url=static fn(array $p=[])=>site_url('finance-reports/accounting').'?'.http_build_query(array_merge(['month'=>$month],$p));
 $tabs=['cash'=>'Arus Kas Aktual','queue'=>'Belum Dijurnal','journals'=>'Jurnal','ledger'=>'Buku Besar','trial'=>'Neraca Saldo','profit'=>'Laba-Rugi','balance'=>'Neraca','equity'=>'Perubahan Ekuitas','guide'=>'Panduan'];
 if (!empty($can_view_setup))$tabs['settings']='Pengaturan Akun';

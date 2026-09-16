@@ -232,6 +232,10 @@ try {
     }
     $data['tab']='trial';$data['error']='SQL 2026-09-15a belum aktif';$data['result']=[];
     $html=$renderer->render($data);$check(str_contains($html,'SQL 2026-09-15a belum aktif'),'schema missing is understandable, no PHP error');
+    $check(str_contains($html,'month=2026-07'),'view navigation preserves controller-selected month');
+    unset($data['month']);
+    $fallbackHtml=$renderer->render($data);
+    $check(str_contains($fallbackHtml,'month='.date('Y-m')),'view has explicit current-month fallback without undefined variable warning');
 } finally {restore_error_handler();}
 $db->trans_begin();
 // Empty-install branch on the same disposable :memory: fixture only; rollback restores it.

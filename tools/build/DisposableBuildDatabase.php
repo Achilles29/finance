@@ -11,7 +11,8 @@ final class DisposableBuildDatabase
 {
     private const MYSQL = '/www/server/mysql';
     private const REFERENCES = ['sys_matrix_group', 'sys_page', 'sys_menu', 'sys_page_alias', 'auth_role',
-        'auth_role_permission', 'sys_schema_migration', 'tg_setting', 'wa_template', 'wa_session', 'coffee_packaging_label_template'];
+        'auth_role_permission', 'sys_schema_migration', 'tg_setting', 'wa_template', 'wa_session', 'coffee_packaging_label_template',
+        'sys_roast_connect', 'fin_control_policy'];
 
     private static function query(string $option, string $database, string $sql): string
     {
@@ -45,6 +46,26 @@ final class DisposableBuildDatabase
             }
         }
         return ['counts' => $counts, 'checksums' => $hashes];
+    }
+
+    public static function safeDefaultQueries(): array
+    {
+        return [
+            'ROAST_CONNECT_DEFAULT_UNSAFE' => "SELECT COUNT(*),COALESCE(SUM(id=1 AND instance_id REGEXP '^[a-f0-9]{32}$'
+            AND BINARY name='Finance' AND enabled=0 AND division_id IS NULL AND BINARY destination_type='ROASTERY'
+            AND token_hash IS NULL AND token_tail IS NULL AND token_created_at IS NULL AND expires_at IS NULL
+            AND revision=0 AND updated_by IS NULL AND updated_at IS NULL),0) FROM sys_roast_connect",
+            'FINANCE_CONTROL_DEFAULT_UNSAFE' => "SELECT COUNT(*),COALESCE(SUM(id=1 AND approval_enabled=0
+            AND approval_threshold=1000000 AND evidence_required=0 AND payroll_day=1 AND revision=1
+            AND updated_by IS NULL AND updated_at IS NOT NULL),0) FROM fin_control_policy",
+        ];
+    }
+
+    private static function assertSafeDefaults(string $option, string $database): void
+    {
+        foreach (self::safeDefaultQueries() as $failure => $sql) {
+            CustomerBuild::need(self::query($option, $database, $sql) === "1\t1", $failure);
+        }
     }
 
     public static function test(string $root, string $scratch): array
@@ -95,6 +116,9 @@ final class DisposableBuildDatabase
                 CustomerBuild::need(a5_client_marker($client, '__BUILD_BASELINE__') === ['__BUILD_BASELINE__', 'OK'], 'DISPOSABLE_BASELINE_FAILED');
             } finally { a5_client_close($client, false); }
             $migrations = a5_apply($release['catalog'], $root, 'clean_install', $option, $db);
+            // These migrations generate installation-local settings, never data
+            // copied from Finance. Accept only their exact disabled/unconfigured defaults.
+            self::assertSafeDefaults($option, $db);
             $beforeOwner = self::inventory($option, $db);
             $seedRecords = 0; $empty = 0;
             foreach ($beforeOwner['counts'] as $table => $count) {

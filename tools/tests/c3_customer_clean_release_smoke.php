@@ -29,6 +29,19 @@ $put = static function (string $path, string $bytes): void {
 try {
     $profile = CustomerReleaseProfile::fromRoot($root);
     $raw = json_decode((string)file_get_contents($root . '/' . CustomerReleaseProfile::PATH), true);
+    $check($profile->version() === 4, 'new allowlist has its own version; reviewed v3 is not overwritten');
+    $unknown = $raw; $unknown['profile_version'] = 999;
+    $reject(fn() => new CustomerReleaseProfile(json_encode($unknown)), 'unreviewed profile version rejected');
+    $catalogSource = json_decode((string)file_get_contents($root . '/tools/db/migration_catalog.json'), true);
+    foreach ($catalogSource['migrations'] as $migration) {
+        $check(($raw['sql_sha256'][$migration['path']] ?? '') === $migration['sha256']
+            && $migration['sha256'] === hash_file('sha256', $root . '/' . $migration['path']),
+            'catalog migration is present and pinned in customer allowlist: ' . $migration['path']);
+    }
+    foreach (['application/controllers/Roast_connect.php', 'application/controllers/Roast_integrations.php',
+        'application/models/Roast_connect_model.php', 'application/views/system/roast_connect.php', 'assets/js/roast-connect-admin.js'] as $path) {
+        $check($profile->allows($path), 'registered Roast Connect route has packaged implementation: ' . $path);
+    }
     $paths = array_merge($raw['files'], $raw['code_files'], array_keys($raw['static_sha256']), array_keys($raw['sql_sha256']));
     $paths = array_values(array_unique($paths)); sort($paths);
     $entries = [];

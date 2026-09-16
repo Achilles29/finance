@@ -82,6 +82,24 @@
   ],
   "secret_fixture_exceptions": [
     {
+      "path": "tools/tests/finance_control_operations_cases.php",
+      "line": 16,
+      "category": "HARDCODED_DB_CREDENTIAL",
+      "sha256": "7c9143b107bb5ee0c34748d009bd52e66e6dc10079b2bcda4ec26e12ff100522"
+    },
+    {
+      "path": "tools/tests/finance_control_operations_http_fixture.php",
+      "line": 13,
+      "category": "HARDCODED_DB_CREDENTIAL",
+      "sha256": "c79a6d32648d5ae139cbadecd5de27a38ebef69cac0d1e644be73816b0283bdb"
+    },
+    {
+      "path": "tools/tests/finance_mutation_reporting_smoke.php",
+      "line": 66,
+      "category": "HARDCODED_DB_CREDENTIAL",
+      "sha256": "16b39c0f006bcd922f0349411388cbd26a313ea33365f4be8c1eaa67a058be3e"
+    },
+    {
       "path": "tools/tests/auth_division_scope_smoke.php",
       "line": 747,
       "category": "HARDCODED_DB_CREDENTIAL",

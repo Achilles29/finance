@@ -178,11 +178,13 @@ function a513_ledger_probe_sql(array $migration): string
 
 function a513_permission_match_sql(): string
 {
-    // 2026-09-05b intentionally grants VIEW only to the static Telegram guide.
-    // Do not grant mutations just to satisfy an over-broad health assertion.
-    $write = "(CASE WHEN BINARY p.page_code='tg.guide' THEN 0 ELSE 1 END)";
-    return 'rp.can_view=1 AND rp.can_create=' . $write . ' AND rp.can_edit=' . $write
-        . ' AND rp.can_delete=' . $write . ' AND rp.can_export=' . $write;
+    // Match the least-privilege permissions deliberately seeded by each module;
+    // do not grant extra mutations merely to satisfy the installer assertion.
+    $write = "(CASE WHEN BINARY p.page_code IN ('tg.guide','finance.control.approve','finance.control.settings') THEN 0 ELSE 1 END)";
+    $edit = "(CASE WHEN BINARY p.page_code='tg.guide' THEN 0 ELSE 1 END)";
+    $deleteExport = "(CASE WHEN BINARY p.page_code IN ('tg.guide','system.roast_connect','finance.control.index','finance.control.approve','finance.control.settings') THEN 0 ELSE 1 END)";
+    return 'rp.can_view=1 AND rp.can_create=' . $write . ' AND rp.can_edit=' . $edit
+        . ' AND rp.can_delete=' . $deleteExport . ' AND rp.can_export=' . $deleteExport;
 }
 
 function a513_check_database(array $release, string $policy, string $optionFile, string $databaseName): array

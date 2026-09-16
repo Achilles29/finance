@@ -40,7 +40,10 @@ $files = [
     'tools/db/post_install_health_check.php',
     'sql/baseline/2026-09-05_clean_install_schema.sql',
 ];
-foreach (glob($sourceRoot . '/sql/*.sql') ?: [] as $path) $files[] = 'sql/' . basename($path);
+$catalogSource = json_decode((string)file_get_contents($sourceRoot . '/tools/db/migration_catalog.json'), true);
+// This fixture represents a release, not development's unregistered SQL drafts.
+foreach ($catalogSource['migrations'] as $migration) $files[] = $migration['path'];
+foreach ($catalogSource['legacy_unmanaged_sql'] as $path) $files[] = $path;
 $files = array_values(array_unique($files));
 sort($files, SORT_STRING);
 foreach ($files as $relative) {
@@ -85,7 +88,7 @@ while (($line = fgets(STDIN)) !== false) {
     } elseif (strpos($line, '__A513_AUTH__') !== false) {
         echo "__A513_AUTH__\t1\t" . ($mode === 'permission_gap' ? '1' : '0') . "\t" . ($mode === 'owner_missing' ? '0' : '1') . "\n";
     } elseif (strpos($line, '__A513_SEED__') !== false) {
-        $count = strpos($line, '`sys_matrix_group`') !== false ? 20 : (strpos($line, '`sys_page`') !== false ? 209 : (strpos($line, '`sys_menu`') !== false ? 249 : 10));
+        $count = strpos($line, '`sys_matrix_group`') !== false ? 20 : (strpos($line, '`sys_page`') !== false ? 213 : (strpos($line, '`sys_menu`') !== false ? 251 : 10));
         if ($mode === 'seed_drift') $count++;
         echo "__A513_SEED__\t{$count}\n";
     } elseif (strpos($line, '__A513_TELEGRAM__') !== false) {
@@ -114,7 +117,7 @@ $clean = a513_check_database($release, 'clean_install', $option, 'a513_clean_ok'
 $check(($clean['migration_ledger_rows'] ?? null) === 20 && ($clean['reference_seed'] ?? '') === 'exact', 'clean-install health additionally checks exact reference seed and Telegram safe default');
 $check($failureCode(static fn() => a513_check_database($release, 'clean_install', $option, 'a513_clean_permission_gap')) === 'superadmin_contract', 'missing canonical permission still blocks clean install');
 $check(strpos(a513_permission_match_sql(), "BINARY p.page_code='tg.guide' THEN 0 ELSE 1") !== false
-    && strpos(a513_permission_match_sql(), 'rp.can_view=1') === 0, 'only exact static guide is view-only; other pages still require full canonical actions');
+    && strpos(a513_permission_match_sql(), 'rp.can_view=1') === 0, 'view permission stays mandatory and static guide cannot mutate; module-specific policies are tested by adapter contract');
 
 foreach (['missing_table'=>'required_table_missing','ledger_count'=>'migration_ledger_count','ledger_drift'=>'migration_ledger_drift','owner_missing'=>'owner_missing','seed_drift'=>'reference_seed_drift','telegram_on'=>'safe_default_drift'] as $mode => $expected) {
     $testPolicy = in_array($mode, ['seed_drift','telegram_on'], true) ? 'clean_install' : 'upgrade';

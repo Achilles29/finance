@@ -16,7 +16,7 @@ final class CustomerReleaseProfile
         $p = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
         if (!is_array($p) || ($p['schema'] ?? '') !== 'finance.customer-clean-profile'
             || ($p['schema_version'] ?? null) !== 1 || ($p['profile'] ?? '') !== self::ID
-            || !in_array($p['profile_version'] ?? null, [1,2,3], true) || ($p['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
+            || !in_array($p['profile_version'] ?? null, [1,2,3,4], true) || ($p['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
             || ($p['demo_data'] ?? null) !== false) throw new RuntimeException('CUSTOMER_PROFILE_INVALID');
         foreach (['code_files', 'files', 'static_sha256', 'sql_sha256'] as $field) {
             if (!isset($p[$field]) || !is_array($p[$field]) || $p[$field] === []) throw new RuntimeException('CUSTOMER_PROFILE_INVALID');

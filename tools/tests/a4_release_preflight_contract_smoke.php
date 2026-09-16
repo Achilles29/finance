@@ -90,6 +90,52 @@ preflightContractCheck(
     'line or content change invalidates fixture exception'
 );
 
+// Reviewed disposable-only Finance fixtures. An exception is NOT permission to
+// package a test router or ignore later credentials added anywhere in the file.
+require_once dirname(__DIR__) . '/release/CustomerReleaseProfile.php';
+$sourceRoot = dirname(__DIR__, 2);
+$customerProfile = CustomerReleaseProfile::fromRoot($sourceRoot);
+$packagePolicy = new ReleasePackagePolicy($policy);
+$fixturePaths = [
+    'tools/tests/finance_control_operations_cases.php' => 16,
+    'tools/tests/finance_control_operations_http_fixture.php' => 13,
+    'tools/tests/finance_mutation_reporting_smoke.php' => 66,
+];
+foreach ($fixturePaths as $path => $lineNumber) {
+    $lines = file($sourceRoot . '/' . $path, FILE_IGNORE_NEW_LINES);
+    $line = $lines[$lineNumber - 1];
+    $exceptions = $policy['secret_fixture_exceptions'];
+    $category = 'HARDCODED_DB_CREDENTIAL';
+    preflightContractCheck(
+        a4PreflightFixtureAllowed($exceptions, $path, $lineNumber, $category, $line),
+        'reviewed fixture exact fingerprint accepted: ' . $path
+    );
+    preflightContractCheck(
+        !$customerProfile->allows($path) && $packagePolicy->included($path) && !$packagePolicy->denied($path),
+        'fixture remains scanned but excluded from customer package: ' . $path
+    );
+    foreach ([
+        ['tools/tests/unreviewed.php', $lineNumber, $category, $line],
+        [$path, $lineNumber + 1, $category, $line],
+        [$path, $lineNumber, 'HARDCODED_SECRET_LITERAL', $line],
+        [$path, $lineNumber, $category, $line . ' changed'],
+    ] as $index => $mismatch) {
+        preflightContractCheck(
+            !a4PreflightFixtureAllowed($exceptions, ...$mismatch),
+            'fixture binding mismatch ' . $index . ' rejected: ' . $path
+        );
+    }
+    $altered = $exceptions;
+    foreach ($altered as &$exception) {
+        if ($exception['path'] === $path) $exception['sha256'] = str_repeat('0', 64);
+    }
+    unset($exception);
+    preflightContractCheck(
+        !a4PreflightFixtureAllowed($altered, $path, $lineNumber, $category, $line),
+        'altered exception digest rejected: ' . $path
+    );
+}
+
 $temporaryDirectory = sys_get_temp_dir() . '/finance-a4-preflight-contract-' . bin2hex(random_bytes(6));
 mkdir($temporaryDirectory, 0700);
 $smallFile = $temporaryDirectory . '/small.ini';

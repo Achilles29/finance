@@ -1,5 +1,13 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Batch 266 — 2026-09-16 (tindak lanjut audit build Control, bukan perbaikan bug bisnis):**
+
+- [x] Tiga false positive credential fixture direview dan dikecualikan persis path/baris/kategori/hash; secret scan tetap aktif. Katalog SQL paket, implementasi konektor, safe-default settings, jumlah seed dan pemeriksaan izin installer diselaraskan. Detail pada [handoff CUSTOMER_CLEAN v4](2026-09-16_finance_customer_clean_v4_handoff.md).
+- [x] Uji MariaDB disposable: clean-install/health dan backup–restore PASS, 306 tabel, 293 nonreferensi kosong, 0 data customer/demo; tidak membaca/mengubah DB usaha.
+- [x] Finding STATIC satu variabel bulan pada view jurnal diperbaiki dengan fallback eksplisit; bulan pilihan controller tetap dipakai. Static aktual baseline 0, regresi jurnal 348 dan client 38 PASS. **Build penuh terisolasi terakhir exit 0 / delapan gate + validator independen PASS**; 0 customer/demo/secret findings. Bukan artifact published atau persetujuan cutoff Control.
+- [ ] Integrasi bisnis/UAT dan temuan PR-01/02/03 tetap terbuka. Indikasi void batch setelah pemakaian dibalik telah dibuktikan terpisah, belum diimplementasikan; perubahan packaging bukan penutupan bug tersebut.
+- [ ] Lima SQL development `14c/15a/15b/15c/16a` masih di luar katalog/paket, bukan diam-diam dimigrasikan. Readiness/approval cutoff customer hanya dicatat pada `_28`.
+
 **Review Batch 265 — 2026-09-16 (lintas perbaikan Batch 1–264, bukan hanya pengajuan divisi):**
 
 - [x] Disusun [checklist UAT seluruh perbaikan Finance](2026-09-16_checklist_uat_seluruh_perbaikan_finance.md): **98 skenario / 23 kelompok modul**, langkah/hasil yang diharapkan dan batas tes tulis/perangkat/admin. Ini lembar penerimaan, bukan roadmap ketiga. Semua kotak tes manual tetap kosong.

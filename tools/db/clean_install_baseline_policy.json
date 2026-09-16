@@ -76,11 +76,11 @@
     },
     "post_apply_counts": {
       "sys_matrix_group": 20,
-      "sys_page": 209,
-      "sys_menu": 249,
+      "sys_page": 213,
+      "sys_menu": 251,
       "sys_page_alias": 10,
       "auth_role": 1,
-      "auth_role_permission": 209,
+      "auth_role_permission": 213,
       "auth_user": 0,
       "auth_user_role": 0
     },
@@ -115,6 +115,10 @@
     "2026-09-06g-pos-mobile-reservation-refund-step-up",
     "2026-09-06h-roastery-label-template-studio",
     "2026-09-06i-a3-sidebar-task-oriented-layout",
-    "2026-09-07a-c2-c4-business-profile-license-runtime-foundation"
+    "2026-09-07a-c2-c4-business-profile-license-runtime-foundation",
+    "2026-09-12a-roast-connect-catalog",
+    "2026-09-13a-finance-mutation-reporting-category",
+    "2026-09-14a-finance-control-workspace",
+    "2026-09-14b-finance-control-operations"
   ]
 }
