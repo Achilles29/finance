@@ -29,8 +29,6 @@ if (!isset($finance_deployment_config) || !($finance_deployment_config instanceo
 | a PHP script and you can easily do that on your own.
 |
 */
-//$config['base_url'] = 'https://core.namuacoffee.com/';
-// $config['base_url'] = 'http://localhost/finance/';
 
 $is_cli_request = (PHP_SAPI === 'cli' || defined('STDIN'));
 $script_name = str_replace(basename($_SERVER['SCRIPT_NAME'] ?? 'index.php'), '', (string)($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
