@@ -59,7 +59,7 @@ final class PortablePackage
         $raw=(string)file_get_contents($dir.'/release.json');
         if(strlen($raw)>100000)throw new RuntimeException('RELEASE_OVERSIZE');
         $m=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
-        if(!is_array($m)||!in_array($m['distribution_profile_version']??null,[6,7],true))throw new RuntimeException('PORTABLE_PROFILE_REQUIRED');
+        if(!is_array($m)||!in_array($m['distribution_profile_version']??null,[6,7,8],true))throw new RuntimeException('PORTABLE_PROFILE_REQUIRED');
         $c=['schema'=>1,'purpose'=>'FINANCE_CUSTOMER_INSTALLATION','product_code'=>'NAMUA_FINANCE','release_root'=>$root,
             'release_public_id'=>$m['release_public_id']??'','version'=>$m['version']??'','source_commit'=>$m['source_commit']??'',
             'artifact_sha256'=>$m['sha256']??'','release_manifest_sha256'=>hash('sha256',$raw),
@@ -137,10 +137,21 @@ final class PortablePackage
             ||!preg_match('/\A[a-f0-9]{64}\z/D',$p['setup_secret_sha256']??'')
             ||!preg_match('/\A[a-f0-9]{64}\z/D',$p['credentials_sha256']??'')
             ||!preg_match('/\A[a-f0-9-]{36}\z/D',$p['permit_id']??'')
-            ||!in_array($p['environment']??'',['STAGING','DEMO','PRODUCTION'],true)
-            ||!is_int($p['issued_at']??null)||!is_int($p['expires_at']??null)||$p['expires_at']<=$p['issued_at']
-            ||$p['issued_at']>time()+300)throw new RuntimeException('SETUP_PERMISSION_BINDING_INVALID');
-        if($checkExpiry && $p['expires_at']<=time())throw new RuntimeException('SETUP_PERMISSION_EXPIRED');
+            ||!in_array($p['environment']??'',['STAGING','DEMO','PRODUCTION'],true))throw new RuntimeException('SETUP_PERMISSION_BINDING_INVALID');
+        self::assertPermissionWindow($p,$context['distribution_profile_version'],$checkExpiry);
         return $p;
+    }
+
+    /** Explicit v8 contract. Missing/invalid expiry is never interpreted as unlimited for older packages. */
+    public static function assertPermissionWindow(array $p,int $profile,bool $checkExpiry=true,?int $now=null): void
+    {
+        $now=$now??time();
+        if(!is_int($p['issued_at']??null)||$p['issued_at']<1||$p['issued_at']>$now+300)throw new RuntimeException('SETUP_PERMISSION_BINDING_INVALID');
+        if($profile===8){
+            if(($p['permission_policy']??'')!=='UNTIL_USED_OR_REVOKED'||!array_key_exists('expires_at',$p)||$p['expires_at']!==null)throw new RuntimeException('SETUP_PERMISSION_BINDING_INVALID');
+            return;
+        }
+        if(!in_array($profile,[6,7],true)||isset($p['permission_policy'])||!is_int($p['expires_at']??null)||$p['expires_at']<=$p['issued_at'])throw new RuntimeException('SETUP_PERMISSION_BINDING_INVALID');
+        if($checkExpiry&&$p['expires_at']<=$now)throw new RuntimeException('SETUP_PERMISSION_EXPIRED');
     }
 }

@@ -4,6 +4,15 @@ require_once __DIR__.'/PortableStore.php';
 
 final class SetupUi
 {
+    /** Browser state is written by the verified installer, never by the browser. */
+    public static function permissionExpired(array $b,?int $now=null): bool
+    {
+        if(($b['permission_policy']??'FIXED_EXPIRY')==='UNTIL_USED_OR_REVOKED') {
+            return ($b['profile_version']??null)!==8 || !array_key_exists('expires_at',$b) || $b['expires_at']!==null;
+        }
+        return ($b['permission_policy']??'FIXED_EXPIRY')!=='FIXED_EXPIRY' || !is_int($b['expires_at']??null) || $b['expires_at']<=($now??time());
+    }
+
     public static function message(string $code): string
     {
         if(in_array($code,['PACKAGE_MANIFEST_MISMATCH','PACKAGE_PROFILE_MISMATCH','ARTIFACT_HASH_INVALID','PACKAGE_EXTRA_FILE','RELEASE_GATE_MISSING','PORTABLE_PROFILE_REQUIRED'],true))
@@ -56,7 +65,7 @@ final class SetupUi
     {
         $b=self::authorize($root,(string)($input['secret']??''));
         if(is_file($root.'/storage/setup/closed.json'))throw new RuntimeException('SETUP_ALREADY_COMPLETE');
-        if(($b['expires_at']??0)<=time())throw new RuntimeException('SETUP_PERMISSION_EXPIRED');
+        if(self::permissionExpired($b))throw new RuntimeException('SETUP_PERMISSION_EXPIRED');
         if(!is_array($input['config']??null)||!is_array($input['owner']??null))throw new RuntimeException('SETUP_REQUEST_INVALID');
         $key=base64_decode($b['public_key']??'',true);if(!is_string($key)||strlen($key)!==32)throw new RuntimeException('SETUP_REQUEST_INVALID');
         $packet=['sealed'=>base64_encode(sodium_crypto_box_seal(json_encode(['permit_id'=>$b['permit_id'],'secret'=>$input['secret'],
@@ -94,7 +103,7 @@ final class SetupUi
         $fresh=max((int)($worker['at']??0),($worker['state']??'')==='RUNNING'?(int)strtotime($progress['updated_at']??''):0);
         $checks['service']=$fresh>=time()-150?'OK':'UNAVAILABLE';
         $closed=is_file($root.'/storage/setup/closed.json');
-        $expired=($b['expires_at']??0)<=time();
+        $expired=self::permissionExpired($b);
         $out=['checks'=>$checks,'closed'=>$closed,'permission_expired'=>$expired,'progress'=>$progress,
             'can_edit'=>empty($progress['database_started'])&&!is_file($root.'/storage/customer-installation.json')&&!in_array($progress['phase']??'', ['DATABASE','WEB_CHECK','REPORTING','COMPLETE'],true)];
         if($id!=='') {

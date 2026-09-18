@@ -1,6 +1,6 @@
 # Admin — persiapan satu perintah Finance
 
-Berlaku bagi kandidat **alpha.18 / CUSTOMER_CLEAN v7 / FINANCE_GUIDED_SETUP_V1**, bukan perubahan retroaktif ZIP alpha.17. Pemasang tidak mengubah vhost, menginstal/mengganti PHP/MariaDB, atau menyalakan layanan global otomatis.
+Berlaku bagi kandidat **alpha.20 / CUSTOMER_CLEAN v8 / FINANCE_GUIDED_SETUP_V1**, bukan perubahan retroaktif ZIP lama. Pemasang tidak mengubah vhost, menginstal/mengganti PHP/MariaDB, atau menyalakan layanan global otomatis.
 
 ## Prasyarat yang memang tugas admin
 
@@ -53,7 +53,7 @@ Kode umumnya 0750/0640, `private/` 0700 dengan berkas 0600. Web dapat menulis ha
 | Parent/permission tidak aman | Pilih parent terlindungi atau review ACL/izin folder target. Jangan membuka akses publik. |
 | Layanan belum berjalan | Periksa daemon cron, kebijakan akses crontab akun pendamping, PHP CLI dan permission target. Jalankan lagi perintah yang sama. |
 | Database belum ada/password salah | Customer memperbaiki melalui UI dan menguji ulang. Host `localhost` tanpa socket ambigu; gunakan `127.0.0.1` untuk TCP atau hostname server DB. |
-| Izin kedaluwarsa/credential ditolak | Penjual menerbitkan pengganti melalui mekanisme Control yang ada, dengan binding instance/deployment/plan/release/profil yang sama. Perbarui hanya berkas izin/credential sah sesuai pengiriman, bukan ekstrak ulang ZIP di atas instalasi. Jalankan lagi perintah persiapan. |
+| Izin ditolak/dicabut | Paket v8 tidak memiliki tenggat pemasangan (`permission_policy=UNTIL_USED_OR_REVOKED`, `expires_at=null`). Aktivasi tetap memeriksa hak paket, kuota, identitas server dan pencabutan di Control. Jangan ubah file bertanda tangan. Jika paket lama menampilkan EXPIRED, minta penggantian yang sah; jangan timpa instalasi yang telah disiapkan atau database. |
 | Kuota server habis | Operator Control meninjau slot/izin. Jangan membuat identitas baru; server sah lain tidak diubah. |
 | SQL terputus/hasil belum pasti | Simpan seluruh folder dan DB. Review journal; tidak ada replay DROP/TRUNCATE atau reset otomatis. |
 | Login HTTPS belum lolos | Periksa URL, sertifikat dan document root. DB yang sudah selesai tidak perlu diulang. |

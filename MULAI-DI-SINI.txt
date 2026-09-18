@@ -1,5 +1,6 @@
 NAMUA FINANCE - MULAI DI SINI
-Panduan singkat paket customer Linux - 18 September 2026
+Panduan singkat paket customer Linux - alpha.20, 19 September 2026
+Tidak ada tenggat waktu untuk mulai memasang. Hak paket dan kuota server tetap berlaku.
 Untuk tampilan lebih nyaman, buka MULAI-DI-SINI.html di folder yang sama.
 
 1. EKSTRAK DAN UNGGAH
@@ -40,9 +41,11 @@ Untuk tampilan lebih nyaman, buka MULAI-DI-SINI.html di folder yang sama.
 JIKA GAGAL
 - Paket belum disiapkan: admin menyelesaikan langkah 3, jangan chmod 777.
 - Database gagal: periksa isian dan gunakan database kosong. Jangan hapus data lama.
-- Izin expired sebelum mulai: minta unduhan baru melalui tautan customer yang sama.
-  Hak pemasangan tidak berakhir. Jika folder sudah disiapkan, jangan timpa ZIP
-  penuh; minta penjual memandu pembaruan izin untuk paket dan rencana yang sama.
+- Paket alpha.20 tidak memakai batas pemasangan satu jam. Jika masih muncul
+  SETUP_PERMISSION_EXPIRED, Anda memakai paket lama. Minta paket terbaru dari
+  penjual; jangan menimpa folder yang sudah dipersiapkan atau berisi data.
+- Izin dicabut/paket tidak cocok/kuota penuh: hubungi penjual. Menyalin ZIP bukan
+  cara menambah server; setiap server harus diaktifkan sesuai kuota pembelian.
 - Instalasi terputus/sudah dimulai: periksa status, jangan ulang SQL atau hapus
   journal. Hubungi penjual jika tertahan.
 

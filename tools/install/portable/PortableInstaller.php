@@ -72,6 +72,7 @@ final class PortableInstaller
             $key=base64_decode($this->private->read('setup-key.json')['key'],true);
             $this->status->write('browser.json',['contract'=>'FINANCE_SETUP_BROWSER_V1','permit_id'=>$permit['permit_id'],
                 'secret_sha256'=>$permit['setup_secret_sha256'],'expires_at'=>$permit['expires_at'],
+                'permission_policy'=>$permit['permission_policy']??'FIXED_EXPIRY','profile_version'=>$permit['profile_version'],
                 'public_key'=>base64_encode(sodium_crypto_box_publickey($key))],0640);
             sodium_memzero($key);
             if($this->status->exists('status.json'))return $this->status->read('status.json',0640);

@@ -121,7 +121,7 @@ final class LinuxPreparation
         foreach($required as$name)if(!is_file($this->root.'/private/delivery/'.$name))throw new RuntimeException('CONTROL_ZIP_INCOMPLETE');
         echo "Memeriksa paket dan izin pengiriman…\n";
         $evidence=PortablePackage::beforePreparation($this->root);
-        if($evidence['context']['distribution_profile_version']!==7)throw new RuntimeException('PREPARATION_PROFILE_V7_REQUIRED');
+        if(!in_array($evidence['context']['distribution_profile_version'],[7,8],true))throw new RuntimeException('PREPARATION_PROFILE_V7_REQUIRED');
         $old=$this->readRecord();
         $webName=$this->options['web-user']??$old['web_user']??'';
         if($webName===''){

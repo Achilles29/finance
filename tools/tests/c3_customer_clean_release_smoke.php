@@ -29,7 +29,7 @@ $put = static function (string $path, string $bytes): void {
 try {
     $profile = CustomerReleaseProfile::fromRoot($root);
     $raw = json_decode((string)file_get_contents($root . '/' . CustomerReleaseProfile::PATH), true);
-    $check($profile->version() === 7, 'guided setup has a new profile; published v6 is not overwritten');
+    $check($profile->version() === 8, 'durable setup has a new profile; published v7 is not overwritten');
     $unknown = $raw; $unknown['profile_version'] = 999;
     $reject(fn() => new CustomerReleaseProfile(json_encode($unknown)), 'unreviewed profile version rejected');
     $catalogSource = json_decode((string)file_get_contents($root . '/tools/db/migration_catalog.json'), true);

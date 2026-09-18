@@ -21,7 +21,7 @@ $check($prepared['runtime']['directory']==='storage'&&strlen($prepared['encrypti
 foreach(['DATABASE_NOT_FOUND','DATABASE_CREDENTIAL_REJECTED','DATABASE_NOT_EMPTY','SERVICE_UNAVAILABLE','SETUP_PERMISSION_EXPIRED']as$code)
     $check(!str_contains(SetupUi::message($code),'Langkah ini belum berhasil'),'specific customer action: '.$code);
 $profile=json_decode(file_get_contents($root.'/tools/release/customer_clean_profile.json'),true);
-$check($profile['profile_version']===7&&$profile['setup_contract']==='FINANCE_GUIDED_SETUP_V1','new signed guided contract');
+$check($profile['profile_version']===8&&$profile['setup_contract']==='FINANCE_GUIDED_SETUP_V1'&&$profile['installation_permission_policy']==='UNTIL_USED_OR_REVOKED','new signed guided contract without installation deadline');
 foreach(['LinuxPreparation.php','SetupService.php','prepare.php','prepare.sh','setup.js','setup.css']as$file)
     $check(in_array('tools/install/portable/'.$file,$profile['code_files'],true),'exact signed inventory includes '.$file);
 $check(!in_array('tools/tests/customer_guided_control_fixture.php',$profile['code_files'],true),'synthetic issuer never packaged');

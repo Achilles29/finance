@@ -2,7 +2,8 @@
     "schema": "finance.customer-clean-profile",
     "schema_version": 1,
     "profile": "CUSTOMER_CLEAN",
-    "profile_version": 7,
+    "profile_version": 8,
+    "installation_permission_policy": "UNTIL_USED_OR_REVOKED",
     "layout_contract": "FINANCE_SINGLE_FOLDER_V1",
     "setup_contract": "FINANCE_GUIDED_SETUP_V1",
     "local_configuration": {
@@ -848,8 +849,8 @@
         "wa-engine/package.json"
     ],
     "static_sha256": {
-        "MULAI-DI-SINI.html": "a78406a5d60dc3b3cb9dff400c3005fb20585efe1483201f1392c7257c18ed2a",
-        "MULAI-DI-SINI.txt": "f51af516f604e340ab10de8480b7d02cd1b5b7e7c9baed7edc367d49639d6070",
+        "MULAI-DI-SINI.html": "bc5bcc9359c67a9a167a832e9a9ff87b0c638c9d9bebe5b1bf6529da4a1019d2",
+        "MULAI-DI-SINI.txt": "1a29dc26a029e269c65ee9f7821d27d997bcbaaf0ed070eda89d1206096384d4",
         "assets/css/app.css": "1b6f2abc4d63514f17bec14bd98056796dd0601d384dffc4ce677d17867118ee",
         "assets/css/auth-theme.css": "b3fdc190c7b90b967da2e156c9a56eb091bf550a03ccf04d2064c717e9f0c737",
         "assets/css/core.css": "bf452a122a9f62a027a3ecd3c859092920d471a5346901337b9b94e9b87fa5f1",
