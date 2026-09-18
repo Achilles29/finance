@@ -2,7 +2,7 @@
 declare(strict_types=1);
 // Test helper only, never bundled or used with Control live credentials.
 $f=json_decode(file_get_contents($argv[1]),true,32,JSON_THROW_ON_ERROR);$root=$f['root'];
-require $root.'/tools/install/portable/PortableInstaller.php';
+require $root.'/tools/install/portable/SetupService.php';
 $transport=static function(string $origin,string $path,string $body,array $headers)use($f,$root):array{
     if($origin!=='https://control.example.invalid')throw new RuntimeException('TEST_ORIGIN_INVALID');
     $p=json_decode($body,true);
@@ -34,7 +34,8 @@ $transport=static function(string $origin,string $path,string $body,array $heade
 };
 try {
     $i=new PortableInstaller($root,$transport);$mode=$argv[2];
-    if($mode==='config')$r=DeploymentConfig::forRoot($root)->validateProductionSecretContract();
+    if($mode==='tick')$r=(new SetupService($root,$transport))->tick();
+    elseif($mode==='config')$r=DeploymentConfig::forRoot($root)->validateProductionSecretContract();
     elseif($mode==='verify')$r=PortablePackage::verify($root)['version'];
     elseif($mode==='permit')$r=PortablePackage::permit($root,(new PortableStore($root,'private'))->read('delivery-state.json')['context'])['permit_id'];
     elseif($mode==='guard'){$v=Control_license_cache::customer_verification($root,$root.'/storage/customer-installation.json');$r=['verified'=>$v['verified'],'status'=>$v['status'],'code'=>$v['code']];}

@@ -1,1 +1,1 @@
-{"contract":"FINANCE_SINGLE_FOLDER_V1","profile_version":6,"document_root":"public","configuration":"config/customer.json","runtime":"storage","private":"private","windows_acceptance":"PENDING_REAL_HOST"}
+{"contract":"FINANCE_SINGLE_FOLDER_V1","profile_version":7,"setup_contract":"FINANCE_GUIDED_SETUP_V1","document_root":"public","configuration":"config/customer.json","runtime":"storage","private":"private","windows_acceptance":"PENDING_REAL_HOST"}

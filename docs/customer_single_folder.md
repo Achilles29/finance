@@ -1,27 +1,23 @@
-# Memasang Finance — panduan customer satu halaman
+# Memasang Finance — panduan singkat customer
 
-Paket baru memakai satu folder **finance**. Hanya subfolder **public** yang menjadi root website. Tidak memerlukan aaPanel. Paket ini memerlukan server yang dikelola admin; tidak semua shared hosting sesuai.
+Untuk **paket baru alpha.18 / CUSTOMER_CLEAN v7** setelah tersedia di Control. Jangan menambahkan file revisi ini ke ZIP alpha.17 lama. Linux diuji; Windows belum disetujui.
 
-## Sebelum mulai
+1. **Unduh seluruh ZIP pengiriman** dari Control. Di dalamnya sudah ada folder `finance`, berkas pengiriman, dan `private/delivery/KODE-SETUP.txt`. Tidak perlu membuat berkas pengiriman lagi.
+2. **Ekstrak ke folder baru**, bukan menimpa Finance yang sedang dipakai. Minta admin mengarahkan website HTTPS ke **`finance/public`**. Hosting harus menyediakan PHP 8.1, MariaDB 10.11, dan fasilitas scheduler; tidak harus aaPanel.
+3. **Admin menyiapkan sekali.** Dari dalam folder `finance`, jalankan:
 
-Minta admin menyediakan PHP 8.1 beserta ekstensi yang diminta pemasang, MariaDB 10.11, database kosong, HTTPS, dan dua akun layanan terpisah. Admin menyiapkan pendamping pemasangan sekali saja. Panduan teknis: `docs/customer_single_folder_admin.md`.
+   ```sh
+   sudo sh tools/install/portable/prepare.sh
+   ```
 
-1. Unduh paket dan berkas pengiriman dari Control. Simpan kode setup dengan aman.
-2. Ekstrak ke satu folder, misalnya `finance`. Jangan menaruh isinya di instalasi lama.
-3. Arahkan root website ke `finance/public`, bukan `finance`.
-4. Buka `https://alamat-aplikasi-anda/setup`. Jika muncul “Satu langkah dari administrator”, pendamping belum disiapkan.
-5. Masukkan kode setup, host/port/nama/user/password database, URL HTTPS aplikasi, serta username dan password admin pertama. Jangan memilih database yang sudah dipakai aplikasi lain.
-6. Klik **Pasang dan aktifkan**. Indikator menunjukkan pemeriksaan aktivasi, database, halaman login, dan pengiriman hasil ke Control. Pendamping berjalan terjadwal; tunggu pembaruan status.
-7. Setelah selesai, klik **Masuk ke Finance**. Setup terkunci. Simpan akun admin dan minta admin memastikan jadwal sinkronisasi lisensi/heartbeat tetap berjalan.
+   Jika terminal sudah root, hilangkan `sudo`. Ikuti pertanyaan singkat dan setujui ringkasan target. Tunggu “Persiapan berhasil”. Tidak perlu menyalin cron atau menjalankan perintah installer lain.
+4. **Buka `https://alamat-finance-anda/setup`.** Masukkan kode setup dari ZIP. Kode akses halaman unduh Control, kode setup, dan password admin Finance adalah **tiga hal berbeda**.
+5. **Isi alamat aplikasi dan database:** host, port, nama database kosong, username, password. Jika database belum ada, buat dahulu melalui panel/database manager dan beri akses user ke database itu. Tidak perlu memberikan password root database.
+6. Klik **Uji koneksi & database kosong**, isi username/password admin pertama (email boleh kosong), lalu **Periksa ringkasan**. Setelah benar, centang persetujuan dan klik **Pasang dan aktifkan**. Paket/lisensi otomatis mengikuti pengiriman penjual.
+7. Tunggu indikator selesai, lalu klik **Masuk ke Finance**. Gunakan akun admin yang baru dibuat. Setup otomatis terkunci dan sinkronisasi terjadwal tetap berjalan.
 
-Database dan URL disimpan otomatis di `finance/config/customer.json`. Anda tidak perlu mengubah `constants.php`, kode inti, atau environment PHP-FPM. Jangan membagikan file tersebut. Kunci unik dibuat pada server Anda; kunci penandatangan milik Control tidak disertakan.
+Pengaturan tersimpan otomatis di `finance/config/customer.json`. Tidak perlu mengedit kode atau mengatur environment PHP-FPM. Jangan membagikan file itu atau kode setup.
 
-## Jika belum berhasil
+**Jika gagal:** baca alasan di layar. Password database salah → perbaiki dan uji lagi; database berisi → pilih database baru, jangan hapus yang lama. Koneksi terputus → **Lanjutkan / periksa status**, bukan mengulang pemasangan. Izin sementara kedaluwarsa → minta pengganti dari penjual; hak membeli/mulai memasang tidak hilang. Admin memasang pengganti yang sah pada folder yang sama, bukan menimpa instalasi atau menghapus data. Jika diminta pemeriksaan admin, kirim kode pemeriksaannya saja, tanpa password.
 
-- **Izin kedaluwarsa:** minta izin pengganti dari Control. Ini bukan batas waktu untuk mulai menggunakan pembelian Anda. Admin memasang pengganti tanpa membuang bukti percobaan.
-- **Kuota server habis:** periksa jumlah instalasi di Control. Jangan mengganti identitas mesin agar lolos.
-- **Database tidak kosong:** gunakan database baru. Pemasang tidak menghapus data Anda.
-- **Proses terputus:** klik **Cek status**. Pendamping melanjutkan langkah yang aman; SQL yang hasilnya belum pasti memerlukan pemeriksaan admin. Jangan impor seluruh folder SQL.
-- **Database selesai tetapi login belum lolos:** periksa HTTPS dan root `public/`; database tidak perlu diulang.
-
-Status distribusi: kontrak paket alpha.17 / CUSTOMER_CLEAN v6 memerlukan penyesuaian pengiriman Control. Dukungan Windows belum dinyatakan lolos sampai diuji di Windows nyata. Tidak ada aktivasi/publikasi live yang dilakukan oleh pengembangan ini.
+Detail khusus admin: [panduan admin](customer_single_folder_admin.md).

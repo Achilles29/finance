@@ -95,6 +95,17 @@ final class DeploymentConfig
     public static function forRoot($root)
     {
         $local = CustomerLocalConfig::read($root);
+        return self::fromLocalValues($local);
+    }
+
+    /** Authorized installer preview; never persists or silently overrides conflicting legacy sources. */
+    public static function previewCustomer($root,array $configuration)
+    {
+        return self::fromLocalValues(CustomerLocalConfig::validate($root,json_encode($configuration,JSON_THROW_ON_ERROR)));
+    }
+
+    private static function fromLocalValues(array $local)
+    {
         $env = array();
         foreach (self::allowedNames() as $name) if (getenv($name) !== false) $env[$name] = getenv($name);
         $resolver = new self(CustomerLocalConfig::merge($local, self::deploymentFileSnapshot(), $env));

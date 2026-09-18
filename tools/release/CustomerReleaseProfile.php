@@ -17,7 +17,7 @@ final class CustomerReleaseProfile
         $p = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
         if (!is_array($p) || ($p['schema'] ?? '') !== 'finance.customer-clean-profile'
             || ($p['schema_version'] ?? null) !== 1 || ($p['profile'] ?? '') !== self::ID
-            || !in_array($p['profile_version'] ?? null, [1,2,3,4,5,6], true) || ($p['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
+            || !in_array($p['profile_version'] ?? null, [1,2,3,4,5,6,7], true) || ($p['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
             || ($p['demo_data'] ?? null) !== false) throw new RuntimeException('CUSTOMER_PROFILE_INVALID');
         foreach (['code_files', 'files', 'static_sha256', 'sql_sha256'] as $field) {
             if (!isset($p[$field]) || !is_array($p[$field]) || $p[$field] === []) throw new RuntimeException('CUSTOMER_PROFILE_INVALID');
@@ -35,6 +35,7 @@ final class CustomerReleaseProfile
         }
         $this->profile = $p;
         if ($p['profile_version']>=6 && ($p['layout_contract']??'')!=='FINANCE_SINGLE_FOLDER_V1') throw new RuntimeException('CUSTOMER_LAYOUT_INVALID');
+        if ($p['profile_version']>=7 && ($p['setup_contract']??'')!=='FINANCE_GUIDED_SETUP_V1') throw new RuntimeException('CUSTOMER_SETUP_CONTRACT_INVALID');
         $this->digest = hash('sha256', $raw);
     }
 

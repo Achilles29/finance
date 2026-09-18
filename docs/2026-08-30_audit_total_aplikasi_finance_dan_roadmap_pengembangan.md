@@ -1,5 +1,11 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Batch 270 — 2026-09-18 (UX installer customer saja):** satu perintah persiapan
+Linux dan wizard dengan probe database/progres/resume untuk alpha.18/v7.
+Checklist/cutoff ada di `_28` dan [handoff](2026-09-18_guided_setup_control_handoff.md).
+Tidak mengubah proses bisnis/DB development, tidak memasang ke core2 atau menutup
+temuan bisnis maupun lima SQL belum managed. Hasil fixture bukan aktivasi Control live.
+
 **Batch 269 — 2026-09-18 (installer/packaging saja):** satu folder customer dengan
 document root `public/`, setup Indonesia, pendamping non-root, konfigurasi/key lokal
 dan journal pemulihan diimplementasikan sebagai alpha.17 / profil v6. Checklist

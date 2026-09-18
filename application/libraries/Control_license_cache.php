@@ -18,6 +18,11 @@ final class Control_license_cache
         if ($profileVersion >= 6) $files = array_merge($files, ['application/libraries/CustomerPlatform.php',
             'public/index.php','public/.htaccess','public/web.config','installer/layout.json',
             'tools/install/portable/windows-inspect.ps1']);
+        if ($profileVersion >= 7) $files = array_merge($files, ['tools/install/portable/SetupUi.php',
+            'tools/install/portable/SetupService.php','tools/install/portable/PortableInstaller.php',
+            'tools/install/portable/PortablePackage.php','tools/install/portable/LinuxPreparation.php',
+            'tools/install/portable/prepare.php','tools/install/portable/prepare.sh',
+            'tools/install/portable/setup.php','tools/install/portable/setup.js','tools/install/portable/setup.css']);
         return $files;
     }
 

@@ -57,8 +57,16 @@ final class CustomerLocalConfig
         if ($portable) CustomerPlatform::path($root,$path,true); else self::securePath($path, true);
         if (!is_file($path) || !is_readable($path) || filesize($path) > 16384
             || (stat($path)['nlink'] ?? 0) !== 1) throw new RuntimeException('CUSTOMER_CONFIG_FILE_UNSAFE');
+        return self::validate($root,(string)file_get_contents($path));
+    }
+
+    /** Same validation for an authorized setup preview, without creating customer.json. */
+    public static function validate(string $root,string $raw): array
+    {
+        $root=CustomerPlatform::root($root);$portable=CustomerPlatform::portable($root);
+        if(strlen($raw)>16384)throw new RuntimeException('CUSTOMER_CONFIG_FILE_UNSAFE');
         try {
-            $object = json_decode((string)file_get_contents($path), false, 16, JSON_THROW_ON_ERROR);
+            $object = json_decode($raw, false, 16, JSON_THROW_ON_ERROR);
         } catch (Throwable $e) { throw new RuntimeException('CUSTOMER_CONFIG_JSON_INVALID'); }
         if (!$object instanceof stdClass) throw new RuntimeException('CUSTOMER_CONFIG_JSON_INVALID');
         $c = (array)$object;

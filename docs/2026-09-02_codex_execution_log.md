@@ -1,5 +1,15 @@
 # Log Eksekusi Codex Finance
 
+## Batch 270 — 2026-09-18 — Guided setup customer, alpha.18/v7
+
+- Prioritas: hilangkan langkah terminal berulang customer; audit alpha.17/v6 dan class ZIP/izin Control secara read-only. Fixer tunggal dengan review diff/tes, bukan diskusi subagent.
+- File dan kontrak: entry point prepare.sh/prepare.php/LinuxPreparation, SetupService/SetupUi/setup.php/js/css, portable installer/package/DB/store, resolver config, core inventory, manifest/profil, docs, regression/Chrome/disposable tests. Rincian di [handoff](2026-09-18_guided_setup_control_handoff.md).
+- Perubahan: root hanya persiapan berkonfirmasi; aplikasi/worker non-root terpisah. Tiga jadwal idempotent, liveness nyata; wizard probe DB sebelum SQL, ringkasan tanpa password, resume, input correction sebelum journal, setup closed. Izin sementara bukan deadline membeli; tidak ada domain lock.
+- Temuan yang ditangani saat uji: arsip queue web tidak boleh chmod inode milik web oleh worker; kini copy atomik sebagai worker 0600. DB auth/unknown DB/akses dibedakan; konflik env tidak memilih DB diam-diam. Formatter/quality-gate profil diselaraskan, tanpa melonggarkan security scan.
+- Validasi working-tree 19:31 WIB: **47 guided E2E** (ZIP Control builder aktual, Chrome/HTTPS/FPM/DB/cron nyata, Control HTTPS sintetis), **61 portable E2E**, 60 local config, 42 portable contract, 23 guided contract, 118 clean release, 72 agent, 60 bootstrap guard, 26 verifier, 27 delivery, 39 deployment-secret, 28 quality gate contract, 14 commercial foundation PASS. PHP lint, preflight/static PASS. Build awal 8 gate + verifier PASS: 1.170 file, 306 tabel/20 migrasi, 735 referensi, 0 customer/demo/secret, restore checksum cocok. Bukti cutoff akhir dicatat terpisah pada handoff.
+- Tidak ada push/publish/live activation, perubahan source/DB Control, data development/produksi, credential global, atau instalasi core2. Hanya fixture terisolasi yang dibuat/dibersihkan. Perubahan pengguna config.php dipertahankan.
+- Risiko/batch berikut: Control perlu review v7/pin/issuer dan build pengiriman baru; Windows/Apache/IIS/host customer nyata dan walkthrough awam tetap perlu acceptance.
+
 ## Batch 269 — 2026-09-18 — Installer customer satu folder, alpha.17
 
 - Prioritas: sederhanakan pemasangan tanpa aaPanel/environment PHP-FPM manual, web bukan root, konfigurasi/identitas lokal namun privat, aktivasi/kuota/integritas tetap. Tidak memindahkan master atau mengubah proses bisnis/SQL development.

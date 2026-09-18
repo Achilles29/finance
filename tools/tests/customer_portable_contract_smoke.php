@@ -17,7 +17,7 @@ foreach(array_merge([['path'=>'sql/baseline/2026-09-05_clean_install_schema.sql'
 $username='owner_'.bin2hex(random_bytes(4));
 foreach(['','simple','0123456789abcd']as$password)$reject(fn()=>PortableDatabase::owner(['username'=>$username,'email'=>'','password'=>$password]),'weak owner password rejected');
 $owner=['username'=>$username,'email'=>'owner@example.invalid','password'=>bin2hex(random_bytes(12)).'Az9!'];$check(PortableDatabase::owner($owner)===$owner,'strong unique owner input accepted');
-$profile=CustomerReleaseProfile::fromRoot($root);$check($profile->version()===6,'new profile independently versioned');
+$profile=CustomerReleaseProfile::fromRoot($root);$check($profile->version()===7,'new profile independently versioned');
 foreach(CustomerLayout::MAP as$source=>$target){$check(CustomerLayout::source(CustomerLayout::target($source))===$source,'exact reversible package mapping '.$target);}
 foreach(['config/customer.json','private/agent/agent.json','storage/license/runtime.json','private/delivery/credentials.json']as$p)$check(!$profile->allows($p),'release refuses local secret/runtime '.$p);
 $check(CustomerLayout::target('assets/img/business-placeholder.svg')==='public/assets/img/business-placeholder.svg','approved static assets only move in build');

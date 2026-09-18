@@ -42,9 +42,9 @@ final class PortableStore implements LicenseStateStore
     {
         CustomerPlatform::installer($root);
     }
-    public function lock()
+    public function lock(string $name='operation.lock')
     {
-        self::writer($this->root);$path=$this->file('operation.lock');
+        self::writer($this->root);$path=$this->file($name);
         if(file_exists($path)||is_link($path))CustomerPlatform::path($this->root,$path,true);
         $mask=umask(0077);try{$h=fopen($path,'c+b');}finally{umask($mask);}
         if (!$h || !flock($h,LOCK_EX|LOCK_NB)) { if($h)fclose($h);throw new RuntimeException('OPERATION_RUNNING'); }

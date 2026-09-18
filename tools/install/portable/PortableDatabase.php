@@ -13,7 +13,10 @@ final class PortableDatabase
             $dsn=($db['socket']??'')!==''?'unix_socket='.$db['socket']:'host='.$db['host'].';port='.$db['port'];
             return new PDO('mysql:'.$dsn.';dbname='.$db['name'].';charset=utf8mb4',$db['user'],$db['password'],
                 [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false,PDO::ATTR_TIMEOUT=>5]);
-        } catch (Throwable $e) { throw new RuntimeException('DATABASE_CONNECTION_FAILED'); }
+        } catch (Throwable $e) {
+            $number=$e instanceof PDOException?(int)($e->errorInfo[1]??0):0;
+            throw new RuntimeException([1049=>'DATABASE_NOT_FOUND',1045=>'DATABASE_CREDENTIAL_REJECTED',1044=>'DATABASE_ACCESS_DENIED',1698=>'DATABASE_CREDENTIAL_REJECTED'][$number]??'DATABASE_CONNECTION_FAILED');
+        }
     }
 
     public static function emptyDatabase(PDO $pdo): void
@@ -21,6 +24,18 @@ final class PortableDatabase
         foreach(['tables'=>['table_schema'],'routines'=>['routine_schema'],'events'=>['event_schema']] as $table=>$columns) {
             if((int)$pdo->query('SELECT COUNT(*) FROM information_schema.'.$table.' WHERE '.$columns[0].'=DATABASE()')->fetchColumn()!==0)throw new RuntimeException('DATABASE_NOT_EMPTY');
         }
+    }
+
+    public static function version(PDO $pdo): void
+    {
+        if(!preg_match('/\A(?:5\.5\.5-)?(10\.11\.\d+)-MariaDB/',$pdo->query('SELECT VERSION()')->fetchColumn()))throw new RuntimeException('DATABASE_VERSION_UNSUPPORTED');
+    }
+
+    /** Metadata/connection only. No CREATE/INSERT/UPDATE/DROP and no root database credential. */
+    public static function probe(array $db): array
+    {
+        $pdo=self::connect($db);self::version($pdo);self::emptyDatabase($pdo);
+        return ['connection'=>true,'empty'=>true,'database_version_supported'=>true];
     }
 
     /** Understand mysql-client DELIMITER, quotes and comments; never split a stored procedure at internal ';'. */
@@ -84,8 +99,7 @@ final class PortableDatabase
         $q=$pdo->prepare('SELECT GET_LOCK(?,0)');$q->execute([$lock]);
         if((int)$q->fetchColumn()!==1)throw new RuntimeException('DATABASE_INSTALL_BUSY');
         try {
-            $version=$pdo->query('SELECT VERSION()')->fetchColumn();
-            if(!preg_match('/\A(?:5\.5\.5-)?(10\.11\.\d+)-MariaDB/',$version))throw new RuntimeException('DATABASE_VERSION_UNSUPPORTED');
+            self::version($pdo);
             $binding=hash('sha256',json_encode([$db['host'],$db['port'],$db['socket']??'',$db['name'],$db['user'],$releaseHash],JSON_THROW_ON_ERROR));
             $state=$store->exists('database.json')?$store->read('database.json'):null;
             if($state!==null && ($state['binding']??'')!==$binding)throw new RuntimeException('DATABASE_ATTEMPT_MISMATCH');

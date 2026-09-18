@@ -1,73 +1,72 @@
-# Admin: paket satu folder / FINANCE_SINGLE_FOLDER_V1
+# Admin — persiapan satu perintah Finance
 
-## Batas dukungan
+Berlaku bagi kandidat **alpha.18 / CUSTOMER_CLEAN v7 / FINANCE_GUIDED_SETUP_V1**, bukan perubahan retroaktif ZIP alpha.17. Pemasang tidak mengubah vhost, menginstal/mengganti PHP/MariaDB, atau menyalakan layanan global otomatis.
 
-Target PHP 8.1 (64 bit), MariaDB 10.11, ekstensi PDO MySQL, mysqli, sodium, curl, mbstring, openssl, ZIP, XML, session, JSON. `fileinfo` mengikuti kontrak runtime sebagai dependensi fitur MIME WhatsApp; pasang sebelum mengaktifkan fitur tersebut. Linux x86-64; adaptor Windows x64 memakai MachineGuid, ACL dan Task Scheduler, **masih memerlukan acceptance di Windows nyata**. HTTPS wajib. Tidak bergantung pada panel hosting. Subdirektori URL belum didukung.
+## Prasyarat yang memang tugas admin
 
-```text
-finance/
-  public/       # satu-satunya document root; index.php, assets, uploads
-  application/  # kode aplikasi, bukan document root
-  system/
-  config/customer.json
-  storage/      # cache, log, session; license cache read-only untuk web
-  private/      # agent key, izin Control, journal, credential: tidak terbaca web
-  installer/layout.json
-  tools/install/portable/
-```
+- Linux x86-64, PHP CLI **8.1** dan PHP web 8.1; ekstensi `pdo_mysql mysqli sodium curl mbstring json openssl zip xml session`. CLI memerlukan POSIX, proc_open, dan runuser. `fileinfo` tetap kebutuhan fitur MIME WhatsApp.
+- MariaDB 10.11; database kosong dan user terbatas pada database tersebut. UI tidak meminta password root dan tidak menjanjikan membuat database.
+- Website HTTPS ber-root **finance/public** dan berjalan sebagai akun non-root yang berbeda dari pemilik kode/pendamping. Jangan memberi sudo kepada web.
+- `crontab` tersedia dan daemon cron sudah berjalan. Root menulis jadwal **akun pendamping**, bukan menjalankan PHP sebagai root.
+- Parent direktori instalasi root-owned, tidak writable grup/publik. Jangan memakai `/tmp`, home writable milik akun web, symlink, atau direktori bersama yang bisa diganti user lain. Helper tidak mengubah parent/direktori website lain.
 
-Pemetaan terjadi saat build. Struktur sumber/master tidak dipindahkan. Tidak ada data development atau private key Control di arsip kode. Release dan profil lama tidak ditimpa.
+Gunakan virtual host sesuai `tools/install/portable/nginx.conf.example`, atau Apache dengan document root public, aturan `public/.htaccess` aktif dan eksekusi skrip upload ditolak. Jangan membuat alias ke config/private/storage/source. Tidak memerlukan aaPanel. Hosting yang tidak memungkinkan pemisahan akun/scheduler belum didukung.
 
-## Linux: persiapan satu kali
+## Jalur normal: satu perintah
 
-Gunakan dua akun OS yang sudah disediakan administrator: contoh `finance-installer` (pemilik paket dan tugas pendamping), `finance-web` (PHP-FPM). Keduanya bukan root. Direktori induk harus tidak dapat ditulis akun lain; jangan memakai `/tmp`. Jangan menjalankan PHP web sebagai pemilik kode.
+Unduh dan ekstrak **seluruh ZIP Control** ke folder baru. `private/delivery/` sudah berisi TAR asli, manifest/tanda tangan/trust, izin setup, credential pengiriman, kode setup dan petunjuk. Jangan membuat atau menyalin ulang berkas itu pada instalasi baru.
 
-Untuk **folder paket baru saja**, administrator menjalankan:
+Dari folder `finance`:
 
 ```sh
-sh /srv/finance/tools/install/portable/prepare-linux.sh /srv/finance finance-installer finance-web finance-web
+sudo sh tools/install/portable/prepare.sh
 ```
 
-Script hanya menata izin folder paket yang dipilih. Tidak membuat akun, mengedit layanan global, atau mengakses database. `storage/inbox` adalah pengecualian tulis grup yang sempit: hanya pesan terenkripsi, tidak dieksekusi sebagai PHP. Private agent berada di `private/agent` (0700/0600); konfigurasi/cache publik lisensi 0640. Jangan chmod 777.
+Sudah root? Gunakan `sh tools/install/portable/prepare.sh`.
 
-Atur nginx sesuai `tools/install/portable/nginx.conf.example`, atau Apache dengan document root `public/`, `AllowOverride` sesuai `.htaccess`, dan PHP yang tidak menjalankan skrip upload. IIS menggunakan `public/web.config` dengan URL Rewrite. Template bukan pengganti validasi konfigurasi virtual host lokal. Tidak boleh membuat alias ke `config`, `storage`, `private`, atau seluruh folder induk.
+Perintah tersebut:
 
-Salin berkas pengiriman **terverifikasi dari Control** ke `private/delivery/`: `package.tar` (TAR kode asli), `release.json`, `release.sig.json`, `release-trust.json` (public key diverifikasi lewat jalur admin), `permit.json`, dan `credentials.json`. Semuanya 0600. Bukti TAR tetap berada di folder Finance yang sama, bukan lokasi eksternal.
+1. Mencari PHP CLI 8.1 yang tersedia (PATH dan beberapa lokasi umum, tidak memasang PHP).
+2. Memeriksa paket, hash, signature, profil dan izin pengiriman **sebelum perubahan**.
+3. Meminta akun PHP website bila perlu, serta URL HTTPS opsional. Tidak menebak akun saat ada beberapa pilihan.
+4. Menampilkan folder target, PHP, akun web, pendamping dan jadwal; **wajib ketik SIAP**.
+5. Bila disetujui, membuat akun sistem khusus tanpa shell login, menata izin hanya di instalasi baru, menyiapkan identitas unik, lalu memasang tiga tugas milik pendamping.
+6. Menunggu bukti ketiga tugas benar-benar dipanggil scheduler, maksimal 80 detik. Kalau gagal, perintah tidak mengklaim persiapan berhasil.
+7. Menampilkan alamat `/setup`. DB/URL/admin selanjutnya lewat UI; tidak perlu check/prepare/run/sync atau salin cron satu per satu.
 
-Control harus menerbitkan envelope izin setup baru; jangan membuat sendiri, menggunakan signing key fixture/test, atau mengaku endpoint penerbitan otomatis sudah ada. Lihat handoff versi ini.
+Jika PHP pada lokasi khusus: satu entry point yang sama dapat dipanggil dengan `/lokasi/php81 tools/install/portable/prepare.php` sebagai admin. Opsi `--web-user=nama --web-group=grup --installer-user=nama --url=https://alamat/` hanya untuk admin yang mengetahui akun target; jangan gunakan nama contoh secara membabi buta. Akun pendamping existing harus berbeda dari web dan menjadi anggota grup web.
 
-Jalankan sebagai pemilik paket (bukan root):
+## Jadwal, izin dan menjalankan ulang
 
-```sh
-php /srv/finance/tools/install/portable/finance_setup.php check
-php /srv/finance/tools/install/portable/finance_setup.php prepare
-```
+`tick`, `license-sync`, dan `heartbeat` dijadwalkan terpisah setiap menit. Sesudah selesai, poll lisensi dan heartbeat masing-masing membatasi pengiriman minimal lima menit. Heartbeat tidak memberi hak lisensi. Sebelum pemasangan selesai, keduanya menunggu.
 
-Pasang dua jadwal pada crontab akun pendamping, sesuaikan lokasi PHP:
+Blok crontab bertanda hash folder diganti secara idempotent; jadwal lain dipertahankan, salinan jadwal sebelumnya disimpan privat. Menjalankan ulang perintah mempertahankan akun, identitas, activation attempt, config, SQL journal dan data. Tidak menjalankan SQL. Jika pemilik/izin instalasi lama rusak, perintah berhenti: review izin sesuai catatan awal, jangan chmod 777 atau rekursif ke parent.
 
-```cron
-* * * * * /usr/bin/php /srv/finance/tools/install/portable/finance_setup.php run >/dev/null 2>&1
-*/5 * * * * /usr/bin/php /srv/finance/tools/install/portable/finance_setup.php sync >/dev/null 2>&1
-```
+Kode umumnya 0750/0640, `private/` 0700 dengan berkas 0600. Web dapat menulis hanya cache/log/session/upload serta inbox tersegel yang terbatas; tidak dapat membaca agent key atau menulis cache lisensi/kode. Semua state tetap di folder Finance; crontab OS adalah satu-satunya registrasi scheduler di luar paket.
 
-`run` memasang dan menutup setup. `sync` meminta lease lisensi bertanda tangan lalu mengirim heartbeat monitoring secara terpisah. Heartbeat bukan aktivasi dan tidak membuka lisensi. Journal/status tersimpan tanpa password pada respons UI/terminal. Pantau status ack pada `private/heartbeat.json`; scheduler gagal tidak boleh dianggap berhasil otomatis.
+## Troubleshooting yang terarah
 
-## Windows: persiapan satu kali (belum acceptance)
+| Pesan/kondisi | Tindakan |
+|---|---|
+| Paket belum lengkap | Ekstrak seluruh ZIP, bukan TAR saja. Jangan menimpa instalasi yang sudah mulai. |
+| PHP/runtime tidak cocok | Sediakan PHP CLI/web yang sesuai pada situs ini. Helper tidak mengganti PHP situs lain. |
+| Parent/permission tidak aman | Pilih parent terlindungi atau review ACL/izin folder target. Jangan membuka akses publik. |
+| Layanan belum berjalan | Periksa daemon cron, kebijakan akses crontab akun pendamping, PHP CLI dan permission target. Jalankan lagi perintah yang sama. |
+| Database belum ada/password salah | Customer memperbaiki melalui UI dan menguji ulang. Host `localhost` tanpa socket ambigu; gunakan `127.0.0.1` untuk TCP atau hostname server DB. |
+| Izin kedaluwarsa/credential ditolak | Penjual menerbitkan pengganti melalui mekanisme Control yang ada, dengan binding instance/deployment/plan/release/profil yang sama. Perbarui hanya berkas izin/credential sah sesuai pengiriman, bukan ekstrak ulang ZIP di atas instalasi. Jalankan lagi perintah persiapan. |
+| Kuota server habis | Operator Control meninjau slot/izin. Jangan membuat identitas baru; server sah lain tidak diubah. |
+| SQL terputus/hasil belum pasti | Simpan seluruh folder dan DB. Review journal; tidak ada replay DROP/TRUNCATE atau reset otomatis. |
+| Login HTTPS belum lolos | Periksa URL, sertifikat dan document root. DB yang sudah selesai tidak perlu diulang. |
+| Hasil belum diterima Control | Status dapat diperiksa ulang; pendamping mengirim receipt yang sama tanpa mengulang aktivasi/SQL. |
 
-Siapkan akun lokal non-Administrator terpisah untuk pendamping dan aplikasi IIS/Apache, PHP CLI yang sama dengan versi web, dan HTTPS. Jalankan `prepare-windows.ps1 -Root C:\Finance -InstallerAccount ... -WebAccount ...` sekali sebagai administrator untuk ACL. Sesudahnya jalankan `php C:\Finance\tools\install\portable\finance_setup.php prepare` menggunakan akun pendamping **non-admin**. `schedule-windows.ps1` mendaftarkan tugas dengan RunLevel Limited; password akun diminta secara interaktif, bukan ditulis di konfigurasi.
+Sebelum SQL, UI boleh memperbaiki input setelah uji ulang; riwayat input privat diarsipkan. Setelah journal SQL ada, penggantian DB ditolak. `READY` dengan checkpoint selesai dapat dilanjutkan; `RUNNING` tak pasti harus diperiksa manual; `COMPLETE` hanya health/receipt. Jangan menghapus journal.
 
-ACL/reparse point/hardlink diperiksa melalui PowerShell; pemeriksaan gagal harus memblokir, bukan dilewati dengan chmod. Jangan menganggap Windows sudah didukung hanya karena PHP dapat mem-parsing script. Uji nyata wajib: IIS FastCGI, URL Rewrite, PHP sodium, ACL lintas akun, MachineGuid stabil, scheduler non-interaktif, atomic replace dan file locking.
+## Kontrak konfigurasi dan batas dukungan
 
-## Konfigurasi dan pemulihan
+`config/customer.json` schema 1 / FINANCE_CUSTOMER_LOCAL_V1, runtime literal `storage`. Resolver aplikasi, probe, dan installer sama. Environment/file eksternal lama tetap didukung; **nilai yang bertentangan dengan konfigurasi lokal ditolak**, bukan memilih database diam-diam. Kunci agent tidak ditempatkan di konfigurasi database.
 
-`config/customer.json` menggunakan schema 1, sama seperti template, tetapi runtime untuk layout v6 harus `storage`. Nilai environment/file eksternal yang bertentangan tetap ditolak; tidak ada fallback diam-diam ke database staging. Tidak mengubah credential produksi.
+Windows memiliki adaptor ACL/MachineGuid/Task Scheduler lama, tetapi **belum diuji di host Windows nyata**, dan entry point satu perintah ini khusus Linux. Jangan menjual dukungan Windows selesai atau mengganti pemeriksaan ACL dengan chmod. Apache/IIS membutuhkan acceptance lingkungan sebenarnya.
 
-Sebelum SQL: koneksi, versi DB, database kosong, signature, inventory, hash TAR/manifest/profil, izin deployment, identitas instalasi dan aktivasi harus lolos. Hanya baseline + migrasi `clean_install` yang terdaftar dijalankan. SQL dijalankan melalui PDO, bukan import semua folder.
+Pengamanan PHP pada server yang sepenuhnya dikuasai customer tidak dapat dijanjikan mustahil dibypass. Signature, integritas, binding, aktivasi dan kuota tetap dipertahankan; domain bukan pengunci lisensi.
 
-Journal `private/database.json`: `READY` dapat dilanjutkan pada batas langkah selesai; ledger setiap migrasi dibandingkan checksum; `RUNNING` berarti hasil DDL belum pasti dan berhenti untuk review. `COMPLETE` dapat di-health-check dan mengulang pengiriman receipt, tidak mengulang SQL. Jangan menghapus journal atau mengganti DB sesudah attempt SQL. Tidak ada rollback DROP otomatis.
-
-Jika salah input sebelum SQL dimulai, admin menjalankan `php tools/install/portable/finance_setup.php retry-input` sebagai akun pendamping. Kiriman sebelumnya diarsipkan, identitas lisensi tidak direset, lalu formulir boleh dikirim lagi. Perintah ditolak begitu journal database ada. Jangan menebak ulang password atau menyimpan credential pada argumen shell.
-
-Izin setup pengganti harus terikat instance/deployment/plan/release/cutoff/profil yang sama. Arsip percobaan lama tetap disimpan. Penerbitan token baru dilakukan operator Control, bukan endpoint yang dikarang installer. Aktivasi timeout memakai recovery beridentitas sama; kuota ditolak tidak mengubah instalasi server lain.
-
-Pengamanan PHP di mesin yang sepenuhnya dikuasai customer tidak dapat dijanjikan mustahil dibypass. Model ini menjaga signature, integritas terverifikasi, aktivasi dan kuota dengan trust boundary yang jelas, bukan klaim DRM absolut.
+Dokumen handoff untuk pengembang berada di repository Finance, terpisah dari panduan customer dalam ZIP.

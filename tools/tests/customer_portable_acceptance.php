@@ -27,14 +27,14 @@ try {
     $list=$base.'/tar.list';$write($list,implode("\n",array_merge(array_column($entries,'path'),['RELEASE-MANIFEST.json'])));
     $tar=$base.'/package.tar';$r=$run(['/usr/bin/tar','--create','--format=gnu','--owner=0','--group=0','--numeric-owner','--no-recursion','-C',$root,'-T',$list,'-f',$tar]);
     $check($r['code']===0,'disposable mapped TAR built without moving development files');
-    $inspection=ControlReleaseBridge::inspect($tar);$check(($inspection['distribution_profile_version']??null)===6,'independent existing TAR validator accepts mapped profile v6');
+    $inspection=ControlReleaseBridge::inspect($tar);$check(($inspection['distribution_profile_version']??null)===7,'independent existing TAR validator accepts mapped profile v7');
     $r=$run(['sh',$source.'/tools/install/portable/prepare-linux.sh',$root,'namua-build','www','www']);$check($r['code']===0,'one-time provisioning with distinct non-root worker/web accounts');
     // All evidence stays inside one parent folder; trust is a generated test-only issuer.
     $kp=sodium_crypto_sign_keypair();$sk=sodium_crypto_sign_secretkey($kp);$pk=sodium_crypto_sign_publickey($kp);
     $trust=['schema'=>1,'product_code'=>'NAMUA_FINANCE','algorithm'=>'Ed25519','status'=>'ACTIVE','key_id'=>'00000000-0000-4000-8000-000000000011','public_key_base64'=>base64_encode($pk),'public_key_sha256'=>hash('sha256',$pk)];
     $wire=['schema'=>1,'context'=>'NAMUA_RELEASE_MANIFEST_V1','product_code'=>'NAMUA_FINANCE','release_public_id'=>'00000000-0000-4000-8000-000000000012',
-        'version'=>'0.1.0-alpha.17','source_commit'=>str_repeat('a',40),'filename'=>'package.tar','media_type'=>'application/x-tar','size_bytes'=>filesize($tar),'sha256'=>hash_file('sha256',$tar),
-        'source_manifest_sha256'=>hash_file('sha256',$root.'/app-manifest.json'),'customer_runtime_guard'=>'FINANCE_CUSTOMER_SERVER_V1','distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>6,
+        'version'=>'0.1.0-alpha.18','source_commit'=>str_repeat('a',40),'filename'=>'package.tar','media_type'=>'application/x-tar','size_bytes'=>filesize($tar),'sha256'=>hash_file('sha256',$tar),
+        'source_manifest_sha256'=>hash_file('sha256',$root.'/app-manifest.json'),'customer_runtime_guard'=>'FINANCE_CUSTOMER_SERVER_V1','distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>7,
         'customer_content_audit'=>['status'=>'PASS','profile_sha256'=>$profile->digest(),'artifact_sha256'=>hash_file('sha256',$tar),'source_manifest_sha256'=>hash_file('sha256',$root.'/RELEASE-MANIFEST.json')],
         'packaging'=>['profile_code'=>'CUSTOMER_CLEAN','rules_sha256'=>$profile->digest(),'audience'=>'CUSTOMER','sample_data'=>'NONE'],'contains_customer_data'=>false,'contains_secrets'=>false,'verification'=>[]];
     foreach(ControlReleaseBridge::BUILD_GATES as $g)$wire['verification'][$g]=['status'=>'PASS','evidence_sha256'=>hash('sha256','FIXTURE_NOT_RELEASE_'.$g)];
@@ -47,13 +47,13 @@ try {
     $json($dir.'/credentials.json',$credential);
     $permit=['purpose'=>'NAMUA_FINANCE_SETUP_V1','product_code'=>'NAMUA_FINANCE','permit_id'=>'00000000-0000-4000-8000-000000000014','instance_id'=>'portable-fixture',
         'deployment_id'=>'00000000-0000-4000-8000-000000000015','plan_sha256'=>hash('sha256','fixture-plan'),'release_public_id'=>$wire['release_public_id'],'source_commit'=>$wire['source_commit'],
-        'release_manifest_sha256'=>hash('sha256',$raw),'artifact_sha256'=>$wire['sha256'],'profile_sha256'=>$profile->digest(),'profile_version'=>6,'environment'=>'STAGING',
+        'release_manifest_sha256'=>hash('sha256',$raw),'artifact_sha256'=>$wire['sha256'],'profile_sha256'=>$profile->digest(),'profile_version'=>7,'environment'=>'STAGING',
         'credentials_sha256'=>hash_file('sha256',$dir.'/credentials.json'),'setup_secret_sha256'=>hash('sha256',$secret),'issued_at'=>time()-10,'expires_at'=>time()+3600];
     $signPermit=static function(array $value)use($sk,$trust,$dir,$json):void{$raw=json_encode($value,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);$json($dir.'/permit.json',['key_id'=>$trust['key_id'],'payload_base64'=>base64_encode($raw),'signature_base64'=>base64_encode(sodium_crypto_sign_detached("NAMUA_FINANCE_SETUP_V1\n".hash('sha256',$raw),$sk))]);};$signPermit($permit);
     $fixture=['root'=>$root,'issuer'=>base64_encode($sk),'trust'=>$trust,'issued'=>time()-5,'monitoring_secret'=>$monitor];$json($base.'/fixture.json',$fixture);
     $r=$worker('prepare');$check($r['ok'],'non-root companion verifies signature/permit/profile and creates unique agent '.json_encode($r));
     $agentFile=$root.'/private/agent/agent.json';$identityHash=hash_file('sha256',$agentFile);
-    $r=$worker('prepare');$check(!$r['ok']&&$r['code']==='SETUP_ALREADY_PREPARED','setup preparation cannot reset installation identity');
+    $r=$worker('prepare');$check($r['ok']&&hash_file('sha256',$agentFile)===$identityHash,'repeated preparation preserves installation identity');
     $expired=$permit;$expired['expires_at']=time()-1;$expired['issued_at']=time()-100;$signPermit($expired);
     $r=$worker('prepare');$check(!$r['ok']&&$r['code']==='SETUP_PERMISSION_EXPIRED','expired permission rejected before SQL');
     $permit['permit_id']='00000000-0000-4000-8000-000000000016';$signPermit($permit);$r=$worker('prepare');
@@ -80,7 +80,7 @@ try {
     $ownerUsername='owner_'.bin2hex(random_bytes(6));
     $fixture['owner']=['username'=>$ownerUsername,'email'=>'owner@example.invalid','password'=>bin2hex(random_bytes(14)).'Z9!'];$fixture['release_hash']=hash('sha256',$raw);$json($base.'/fixture.json',$fixture);
     $badFixture=$fixture;$badFixture['database']['password']=bin2hex(random_bytes(20));$json($base.'/fixture.json',$badFixture);
-    $r=$worker('db');$check(!$r['ok']&&$r['code']==='DATABASE_CONNECTION_FAILED'&&!is_file($root.'/private/database.json'),'wrong database password rejected without SQL journal');$json($base.'/fixture.json',$fixture);
+    $r=$worker('db');$check(!$r['ok']&&$r['code']==='DATABASE_CREDENTIAL_REJECTED'&&!is_file($root.'/private/database.json'),'wrong database password rejected without SQL journal');$json($base.'/fixture.json',$fixture);
     $pdo->exec('CREATE TABLE portable_customer.preexisting (id INT)');$r=$worker('db');
     $check(!$r['ok']&&$r['code']==='DATABASE_NOT_EMPTY','nonempty database rejected without deleting table');
     $check((int)$pdo->query('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema="portable_customer"')->fetchColumn()===1,'preexisting disposable table retained');
@@ -100,12 +100,16 @@ try {
     $check($http('/pos')['status']===423,'extract/import without activation cannot open business route');
     foreach(['/private/agent/agent.json','/config/customer.json','/storage/setup/browser.json','/installer/layout.json','/%2e%2e/private/delivery/credentials.json','/tools/install/portable/finance_setup.php']as$path){$r=$http($path);$check(in_array($r['status'],[400,403,404],true),'HTTP protected '.$path);}
     $r=$http('/setup',['action'=>'status','secret'=>str_repeat('x',64)]);$check($r['status']===400&&$r['json']['code']==='SETUP_REQUEST_UNAUTHORIZED','uninvited browser cannot read installation progress');
-    $input=['action'=>'install','secret'=>$secret,'config'=>['database'=>$fixture['database'],'base_url'=>'https://127.0.0.1:'.$port.'/'],'owner'=>$fixture['owner']];
+    $worker('tick');
+    $probeId=bin2hex(random_bytes(16));$installId=bin2hex(random_bytes(16));
+    $input=['action'=>'install','id'=>$installId,'probe_id'=>$probeId,'confirmed'=>true,'secret'=>$secret,'config'=>['database'=>$fixture['database'],'base_url'=>'https://127.0.0.1:'.$port.'/'],'owner'=>$fixture['owner']];
+    $r=$http('/setup',['action'=>'probe','id'=>$probeId,'secret'=>$secret,'config'=>$input['config']]);$check($r['status']===200,'UI probe queued');
+    $worker('tick');$r=$http('/setup',['action'=>'status','secret'=>$secret,'id'=>$probeId]);$check($r['json']['command']['ok']===true,'database probe through web and companion succeeds');
     $r=$http('/setup',$input);$check($r['status']===200&&$r['json']['phase']==='QUEUED','authorized browser seals database/admin credentials into bounded inbox');
-    $sealed=file_get_contents($root.'/storage/inbox/request.json');$check(!str_contains($sealed,$dbPassword)&&!str_contains($sealed,$fixture['owner']['password']),'web queue contains no plaintext passwords');
-    $r=$http('/setup',$input);$check($r['status']===400,'duplicate setup submission refused');
+    $sealed=file_get_contents($root.'/storage/inbox/command-'.$installId.'.json');$check(!str_contains($sealed,$dbPassword)&&!str_contains($sealed,$fixture['owner']['password']),'web queue contains no plaintext passwords');
+    $r=$http('/setup',$input);$check($r['status']===200&&count(glob($root.'/storage/inbox/command-*.json'))===1,'duplicate setup submission is idempotent');
     $denied=$fixture;$denied['quota_denied']=true;$json($base.'/fixture.json',$denied);
-    $r=$worker('run');$check(!$r['ok']&&$r['code']==='INSTANCE_LIMIT_EXCEEDED','Control quota rejection blocks installer without granting activation');
+    $worker('tick');$r=$http('/setup',['action'=>'status','secret'=>$secret,'id'=>$installId]);$check($r['json']['command']['code']==='INSTANCE_LIMIT_EXCEEDED','Control quota rejection blocks installer without granting activation');
     $check(!is_file($root.'/private/database.json')&&(int)$pdo->query('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema="portable_customer"')->fetchColumn()===0,'quota rejection leaves new database empty, no SQL started');
     $identityBefore=json_decode(file_get_contents($agentFile),true)['identity'];
     $credential['activation_code']='nla_'.bin2hex(random_bytes(20));$json($dir.'/credentials.json',$credential);

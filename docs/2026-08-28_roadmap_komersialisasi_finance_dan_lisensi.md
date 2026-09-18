@@ -1,5 +1,17 @@
 # Roadmap Komersialisasi Finance POS
 
+Batch 270 — 2026-09-18: **alpha.18 / CUSTOMER_CLEAN v7 / FINANCE_GUIDED_SETUP_V1 / REVIEW_REQUIRED / NOT_PUBLISHED**.
+[Handoff guided setup](2026-09-18_guided_setup_control_handoff.md). Alpha.17/v6 sudah diterbitkan Control menurut kondisi terbaru; catatan Batch 269 di bawah adalah riwayat cutoff Finance, bukan status publikasi terkini.
+
+- [x] Audit jalur alpha.17: ZIP sudah lengkap, tetapi pendamping/permission/jadwal masih perlu disiapkan; pesan lama belum membedakan sebab kegagalan.
+- [x] Satu entry point admin Linux `sudo sh tools/install/portable/prepare.sh`, konfirmasi target, akun terpisah, permission terlokalisasi, verifikasi paket/izin, jadwal idempotent, bukti pemanggilan ketiga tugas scheduler.
+- [x] Wizard Indonesia: kesiapan, kode setup, URL/DB/admin, toggle password, probe DB kosong, ringkasan, pasang/aktifkan, progres/resume dan login. Config tetap di dalam folder; tidak meminta parameter lisensi ulang.
+- [x] Batas signature/core/permit/kuota/fingerprint, journal SQL, credential privat dan legacy conflict dipertahankan; tidak ada SQL baru atau perubahan master/Control/core2.
+- [x] Panduan utama satu halaman mengikuti ZIP aktual; customer tidak menyalin delivery/cron atau menjalankan check/prepare/run/sync manual.
+- [ ] Acceptance final Chrome + ZIP/scheduler/nginx/FPM/DB disposable dan delapan gate build cutoff persis; hasil akhir dicatat pada handoff, bukan menyamakan fixture Control dengan live.
+- [ ] Control review/pin v7, issuer permit mengambil versi profil dari release terverifikasi, petunjuk ZIP diperbarui, build release baru dan walkthrough trial real-Control.
+- [ ] Windows nyata, Apache/IIS dan onboarding manusia nonprogrammer; tidak dinyatakan selesai dari mock/Linux.
+
 Batch 269 — 2026-09-18: **alpha.17 / CUSTOMER_CLEAN v6 / FINANCE_SINGLE_FOLDER_V1 / NOT_PUBLISHED**.
 [Handoff installer satu folder](2026-09-18_single_folder_installer_control_handoff.md),
 [panduan customer](customer_single_folder.md), [panduan admin](customer_single_folder_admin.md).

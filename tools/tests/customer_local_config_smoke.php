@@ -23,6 +23,8 @@ $save=static function($value)use($root,$gid):void{
 };
 try {
     $save($config);$c=DeploymentConfig::forRoot($root);$s=$c->values();
+    $before=hash_file('sha256',$root.'/config/customer.json');
+    $check(DeploymentConfig::previewCustomer($root,$config)->values()===$s&&hash_file('sha256',$root.'/config/customer.json')===$before,'UI preview uses same complete config resolver without writing files');
     $check($c->isLocal()&&$c->hasExplicitDatabase(),'complete local source is explicit and no legacy DB fallback');
     $check($s['FINANCE_DB_PORT']==='3307'&&$s['FINANCE_DB_PASSWORD']===$config['database']['password'],'port and password preserved exactly');
     $check($s['FINANCE_SESSION_PATH']===$base.'/state/sessions','runtime is installation-relative, not process cwd');
@@ -33,7 +35,7 @@ try {
         $reject(fn()=>CustomerLocalConfig::merge($s,[$k=>'different'],$s),'conflicting external setting cannot hide behind env override: '.$k);
     }
     putenv('FINANCE_DB_NAME=wrong_database');
-    try{$reject(fn()=>DeploymentConfig::forRoot($root),'real environment conflict fails closed');}finally{putenv('FINANCE_DB_NAME');}
+    try{$reject(fn()=>DeploymentConfig::forRoot($root),'real environment conflict fails closed');$reject(fn()=>DeploymentConfig::previewCustomer($root,$config),'UI preview also rejects conflicting environment');}finally{putenv('FINANCE_DB_NAME');}
     $external=$base.'/external.json';file_put_contents($external,json_encode(['FINANCE_DB_NAME'=>'wrong_database']));chmod($external,0600);
     putenv('FINANCE_DEPLOYMENT_FILE='.$external);putenv('FINANCE_DB_NAME='.$s['FINANCE_DB_NAME']);
     try{$reject(fn()=>DeploymentConfig::forRoot($root),'real external file masked by matching environment still rejected');}

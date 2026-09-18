@@ -74,6 +74,8 @@ $expectedRequired = [
     'c3-composer-compat',
     'c3-control-release-bridge',
     'c3-customer-clean-release',
+    'customer-guided-setup',
+    'customer-portable-contract',
     'c3-control-build-adapter',
     'c3-clean-install-database',
     'c3-deployment-instance',

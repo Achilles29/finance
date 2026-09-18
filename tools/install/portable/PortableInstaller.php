@@ -43,7 +43,7 @@ final class PortableInstaller
     }
     private function update(string $phase,int $percent,string $code=''): array
     {
-        $s=['phase'=>$phase,'percent'=>$percent,'code'=>$code,'updated_at'=>gmdate(DATE_ATOM)];
+        $s=['phase'=>$phase,'percent'=>$percent,'code'=>$code,'updated_at'=>gmdate(DATE_ATOM),'database_started'=>$this->private->exists('database.json')];
         $this->status->write('status.json',$s,0640);return $s;
     }
     /** Admin runs once as dedicated unprivileged installer; renewal preserves all evidence and DB journal. */
@@ -51,25 +51,30 @@ final class PortableInstaller
     {
         self::requirements();$lock=$this->private->lock();
         try {
-            if($this->private->exists('complete.json'))throw new RuntimeException('SETUP_ALREADY_COMPLETE');
+            if($this->private->exists('complete.json'))return ['phase'=>'COMPLETE','percent'=>100];
             $context=PortablePackage::verify($this->root);$permit=PortablePackage::permit($this->root,$context);$credential=$this->credentials($permit);
             if($this->private->exists('delivery-state.json')) {
                 $old=$this->private->read('delivery-state.json');
                 foreach(['instance_id','deployment_id','plan_sha256','release_public_id','source_commit','artifact_sha256','release_manifest_sha256','profile_sha256','profile_version','environment'] as $key)
                     if(($old['permit'][$key]??null)!==($permit[$key]??null))throw new RuntimeException('REPLACEMENT_PERMISSION_BINDING_INVALID');
-                if($old['permit']['permit_id']===$permit['permit_id'])throw new RuntimeException('SETUP_ALREADY_PREPARED');
-                $this->private->write('attempt-'.bin2hex(random_bytes(12)).'.json',$old);
+                if($old['permit']['permit_id']===$permit['permit_id'] && $old['permit']!==$permit)throw new RuntimeException('REPLACEMENT_PERMISSION_BINDING_INVALID');
+                if($old['permit']['permit_id']!==$permit['permit_id'])$this->private->write('attempt-'.bin2hex(random_bytes(12)).'.json',$old);
             } else {
-                $box=sodium_crypto_box_keypair();$this->private->write('setup-key.json',['key'=>base64_encode($box)]);
-                $this->private->write('delivery-state.json',['context'=>$context,'permit'=>$permit,'credential'=>$credential]);
-                $this->agent()->initialize($permit['instance_id'],$credential['control_origin'],$credential['license_trust']);
+                if(!$this->private->exists('setup-key.json')){
+                    $box=sodium_crypto_box_keypair();$this->private->write('setup-key.json',['key'=>base64_encode($box)]);sodium_memzero($box);
+                }
             }
             $this->private->write('delivery-state.json',['context'=>$context,'permit'=>$permit,'credential'=>$credential]);
+            $agentStore=new PortableStore($this->root,'private/agent');
+            if(!$agentStore->exists('agent.json'))$this->agent()->initialize($permit['instance_id'],$credential['control_origin'],$credential['license_trust']);
+            else foreach(['identity.json','trust.json','runtime.json']as$name)
+                if(!(new PortableStore($this->root,'storage/license'))->exists($name))throw new RuntimeException('INITIALIZATION_REVIEW_REQUIRED');
             $key=base64_decode($this->private->read('setup-key.json')['key'],true);
             $this->status->write('browser.json',['contract'=>'FINANCE_SETUP_BROWSER_V1','permit_id'=>$permit['permit_id'],
                 'secret_sha256'=>$permit['setup_secret_sha256'],'expires_at'=>$permit['expires_at'],
                 'public_key'=>base64_encode(sodium_crypto_box_publickey($key))],0640);
             sodium_memzero($key);
+            if($this->status->exists('status.json'))return $this->status->read('status.json',0640);
             return $this->update('READY',10);
         }finally{flock($lock,LOCK_UN);fclose($lock);}
     }
@@ -100,8 +105,9 @@ final class PortableInstaller
             if($permit!==$delivery['permit'])throw new RuntimeException('DELIVERY_PREPARE_REQUIRED');
             $job=$this->job($permit);$credential=$delivery['credential'];
             if(!$this->private->exists('configured.json')) {
-                $config=$job['config']??[];
-                $config['schema']=1;$config['encryption_key']=bin2hex(random_bytes(32));$config['runtime']=['directory'=>'storage','session_cookie'=>'finance_session'];
+                $config=self::configuration($job['config']??[]);
+                DeploymentConfig::previewCustomer($this->root,$config);
+                PortableDatabase::version(PortableDatabase::connect($config['database']));
                 PortableStore::writeFile($this->root,$this->root.'/config/customer.json',$config,0640);
                 $snapshot=DeploymentConfig::forRoot($this->root)->values();
                 $connection=PortableDatabase::connect($config['database']);
@@ -155,7 +161,13 @@ final class PortableInstaller
     /** Separate scheduled command. A heartbeat is never a license grant. */
     public function sync(): array
     {
-        $v=$this->agent()->poll();$delivery=$this->private->read('delivery-state.json');$c=$delivery['context'];$p=$delivery['permit'];
+        $v=$this->licenseSync();$this->heartbeat();return ['license'=>$v,'heartbeat'=>'ACKNOWLEDGED'];
+    }
+    public function licenseSync(): array { return $this->agent()->poll(); }
+    public function heartbeat(): array
+    {
+        if(!$this->private->exists('complete.json'))throw new RuntimeException('INSTALLATION_NOT_COMPLETE');
+        $delivery=$this->private->read('delivery-state.json');$c=$delivery['context'];$p=$delivery['permit'];
         $settings=DeploymentConfig::forRoot($this->root)->values();$dbOk=false;$webOk=false;
         try{$config=CustomerPlatform::document($this->root,$this->root.'/config/customer.json');PortableDatabase::connect($config['database'])->query('SELECT 1');$dbOk=true;}catch(Throwable $e){}
         try{$this->control()->web($settings['FINANCE_BASE_URL']);$webOk=true;}catch(Throwable $e){}
@@ -168,7 +180,31 @@ final class PortableInstaller
             'metrics'=>['queue_pending'=>0,'queue_failed'=>0],'runtime'=>['primary_domain'=>$host]];
         $ack=$this->control()->send('/api/v1/heartbeats',$payload,$delivery['credential']['monitoring'],'hb-'.bin2hex(random_bytes(16)));
         $this->private->write('heartbeat.json',['sent_at'=>gmdate(DATE_ATOM),'status'=>'ACKNOWLEDGED']);
-        return ['license'=>$v,'heartbeat'=>'ACKNOWLEDGED'];
+        return ['heartbeat'=>'ACKNOWLEDGED'];
+    }
+
+    public static function configuration(array $input): array
+    {
+        if(array_diff(array_keys($input),['database','base_url'])||count($input)!==2)throw new RuntimeException('CUSTOMER_CONFIG_INCOMPLETE');
+        return $input+['schema'=>1,'encryption_key'=>bin2hex(random_bytes(32)),'runtime'=>['directory'=>'storage','session_cookie'=>'finance_session']];
+    }
+
+    /** Only the non-root companion calls this after authenticating a sealed UI request and DB probe. */
+    public function submit(array $job,bool $replace=false): void
+    {
+        PortableDatabase::owner($job['owner']??[]);
+        DeploymentConfig::previewCustomer($this->root,self::configuration($job['config']??[]));
+        if($this->private->exists('job.json')) {
+            $old=$this->private->read('job.json');
+            if(($old['config']??null)===($job['config']??null)&&($old['owner']??null)===($job['owner']??null))return;
+            if(!$replace)throw new RuntimeException('SETUP_REQUEST_EXISTS');
+            $this->retryInput();
+        }
+        $lock=$this->private->lock();
+        try {
+            if($this->private->exists('database.json')||$this->private->exists('complete.json'))throw new RuntimeException('DATABASE_REVIEW_REQUIRED');
+            $this->private->write('job.json',['config'=>$job['config'],'owner'=>$job['owner']]);
+        }finally{flock($lock,LOCK_UN);fclose($lock);}
     }
     /** Explicit admin recovery BEFORE any SQL; preserve submissions, do not rotate installation keys. */
     public function retryInput(): array
