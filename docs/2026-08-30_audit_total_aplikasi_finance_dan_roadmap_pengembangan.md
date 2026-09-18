@@ -1,5 +1,13 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Batch 269 — 2026-09-18 (installer/packaging saja):** satu folder customer dengan
+document root `public/`, setup Indonesia, pendamping non-root, konfigurasi/key lokal
+dan journal pemulihan diimplementasikan sebagai alpha.17 / profil v6. Checklist
+komersialisasi berada di `_28`, detail pada [handoff Control](2026-09-18_single_folder_installer_control_handoff.md).
+Tidak mengubah proses bisnis/DB development atau menutup PR procurement, void batch,
+UAT bisnis, maupun lima SQL belum managed. Windows masih membutuhkan uji host nyata;
+kelulusan Linux installer bukan klaim seluruh aplikasi siap jual.
+
 **Batch 268 — 2026-09-18 (konfigurasi/installer/packaging saja):** konfigurasi lokal
 customer alpha.16 dan pengamanan/readiness clean-install dicatat di `_28` serta
 [handoff Control](2026-09-18_customer_local_config_control_handoff.md). Tidak ada

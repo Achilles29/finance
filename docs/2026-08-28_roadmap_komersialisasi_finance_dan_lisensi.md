@@ -1,5 +1,19 @@
 # Roadmap Komersialisasi Finance POS
 
+Batch 269 — 2026-09-18: **alpha.17 / CUSTOMER_CLEAN v6 / FINANCE_SINGLE_FOLDER_V1 / NOT_PUBLISHED**.
+[Handoff installer satu folder](2026-09-18_single_folder_installer_control_handoff.md),
+[panduan customer](customer_single_folder.md), [panduan admin](customer_single_folder_admin.md).
+
+- [x] Layout paket diubah saat build saja: satu parent Finance; hanya `public/` document root. Master/instalasi aktif tidak dipindah.
+- [x] `/setup` berbahasa Indonesia; DB/URL/admin sekali isi; config/key/journal lokal, pendamping non-root terpisah dari akun web, setup dikunci setelah sukses.
+- [x] Baseline + 20 migrasi terdaftar, DB kosong, journal tanpa replay DDL tidak pasti, signature/core/aktivasi/kuota/fingerprint tetap diperiksa. Tidak ada SQL baru untuk DB operasional.
+- [x] Linux HTTPS nginx/FPM/MariaDB disposable: instalasi sampai login admin nyata, proteksi file, pemulihan, lease/heartbeat; **59 pemeriksaan PASS dari checkout bersih `1bff31e1…`**, termasuk kuota/reissue sebelum SQL. Regresi legacy/integritas/preflight/static lulus; batas pembuktian di handoff.
+- [x] Adaptor Windows ACL/MachineGuid/Task Scheduler dan template IIS/Apache tersedia **sebagai implementasi belum acceptance**; bukan klaim platform siap jual.
+- [x] Build terisolasi dari cutoff yang sama: delapan gate + verifier independen PASS; 1.164 file, 306 tabel/20 migrasi, 735 referensi/0 customer-demo-secret; backup/restore checksum cocok. Fixture bukan release publishable.
+- [ ] Control review cutoff `1bff31e1…`, pin/profile/layout dan kontrak signed setup permit; penerbitan/reissue/pengiriman customer masih perlu dikerjakan thread Control.
+- [ ] Build penuh delapan gate + backup/restore v6 dan praktik Control nyata setelah review; evidence alpha.16 tidak berlaku otomatis untuk v6.
+- [ ] Acceptance Windows nyata, Apache/IIS, scheduler OS dan walkthrough pengguna awam. Jangan membuka platform Windows/publish sebelum hasil tersebut disetujui.
+
 Batch 268 — 2026-09-18: **alpha.16 / CUSTOMER_CLEAN v5 / REVIEW_REQUIRED / NOT_PUBLISHED**.
 [Handoff konfigurasi lokal customer](2026-09-18_customer_local_config_control_handoff.md).
 
