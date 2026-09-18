@@ -70,7 +70,10 @@ final class ControlReleaseBridge
             && array_sum(array_column($files, 'size')) <= self::MAX_BYTES, 'ARCHIVE_LIMIT');
         // Enforce the validator's policy too; a signed bundle cannot weaken its own exclusions.
         $policy = ReleasePackagePolicy::fromFile(__DIR__ . '/package_policy.json');
-        foreach ($files as $path => $entry) self::need($policy->included($path) && !$policy->denied($path), 'FORBIDDEN_PACKAGE_PATH');
+        foreach ($files as $path => $entry) {
+            $sourcePath=CustomerLayout::source($path);
+            self::need($policy->included($sourcePath) && !$policy->denied($sourcePath), 'FORBIDDEN_PACKAGE_PATH');
+        }
         $customerAudit = null;
         if (isset($files[CustomerReleaseProfile::PATH])) {
             // A bundle cannot approve its own content by replacing its allowlist.
@@ -145,10 +148,10 @@ final class ControlReleaseBridge
         $profile = CustomerReleaseProfile::fromRoot($root);
         $expected['files'] = array_values(array_filter($expected['files'], fn(string $p): bool => $profile->allows($p)));
         $paths = array_column($source['files'], 'path'); sort($paths);
-        $tracked = $expected['files']; sort($tracked);
+        $tracked = $profile->version()>=6 ? array_map([CustomerLayout::class,'target'],$expected['files']) : $expected['files']; sort($tracked);
         self::need($paths === $tracked, 'SOURCE_FILE_SET');
         foreach ($source['files'] as $entry) {
-            $path = $root . '/' . $entry['path'];
+            $path = $root . '/' . ($profile->version()>=6 ? CustomerLayout::source($entry['path']) : $entry['path']);
             self::need(!is_link($path) && is_file($path) && filesize($path) === $entry['size']
                 && hash_file('sha256', $path) === $entry['sha256'], 'SOURCE_BYTES_MISMATCH');
         }

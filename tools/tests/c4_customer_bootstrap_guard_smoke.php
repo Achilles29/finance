@@ -50,9 +50,13 @@ $makeCache=static function(array $extra=[])use($identity,$now,$machine,$sk,$trus
 try{
     $core=[];$entries=[];
     foreach(Control_license_cache::customer_core_files()as$relative){
-        $bytes=(string)file_get_contents($source.'/'.$relative);$write($root.'/'.$relative,$bytes);
+        $bytes=(string)file_get_contents($source.'/'.$relative);
+        // Preserve this suite's historical v5/root layout; v6 is covered by portable acceptance.
+        if($relative==='tools/release/customer_clean_profile.json')$bytes=json_encode(['profile'=>'CUSTOMER_CLEAN','profile_version'=>5]);
+        $write($root.'/'.$relative,$bytes);
         $core[$relative]=hash('sha256',$bytes);$entries[]=['path'=>$relative,'sha256'=>$core[$relative],'size'=>strlen($bytes)];
     }
+    $write($root.'/application/libraries/CustomerPlatform.php',file_get_contents($source.'/application/libraries/CustomerPlatform.php'));
     mkdir($root.'/application/views',0755,true);
     $appBytes=(string)file_get_contents($source.'/app-manifest.json');$app=json_decode($appBytes,true,32,JSON_THROW_ON_ERROR);
     $write($root.'/app-manifest.json',$appBytes);$write($root.'/RELEASE-MANIFEST.json',json_encode(['files'=>$entries],JSON_THROW_ON_ERROR));

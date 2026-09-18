@@ -163,6 +163,17 @@ final class DeploymentConfig
     {
         $path = $this->get($name, '');
         if ($path === '') return $fallback; // Preserve existing installations until explicitly configured.
+        $portableRoot=CustomerPlatform::root($webroot);
+        if(CustomerPlatform::portable($portableRoot)) {
+            $allowed=[self::LOG_PATH=>'logs',self::CACHE_PATH=>'cache',self::SESSION_PATH=>'sessions'];
+            if(!isset($allowed[$name]) || $path!==$portableRoot.'/storage/'.$allowed[$name])throw new RuntimeException('Runtime directory is unavailable.');
+            // Only these three mutable leaves, not arbitrary code/config or the private agent store.
+            CustomerPlatform::path($portableRoot,$portableRoot.'/storage');
+            if(str_replace('\\','/',(string)realpath($path))!==$path || is_link($path)||!is_dir($path)||!is_writable($path)
+                ||(PHP_OS_FAMILY==='Linux' && ((fileperms($path)&0007)!==0 || fileowner($path)!==posix_geteuid())))throw new RuntimeException('Runtime directory is unavailable.');
+            if(PHP_OS_FAMILY==='Windows')CustomerPlatform::runtimeAcl($portableRoot,$path);
+            return $path.DIRECTORY_SEPARATOR;
+        }
         $real = is_string($path) ? realpath($path) : false;
         $root = realpath($webroot);
         if ($real === false || $root === false || $real !== rtrim($path, '/\\') || is_link($path)

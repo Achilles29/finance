@@ -82,6 +82,16 @@ final class Control_license_verifier
     /** Trust and installation identity are deployment-owned, never editable through SQL/UI. */
     public static function deployment_document(string $path, string $webroot, int $maxBytes = 16384): array
     {
+        require_once __DIR__.'/CustomerPlatform.php';
+        $portableRoot=CustomerPlatform::root($webroot);
+        if (CustomerPlatform::portable($portableRoot)) {
+            // Exact read-only license documents, not a blanket exception for source-tree JSON.
+            $allowed=['storage/customer-installation.json','storage/license/identity.json',
+                'storage/license/trust.json','storage/license/runtime.json'];
+            if (!in_array(str_replace('\\','/',$path),array_map(static fn($p)=>$portableRoot.'/'.$p,$allowed),true)
+                || $maxBytes<1 || $maxBytes>300000) return [];
+            try { return CustomerPlatform::document($portableRoot,$path,$maxBytes); } catch (Throwable $e) { return []; }
+        }
         $real = $path !== '' ? realpath($path) : false;
         $root = realpath($webroot);
         if ($real === false || $real !== $path || $root === false || is_link($path) || !is_file($real) || !is_readable($real)

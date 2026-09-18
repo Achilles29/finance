@@ -1,8 +1,9 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/LicenseStateStore.php';
 
 /** Linux root-owned state. Private keys never share a readable file with the web cache. */
-final class LicenseAgentFiles
+final class LicenseAgentFiles implements LicenseStateStore
 {
     private string $root;
     private int $group;

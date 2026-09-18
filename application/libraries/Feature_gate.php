@@ -34,7 +34,7 @@ class Feature_gate
     {
         if (is_array($this->catalog)) return $this->catalog;
         $this->catalog = [];
-        $path = rtrim((string)FCPATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'app-manifest.json';
+        $path = dirname(APPPATH) . DIRECTORY_SEPARATOR . 'app-manifest.json';
         try {
             $manifest = json_decode((string)file_get_contents($path), true, 64, JSON_THROW_ON_ERROR);
             foreach ((array)($manifest['features'] ?? []) as $feature) {

@@ -15,12 +15,20 @@ final class Control_license_cache
             'tools/release/customer_clean_profile.json'];
         if ($profileVersion >= 5) $files = array_merge($files, ['application/libraries/CustomerLocalConfig.php',
             'application/config/database.php', 'config/.htaccess', '.htaccess']);
+        if ($profileVersion >= 6) $files = array_merge($files, ['application/libraries/CustomerPlatform.php',
+            'public/index.php','public/.htaccess','public/web.config','installer/layout.json',
+            'tools/install/portable/windows-inspect.ps1']);
         return $files;
     }
 
     private static function customer_source_file(string $root, string $relative): string
     {
         $path = $root . '/' . $relative;
+        if (CustomerPlatform::portable($root)) {
+            CustomerPlatform::path($root,$path);
+            if (!is_file($path)) throw new RuntimeException('CUSTOMER_CORE_MISSING');
+            return $path;
+        }
         if (realpath($path) !== $path || !is_file($path) || is_link($path) || !is_readable($path)) {
             throw new RuntimeException('CUSTOMER_CORE_MISSING');
         }
@@ -37,8 +45,10 @@ final class Control_license_cache
     /** Root-owned per-release context. Loading it does not require an activated lease. */
     public static function customer_context(string $webroot, string $contextFile): array
     {
-        $root = realpath($webroot);
-        if (PHP_OS_FAMILY !== 'Linux' || $root === false) throw new RuntimeException('CUSTOMER_PLATFORM_UNSUPPORTED');
+        require_once __DIR__.'/CustomerPlatform.php';
+        $root = realpath(CustomerPlatform::root($webroot));
+        if ($root!==false) $root=str_replace('\\','/',$root);
+        if ($root === false || (PHP_OS_FAMILY !== 'Linux' && !CustomerPlatform::portable($root))) throw new RuntimeException('CUSTOMER_PLATFORM_UNSUPPORTED');
         $c = Control_license_verifier::deployment_document($contextFile, $root, 300000);
         if (($c['schema'] ?? null) !== 1 || ($c['purpose'] ?? '') !== 'FINANCE_CUSTOMER_INSTALLATION'
             || ($c['product_code'] ?? '') !== 'NAMUA_FINANCE' || ($c['release_root'] ?? '') !== $root
@@ -108,7 +118,7 @@ final class Control_license_cache
     }
 
     /** Re-authenticate original signed Control bytes; root context never substitutes a signature. */
-    private static function customer_release_proof(array $c): void
+    public static function customer_release_proof(array $c): void
     {
         $encoded = $c['release_manifest_base64'] ?? null;
         $raw = is_string($encoded) ? base64_decode($encoded, true) : false;
@@ -157,6 +167,8 @@ final class Control_license_cache
 
     public static function customer_machine_fingerprint(): string
     {
+        require_once __DIR__.'/CustomerPlatform.php';
+        if (PHP_OS_FAMILY === 'Windows') return CustomerPlatform::fingerprint();
         if (PHP_OS_FAMILY !== 'Linux' || !in_array(strtolower(php_uname('m')), ['x86_64', 'amd64'], true)) {
             throw new RuntimeException('CUSTOMER_PLATFORM_UNSUPPORTED');
         }

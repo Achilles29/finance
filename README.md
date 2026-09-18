@@ -1,6 +1,11 @@
 # Finance
 
-Instalasi customer mulai alpha.16 menggunakan **`config/customer.json`** (salin
+Paket customer alpha.17 / profil v6 menggunakan satu folder, document root `public/`,
+dan pemasang `/setup`. Mulai dari [panduan customer](docs/customer_single_folder.md)
+atau [persiapan admin](docs/customer_single_folder_admin.md). Pengiriman Control v6
+dan acceptance Windows nyata masih memerlukan persetujuan terpisah.
+
+Instalasi customer alpha.16 menggunakan **`config/customer.json`** (salin
 template `config/customer.example.json`). Ikuti [panduan instalasi lokal](docs/customer_local_install.md)
 untuk database kosong, konfigurasi web aman, lisensi dan login pertama. Jangan
 menyertakan file konfigurasi berisi credential dalam Git atau paket release.

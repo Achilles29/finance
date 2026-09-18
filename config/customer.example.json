@@ -11,7 +11,7 @@
   "base_url": "https://finance.example.com/",
   "encryption_key": "REPLACE_WITH_RANDOM_64_HEX_CHARACTERS",
   "runtime": {
-    "directory": "../finance-runtime",
+    "directory": "storage",
     "session_cookie": "finance_customer_session"
   }
 }

@@ -7010,7 +7010,7 @@ public function self_order_tables_print()
 
     private function printer_download_files(): array
     {
-        $base = FCPATH . 'tools/pos_printer_agent' . DIRECTORY_SEPARATOR;
+        $base = dirname(APPPATH) . '/tools/pos_printer_agent' . DIRECTORY_SEPARATOR;
         return [
             'readme' => ['filename' => 'README.md', 'path' => $base . 'README.md'],
             'requirements' => ['filename' => 'requirements.txt', 'path' => $base . 'requirements.txt'],

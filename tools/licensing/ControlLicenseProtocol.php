@@ -28,7 +28,7 @@ final class ControlLicenseProtocol
             || preg_match('/\A[a-f0-9]{64}\z/D', $fingerprint) !== 1) throw new RuntimeException('ACTIVATION_INPUT_INVALID');
         return ['activation_code'=>$code,'instance_id'=>$identity['instance_id'],'product_code'=>'NAMUA_FINANCE',
             'installation_id'=>$identity['installation_id'],'instance_public_key_base64'=>base64_encode($publicKey),
-            'machine_fingerprint_sha256'=>$fingerprint,'platform'=>'linux-amd64','agent_version'=>self::AGENT_VERSION];
+            'machine_fingerprint_sha256'=>$fingerprint,'platform'=>PHP_OS_FAMILY==='Windows'?'windows-amd64':'linux-amd64','agent_version'=>self::AGENT_VERSION];
     }
 
     public static function poll(array $activation, string $secret, int $now, string $nonce): array

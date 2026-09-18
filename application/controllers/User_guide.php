@@ -48,6 +48,6 @@ class User_guide extends MY_Controller
             'categories'=>$categories, 'audiences'=>$audiences, 'params'=>$params, 'chapters'=>$chapters,
             'article'=>$article, 'selected'=>$selected, 'server_access'=>$server,
             'guide_reviewed'=>Finance_user_guide::REVIEWED, 'guide_edition'=>Finance_user_guide::EDITION,
-            'release_label'=>$this->guide->releaseLabel(FCPATH.'app-manifest.json')]);
+            'release_label'=>$this->guide->releaseLabel(dirname(APPPATH).'/app-manifest.json')]);
     }
 }

@@ -58,6 +58,10 @@ date_default_timezone_set('Asia/Jakarta'); // Sesuaikan timezone
     require_once __DIR__.'/application/libraries/CustomerLocalConfig.php';
     $finance_customer_local = CustomerLocalConfig::present(__DIR__);
     $finance_customer_package = CustomerLocalConfig::packaged(__DIR__);
+    if (CustomerPlatform::portable(__DIR__) && !defined('FINANCE_PUBLIC_ROOT') && PHP_SAPI!=='cli') {
+        http_response_code(503);
+        exit('Paket customer harus diakses melalui document root public/.');
+    }
 	define('ENVIRONMENT', ($finance_customer_local || $finance_customer_package) ? 'production'
         : (isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'development'));
 
@@ -262,7 +266,7 @@ if (ENVIRONMENT === 'production')
 	define('BASEPATH', $system_path);
 
 	// Path to the front controller (this file) directory
-	define('FCPATH', dirname(__FILE__).DIRECTORY_SEPARATOR);
+	define('FCPATH', (defined('FINANCE_PUBLIC_ROOT') ? FINANCE_PUBLIC_ROOT : dirname(__FILE__)).DIRECTORY_SEPARATOR);
 
 	// Name of the "system" directory
 	define('SYSDIR', basename(BASEPATH));
@@ -355,7 +359,7 @@ foreach (array('FINANCE_CUSTOMER_INSTALLATION_FILE', 'FINANCE_LICENSE_TRUST_FILE
 try {
     require_once APPPATH.'libraries/DeploymentConfig.php';
     $customer_resolver = $deployment_config ?? new DeploymentConfig();
-    $customer_environment = $customer_resolver->customerEnvironment(FCPATH, $customer_environment);
+    $customer_environment = $customer_resolver->customerEnvironment(__DIR__, $customer_environment);
 } catch (Throwable $error) {
     http_response_code(503);
     echo 'Konfigurasi instalasi tidak tersedia. Administrator: periksa config/customer.json dan panduan instalasi.';
@@ -363,7 +367,7 @@ try {
 }
 if (implode('', $customer_environment) !== '') {
     require_once APPPATH.'libraries/Control_license_cache.php';
-    $customer_decision = Control_license_cache::customer_guard(FCPATH, $customer_environment, $_SERVER);
+    $customer_decision = Control_license_cache::customer_guard(__DIR__, $customer_environment, $_SERVER);
     if (empty($customer_decision['allowed'])) {
         http_response_code(423);
         header('Cache-Control: no-store, private');

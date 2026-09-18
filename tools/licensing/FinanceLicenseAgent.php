@@ -6,13 +6,13 @@ require_once dirname(__DIR__, 2) . '/application/libraries/Control_license_cache
 
 final class FinanceLicenseAgent
 {
-    private LicenseAgentFiles $private;
-    private LicenseAgentFiles $public;
+    private LicenseStateStore $private;
+    private LicenseStateStore $public;
     private $transport;
     private $clock;
     private string $fingerprint;
 
-    public function __construct(LicenseAgentFiles $private, LicenseAgentFiles $public, string $fingerprint, ?callable $transport = null, ?callable $clock = null)
+    public function __construct(LicenseStateStore $private, LicenseStateStore $public, string $fingerprint, ?callable $transport = null, ?callable $clock = null)
     {
         $this->private = $private; $this->public = $public; $this->fingerprint = $fingerprint;
         $this->transport = $transport ?? [ControlLicenseProtocol::class, 'post'];

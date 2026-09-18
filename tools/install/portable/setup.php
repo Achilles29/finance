@@ -1,0 +1,50 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__.'/SetupUi.php';
+$root=str_replace('\\','/',dirname(__DIR__,3));
+header('Cache-Control: no-store, private');header('X-Content-Type-Options: nosniff');header('Referrer-Policy: no-referrer');
+header('X-Frame-Options: DENY');
+$nonce=base64_encode(random_bytes(18));
+header("Content-Security-Policy: default-src 'none'; script-src 'nonce-$nonce'; style-src 'nonce-$nonce'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+if(($_SERVER['REQUEST_METHOD']??'GET')==='POST') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        CustomerPlatform::path($root,$root);
+        if(PHP_VERSION_ID<80100||PHP_VERSION_ID>=80200||PHP_INT_SIZE!==8)throw new RuntimeException('SERVER_REQUIREMENTS_MISSING');
+        foreach(['pdo_mysql','mysqli','sodium','curl','mbstring','json','openssl','zip','xml','session']as$ext)if(!extension_loaded($ext))throw new RuntimeException('SERVER_REQUIREMENTS_MISSING');
+        if(($_SERVER['HTTPS']??'')!=='on' && ($_SERVER['HTTPS']??'')!=='1')throw new RuntimeException('HTTPS_REQUIRED');
+        if(strtolower(trim(explode(';',$_SERVER['CONTENT_TYPE']??'')[0]))!=='application/json'
+            ||(int)($_SERVER['CONTENT_LENGTH']??0)>16384)throw new RuntimeException('SETUP_REQUEST_INVALID');
+        $input=json_decode(file_get_contents('php://input',false,null,0,16385),true,16,JSON_THROW_ON_ERROR);
+        if(!is_array($input))throw new RuntimeException('SETUP_REQUEST_INVALID');
+        SetupUi::authorize($root,(string)($input['secret']??''));
+        if(($input['action']??'')==='status') {
+            $s=CustomerPlatform::document($root,$root.'/storage/setup/status.json');
+        }elseif(($input['action']??'')==='install'){$s=SetupUi::request($root,$input);}
+        else throw new RuntimeException('SETUP_REQUEST_INVALID');
+        if(($s['code']??'')!=='')$s['message']=SetupUi::message($s['code']);
+        echo json_encode($s,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+    }catch(Throwable $e){$code=preg_match('/\A[A-Z_]+\z/D',$e->getMessage())?$e->getMessage():'SETUP_NOT_READY';http_response_code(400);echo json_encode(['code'=>$code,'message'=>SetupUi::message($code)],JSON_UNESCAPED_UNICODE);}
+    exit;
+}
+if(($_SERVER['REQUEST_METHOD']??'GET')!=='GET'){http_response_code(405);exit;}
+$ready=is_file($root.'/storage/setup/browser.json');$closed=is_file($root.'/storage/setup/closed.json');
+?><!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mulai dengan Finance</title>
+<style nonce="<?=htmlspecialchars($nonce,ENT_QUOTES)?>">
+:root{font:16px/1.6 system-ui,sans-serif;color:#18332d;background:#f3f6f4}*{box-sizing:border-box}body{margin:0}main{max-width:1020px;margin:6vh auto;padding:24px}header{display:flex;gap:16px;align-items:center;margin-bottom:32px}.mark{display:grid;place-items:center;background:#194f40;color:white;border-radius:18px;width:56px;height:56px;font-size:28px}h1{font-size:clamp(26px,4vw,38px);margin:0;line-height:1.2}p{color:#526960;margin:10px 0}small{color:#60756c}.shell{background:white;border:1px solid #dbe6df;border-radius:24px;display:grid;grid-template-columns:230px 1fr;overflow:hidden;box-shadow:0 15px 50px #18332d08}aside{padding:28px;background:#eaf2ed}ol{list-style:none;padding:0;counter-reset:steps}li{counter-increment:steps;padding:13px 0;font-weight:600}li:before{content:counter(steps);display:inline-grid;place-items:center;width:26px;height:26px;background:white;border-radius:50%;margin-right:10px}section{padding:32px}h2{margin:0 0 12px;font-size:22px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.full{grid-column:1/-1}label{display:block;font-size:14px;font-weight:650}input{display:block;width:100%;border:1px solid #bdcfc3;border-radius:10px;padding:12px;font:inherit;margin-top:5px;background:#fcfdfc}input:focus{outline:3px solid #bce9cb;border-color:#1b6046}fieldset{border:0;padding:0;margin:0 0 24px}legend{font-weight:700;margin-bottom:12px}button,.button{border:0;border-radius:12px;background:#18573f;color:white;font:600 16px system-ui;padding:14px 20px;cursor:pointer;text-decoration:none;display:inline-block}button:disabled{opacity:.5;cursor:wait}.note{padding:14px 16px;border-radius:12px;background:#edf5ef;font-size:14px}.error{background:#fff0e9;color:#8a3523}progress{width:100%;height:14px;accent-color:#28724f}#status{margin-top:20px}code{overflow-wrap:anywhere} [hidden]{display:none!important}@media(max-width:680px){main{margin:0;padding:18px}.shell{grid-template-columns:1fr}aside{padding:14px 24px}ol{display:flex;flex-wrap:wrap;gap:12px;margin:0}li{font-size:12px;padding:0}aside p{display:none}section{padding:22px}.grid{grid-template-columns:1fr}}
+</style></head><body><main><header><div class="mark">F</div><div><h1>Selamat datang di Finance.</h1><p>Satu kali pemasangan. Siap untuk usaha Anda.</p></div></header>
+<div class="shell"><aside><ol><li>Siapkan akses</li><li>Isi pengaturan</li><li>Pasang & aktifkan</li><li>Mulai bekerja</li></ol><p>Data usaha lama tidak disentuh. Pemasang hanya menerima database kosong.</p></aside><section>
+<?php if($closed):?><h2>Pemasangan sudah selesai</h2><p>Halaman setup telah dikunci untuk keamanan.</p><a class="button" href="/login">Masuk ke Finance →</a>
+<?php elseif(!$ready):?><h2>Satu langkah dari administrator</h2><p>Paket belum disiapkan. Minta administrator menjalankan pendamping pemasangan menggunakan izin dari Control dan mengaktifkan jadwalnya.</p><p class="note">Lihat panduan admin di <code>docs/customer_single_folder_admin.md</code>. Jangan memberi akses root/Administrator kepada proses website.</p>
+<?php else:?><h2>Atur aplikasi Anda</h2><p>Pakai informasi database dari admin server. Paket dan lisensi sudah ditentukan oleh pengiriman Control.</p>
+<form id="setup" autocomplete="off"><fieldset><legend>Izin pemasangan</legend><label>Kode setup dari Control<input name="secret" type="password" required minlength="32" maxlength="256" autocomplete="off"></label><small>Kode ini berbeda dari password database dan password admin.</small></fieldset>
+<fieldset><legend>Koneksi aplikasi</legend><div class="grid"><label class="full">URL aplikasi (HTTPS)<input name="url" type="url" required placeholder="https://kasir.usahaanda.com/"></label><label>Host database<input name="host" required value="127.0.0.1"></label><label>Port<input name="port" type="number" required value="3306" min="1" max="65535"></label><label>Nama database kosong<input name="database" required pattern="[A-Za-z0-9_]{1,64}"></label><label>Username database<input name="db_user" required></label><label class="full">Password database<input name="db_password" type="password" required autocomplete="new-password"></label></div></fieldset>
+<fieldset><legend>Akun admin pertama</legend><div class="grid"><label>Username admin<input name="username" required pattern="[A-Za-z][A-Za-z0-9._-]{2,59}"></label><label>Email (opsional)<input name="email" type="email"></label><label class="full">Password admin<input name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></label></div><small>Minimal 12 karakter; gunakan huruf besar, kecil, angka, dan simbol. Jangan memuat username.</small></fieldset>
+<p class="note">Kunci enkripsi dan identitas server dibuat otomatis. Jangan tutup jadwal pendamping sampai pemasangan dan aktivasi selesai.</p><button type="submit" id="install">Pasang dan aktifkan →</button> <button type="button" id="check">Cek status</button></form>
+<div id="status" role="status" aria-live="polite" hidden><progress max="100" value="0"></progress><p id="message"></p><code id="code"></code><p id="done" hidden><a class="button" href="/login">Masuk ke Finance →</a></p></div>
+<script nonce="<?=htmlspecialchars($nonce,ENT_QUOTES)?>">
+const form=document.querySelector('#setup'),box=document.querySelector('#status'),msg=document.querySelector('#message'),code=document.querySelector('#code'),button=document.querySelector('#install');let timer;
+const labels={READY:'Siap menerima pengaturan.',QUEUED:'Pengaturan diterima. Menunggu pendamping pemasangan…',ACTIVATING:'Memeriksa aktivasi dan kuota server…',WAITING_ACTIVATION:'Menunggu keputusan aktivasi dari Control. Database belum dijalankan.',DATABASE:'Menyiapkan database dan akun admin…',WEB_CHECK:'Memeriksa halaman login melalui HTTPS…',REPORTING:'Mengirim bukti pemasangan ke Control…',COMPLETE:'Selesai! Aplikasi siap digunakan.'};
+async function send(action){const f=new FormData(form);let data={action,secret:f.get('secret')};if(action==='install'){data.config={database:{host:f.get('host'),port:Number(f.get('port')),socket:'',name:f.get('database'),user:f.get('db_user'),password:f.get('db_password')},base_url:f.get('url')};data.owner={username:f.get('username'),email:f.get('email'),password:f.get('password')};}box.hidden=false;try{const r=await fetch('/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),credentials:'same-origin'});const s=await r.json();document.querySelector('progress').value=s.percent||0;msg.textContent=s.message||labels[s.phase]||'Periksa status pendamping pemasangan.';code.textContent=s.code||'';box.classList.toggle('error',!r.ok||s.phase==='ATTENTION');if(s.phase==='COMPLETE'){clearInterval(timer);form.hidden=true;document.querySelector('#done').hidden=false;}if(s.phase==='ATTENTION'||!r.ok){clearInterval(timer);button.disabled=false;}return r.ok;}catch(e){msg.textContent='Koneksi terputus. Klik Cek status setelah jaringan kembali; jangan mengulang database.';clearInterval(timer);button.disabled=false;return false;}}
+form.addEventListener('submit',async e=>{e.preventDefault();button.disabled=true;if(await send('install')){clearInterval(timer);timer=setInterval(()=>send('status'),5000);}});document.querySelector('#check').onclick=()=>send('status');
+</script><?php endif;?></section></div><p><small>Finance · Pemasangan aman · Database kosong · Aktivasi sesuai kuota server</small></p></main></body></html>

@@ -156,7 +156,7 @@ try {
         throw new RuntimeException('STAGING_CREATE_FAILED');
     }
     foreach ($before as $relative => $entry) {
-        $destination = $stage . '/' . $relative;
+        $destination = $stage . '/' . ($profile!==null && $profile->version()>=6 ? CustomerLayout::target($relative) : $relative);
         if (!is_dir(dirname($destination)) && !mkdir(dirname($destination), 0700, true)) {
             throw new RuntimeException('STAGING_CREATE_FAILED');
         }
@@ -168,8 +168,9 @@ try {
             throw new RuntimeException('SOURCE_MUTATED_DURING_BUILD');
         }
     }
+    $packaged=$profile!==null && $profile->version()>=6 ? CustomerLayout::entries($before) : $before;
     $manifest = ['schema' => 'finance.release-artifact-manifest', 'schema_version' => 1,
-        'source_epoch' => $epoch, 'files' => array_values($before)];
+        'source_epoch' => $epoch, 'files' => array_values($packaged)];
     $manifestData = json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
     $manifestPath = $stage . '/RELEASE-MANIFEST.json';
     if (file_put_contents($manifestPath, $manifestData, LOCK_EX) !== strlen($manifestData)
@@ -177,7 +178,7 @@ try {
     ) {
         throw new RuntimeException('MANIFEST_WRITE_FAILED');
     }
-    $archivePaths = array_merge(array_keys($before), ['RELEASE-MANIFEST.json']);
+    $archivePaths = array_merge(array_keys($packaged), ['RELEASE-MANIFEST.json']);
     sort($archivePaths, SORT_STRING);
     if (file_put_contents($listPath, implode("\0", $archivePaths) . "\0", LOCK_EX) === false) {
         throw new RuntimeException('FILE_LIST_WRITE_FAILED');

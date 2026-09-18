@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/CustomerPlatform.php';
 
 /** The sole mutable source-tree configuration exception. Never contains agent keys. */
 final class CustomerLocalConfig
@@ -16,7 +17,7 @@ final class CustomerLocalConfig
     /** Detect an extracted package even when its local configuration has been removed. */
     public static function packaged(string $root): bool
     {
-        return file_exists($root.'/RELEASE-MANIFEST.json') || is_link($root.'/RELEASE-MANIFEST.json');
+        return CustomerPlatform::portable($root) || file_exists($root.'/RELEASE-MANIFEST.json') || is_link($root.'/RELEASE-MANIFEST.json');
     }
 
     private static function securePath(string $path, bool $secret = false): void
@@ -49,10 +50,11 @@ final class CustomerLocalConfig
     /** Strict, complete snapshot; an invalid local file must NEVER fall back to legacy DB settings. */
     public static function read(string $root): array
     {
-        $root = rtrim($root, '/');
-        self::securePath($root);
+        $root = CustomerPlatform::root($root);
+        $portable = CustomerPlatform::portable($root);
+        if ($portable) CustomerPlatform::path($root,$root); else self::securePath($root);
         $path = $root.'/'.self::PATH;
-        self::securePath($path, true);
+        if ($portable) CustomerPlatform::path($root,$path,true); else self::securePath($path, true);
         if (!is_file($path) || !is_readable($path) || filesize($path) > 16384
             || (stat($path)['nlink'] ?? 0) !== 1) throw new RuntimeException('CUSTOMER_CONFIG_FILE_UNSAFE');
         try {
@@ -94,6 +96,11 @@ final class CustomerLocalConfig
         $key = self::text($c['encryption_key'] ?? null);
         if (strlen($key) < 32 || strlen($key) > 256) throw new RuntimeException('CUSTOMER_CONFIG_ENCRYPTION_KEY_INVALID');
         $dir = self::text($runtime['directory'] ?? null);
+        if ($portable) {
+            if ($dir !== 'storage') throw new RuntimeException('CUSTOMER_CONFIG_RUNTIME_UNSAFE');
+            $dir = $root.'/storage';
+            CustomerPlatform::path($root,$dir);
+        } else {
         if (preg_match('~\A\.\./[A-Za-z0-9_-][A-Za-z0-9_.-]*\z~D', $dir) === 1) {
             $dir = dirname($root).'/'.substr($dir, 3);
         }
@@ -105,6 +112,7 @@ final class CustomerLocalConfig
         // A missing leaf can be provisioned by the installer, never by an HTTP request.
         self::securePath(file_exists($dir) || is_link($dir) ? $dir : dirname($dir));
         if (file_exists($dir) && !is_dir($dir)) throw new RuntimeException('CUSTOMER_CONFIG_RUNTIME_UNSAFE');
+        }
         $cookie = $runtime['session_cookie'] ?? 'finance_session';
         if (!is_string($cookie) || preg_match('/\A[A-Za-z][A-Za-z0-9_]{5,63}\z/D', $cookie) !== 1) {
             throw new RuntimeException('CUSTOMER_CONFIG_SESSION_INVALID');
