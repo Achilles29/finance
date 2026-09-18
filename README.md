@@ -1,9 +1,10 @@
 # Finance
 
-Paket customer alpha.17 / profil v6 menggunakan satu folder, document root `public/`,
-dan pemasang `/setup`. Mulai dari [panduan customer](docs/customer_single_folder.md)
-atau [persiapan admin](docs/customer_single_folder_admin.md). Pengiriman Control v6
-dan acceptance Windows nyata masih memerlukan persetujuan terpisah.
+Paket customer alpha.19 / profil v7 menggunakan satu folder, document root `public/`,
+dan pemasang `/setup`. Mulai dari [MULAI-DI-SINI.html](MULAI-DI-SINI.html) atau
+[panduan teks](MULAI-DI-SINI.txt) di folder utama. Admin menjalankan persiapan satu
+perintah lalu customer melanjutkan di browser. Detail: [persiapan admin](docs/customer_single_folder_admin.md).
+Release lama tidak otomatis berubah. Windows belum disetujui untuk paket ini.
 
 Instalasi customer alpha.16 menggunakan **`config/customer.json`** (salin
 template `config/customer.example.json`). Ikuti [panduan instalasi lokal](docs/customer_local_install.md)

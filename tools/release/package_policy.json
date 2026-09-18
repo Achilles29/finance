@@ -12,6 +12,8 @@
     "wa-engine/"
   ],
   "include_files": [
+    "MULAI-DI-SINI.html",
+    "MULAI-DI-SINI.txt",
     "config/.htaccess",
     "config/customer.example.json",
     ".htaccess",

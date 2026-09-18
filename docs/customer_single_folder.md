@@ -1,6 +1,6 @@
 # Memasang Finance — panduan singkat customer
 
-Untuk **paket baru alpha.18 / CUSTOMER_CLEAN v7** setelah tersedia di Control. Jangan menambahkan file revisi ini ke ZIP alpha.17 lama. Linux diuji; Windows belum disetujui.
+Untuk **paket alpha.19 / CUSTOMER_CLEAN v7** setelah tersedia di Control. Mulai dari **MULAI-DI-SINI.html** atau **MULAI-DI-SINI.txt** di folder utama Finance. Jangan menambahkan panduan baru ke ZIP lama; panduan ikut diperiksa sebagai berkas resmi paket. Linux diuji; Windows belum disetujui.
 
 1. **Unduh seluruh ZIP pengiriman** dari Control. Di dalamnya sudah ada folder `finance`, berkas pengiriman, dan `private/delivery/KODE-SETUP.txt`. Tidak perlu membuat berkas pengiriman lagi.
 2. **Ekstrak ke folder baru**, bukan menimpa Finance yang sedang dipakai. Minta admin mengarahkan website HTTPS ke **`finance/public`**. Hosting harus menyediakan PHP 8.1, MariaDB 10.11, dan fasilitas scheduler; tidak harus aaPanel.
