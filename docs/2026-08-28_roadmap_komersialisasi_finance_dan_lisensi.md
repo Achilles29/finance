@@ -8,7 +8,7 @@ Batch 270 — 2026-09-18: **alpha.18 / CUSTOMER_CLEAN v7 / FINANCE_GUIDED_SETUP_
 - [x] Wizard Indonesia: kesiapan, kode setup, URL/DB/admin, toggle password, probe DB kosong, ringkasan, pasang/aktifkan, progres/resume dan login. Config tetap di dalam folder; tidak meminta parameter lisensi ulang.
 - [x] Batas signature/core/permit/kuota/fingerprint, journal SQL, credential privat dan legacy conflict dipertahankan; tidak ada SQL baru atau perubahan master/Control/core2.
 - [x] Panduan utama satu halaman mengikuti ZIP aktual; customer tidak menyalin delivery/cron atau menjalankan check/prepare/run/sync manual.
-- [ ] Acceptance final Chrome + ZIP/scheduler/nginx/FPM/DB disposable dan delapan gate build cutoff persis; hasil akhir dicatat pada handoff, bukan menyamakan fixture Control dengan live.
+- [x] Cutoff `9ca2d389b060e43c6ac61d77d6a94eda9b1d557a`: 47 acceptance Chrome + ZIP/scheduler/nginx/FPM/DB disposable PASS, termasuk reload/resume, login pertama dan sinkronisasi; delapan gate build + verifier independen PASS. Hasil/hash di handoff; Control HTTPS sintetis, bukan integrasi live. Akun OS baru/crontab host bersama tidak diubah untuk tes.
 - [ ] Control review/pin v7, issuer permit mengambil versi profil dari release terverifikasi, petunjuk ZIP diperbarui, build release baru dan walkthrough trial real-Control.
 - [ ] Windows nyata, Apache/IIS dan onboarding manusia nonprogrammer; tidak dinyatakan selesai dari mock/Linux.
 
