@@ -1,5 +1,19 @@
 # Log Eksekusi Codex Finance
 
+## Batch 268 — 2026-09-18 — Konfigurasi lokal customer dan clean-install alpha.16
+
+- Prioritas: customer mengisi DB/URL/key/runtime di `config/customer.json`, tanpa edit kode inti atau environment PHP-FPM. Scope konfigurasi, installer, packaging, pengamanan dan test; tidak mengubah bisnis/DB master/Control/layanan global.
+- Pola kerja: fixer tunggal, membaca status repo dan kontrak alpha.15; perubahan user dua komentar di config.php dipertahankan. Review diarahkan pada konflik sumber DB, exception inventory exact-path, signature/context dan recovery DDL.
+- Commit implementasi: `018c7173d68759c700ecfb324dc5f4946b0283bb`, 30 file; versi alpha.16, profil CUSTOMER_CLEAN v5. Tidak push/publish atau menimpa alpha.15.
+- File utama: CustomerLocalConfig, DeploymentConfig, database.php, index.php, Control_license_cache/License_runtime_model, heartbeat; CustomerDatabase, FinanceInstance, LinuxWebProfile, PrivateDeployment, clean_install_database, migration_runner, ControlDelivery; app-manifest/profile/policy, .gitignore/.htaccess/config template, README/guide, empat file tes. Daftar lengkap `git show --stat 018c7173`.
+- Perubahan: local JSON lengkap/fail-closed; legacy env > external dipertahankan tanpa local; konflik lintas sumber ditolak; MYSQL defaults eksklusif untuk koneksi lokal. File credential sementara root-private dihapus setelah pemakaian, journal STARTED/COMPLETE tetap. Nginx/Apache blokir config, runtime di luar webroot, public signed license context autodiscovery; agent private key tidak dipindah.
+- Validasi: 58 config checks; 41 end-to-end actual nginx/FPM tanpa env[] khusus + MariaDB disposable + login pertama/health; 141 release/delivery; 60 bootstrap guard; 26 verifier; 72 agent; 85 heartbeat; 39 legacy config; 15 deployment instance; 16 Linux web profile; 32 empty-DB boundaries. Preflight 968 PHP/0 finding, PHPStan baseline 0, Composer valid (deprecation versi sistem).
+- Build awal dan pengulangan dari checkout bersih cutoff `018c7173…`: delapan gate + independent validator PASS, 1.142 file, 306 tabel, 293 nonreferensi kosong, 735 referensi, 20 migrasi, 0 customer/dummy/secret, restore 306 tabel checksum cocok. End-to-end 41/41 juga PASS ulang dari checkout tersebut. Hash evidence final di handoff; checkout uji terpisah dibersihkan setelah pengujian.
+- Temuan saat uji: drain pipe mencegah client SQL besar macet saat kegagalan; permission log dibuat 0600 independen dari umask. Dua percobaan harness datadir melewati timeout helper TAR 30 detik saat I/O paralel; timeout initializer fixture diubah 180 detik, bukan mengubah timeout/security production.
+- Review: exception hanya config/customer.json yang valid; file config lain/tamper core ditolak. DB nonempty/wrong password/DDL parsial/SQL replay diuji; key/trust/signature/kuota/fingerprint tetap. Guide/readme masuk paket dan handoff [tersedia](2026-09-18_customer_local_config_control_handoff.md).
+- Risiko sisa: Apache belum tersedia untuk HTTP test; lima SQL development unacknowledged membuat suite A5 raw-source gagal dan tetap di luar paket; Control harus review pin v5/job local config dan build normal sebelum praktik/publish. Bukan klaim semua modul bisnis siap jual.
+- Pembersihan: hanya runtime, credential uji, data MariaDB dan artefak yang dibuat khusus oleh fixture disposable; tidak ada backup/upload/log development yang dihapus. Tidak ada SQL baru ke staging/master. Berikutnya milik thread Control, tidak dikerjakan di sini.
+
 ## Batch 1 — Containment authorization endpoint generic
 
 - Waktu: 2026-09-02 06:58 WIB.

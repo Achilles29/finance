@@ -1,5 +1,13 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**Batch 268 — 2026-09-18 (konfigurasi/installer/packaging saja):** konfigurasi lokal
+customer alpha.16 dan pengamanan/readiness clean-install dicatat di `_28` serta
+[handoff Control](2026-09-18_customer_local_config_control_handoff.md). Tidak ada
+perubahan proses bisnis, SQL atau data master. Lima SQL development yang belum
+managed tetap terbuka (`2026-09-14c`, `2026-09-15a/b/c`, `2026-09-16a`); tes A5 pada
+repo mentah masih menolak `unacknowledged_sql`. Kelulusan paket terkurasi tidak
+menutup isu bisnis maupun kewajiban registrasi/migrasi tersebut.
+
 **Batch 267 — 2026-09-17 (integrasi produk saja):** domain installer menjadi metadata opsional; credential pengganti menjaga journal/binding/identitas dan tidak mengulang SQL; heartbeat memakai URL lokal tepercaya dan metadata allowlist. Proses bisnis, mismatch historis, PR-01/02/03 dan lima SQL belum managed **tidak** ditutup oleh batch ini. Checklist komersialisasi/cutoff di `_28`; [handoff dan uji](2026-09-17_installer_heartbeat_control_handoff.md).
 
 **Batch 266 — 2026-09-16 (tindak lanjut audit build Control, bukan perbaikan bug bisnis):**

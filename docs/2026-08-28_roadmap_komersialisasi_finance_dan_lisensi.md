@@ -1,5 +1,16 @@
 # Roadmap Komersialisasi Finance POS
 
+Batch 268 — 2026-09-18: **alpha.16 / CUSTOMER_CLEAN v5 / REVIEW_REQUIRED / NOT_PUBLISHED**.
+[Handoff konfigurasi lokal customer](2026-09-18_customer_local_config_control_handoff.md).
+
+- [x] Satu `config/customer.json` untuk DB/URL/encryption/runtime; template ikut paket, secret tidak masuk Git/TAR; legacy kompatibel dan konflik sumber ditolak.
+- [x] Konfigurasi otomatis di CLI/web tanpa environment PHP-FPM; nginx deny /config, Apache deny/listing protection; path/symlink/permission/JSON divalidasi.
+- [x] Clean-install DB kosong memakai baseline + 20 migrasi terdaftar; journal parsial tidak diulang; signature/core/aktivasi/kuota/anti-clone dipertahankan.
+- [x] 41 pemeriksaan end-to-end nginx/FPM/MariaDB disposable lulus termasuk login pertama dan health; 58 pemeriksaan config + suite integritas/legacy lulus.
+- [x] Delapan gate build terisolasi + restore dari checkout bersih cutoff `018c7173…` PASS: 1.142 file, 306 tabel, 0 data customer/secret. End-to-end 41/41 juga diulang dari cutoff itu. Bukti di handoff, bukan approval publish.
+- [ ] Thread Control mereview cutoff `018c7173…`, pin/hash/profil v5 dan job `configuration_source=customer_local`, lalu build release baru/praktik UI. Alpha.15 tetap immutable.
+- [ ] Apache HTTP acceptance pada server target; instalasi subpath tidak didukung kontrak ini. Lima SQL belum managed tetap isu terpisah di `_30`.
+
 Batch 267 — 2026-09-17: kandidat **alpha.14 / CUSTOMER_CLEAN v4 / ISOLATED_BUILD_PASS / NOT_APPROVED / NOT_RELEASED**. [Handoff integrasi installer dan heartbeat](2026-09-17_installer_heartbeat_control_handoff.md) menjadi acuan review cutoff baru; release 66 PUBLISHED tidak ditimpa. Build akhir delapan gate + verifier independen PASS; 1.135 anggota profil cocok dengan snapshot, tanpa mismatch.
 
 - [x] Domain NULL/kosong/berbeda/berubah diterima sebagai metadata, bukan batas lisensi; FINANCE_BASE_URL tetap konfigurasi lokal customer.
