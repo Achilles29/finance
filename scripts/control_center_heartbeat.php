@@ -146,11 +146,15 @@ function heartbeat_private_json(string $path): array
 function heartbeat_database_config(?DeploymentConfig $deployment=null, ?array $environment=null): array
 {
     $environment=$environment??heartbeat_deployment_environment();
-    if(heartbeat_explicit_database($environment)){
+    $deployment=$deployment??new DeploymentConfig();
+    if(heartbeat_explicit_database($environment)||$deployment->isLocal()){
         // A blank selector must not silently select a different installation.
         foreach(['FINANCE_DEPLOYMENT_FILE','FINANCE_CUSTOMER_INSTALLATION_FILE','FINANCE_HEARTBEAT_CONFIG_FILE'] as $name)
             if(array_key_exists($name,$environment)&&(!is_string($environment[$name])||$environment[$name]===''))throw new RuntimeException('HEARTBEAT_DATABASE_CONFIG_INCOMPLETE');
-        return heartbeat_deployment_database($deployment??new DeploymentConfig());
+        $result=heartbeat_deployment_database($deployment);
+        if ($deployment->get(DeploymentConfig::DB_PORT)!==null) $result['port']=(int)$deployment->get(DeploymentConfig::DB_PORT);
+        if ($deployment->get(DeploymentConfig::DB_SOCKET)!==null) $result['socket']=$deployment->get(DeploymentConfig::DB_SOCKET);
+        return $result;
     }
     if (!is_file(PRIVATE_DATABASE_CONFIG) || is_link(PRIVATE_DATABASE_CONFIG)) {
         heartbeat_fail('database_config', 'Private database configuration is unavailable.');
@@ -246,8 +250,10 @@ $config = heartbeat_private_json($configPath);
 try{
     $deployment=new DeploymentConfig();
     $customerContext=null;
-    $contextFile=getenv('FINANCE_CUSTOMER_INSTALLATION_FILE');
-    if($contextFile!==false){
+    $environment=$deployment->customerEnvironment(FINANCE_ROOT,
+        ['FINANCE_CUSTOMER_INSTALLATION_FILE'=>(string)getenv('FINANCE_CUSTOMER_INSTALLATION_FILE')]);
+    $contextFile=$environment['FINANCE_CUSTOMER_INSTALLATION_FILE']??'';
+    if($contextFile!==''){
         $customerContext=Control_license_cache::customer_context(FINANCE_ROOT,$contextFile);
         if(($customerContext['identity']['instance_id']??null)!==$config['instance_id'])throw new RuntimeException('HEARTBEAT_CUSTOMER_INSTANCE_MISMATCH');
     }
@@ -269,7 +275,8 @@ $schemaVersion = '';
 try {
     $dbConfig = heartbeat_database_config($deployment);
     $database = new PDO(
-        'mysql:host='.$dbConfig['hostname'].';dbname='.$dbConfig['database'].';charset=utf8mb4',
+        'mysql:'.(!empty($dbConfig['socket'])?'unix_socket='.$dbConfig['socket']:'host='.$dbConfig['hostname'].';port='.($dbConfig['port']??3306))
+            .';dbname='.$dbConfig['database'].';charset=utf8mb4',
         $dbConfig['username'],
         $dbConfig['password'],
         [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT=>5]

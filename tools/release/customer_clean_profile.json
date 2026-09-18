@@ -2,10 +2,17 @@
     "schema": "finance.customer-clean-profile",
     "schema_version": 1,
     "profile": "CUSTOMER_CLEAN",
-    "profile_version": 4,
+    "profile_version": 5,
+    "local_configuration": {
+        "contract": "FINANCE_CUSTOMER_LOCAL_V1",
+        "mutable_path": "config/customer.json",
+        "template_path": "config/customer.example.json",
+        "included_in_artifact": false
+    },
     "seed_profile": "REFERENCE_ONLY",
     "demo_data": false,
     "code_files": [
+        "application/libraries/CustomerLocalConfig.php",
         "application/controllers/Roast_connect.php",
         "application/controllers/Roast_integrations.php",
         "application/models/Roast_connect_model.php",
@@ -710,6 +717,12 @@
         "system/libraries/index.html"
     ],
     "files": [
+        "config/.htaccess",
+        "config/customer.example.json",
+        "docs/customer_local_install.md",
+        "tools/install/customer_config.php",
+        "tools/install/CustomerDatabase.php",
+        "tools/install/nginx_customer_security.conf.example",
         ".htaccess",
         "app-manifest.json",
         "application/config/rbac_permission_baseline.json",

@@ -7,7 +7,11 @@ final class LinuxWebProfile
 {
     public static function render(array $p): array
     {
-        foreach (['app_root','state_root','deployment_file','tls_certificate','tls_key','mime_types'] as $key) {
+        $local = ($p['configuration_source'] ?? '') === 'customer_local';
+        $p['deployment_file'] = $p['deployment_file'] ?? '';
+        $paths = ['app_root','state_root','tls_certificate','tls_key','mime_types'];
+        if (!$local) $paths[] = 'deployment_file';
+        foreach ($paths as $key) {
             $path = $p[$key] ?? null;
             if (!is_string($path) || preg_match('~\A/[A-Za-z0-9_./-]+\z~D', $path) !== 1
                 || strpos($path, '..') !== false || realpath($path) !== $path || is_link($path)) throw new RuntimeException('PROFILE_PATH_INVALID');
@@ -25,6 +29,10 @@ final class LinuxWebProfile
             $lua = 'lua_package_path "' . $path . '/?.lua;;";';
         }
         $fpm = "[global]\npid = {$s}/fpm.pid\nerror_log = {$s}/fpm.log\ndaemonize = no\n[finance]\nuser = {$user}\ngroup = {$group}\nlisten = {$s}/php.sock\nlisten.owner = {$user}\nlisten.group = {$group}\nlisten.mode = 0600\npm = ondemand\npm.max_children = 2\npm.process_idle_timeout = 10s\nclear_env = yes\nchdir = {$app}\nsecurity.limit_extensions = .php\ncatch_workers_output = yes\nenv[CI_ENV] = production\nenv[FINANCE_DEPLOYMENT_FILE] = {$p['deployment_file']}\nphp_admin_flag[display_errors] = off\nphp_admin_flag[log_errors] = on\nphp_admin_value[error_log] = {$s}/logs/php-error.log\nphp_admin_value[upload_tmp_dir] = {$s}/tmp\nphp_admin_value[sys_temp_dir] = {$s}/tmp\n";
+        if ($local) {
+            // No custom database/runtime PHP-FPM environment: index.php resolves its own location.
+            $fpm=preg_replace('/^env\[[^\]]+\].*\n/m','',$fpm);
+        }
         $nginx = <<<'NGINX'
 user @USER@ @GROUP@;
 worker_processes 1;
@@ -47,6 +55,9 @@ http {
   ssl_certificate_key @KEY@;
   ssl_protocols TLSv1.2 TLSv1.3;
   root @APP@;
+  autoindex off;
+  location = /config { return 404; }
+  location ^~ /config/ { return 404; }
   client_max_body_size 16m;
   add_header X-Content-Type-Options nosniff always;
   location = /index.php {
@@ -87,7 +98,7 @@ NGINX;
             $fpm=str_replace("daemonize = no\n","daemonize = yes\n",$fpm);
             $nginx=str_replace("daemon off;","daemon on;",$nginx);
         }
-        if (isset($p['license_public_dir'])) {
+        if (!$local && isset($p['license_public_dir'])) {
             $dir=$p['license_public_dir'];
             if (!is_string($dir)||realpath($dir)!==$dir||is_link($dir)||preg_match('~\A/[A-Za-z0-9_./-]+\z~D',$dir)!==1
                 ||strpos($dir,$app.'/')===0) throw new RuntimeException('PROFILE_LICENSE_PATH_INVALID');
@@ -105,7 +116,7 @@ NGINX;
                 $name=['TRUST'=>'trust.json','IDENTITY'=>'identity.json','CACHE'=>'runtime.json'][$key];
                 if($context[$field]!==$p['license_public_dir'].'/'.$name)throw new RuntimeException('PROFILE_CUSTOMER_LICENSE_MISMATCH');
             }
-            $fpm.='env[FINANCE_CUSTOMER_INSTALLATION_FILE] = '.$p['customer_installation_file']."\n";
+            if (!$local) $fpm.='env[FINANCE_CUSTOMER_INSTALLATION_FILE] = '.$p['customer_installation_file']."\n";
         }
         return ['php-fpm.conf' => $fpm, 'nginx.conf' => $nginx . "\n"];
     }

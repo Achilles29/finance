@@ -29,7 +29,7 @@ $put = static function (string $path, string $bytes): void {
 try {
     $profile = CustomerReleaseProfile::fromRoot($root);
     $raw = json_decode((string)file_get_contents($root . '/' . CustomerReleaseProfile::PATH), true);
-    $check($profile->version() === 4, 'new allowlist has its own version; reviewed v3 is not overwritten');
+    $check($profile->version() === 5, 'local configuration has a new profile; published v4 is not overwritten');
     $unknown = $raw; $unknown['profile_version'] = 999;
     $reject(fn() => new CustomerReleaseProfile(json_encode($unknown)), 'unreviewed profile version rejected');
     $catalogSource = json_decode((string)file_get_contents($root . '/tools/db/migration_catalog.json'), true);
@@ -60,7 +60,7 @@ try {
         'application/.htaccess', 'system/.htaccess'] as $required) {
         $check($profile->allows($required), 'operational tooling and web protection retained: ' . $required);
     }
-    $forbidden = ['assets/menu-book/products/kopi-susu-namua.png', 'assets/roastery/logo 2.png',
+    $forbidden = ['config/customer.json', 'config/customer.json.bak', 'assets/menu-book/products/kopi-susu-namua.png', 'assets/roastery/logo 2.png',
         'assets/img/logo.png', 'assets/uploads/customer.jpg', 'assets/css/new-customer-photo.png',
         'assets/new-folder/customer.sql', 'application/new_dump.php',
         'docs/sql/2026-06-13b_zeroise_ting_ting_crumble_bar.sql', 'tools/truncate_all_tables.sql',

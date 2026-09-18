@@ -312,7 +312,11 @@ function a5_client_open(string $client, string $optionFile, string $databaseName
     if (preg_match('/\A[A-Za-z0-9_]{1,64}\z/D', $databaseName) !== 1) {
         a5_fail('database_name_invalid', 'Database name must be a 1 to 64 character MySQL identifier using only letters, digits, and underscores.');
     }
-    $command = [$client, '--defaults-extra-file=' . $optionFile, '--batch', '--raw', '--skip-column-names', '--unbuffered', $databaseName];
+    // Customer-local mode must not inherit a different endpoint/user from ~/.my.cnf.
+    // Legacy callers retain their historical option behavior; no global settings are changed.
+    $switch = class_exists('CustomerDatabase', false) && CustomerDatabase::ownsOption($optionFile)
+        ? '--defaults-file=' : '--defaults-extra-file=';
+    $command = [$client, $switch . $optionFile, '--batch', '--raw', '--skip-column-names', '--unbuffered', $databaseName];
     $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     if (!is_resource($process)) a5_fail('client_start', 'Migration client could not start.');
     stream_set_blocking($pipes[0], false);
@@ -355,6 +359,16 @@ function a5_client_send(array &$client, string $sql): void
     $payload = $sql . "\n";
     $offset = 0;
     while ($offset < strlen($payload)) {
+        // A large baseline can fill stdin while an early SQL error fills stderr.
+        // Drain both pipes during writes so a failed partial install cannot deadlock.
+        $output = stream_get_contents($client['pipes'][1]);
+        if (is_string($output) && $output !== '') $client['buffer'] .= $output;
+        $errors = stream_get_contents($client['pipes'][2]);
+        if (strlen($client['buffer']) > 1048576
+            || (is_string($errors) && preg_match('/(?:\A|\n)ERROR(?: |:)/i', $errors))) {
+            a5_fail('client_failure', 'Migration client failed; retain the partial-install journal and database.');
+        }
+        if (!proc_get_status($client['process'])['running']) a5_fail('client_failure', 'Migration client failed.');
         if (microtime(true) >= $client['deadline']) {
             a5_client_close($client, true);
             a5_fail('client_timeout', 'Migration client exceeded the apply deadline.');

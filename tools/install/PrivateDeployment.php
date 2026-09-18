@@ -42,6 +42,15 @@ final class PrivateDeployment
     {
         LicenseAgentFiles::securePath(dirname($log),dirname(__DIR__,2),true);
         if (is_link($log)||(file_exists($log)&&(!is_file($log)||fileowner($log)!==0||(fileperms($log)&0077)!==0))) throw new RuntimeException('PROCESS_LOG_UNSAFE');
+        if (!file_exists($log)) {
+            $mask=umask(0077);
+            try {
+                $h=fopen($log,'xb');
+                if (!$h) throw new RuntimeException('PROCESS_LOG_UNSAFE');
+                try { if(!chmod($log,0600))throw new RuntimeException('PROCESS_LOG_UNSAFE'); }
+                finally { fclose($h); }
+            } finally { umask($mask); }
+        }
         $p=proc_open($command,[0=>['file','/dev/null','r'],1=>['file',$log,'a'],2=>['file',$log,'a']],$pipes,null,$env?:null);
         if(!is_resource($p))throw new RuntimeException('PROCESS_START_FAILED');$start=microtime(true);
         do { $r=proc_get_status($p);if(!$r['running'])break;if(microtime(true)-$start>$timeout){proc_terminate($p,15);$until=microtime(true)+2;do{$r=proc_get_status($p);if(!$r['running'])break;usleep(20000);}while(microtime(true)<$until);if($r['running'])proc_terminate($p,9);proc_close($p);throw new RuntimeException('PROCESS_TIMEOUT');}usleep(20000); }while(true);

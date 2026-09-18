@@ -6,13 +6,16 @@ require_once __DIR__ . '/Control_license_verifier.php';
 final class Control_license_cache
 {
     /** Small immutable bootstrap set; uploads and business controllers are not runtime-rehashed. */
-    public static function customer_core_files(): array
+    public static function customer_core_files(int $profileVersion = 5): array
     {
-        return ['index.php', 'application/libraries/Control_license_cache.php',
+        $files = ['index.php', 'application/libraries/Control_license_cache.php',
             'application/libraries/Control_license_verifier.php', 'application/libraries/DeploymentConfig.php',
             'application/config/config.php', 'application/config/routes.php',
             'system/core/CodeIgniter.php', 'system/core/URI.php', 'system/core/Router.php',
             'tools/release/customer_clean_profile.json'];
+        if ($profileVersion >= 5) $files = array_merge($files, ['application/libraries/CustomerLocalConfig.php',
+            'application/config/database.php', 'config/.htaccess', '.htaccess']);
+        return $files;
     }
 
     private static function customer_source_file(string $root, string $relative): string
@@ -86,7 +89,7 @@ final class Control_license_cache
             }
             $inventory[$entry['path']] = $entry['sha256'] ?? null;
         }
-        foreach (self::customer_core_files() as $relative) {
+        foreach (self::customer_core_files($c['distribution_profile_version']) as $relative) {
             $expected = $c['core_sha256'][$relative] ?? null;
             if (!is_string($expected) || preg_match('/\A[a-f0-9]{64}\z/D', $expected) !== 1
                 || ($inventory[$relative] ?? null) !== $expected

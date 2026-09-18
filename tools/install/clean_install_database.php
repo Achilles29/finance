@@ -5,6 +5,7 @@ if (!defined('A513_POST_INSTALL_HEALTH_LIBRARY_ONLY')) define('A513_POST_INSTALL
 require_once dirname(__DIR__) . '/db/post_install_health_check.php';
 if (!defined('FINANCE_A512_OWNER_BOOTSTRAP_LIBRARY_ONLY')) define('FINANCE_A512_OWNER_BOOTSTRAP_LIBRARY_ONLY', true);
 require_once dirname(__DIR__) . '/db/bootstrap_first_owner.php';
+require_once __DIR__.'/CustomerDatabase.php';
 
 /** Installs a verified release into an already provisioned EMPTY database, never upgrades or wipes one. */
 function c3InstallEmptyDatabase(array $marker): void
@@ -22,6 +23,26 @@ function c3InstallDatabaseVersion(array $marker, string $signedContract): void
 }
 
 function c3InstallDatabase(array $o): array
+{
+    if (CustomerLocalConfig::present($o['release-root'])) {
+        if (isset($o['defaults-extra-file']) || isset($o['database-name-file'])) {
+            throw new RuntimeException('CUSTOMER_CONFIG_DUPLICATE_DATABASE_INPUT');
+        }
+        return CustomerDatabase::withConnection($o['release-root'], static function(array $connection,array $settings,string $private) use($o): array {
+            $lock=PrivateDeployment::lock($private);
+            try {
+                if (file_exists($private.'/database-attempt.json') || is_link($private.'/database-attempt.json')) {
+                    throw new RuntimeException('CUSTOMER_INSTALL_PREVIOUS_ATTEMPT');
+                }
+                return c3InstallDatabaseVerified($o+$connection,$private.'/database-attempt.json');
+            } finally { flock($lock,LOCK_UN); fclose($lock); }
+        });
+    }
+    if (!isset($o['defaults-extra-file'],$o['database-name-file'])) throw new RuntimeException('CUSTOMER_CONFIG_REQUIRED');
+    return c3InstallDatabaseVerified($o);
+}
+
+function c3InstallDatabaseVerified(array $o, ?string $journal = null): array
 {
     $toolRoot = dirname(__DIR__, 2);
     $option = a5_assert_apply_security($toolRoot, $o['defaults-extra-file']);
@@ -41,6 +62,13 @@ function c3InstallDatabase(array $o): array
     $release = a513_validate_release($o['release-root'], $o['release-root'] . '/RELEASE-MANIFEST.json');
     if ($release['manifest_sha256'] !== $manifest['source_manifest_sha256']) throw new RuntimeException('SIGNED_SOURCE_MISMATCH');
     $expected = array_merge(array_column($release['manifest']['files'], 'path'), ['RELEASE-MANIFEST.json']); sort($expected);
+    if (CustomerLocalConfig::present($release['root'])) {
+        $profile=CustomerReleaseProfile::fromRoot($release['root']);
+        if ($profile->version()<5) throw new RuntimeException('CUSTOMER_LOCAL_PROFILE_REQUIRED');
+        CustomerLocalConfig::read($release['root']);
+        $expected[]=CustomerLocalConfig::PATH;
+        sort($expected);
+    }
     $actual = [];
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($release['root'], FilesystemIterator::SKIP_DOTS));
     foreach ($it as $file) {
@@ -61,6 +89,10 @@ function c3InstallDatabase(array $o): array
         a5_client_send($client, "SELECT CONCAT('__C3_VERSION__\\t',VERSION());");
         $version = a5_client_marker($client, '__C3_VERSION__');
         c3InstallDatabaseVersion($version, $manifest['runtime']['database']);
+        if ($journal!==null) PrivateDeployment::write($journal,['status'=>'STARTED','at'=>gmdate(DATE_ATOM),
+            'release_root'=>$release['root'],'source_commit'=>$manifest['source_commit'],
+            'artifact_sha256'=>$manifest['sha256'],'database_sha256'=>hash('sha256',$database),
+            'recovery'=>'Inspect this attempt and the existing tables. Never auto-replay SQL after partial installation.']);
         $policy = ControlReleaseBridge::json((string)file_get_contents($release['root'] . '/tools/db/clean_install_baseline_policy.json'));
         a5_client_send($client, (string)file_get_contents($release['root'] . '/' . $policy['schema']['path']) . "\nSELECT '__C3_BASELINE_DONE__';\n");
         if (a5_client_marker($client, '__C3_BASELINE_DONE__') !== ['__C3_BASELINE_DONE__']) throw new RuntimeException('BASELINE_FAILED');
@@ -71,6 +103,10 @@ function c3InstallDatabase(array $o): array
         $ownerResult = a512_bootstrap_owner($release['root'], $option, $database, $owner);
         unset($owner);
         $health = a513_check_database($release, 'clean_install', $option, $database);
+        if ($journal!==null) {
+            $attempt=PrivateDeployment::read($journal);$attempt['status']='COMPLETE';$attempt['completed_at']=gmdate(DATE_ATOM);
+            PrivateDeployment::write($journal,$attempt);
+        }
         return ['status' => 'PASS', 'mode' => 'clean_install_database', 'version' => $manifest['version'],
             'database_server_version' => $version[1], 'database_contract' => $manifest['runtime']['database'],
             'artifact_sha256' => $manifest['sha256'], 'source_commit' => $manifest['source_commit'],
@@ -87,7 +123,9 @@ try {
         if (!preg_match('/\A--(release-root|signed-manifest|trust-file|defaults-extra-file|database-name-file|owner-file)=(.+)\z/D', $arg, $m) || isset($options[$m[1]])) throw new RuntimeException('USAGE');
         $options[$m[1]] = $m[2];
     }
-    if (count($options) !== 6) throw new RuntimeException('USAGE');
+    foreach (['release-root','signed-manifest','trust-file','owner-file'] as $required) {
+        if (!isset($options[$required])) throw new RuntimeException('USAGE');
+    }
     echo json_encode(c3InstallDatabase($options), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 } catch (Throwable $e) {
     $reason = property_exists($e, 'failureCode') ? $e->failureCode : $e->getMessage();

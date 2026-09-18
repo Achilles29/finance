@@ -96,6 +96,14 @@ class License_runtime_model extends CI_Model
     {
         $path = (string)getenv('FINANCE_LICENSE_CACHE_FILE');
         $context=(string)getenv('FINANCE_CUSTOMER_INSTALLATION_FILE');
+        require_once dirname(__DIR__).'/libraries/DeploymentConfig.php';
+        try {
+            $e=(new DeploymentConfig())->customerEnvironment(FCPATH, ['FINANCE_CUSTOMER_INSTALLATION_FILE'=>$context]);
+            $context=$e['FINANCE_CUSTOMER_INSTALLATION_FILE'] ?? '';
+        } catch (Throwable $error) {
+            return $this->fileRuntime=['verification'=>['verified'=>false,'status'=>'RESTRICTED',
+                'code'=>'CUSTOMER_CONFIGURATION_UNAVAILABLE'],'cache'=>[],'identity'=>[]];
+        }
         if ($path === '' && $context === '') return null;
         if (is_array($this->fileRuntime)) return $this->fileRuntime;
         $this->load->library('Control_license_cache');

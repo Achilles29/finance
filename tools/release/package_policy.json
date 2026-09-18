@@ -12,6 +12,8 @@
     "wa-engine/"
   ],
   "include_files": [
+    "config/.htaccess",
+    "config/customer.example.json",
     ".htaccess",
     "README.md",
     "app-manifest.json",
@@ -26,6 +28,7 @@
     "application/logs/index.html"
   ],
   "deny_exact": [
+    "config/customer.json",
     ".user.ini",
     "application/controllers/Audit.php",
     "application/libraries/AuditRoadmapReader.php",

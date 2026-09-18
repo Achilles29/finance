@@ -55,7 +55,11 @@ date_default_timezone_set('Asia/Jakarta'); // Sesuaikan timezone
  *
  * NOTE: If you change these, also change the error_reporting() code below
  */
-	define('ENVIRONMENT', isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'development');
+    require_once __DIR__.'/application/libraries/CustomerLocalConfig.php';
+    $finance_customer_local = CustomerLocalConfig::present(__DIR__);
+    $finance_customer_package = CustomerLocalConfig::packaged(__DIR__);
+	define('ENVIRONMENT', ($finance_customer_local || $finance_customer_package) ? 'production'
+        : (isset($_SERVER['CI_ENV']) ? $_SERVER['CI_ENV'] : 'development'));
 
 /*
  *---------------------------------------------------------------
@@ -347,6 +351,15 @@ foreach (array('FINANCE_CUSTOMER_INSTALLATION_FILE', 'FINANCE_LICENSE_TRUST_FILE
     'FINANCE_LICENSE_IDENTITY_FILE', 'FINANCE_LICENSE_CACHE_FILE') as $customer_key) {
     $customer_value = getenv($customer_key);
     $customer_environment[$customer_key] = $customer_value === false ? '' : $customer_value;
+}
+try {
+    require_once APPPATH.'libraries/DeploymentConfig.php';
+    $customer_resolver = $deployment_config ?? new DeploymentConfig();
+    $customer_environment = $customer_resolver->customerEnvironment(FCPATH, $customer_environment);
+} catch (Throwable $error) {
+    http_response_code(503);
+    echo 'Konfigurasi instalasi tidak tersedia. Administrator: periksa config/customer.json dan panduan instalasi.';
+    exit(1);
 }
 if (implode('', $customer_environment) !== '') {
     require_once APPPATH.'libraries/Control_license_cache.php';

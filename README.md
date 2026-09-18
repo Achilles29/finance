@@ -1,5 +1,10 @@
 # Finance
 
+Instalasi customer mulai alpha.16 menggunakan **`config/customer.json`** (salin
+template `config/customer.example.json`). Ikuti [panduan instalasi lokal](docs/customer_local_install.md)
+untuk database kosong, konfigurasi web aman, lisensi dan login pertama. Jangan
+menyertakan file konfigurasi berisi credential dalam Git atau paket release.
+
 Finance adalah aplikasi operasional internal berbasis CodeIgniter 3 untuk:
 
 1. purchase
@@ -113,4 +118,3 @@ Kalau harus melanjutkan coding dari status sekarang, urutan aman umumnya:
 5. deprecate tabel legacy di DB
 
 Root README ini sengaja ringkas. Semua detail progres dan keputusan operasional dipusatkan di folder `docs/`.
-

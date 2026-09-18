@@ -62,7 +62,7 @@ try{
         'release_public_id'=>'00000000-0000-4000-8000-000000000002','version'=>$app['version'],'source_commit'=>str_repeat('a',40),
         'artifact_sha256'=>hash('sha256','fixture-tar'),'app_manifest_sha256'=>hash('sha256',$appBytes),
         'source_manifest_sha256'=>hash_file('sha256',$root.'/RELEASE-MANIFEST.json'),
-        'distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>4,
+        'distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>5,
         'profile_sha256'=>hash_file('sha256',$root.'/tools/release/customer_clean_profile.json'),
         'customer_runtime_guard'=>'FINANCE_CUSTOMER_SERVER_V1',
         'identity'=>$identity,'machine_fingerprint_sha256'=>$machine,'core_sha256'=>$core,
@@ -70,7 +70,7 @@ try{
     $wire=['schema'=>1,'context'=>'NAMUA_RELEASE_MANIFEST_V1','product_code'=>'NAMUA_FINANCE','release_public_id'=>$c['release_public_id'],
         'version'=>$c['version'],'source_commit'=>$c['source_commit'],'source_manifest_sha256'=>$c['app_manifest_sha256'],
         'filename'=>'finance-fixture.tar','sha256'=>$c['artifact_sha256'],'contains_customer_data'=>false,'contains_secrets'=>false,
-        'distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>4,
+        'distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>5,
         'customer_runtime_guard'=>'FINANCE_CUSTOMER_SERVER_V1',
         'customer_content_audit'=>['status'=>'PASS','profile_sha256'=>$c['profile_sha256'],'artifact_sha256'=>$c['artifact_sha256'],'source_manifest_sha256'=>$c['source_manifest_sha256']],
         'packaging'=>['profile_code'=>'CUSTOMER_CLEAN','rules_sha256'=>$c['profile_sha256'],'audience'=>'CUSTOMER','sample_data'=>'NONE']];
@@ -118,6 +118,9 @@ try{
     }
     $check(!$decision($env,['REQUEST_METHOD'=>'POST','REQUEST_URI'=>'/login'],$now)['allowed'],'recovery allowlist is HTTP-method scoped');
     $pipes=[];$childEnv=['PATH'=>'/usr/bin:/bin','CI_ENV'=>'testing','FINANCE_CUSTOMER_INSTALLATION_FILE'=>$contextFile];
+    $childEnv+=['FINANCE_DB_HOST'=>'127.0.0.1','FINANCE_DB_NAME'=>'fixture_db',
+        'FINANCE_DB_USER'=>bin2hex(random_bytes(8)),'FINANCE_DB_PASSWORD'=>bin2hex(random_bytes(16)),
+        'FINANCE_ENCRYPTION_KEY'=>bin2hex(random_bytes(32))];
     $p=proc_open([PHP_BINARY,__FILE__,'--front-controller-child',$root],[0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,null,$childEnv);
     if(!is_resource($p))throw new RuntimeException('FIXTURE_PROCESS_FAILED');$out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$exit=proc_close($p);
     if($exit!==1||strpos($out,'Instalasi belum berlisensi aktif')===false||$err!=='')throw new RuntimeException('FRONT_CONTROLLER_FIXTURE_DIAGNOSTIC '.json_encode(['exit'=>$exit,'out'=>$out,'err'=>$err]));

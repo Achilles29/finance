@@ -2,6 +2,9 @@
 defined('BASEPATH') OR exit('No direct script access allowed');
 
 require_once dirname(__DIR__) . '/libraries/DeploymentConfig.php';
+if (!isset($finance_deployment_config) || !($finance_deployment_config instanceof DeploymentConfig)) {
+	$finance_deployment_config = new DeploymentConfig();
+}
 
 /*
  * Staging keeps its local connection settings in a private file outside the
@@ -11,6 +14,8 @@ require_once dirname(__DIR__) . '/libraries/DeploymentConfig.php';
 $finance_private_database_file = '/var/lib/finance-config/database.php';
 $finance_environment = defined('ENVIRONMENT') ? ENVIRONMENT : 'production';
 if (in_array($finance_environment, array('development', 'staging'), TRUE)
+	&& !$finance_deployment_config->hasExplicitDatabase()
+	&& !CustomerLocalConfig::packaged(dirname(__DIR__, 2))
 	&& is_file($finance_private_database_file)
 	&& !is_link($finance_private_database_file)
 ) {
@@ -37,7 +42,8 @@ $query_builder = TRUE;
 
 $db['default'] = array(
 	'dsn' => '',
-	'hostname' => $finance_deployment_config->get(DeploymentConfig::DB_HOST, ''),
+	'hostname' => $finance_deployment_config->get(DeploymentConfig::DB_SOCKET, '') ?: $finance_deployment_config->get(DeploymentConfig::DB_HOST, ''),
+	'port' => (int)$finance_deployment_config->get(DeploymentConfig::DB_PORT, 3306),
 	'username' => $finance_deployment_config->get(DeploymentConfig::DB_USER, ''),
 	'password' => $finance_deployment_config->get(DeploymentConfig::DB_PASSWORD, ''),
 	'database' => $finance_deployment_config->get(DeploymentConfig::DB_NAME, ''),

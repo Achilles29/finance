@@ -1,6 +1,8 @@
+Options -Indexes
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /finance/
+  # Before the existing-file exemption. Also enforced by config/.htaccess.
+  RewriteRule ^config(?:/|$) - [F,L,NC]
 
   # Jangan rewrite aset/file yang memang ada
   RewriteCond %{REQUEST_FILENAME} !-f

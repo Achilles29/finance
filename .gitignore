@@ -52,3 +52,5 @@ user_guide_src/cilexer/pycilexer.egg-info/*
 *.sublime-project
 /tests/tests/
 /tests/results/
+# Customer secrets: exact path only; the example and protections remain versioned.
+/config/customer.json

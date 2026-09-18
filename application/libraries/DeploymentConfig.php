@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/CustomerLocalConfig.php';
 
 /**
  * Resolves deployment configuration from the process environment.
@@ -11,6 +12,8 @@ final class DeploymentConfig
 {
     const ENCRYPTION_KEY = 'FINANCE_ENCRYPTION_KEY';
     const DB_HOST = 'FINANCE_DB_HOST';
+    const DB_PORT = 'FINANCE_DB_PORT';
+    const DB_SOCKET = 'FINANCE_DB_SOCKET';
     const DB_NAME = 'FINANCE_DB_NAME';
     const DB_USER = 'FINANCE_DB_USER';
     const DB_PASSWORD = 'FINANCE_DB_PASSWORD';
@@ -24,6 +27,7 @@ final class DeploymentConfig
      * @var array
      */
     private $environment;
+    private $local = false;
 
     /**
      * @param array|null $snapshot Explicit values are intended for tests.
@@ -32,6 +36,7 @@ final class DeploymentConfig
     {
         if ($snapshot === null) {
             $snapshot = self::snapshotEnvironment();
+            $this->local = CustomerLocalConfig::present(dirname(__DIR__, 2));
         }
 
         if (!is_array($snapshot)) {
@@ -61,18 +66,68 @@ final class DeploymentConfig
     public static function snapshotEnvironment($names = null)
     {
         if ($names === null) {
-            $names = array_merge(self::productionRequiredNames(), array(self::BASE_URL, self::SESSION_PATH, self::SESSION_COOKIE, self::LOG_PATH, self::CACHE_PATH));
+            $names = self::allowedNames();
         }
 
-        $snapshot = self::deploymentFileSnapshot();
+        $file = self::deploymentFileSnapshot();
+        $env = array();
         foreach ($names as $name) {
             $value = getenv($name);
             if ($value !== false) {
-                $snapshot[$name] = $value;
+                $env[$name] = $value;
             }
         }
 
-        return $snapshot;
+        $root = dirname(__DIR__, 2);
+        if (CustomerLocalConfig::present($root)) {
+            return CustomerLocalConfig::merge(CustomerLocalConfig::read($root), $file, $env);
+        }
+        return array_replace($file, $env);
+    }
+
+    public static function allowedNames()
+    {
+        return array_merge(self::productionRequiredNames(), array(self::DB_PORT, self::DB_SOCKET,
+            self::BASE_URL, self::SESSION_PATH, self::SESSION_COOKIE, self::LOG_PATH, self::CACHE_PATH));
+    }
+
+    /** Installer resolver for an extracted target, not the tool's own development installation. */
+    public static function forRoot($root)
+    {
+        $local = CustomerLocalConfig::read($root);
+        $env = array();
+        foreach (self::allowedNames() as $name) if (getenv($name) !== false) $env[$name] = getenv($name);
+        $resolver = new self(CustomerLocalConfig::merge($local, self::deploymentFileSnapshot(), $env));
+        $resolver->local = true;
+        return $resolver;
+    }
+
+    public function isLocal() { return $this->local; }
+    public function values() { return $this->environment; }
+
+    public function hasExplicitDatabase()
+    {
+        if ($this->local || getenv('FINANCE_DEPLOYMENT_FILE') !== false) return true;
+        foreach (array(self::DB_HOST, self::DB_PORT, self::DB_SOCKET, self::DB_NAME, self::DB_USER, self::DB_PASSWORD) as $key) {
+            if (array_key_exists($key, $this->environment)) return true;
+        }
+        return false;
+    }
+
+    /** Public signed context stays OUTSIDE source; no private agent key is moved here. */
+    public function customerEnvironment($root, array $environment)
+    {
+        if ($this->local) {
+            $context = CustomerLocalConfig::runtime($this->environment).'/customer-installation.json';
+            if (!empty($environment['FINANCE_CUSTOMER_INSTALLATION_FILE'])
+                && $environment['FINANCE_CUSTOMER_INSTALLATION_FILE'] !== $context) {
+                throw new RuntimeException('CUSTOMER_CONFIG_CONTEXT_CONFLICT');
+            }
+            $environment['FINANCE_CUSTOMER_INSTALLATION_FILE'] = $context;
+        } elseif (CustomerLocalConfig::packaged($root) && empty($environment['FINANCE_CUSTOMER_INSTALLATION_FILE'])) {
+            throw new RuntimeException('CUSTOMER_INSTALLATION_CONTEXT_REQUIRED');
+        }
+        return $environment;
     }
 
     /** Optional root-owned JSON secret file, outside the webroot; never executable PHP. */
@@ -96,7 +151,7 @@ final class DeploymentConfig
         }
         $values = json_decode((string)file_get_contents($path), true);
         if (!is_array($values)) throw new RuntimeException('Deployment file is unavailable.');
-        $allowed = array_merge(self::productionRequiredNames(), array(self::BASE_URL, self::SESSION_PATH, self::SESSION_COOKIE, self::LOG_PATH, self::CACHE_PATH));
+        $allowed = self::allowedNames();
         foreach ($values as $name => $value) {
             if (!in_array($name, $allowed, true) || !is_string($value)) throw new RuntimeException('Deployment file is unavailable.');
         }

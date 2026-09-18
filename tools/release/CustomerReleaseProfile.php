@@ -16,7 +16,7 @@ final class CustomerReleaseProfile
         $p = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
         if (!is_array($p) || ($p['schema'] ?? '') !== 'finance.customer-clean-profile'
             || ($p['schema_version'] ?? null) !== 1 || ($p['profile'] ?? '') !== self::ID
-            || !in_array($p['profile_version'] ?? null, [1,2,3,4], true) || ($p['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
+            || !in_array($p['profile_version'] ?? null, [1,2,3,4,5], true) || ($p['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
             || ($p['demo_data'] ?? null) !== false) throw new RuntimeException('CUSTOMER_PROFILE_INVALID');
         foreach (['code_files', 'files', 'static_sha256', 'sql_sha256'] as $field) {
             if (!isset($p[$field]) || !is_array($p[$field]) || $p[$field] === []) throw new RuntimeException('CUSTOMER_PROFILE_INVALID');
@@ -26,6 +26,11 @@ final class CustomerReleaseProfile
                 if (in_array($field, ['static_sha256', 'sql_sha256'], true)
                     && (!is_string($value) || preg_match('/\A[a-f0-9]{64}\z/D', $value) !== 1)) throw new RuntimeException('CUSTOMER_PROFILE_DIGEST');
             }
+        }
+        if ($p['profile_version']>=5 && ($p['local_configuration']??null)!==[
+            'contract'=>'FINANCE_CUSTOMER_LOCAL_V1','mutable_path'=>'config/customer.json',
+            'template_path'=>'config/customer.example.json','included_in_artifact'=>false]) {
+            throw new RuntimeException('CUSTOMER_LOCAL_CONTRACT_INVALID');
         }
         $this->profile = $p;
         $this->digest = hash('sha256', $raw);
@@ -43,6 +48,7 @@ final class CustomerReleaseProfile
 
     public function allows(string $path): bool
     {
+        if ($path==='config/customer.json') return false;
         if (!ReleasePackagePolicy::relativePathValid($path)) return false;
         // Legacy artwork contains real product names, prices and photographs, including inline HTML.
         if (str_starts_with($path, 'application/views/menu_book/') && $path !== 'application/views/menu_book/customer.php') return false;
