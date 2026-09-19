@@ -258,8 +258,8 @@ $check(is_array($safeMigration)
     && ($safeMigration['classification'] ?? '') === 'seed'
     && hash_file('sha256', $root . '/' . $paths['safe_sql']) === ($safeMigration['sha256'] ?? ''),
     'safe activation migration has exact order, dependency, class, and checksum');
-$check(count($catalog['migrations'] ?? []) === 20 && count($catalog['legacy_unmanaged_sql'] ?? []) === 7,
-    'catalog contains exactly twenty managed and seven legacy SQL files');
+$check(count($catalog['migrations'] ?? []) === 26 && count($catalog['legacy_unmanaged_sql'] ?? []) === 7,
+    'catalog contains exactly twenty-six managed and seven legacy SQL files');
 
 if (!defined('BASEPATH')) {
     define('BASEPATH', $root . '/system/');

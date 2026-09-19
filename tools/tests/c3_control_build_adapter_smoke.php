@@ -54,6 +54,14 @@ $defaults = [
     'fin_control_policy' => "INSERT INTO fin_control_policy VALUES(1,0,1000000,0,1,1,NULL,'2026-09-16 00:00:00')",
 ];
 foreach ($defaults as $sql) $memory->exec($sql);
+$memory->exec('CREATE TABLE fin_gl_account(code TEXT PRIMARY KEY,name TEXT,account_type TEXT,is_cash INTEGER,is_active INTEGER DEFAULT 1)');
+$referenceSql=file_get_contents($root.'/sql/2026-09-15a_finance_general_ledger.sql');
+preg_match_all("/\\('[0-9]{4}','[^']+','(?:ASSET|LIABILITY|EQUITY|INCOME|EXPENSE)',[01]\\)/u",$referenceSql,$coaTuples);
+$memory->exec('INSERT INTO fin_gl_account(code,name,account_type,is_cash) VALUES '.implode(',',$coaTuples[0]));
+$coaQuery=str_replace('BINARY ','',DisposableBuildDatabase::accountReferenceQuery()); // SQLite TEXT comparison is binary by default.
+$check($memory->query($coaQuery)->fetchArray(SQLITE3_NUM)===[24,24],'clean package allows exactly the 24 generic chart-of-account defaults');
+$memory->exec("UPDATE fin_gl_account SET name='Private customer reference' WHERE code='1100'");
+$check($memory->query($coaQuery)->fetchArray(SQLITE3_NUM)!==[24,24],'customer-specific account reference cannot pass the package data gate');
 foreach (DisposableBuildDatabase::safeDefaultQueries() as $failure => $sql) {
     $table = $failure === 'ROAST_CONNECT_DEFAULT_UNSAFE' ? 'sys_roast_connect' : 'fin_control_policy';
     $query = str_replace('BINARY ', '', $sql); // SQLite comparison is already case-sensitive.

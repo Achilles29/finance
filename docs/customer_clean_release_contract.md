@@ -1,5 +1,15 @@
 # Kontrak paket customer bersih — Finance ↔ Control
 
+## Kontrak kandidat 20 September 2026
+
+Source `0.1.0-alpha.22`, `CUSTOMER_CLEAN` v10. Nilai otoritatif ada pada `app-manifest.json` dan `tools/release/customer_clean_profile.json` dari cutoff yang sama. Verifier mengenali versi profil yang didukung secara eksplisit; v10 mewajibkan `managed_migration_contract=FINANCE_MANAGED_ADOPTION_V1` selain feature boundary, single-folder, guided setup dan izin `UNTIL_USED_OR_REVOKED` yang tetap berlaku. Tidak ada deadline mulai instalasi dan domain bukan pengunci.
+
+Katalog berisi 26 migrasi clean-install / 25 upgrade, termasuk 14c/15a/15b/15c/16a yang sebelumnya manual serta koreksi schema POS 20a. Adopsi manual wajib lolos proof; schema parsial/drift ditahan. Paket berisi jurnal beserta dependensinya dan panduan UI, hanya 24 akun referensi generik; jurnal/mapping/customer master/transaksi/bukti stok tetap kosong. Baseline lama dan checksum lima SQL lama tidak diubah.
+
+Pemasangan baru mengikuti `customer_single_folder.md`: ZIP lengkap → root website `public/` → persiapan admin sekali → `/setup`; konfigurasi `config/customer.json`. Jangan memakai alur/toolkit historis di bawah sebagai pengganti petunjuk paket baru. **Update kode instalasi aktif belum tersedia**: preflight baru bersifat read-only, bukan switch/rollback yang siap digunakan. Jangan menimpa folder atau menjalankan clean installer ulang. Control tetap melakukan review, approval, build resmi dan publish; kandidat source bukan release yang siap diunduh.
+
+## Riwayat kontrak (bukan status kandidat terbaru)
+
 Delta working tree 14 September 2026 (Batch 249): profil aktif **version 3**, SHA `e167cc4f826f90976a59b023606d8af5aa0a43304e73c85ac346226238c48781`. Runtime Kontrol Keuangan dan migration `2026-09-14a/b` tersedia; konfirmasi/rencana/bukti/persetujuan staging bukan seed. Bukti privat disimpan di luar root aplikasi, tidak dibundel. Verifier mengeluarkan versi profil yang benar-benar diperiksa; installer mengikat versi/digest plan ke artifact dan mengenali v1/v2/v3 saja. Control perlu scan ulang, tidak meng-hardcode versi. Hash trusted-local, signature, larangan data/secret tetap berlaku. Tidak mengubah artifact/tag alpha.12, tidak ada build/publish baru. Blocker allowlist SQL Roast Connect masih terbuka; status rilis ada di `_28`/execution log Batch 249. `.user.ini` staging bukan runtime allowlist; pengaturan private evidence/open_basedir customer harus memakai path instance customer. Keterangan Batch 245 di bawah adalah bukti cutoff historis, bukan hasil gate working tree ini.
 
 Status terkini: implementasi sisi Finance **0.1.0-alpha.12**, 12 September 2026 (Batch 245). Control dikerjakan thread lain; dokumen ini menjadi kontrak bersama. Jangan mengosongkan sumber Finance atau database development.

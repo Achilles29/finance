@@ -100,14 +100,14 @@ $upgradeJson = json_decode(trim($upgrade['out']), true);
 $check($validate['code'] === 0 && $planA['code'] === 0 && $upgrade['code'] === 0, 'repository catalog validates and both DB-free policies plan successfully');
 $check($planA['out'] === $planB['out'], 'plan output is byte-for-byte deterministic');
 $plannedIds = array_column($planJson['migrations'] ?? [], 'id');
-$check($plannedIds === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05d-a5-clean-install-reference-seed', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation', '2026-09-06f-pos-mobile-cashier-close-step-up', '2026-09-06g-pos-mobile-reservation-refund-step-up', '2026-09-06h-roastery-label-template-studio', '2026-09-06i-a3-sidebar-task-oriented-layout', '2026-09-07a-c2-c4-business-profile-license-runtime-foundation', '2026-09-12a-roast-connect-catalog', '2026-09-13a-finance-mutation-reporting-category', '2026-09-14a-finance-control-workspace', '2026-09-14b-finance-control-operations'], 'clean-install plan includes the customer profile and audit-only license foundation after sidebar IA');
-$check(array_column($upgradeJson['migrations'] ?? [], 'id') === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation', '2026-09-06f-pos-mobile-cashier-close-step-up', '2026-09-06g-pos-mobile-reservation-refund-step-up', '2026-09-06h-roastery-label-template-studio', '2026-09-06i-a3-sidebar-task-oriented-layout', '2026-09-07a-c2-c4-business-profile-license-runtime-foundation', '2026-09-12a-roast-connect-catalog', '2026-09-13a-finance-mutation-reporting-category', '2026-09-14a-finance-control-workspace', '2026-09-14b-finance-control-operations'], 'upgrade plan excludes only the clean-install-only navigation reference seed');
+$check($plannedIds === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05d-a5-clean-install-reference-seed', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation', '2026-09-06f-pos-mobile-cashier-close-step-up', '2026-09-06g-pos-mobile-reservation-refund-step-up', '2026-09-06h-roastery-label-template-studio', '2026-09-06i-a3-sidebar-task-oriented-layout', '2026-09-07a-c2-c4-business-profile-license-runtime-foundation', '2026-09-12a-roast-connect-catalog', '2026-09-13a-finance-mutation-reporting-category', '2026-09-14a-finance-control-workspace', '2026-09-14b-finance-control-operations', '2026-09-14c-finance-allocation-bank-review', '2026-09-15a-finance-general-ledger', '2026-09-15b-finance-journal-assistant', '2026-09-15c-application-user-guide', '2026-09-16a-procurement-stock-review','2026-09-20a-pos-stock-commit-not-required'], 'clean-install plan includes the customer profile and audit-only license foundation after sidebar IA');
+$check(array_column($upgradeJson['migrations'] ?? [], 'id') === ['2026-09-04c-a5-schema-migration-registry-foundation', '2026-09-05e-whatsapp-safe-reference-seed', '2026-09-05a-telegram-bot-foundation', '2026-09-05b-telegram-setup-guide', '2026-09-05c-telegram-safe-activation-default', '2026-09-06a-component-formula-version-history', '2026-09-06b-component-formula-restore-action', '2026-09-06c-pos-mobile-reversal-step-up', '2026-09-06d-pos-mobile-reprint-step-up', '2026-09-06e-activity-audit-foundation', '2026-09-06f-pos-mobile-cashier-close-step-up', '2026-09-06g-pos-mobile-reservation-refund-step-up', '2026-09-06h-roastery-label-template-studio', '2026-09-06i-a3-sidebar-task-oriented-layout', '2026-09-07a-c2-c4-business-profile-license-runtime-foundation', '2026-09-12a-roast-connect-catalog', '2026-09-13a-finance-mutation-reporting-category', '2026-09-14a-finance-control-workspace', '2026-09-14b-finance-control-operations', '2026-09-14c-finance-allocation-bank-review', '2026-09-15a-finance-general-ledger', '2026-09-15b-finance-journal-assistant', '2026-09-15c-application-user-guide', '2026-09-16a-procurement-stock-review','2026-09-20a-pos-stock-commit-not-required'], 'upgrade plan excludes only the clean-install-only navigation reference seed');
 $check(
     count($catalog['legacy_unmanaged_sql'] ?? []) === 7
-        && count($catalog['migrations'] ?? []) === 20
+        && count($catalog['migrations'] ?? []) === 26
         && hash_file('sha256', $sqlPath) === ($catalog['migrations'][0]['sha256'] ?? '')
         && ($catalog['migrations'][0]['policies'] ?? []) === ['clean_install', 'upgrade'],
-    'catalog records twenty managed and seven explicit legacy SQL files plus exact foundation checksum and policies'
+    'catalog records twenty-six managed and seven explicit legacy SQL files plus exact foundation checksum and policies'
 );
 $check(($catalog['migrations'][1]['dependencies'] ?? []) === [$catalog['migrations'][0]['id']], 'Telegram migration explicitly depends on the registry foundation');
 $check(($catalog['migrations'][2]['dependencies'] ?? []) === [$catalog['migrations'][1]['id']], 'Telegram guide migration explicitly depends on the Telegram foundation');
@@ -191,8 +191,29 @@ $check(count(array_filter($allPaths, static function ($path): bool { return strp
 $sqlWithoutComments = preg_replace('/^\s*--.*$/m', '', $sql);
 $check(preg_match('/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+`sys_schema_migration`/i', $sql) === 1 && preg_match('/PRIMARY\s+KEY\s*\(\s*`migration_id`\s*\)/i', $sql) === 1, 'registry DDL is repeat-safe and keyed by migration_id');
 $check(preg_match('/`filename`|`checksum_sha256`|`catalog_version`|`tool_version`|`applied_at`/', $sql) === 1 && preg_match('/\b(INSERT|UPDATE|DELETE|REPLACE|DROP|TRUNCATE)\b/i', (string)$sqlWithoutComments) === 0, 'registry SQL is metadata-only, non-destructive DDL');
-$check(strpos($runnerSource, 'getenv(') === false && strpos($runnerSource, 'database.php') === false && preg_match('/new\s+PDO|mysqli_|mysql_connect|\brequire(?:_once)?\s*\(?\s*__|\binclude(?:_once)?\s*\(?\s*__/i', $runnerSource) === 0, 'runner has no config bootstrap, credential environment read, or DB client access');
+$withoutPureProofImport = str_replace("require_once __DIR__ . '/ManagedMigrationProof.php';", '', $runnerSource);
+$check(strpos($runnerSource, 'getenv(') === false && strpos($runnerSource, 'database.php') === false && preg_match('/new\s+PDO|mysqli_|mysql_connect|\brequire(?:_once)?\s*\(?\s*__|\binclude(?:_once)?\s*\(?\s*__/i', $withoutPureProofImport) === 0, 'runner imports only the pure schema-proof helper, not application config or credentials');
 $check(strpos($validate['out'] . $planA['out'] . $validate['err'], 'A5_SECRET_TRIPWIRE') === false && strpos($planA['out'], $root) === false, 'runner output exposes only safe relative metadata');
+
+require_once dirname(__DIR__).'/db/ManagedMigrationProof.php';
+$oldEnum="enum('PENDING','QUEUED','PROCESSING','POSTED','FAILED','REVERSED')|NO|'PENDING'|";
+$newEnum="enum('PENDING','QUEUED','PROCESSING','POSTED','FAILED','REVERSED','NOT_REQUIRED')|NO|'PENDING'|";
+$enumProof=static function(string $column,int $invalidRows)use($root):string{
+    return ManagedMigrationProof::state($root,'2026-09-20a-pos-stock-commit-not-required',static function(string $sql)use($column,$invalidRows){
+        if(str_contains($sql,'SELECT CONCAT_WS'))return $column;
+        if(str_contains($sql,'SELECT COUNT(*) FROM pos_order'))return $invalidRows;
+        if(str_contains($sql,'information_schema.TABLES')||str_contains($sql,'information_schema.COLUMNS'))return 1;
+        throw new LogicException('Unexpected proof query');
+    });
+};
+$check($enumProof($oldEnum,0)==='ABSENT','original valid enum is eligible for additive correction');
+$check($enumProof($newEnum,0)==='VERIFIED','corrected enum supports verified manual adoption');
+foreach([$oldEnum,$newEnum]as$enum){
+    try{$enumProof($enum,1);$check(false,'invalid historic enum status accepted');}
+    catch(RuntimeException $e){$check($e->getMessage()==='MIGRATION_DATA_REVIEW_REQUIRED:pos_order.stock_commit_status','historic blank/NULL stock status requires explicit data review, never automatic backfill');}
+}
+try{$enumProof("varchar(20)|YES|NULL|",0);$check(false,'unexpected stock schema accepted');}
+catch(RuntimeException $e){$check($e->getMessage()==='MIGRATION_SCHEMA_DRIFT:pos_order.stock_commit_status','unexpected stock schema is not treated as manually migrated');}
 
 $fixtureParent = sys_get_temp_dir() . '/finance-a5-contract-' . bin2hex(random_bytes(6));
 mkdir($fixtureParent, 0700, true);

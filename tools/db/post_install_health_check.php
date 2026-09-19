@@ -180,9 +180,9 @@ function a513_permission_match_sql(): string
 {
     // Match the least-privilege permissions deliberately seeded by each module;
     // do not grant extra mutations merely to satisfy the installer assertion.
-    $write = "(CASE WHEN BINARY p.page_code IN ('tg.guide','finance.control.approve','finance.control.settings') THEN 0 ELSE 1 END)";
-    $edit = "(CASE WHEN BINARY p.page_code='tg.guide' THEN 0 ELSE 1 END)";
-    $deleteExport = "(CASE WHEN BINARY p.page_code IN ('tg.guide','system.roast_connect','finance.control.index','finance.control.approve','finance.control.settings') THEN 0 ELSE 1 END)";
+    $write = "(CASE WHEN BINARY p.page_code IN ('tg.guide','finance.control.approve','finance.control.settings','finance.accounting.settings','system.guide.index','system.guide.server') THEN 0 ELSE 1 END)";
+    $edit = "(CASE WHEN BINARY p.page_code IN ('tg.guide','finance.accounting.index','system.guide.index','system.guide.server') THEN 0 ELSE 1 END)";
+    $deleteExport = "(CASE WHEN BINARY p.page_code IN ('tg.guide','system.roast_connect','finance.control.index','finance.control.approve','finance.control.settings','finance.accounting.index','finance.accounting.settings','system.guide.index','system.guide.server') THEN 0 ELSE 1 END)";
     return 'rp.can_view=1 AND rp.can_create=' . $write . ' AND rp.can_edit=' . $edit
         . ' AND rp.can_delete=' . $deleteExport . ' AND rp.can_export=' . $deleteExport;
 }

@@ -172,7 +172,7 @@ $expectedSqlPaths = array_map(static function (string $path): string {
     return basename($path);
 }, $sqlFiles);
 sort($expectedSqlPaths, SORT_STRING);
-$check(count($expectedSqlPaths) === 32, 'workspace must contain exactly 32 top-level sql/*.sql files (including prepared 2026-09-16a)');
+$check(count($expectedSqlPaths) === 33, 'workspace contains exactly 33 top-level SQL files including managed POS enum correction');
 
 $registerTable = [];
 $registerHeading = '';

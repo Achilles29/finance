@@ -26,6 +26,9 @@ class Finance_user_guide
     public function articles(bool $server): array
     {
         $articles = require __DIR__.'/Finance_user_guide_catalog.php';
+        if (defined('FINANCE_PUBLIC_ROOT')) {
+            $articles = array_replace($articles, require __DIR__.'/Finance_customer_guide_catalog.php');
+        }
         return array_filter($articles, static function (array $article) use ($server): bool {
             return $server || $article['category'] !== 'server';
         });

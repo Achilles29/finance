@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+
 const A5_MIGRATION_TOOL_VERSION = '1.0.0';
 const A5_MIGRATION_APPLY_TIMEOUT_SECONDS = 300;
 
@@ -450,6 +451,13 @@ function a5_state_probe(array &$client, string $id): ?array
     return ['path' => $filename, 'sha256' => $marker[2], 'catalog_version' => (int)$marker[3], 'tool_version' => $tool];
 }
 
+function a5_managed_proof(string $root,string $id,callable $read): ?string
+{
+    if (!in_array($id,['2026-09-14c-finance-allocation-bank-review','2026-09-15a-finance-general-ledger','2026-09-15b-finance-journal-assistant','2026-09-15c-application-user-guide','2026-09-16a-procurement-stock-review','2026-09-20a-pos-stock-commit-not-required'],true)) return null;
+    require_once __DIR__ . '/ManagedMigrationProof.php';
+    return ManagedMigrationProof::state($root,$id,$read);
+}
+
 function a5_apply(array $validated, string $root, string $policy, string $optionFile, string $databaseName): array
 {
     $deadline = microtime(true) + a5_apply_timeout_seconds();
@@ -461,27 +469,42 @@ function a5_apply(array $validated, string $root, string $policy, string $option
         if ($lock !== ['__A5_LOCK__', '1']) a5_fail($lock === ['__A5_LOCK__', '0'] ? 'lock_contention' : 'malformed_output', 'Migration lock is unavailable.');
         $client['locked'] = true;
         $registry = a5_registry_probe($client);
+        $proofRead = static function (string $sql) use (&$client): string {
+            a5_client_send($client, "SELECT CONCAT('__A5_PROOF__\\t',HEX(COALESCE((" . $sql . "),'')));");
+            $row = a5_client_marker($client, '__A5_PROOF__');
+            if (count($row)!==2 || (strlen($row[1])%2)!==0 || ($row[1]!=='' && !ctype_xdigit($row[1]))) a5_fail('malformed_output','Migration proof output is malformed.');
+            return $row[1]===''?'':hex2bin($row[1]);
+        };
         $plan = a5_plan($validated, $policy);
         foreach ($plan as $index => $migration) {
             if ($registry === 'INCOMPATIBLE') a5_fail('registry_incompatible', 'Migration registry schema is incompatible.');
             $bootstrap = $registry === 'ABSENT' && $index === 0 && $migration['id'] === '2026-09-04c-a5-schema-migration-registry-foundation';
             if ($registry === 'ABSENT' && !$bootstrap) a5_fail('registry_missing', 'Migration registry is missing outside bootstrap.');
             $state = $registry === 'COMPATIBLE_V1' ? a5_state_probe($client, $migration['id']) : null;
+            try { $proof = a5_managed_proof($root,$migration['id'],$proofRead); }
+            catch (RuntimeException $error) { a5_fail('managed_schema_review_required',$error->getMessage()); }
             if ($state !== null) {
+                if ($proof==='ABSENT') a5_fail('managed_schema_review_required','Registered migration structure is missing: '.$migration['id']);
                 if ($state['path'] !== $migration['path'] || $state['sha256'] !== $migration['sha256'] || $state['catalog_version'] !== 1 || $state['tool_version'] !== A5_MIGRATION_TOOL_VERSION) a5_fail('ledger_drift', 'Applied migration ledger metadata has drifted.');
                 $skipped++;
                 continue;
             }
             $sql = @file_get_contents($root . '/' . $migration['path']);
             if (!is_string($sql)) a5_fail('path_unreadable', 'Migration SQL is unreadable.');
-            a5_client_send($client, $sql . "\nSELECT '__A5_MIGRATION_DONE__\\t" . bin2hex($migration['id']) . "';");
+            if ($proof !== 'VERIFIED') {
+            a5_client_send($client, ($proof===null?$sql:ManagedMigrationProof::executionSql($migration['id'],$sql)) . "\nSELECT '__A5_MIGRATION_DONE__\\t" . bin2hex($migration['id']) . "';");
             $done = a5_client_marker($client, '__A5_MIGRATION_DONE__');
             if ($done !== ['__A5_MIGRATION_DONE__', bin2hex($migration['id'])]) a5_fail('malformed_output', 'Migration completion marker is malformed.');
+            if ($proof!==null) {
+                try { if (ManagedMigrationProof::state($root,$migration['id'],$proofRead)!=='VERIFIED') throw new RuntimeException('MIGRATION_POSTCHECK_FAILED:'.$migration['id']); }
+                catch (RuntimeException $error) { a5_fail('managed_schema_review_required',$error->getMessage()); }
+            }
+            }
             if ($bootstrap) {
                 $registry = a5_registry_probe($client);
                 if ($registry !== 'COMPATIBLE_V1') a5_fail('registry_incompatible', 'Bootstrapped migration registry is incompatible.');
             }
-            $insert = "INSERT INTO sys_schema_migration (migration_id,filename,checksum_sha256,catalog_version,tool_version,classification,policies,applied_by) VALUES (" . a5_sql_value($migration['id']) . ',' . a5_sql_value($migration['path']) . ',' . a5_sql_value($migration['sha256']) . ",1," . a5_sql_value(A5_MIGRATION_TOOL_VERSION) . ',' . a5_sql_value($migration['classification']) . ',' . a5_sql_value(implode(',', $migration['policies'])) . ",'migration_runner'); SELECT '__A5_LEDGER_DONE__\\t" . bin2hex($migration['id']) . "';";
+            $insert = "INSERT INTO sys_schema_migration (migration_id,filename,checksum_sha256,catalog_version,tool_version,classification,policies,applied_by) VALUES (" . a5_sql_value($migration['id']) . ',' . a5_sql_value($migration['path']) . ',' . a5_sql_value($migration['sha256']) . ",1," . a5_sql_value(A5_MIGRATION_TOOL_VERSION) . ',' . a5_sql_value($migration['classification']) . ',' . a5_sql_value(implode(',', $migration['policies'])) . "," . a5_sql_value($proof==='VERIFIED'?'verified_manual_adoption':'migration_runner') . " ); SELECT '__A5_LEDGER_DONE__\\t" . bin2hex($migration['id']) . "';";
             a5_client_send($client, $insert);
             if (a5_client_marker($client, '__A5_LEDGER_DONE__') !== ['__A5_LEDGER_DONE__', bin2hex($migration['id'])]) a5_fail('malformed_output', 'Ledger completion marker is malformed.');
             $applied++;

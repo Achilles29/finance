@@ -32,6 +32,9 @@ final class Control_license_cache
             'application/models/Pos_model.php', 'application/views/layout/sidebar.php',
             'application/views/system/feature_home.php', 'application/views/system/feature_locked.php',
             'application/views/system/feature_upgrade.php', 'application/views/master/detail_basic.php']);
+        if ($profileVersion >= 10) $files = array_merge($files, ['tools/db/ManagedMigrationProof.php',
+            'tools/db/managed_migration_proofs.json', 'tools/db/migration_catalog.json',
+            'tools/db/migration_runner.php', 'tools/install/portable/PortableDatabase.php']);
         return $files;
     }
 

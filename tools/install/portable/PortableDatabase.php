@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__.'/PortableStore.php';
 if (!defined('A5_MIGRATION_LIBRARY_ONLY')) define('A5_MIGRATION_LIBRARY_ONLY',true);
 require_once dirname(__DIR__,2).'/db/migration_runner.php';
+require_once dirname(__DIR__,2).'/db/ManagedMigrationProof.php';
 
 /** Native PDO executor: no root, mysql option files, shell credential arguments, or replay of uncertain DDL. */
 final class PortableDatabase
@@ -119,10 +120,13 @@ final class PortableDatabase
                 if(isset($state['completed'][$id])) {
                     if($state['completed'][$id]!==$script['sha256'])throw new RuntimeException('DATABASE_JOURNAL_DRIFT');
                     if($id!=='baseline')self::ledger($pdo,$script);
+                    if(ManagedMigrationProof::state($root,$id,static fn(string $s)=>$pdo->query($s)->fetchColumn())==='ABSENT')throw new RuntimeException('MIGRATION_REGISTERED_STRUCTURE_MISSING');
                     continue;
                 }
+                $proof=ManagedMigrationProof::state($root,$id,static fn(string $s)=>$pdo->query($s)->fetchColumn());
                 $state['phase']='RUNNING';$state['current']=$id;$store->write('database.json',$state);
-                self::script($pdo,file_get_contents($path));
+                if($proof!=='VERIFIED')self::script($pdo,file_get_contents($path));
+                if($proof!==null && ManagedMigrationProof::state($root,$id,static fn(string $s)=>$pdo->query($s)->fetchColumn())!=='VERIFIED')throw new RuntimeException('MIGRATION_POSTCHECK_FAILED');
                 if($id!=='baseline') {
                     $insert=$pdo->prepare('INSERT INTO sys_schema_migration (migration_id,filename,checksum_sha256,catalog_version,tool_version,classification,policies,applied_by) VALUES (?,?,?,1,?,?,?,?)');
                     $insert->execute([$id,$script['path'],$script['sha256'],A5_MIGRATION_TOOL_VERSION,$script['classification'],implode(',',$script['policies']),'portable_installer']);

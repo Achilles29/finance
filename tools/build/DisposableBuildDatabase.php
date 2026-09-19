@@ -12,7 +12,7 @@ final class DisposableBuildDatabase
     private const MYSQL = '/www/server/mysql';
     private const REFERENCES = ['sys_matrix_group', 'sys_page', 'sys_menu', 'sys_page_alias', 'auth_role',
         'auth_role_permission', 'sys_schema_migration', 'tg_setting', 'wa_template', 'wa_session', 'coffee_packaging_label_template',
-        'sys_roast_connect', 'fin_control_policy'];
+        'sys_roast_connect', 'fin_control_policy', 'fin_gl_guard', 'fin_gl_account'];
 
     private static function query(string $option, string $database, string $sql): string
     {
@@ -66,6 +66,18 @@ final class DisposableBuildDatabase
         foreach (self::safeDefaultQueries() as $failure => $sql) {
             CustomerBuild::need(self::query($option, $database, $sql) === "1\t1", $failure);
         }
+        CustomerBuild::need(self::query($option,$database,'SELECT COUNT(*),COALESCE(SUM(id=1),0) FROM fin_gl_guard')==="1\t1",'GL_GUARD_DEFAULT_UNSAFE');
+        CustomerBuild::need(self::query($option,$database,self::accountReferenceQuery())==="24\t24",'GL_ACCOUNTS_DEFAULT_UNSAFE');
+    }
+
+    /** Only the 24 immutable generic reference tuples are allowed, not customer chart-of-account data. */
+    public static function accountReferenceQuery(): string
+    {
+        $sql=(string)file_get_contents(dirname(__DIR__,2).'/sql/2026-09-15a_finance_general_ledger.sql');
+        CustomerBuild::need(hash('sha256',$sql)==='03aeae127ea8431480f1553c43e5a8e2d581a453279c2ecf2dddbbb560b4c195','GL_REFERENCE_SQL_DRIFT');
+        preg_match_all("/\\('[0-9]{4}','[^']+','(?:ASSET|LIABILITY|EQUITY|INCOME|EXPENSE)',[01]\\)/u",$sql,$m);
+        CustomerBuild::need(count($m[0])===24,'GL_REFERENCE_INVENTORY');
+        return 'SELECT COUNT(*),COALESCE(SUM((BINARY code,BINARY name,BINARY account_type,is_cash) IN ('.implode(',',$m[0]).') AND is_active=1),0) FROM fin_gl_account';
     }
 
     public static function test(string $root, string $scratch): array

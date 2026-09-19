@@ -59,7 +59,7 @@ final class PortablePackage
         $raw=(string)file_get_contents($dir.'/release.json');
         if(strlen($raw)>100000)throw new RuntimeException('RELEASE_OVERSIZE');
         $m=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
-        if(!is_array($m)||!in_array($m['distribution_profile_version']??null,[6,7,8,9],true))throw new RuntimeException('PORTABLE_PROFILE_REQUIRED');
+        if(!is_array($m)||!in_array($m['distribution_profile_version']??null,[6,7,8,9,10],true))throw new RuntimeException('PORTABLE_PROFILE_REQUIRED');
         $c=['schema'=>1,'purpose'=>'FINANCE_CUSTOMER_INSTALLATION','product_code'=>'NAMUA_FINANCE','release_root'=>$root,
             'release_public_id'=>$m['release_public_id']??'','version'=>$m['version']??'','source_commit'=>$m['source_commit']??'',
             'artifact_sha256'=>$m['sha256']??'','release_manifest_sha256'=>hash('sha256',$raw),
@@ -147,7 +147,7 @@ final class PortablePackage
     {
         $now=$now??time();
         if(!is_int($p['issued_at']??null)||$p['issued_at']<1||$p['issued_at']>$now+300)throw new RuntimeException('SETUP_PERMISSION_BINDING_INVALID');
-        if(in_array($profile,[8,9],true)){
+        if(in_array($profile,[8,9,10],true)){
             if(($p['permission_policy']??'')!=='UNTIL_USED_OR_REVOKED'||!array_key_exists('expires_at',$p)||$p['expires_at']!==null)throw new RuntimeException('SETUP_PERMISSION_BINDING_INVALID');
             return;
         }

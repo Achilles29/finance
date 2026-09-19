@@ -72,6 +72,20 @@ while (($line = fgets(STDIN)) !== false) {
     } elseif (stripos($line, 'CREATE TABLE IF NOT EXISTS `sys_schema_migration`') !== false) {
         if ($mode === 'sql_failure') { fwrite(STDERR, "RAW SECRET /secure/client.cnf {$expectedDatabase}\n"); exit(9); }
         $registry = true;
+    } elseif (strpos($line, '__A5_PROOF__') !== false) {
+        // Protocol-only fixture: new schema is already installed manually. Real DDL/adoption
+        // and drift are exercised by managed_migration_database_smoke on disposable MariaDB.
+        $proofs=json_decode((string)getenv('A5_PROOF_HASHES'),true);
+        $value='1';
+        if(strpos($line,'SHA2(')!==false) {
+            $value='';
+            foreach($proofs as $table=>$hash)if(strpos($line,"TABLE_NAME='".$table."'")!==false)$value=$hash;
+            if(strpos($line,"TABLE_NAME='fin_revenue_reconciliation_line'")!==false)$value=$proofs['reconciliation_columns'];
+        } elseif(strpos($line,"CONCAT_WS('|',COLUMN_TYPE,IS_NULLABLE,COLUMN_DEFAULT,EXTRA)")!==false)$value="enum('PENDING','QUEUED','PROCESSING','POSTED','FAILED','REVERSED','NOT_REQUIRED')|NO|'PENDING'|";
+        elseif(strpos($line,'FROM pos_order WHERE stock_commit_status')!==false)$value='0';
+        elseif(strpos($line,'information_schema.TRIGGERS')!==false)$value='0';
+        elseif(strpos($line,'FROM fin_gl_account WHERE code IN')!==false){preg_match_all("/'[0-9]{4}'/",explode(' AND BINARY',$line)[0],$codes);$value=(string)count($codes[0]);}
+        fwrite(STDOUT,"__A5_PROOF__\t".bin2hex($value)."\n");fflush(STDOUT);
     } elseif (strpos($line, '__A5_STATE_REQUEST__') !== false) {
         preg_match("/UNHEX\\('([0-9a-f]+)'\\)/i", $line, $matches);
         $migration = $migrations[strtolower($matches[1] ?? '')] ?? null;
@@ -93,6 +107,7 @@ PHP;
 file_put_contents($tmp . '/bin/mariadb', $fake); chmod($tmp . '/bin/mariadb', 0700);
 $baseEnv = ['PATH' => $tmp . '/bin', 'A5_CAPTURE' => $capture, 'A5_COUNT' => $count, 'A5_PID_FILE' => $pidFile, 'A5_ARGV_CAPTURE' => $argvCapture, 'A5_EXPECTED_DATABASE' => $databaseName, 'A5_MIGRATIONS_JSON' => json_encode($migrationFixture, JSON_UNESCAPED_SLASHES)];
 $args = ['apply', '--policy=upgrade', '--defaults-extra-file=' . $option, '--database-name-file=' . $databaseNameFile];
+$baseEnv['A5_PROOF_HASHES']=json_encode(json_decode(file_get_contents($root.'/tools/db/managed_migration_proofs.json'),true)['schemas']);
 
 $libraryProbe = $tmp . '/library-probe.php';
 $librarySource = "<?php\ndefine('A5_MIGRATION_LIBRARY_ONLY', true);\nrequire " . var_export($runner, true) . ";\n"

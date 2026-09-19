@@ -27,14 +27,14 @@ try {
     $list=$base.'/tar.list';$write($list,implode("\n",array_merge(array_column($entries,'path'),['RELEASE-MANIFEST.json'])));
     $tar=$base.'/package.tar';$r=$run(['/usr/bin/tar','--create','--format=gnu','--owner=0','--group=0','--numeric-owner','--no-recursion','-C',$root,'-T',$list,'-f',$tar]);
     $check($r['code']===0,'disposable mapped TAR built without moving development files');
-    $inspection=ControlReleaseBridge::inspect($tar);$check(($inspection['distribution_profile_version']??null)===9,'independent TAR validator accepts mapped durable profile v9');
+    $inspection=ControlReleaseBridge::inspect($tar);$check(($inspection['distribution_profile_version']??null)===10,'independent TAR validator accepts mapped durable profile v10');
     $r=$run(['sh',$source.'/tools/install/portable/prepare-linux.sh',$root,'namua-build','www','www']);$check($r['code']===0,'one-time provisioning with distinct non-root worker/web accounts');
     // All evidence stays inside one parent folder; trust is a generated test-only issuer.
     $kp=sodium_crypto_sign_keypair();$sk=sodium_crypto_sign_secretkey($kp);$pk=sodium_crypto_sign_publickey($kp);
     $trust=['schema'=>1,'product_code'=>'NAMUA_FINANCE','algorithm'=>'Ed25519','status'=>'ACTIVE','key_id'=>'00000000-0000-4000-8000-000000000011','public_key_base64'=>base64_encode($pk),'public_key_sha256'=>hash('sha256',$pk)];
     $wire=['schema'=>1,'context'=>'NAMUA_RELEASE_MANIFEST_V1','product_code'=>'NAMUA_FINANCE','release_public_id'=>'00000000-0000-4000-8000-000000000012',
-        'version'=>'0.1.0-alpha.21','source_commit'=>str_repeat('a',40),'filename'=>'package.tar','media_type'=>'application/x-tar','size_bytes'=>filesize($tar),'sha256'=>hash_file('sha256',$tar),
-        'source_manifest_sha256'=>hash_file('sha256',$root.'/app-manifest.json'),'customer_runtime_guard'=>'FINANCE_CUSTOMER_SERVER_V1','distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>9,
+        'version'=>'0.1.0-alpha.22','source_commit'=>str_repeat('a',40),'filename'=>'package.tar','media_type'=>'application/x-tar','size_bytes'=>filesize($tar),'sha256'=>hash_file('sha256',$tar),
+        'source_manifest_sha256'=>hash_file('sha256',$root.'/app-manifest.json'),'customer_runtime_guard'=>'FINANCE_CUSTOMER_SERVER_V1','distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>10,
         'customer_content_audit'=>['status'=>'PASS','profile_sha256'=>$profile->digest(),'artifact_sha256'=>hash_file('sha256',$tar),'source_manifest_sha256'=>hash_file('sha256',$root.'/RELEASE-MANIFEST.json')],
         'packaging'=>['profile_code'=>'CUSTOMER_CLEAN','rules_sha256'=>$profile->digest(),'audience'=>'CUSTOMER','sample_data'=>'NONE'],'contains_customer_data'=>false,'contains_secrets'=>false,'verification'=>[]];
     foreach(ControlReleaseBridge::BUILD_GATES as $g)$wire['verification'][$g]=['status'=>'PASS','evidence_sha256'=>hash('sha256','FIXTURE_NOT_RELEASE_'.$g)];
@@ -47,7 +47,7 @@ try {
     $json($dir.'/credentials.json',$credential);
     $permit=['purpose'=>'NAMUA_FINANCE_SETUP_V1','product_code'=>'NAMUA_FINANCE','permit_id'=>'00000000-0000-4000-8000-000000000014','instance_id'=>'portable-fixture',
         'deployment_id'=>'00000000-0000-4000-8000-000000000015','plan_sha256'=>hash('sha256','fixture-plan'),'release_public_id'=>$wire['release_public_id'],'source_commit'=>$wire['source_commit'],
-        'release_manifest_sha256'=>hash('sha256',$raw),'artifact_sha256'=>$wire['sha256'],'profile_sha256'=>$profile->digest(),'profile_version'=>9,'environment'=>'STAGING',
+        'release_manifest_sha256'=>hash('sha256',$raw),'artifact_sha256'=>$wire['sha256'],'profile_sha256'=>$profile->digest(),'profile_version'=>10,'environment'=>'STAGING',
         'credentials_sha256'=>hash_file('sha256',$dir.'/credentials.json'),'setup_secret_sha256'=>hash('sha256',$secret),'issued_at'=>time()-86400*45,'expires_at'=>null,'permission_policy'=>'UNTIL_USED_OR_REVOKED'];
     $signPermit=static function(array $value)use($sk,$trust,$dir,$json):void{$raw=json_encode($value,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);$json($dir.'/permit.json',['key_id'=>$trust['key_id'],'payload_base64'=>base64_encode($raw),'signature_base64'=>base64_encode(sodium_crypto_sign_detached("NAMUA_FINANCE_SETUP_V1\n".hash('sha256',$raw),$sk))]);};$signPermit($permit);
     $fixture=['root'=>$root,'issuer'=>base64_encode($sk),'trust'=>$trust,'issued'=>time()-5,'monitoring_secret'=>$monitor];$json($base.'/fixture.json',$fixture);
@@ -124,7 +124,7 @@ try {
         echo 'FIXTURE PHP diagnostic '.substr($log,-2500)."\n";
     }
     $check($r['ok']&&$r['result']['phase']==='COMPLETE','real baseline/migrations/owner + signed synthetic activation + HTTPS login + receipt complete '.json_encode($r));
-    $check((int)$pdo->query('SELECT COUNT(*) FROM portable_customer.sys_schema_migration')->fetchColumn()===20,'only 20 registered clean_install migrations applied');
+    $check((int)$pdo->query('SELECT COUNT(*) FROM portable_customer.sys_schema_migration')->fetchColumn()===26,'only 26 registered clean_install migrations applied');
     $check($http('/login')['status']===200,'application web bootstrap reads same local config without custom FPM environment');
     $check($worker('config')['ok'],'CLI reads same customer config');
     $login=curl_init('https://127.0.0.1:'.$port.'/auth/do_login');$location='';

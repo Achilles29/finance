@@ -288,6 +288,60 @@
       "dependencies": ["2026-09-14a-finance-control-workspace"],
       "classification": "schema",
       "policies": ["clean_install", "upgrade"]
+    },
+    {
+      "id": "2026-09-14c-finance-allocation-bank-review",
+      "order": 2026091403,
+      "path": "sql/2026-09-14c_finance_allocation_bank_review.sql",
+      "sha256": "ea623937ac6456b9643d4216768744c9c4f3e45c59369d238b37f21dd7d5657d",
+      "dependencies": ["2026-09-14b-finance-control-operations"],
+      "classification": "schema",
+      "policies": ["clean_install", "upgrade"]
+    },
+    {
+      "id": "2026-09-15a-finance-general-ledger",
+      "order": 2026091501,
+      "path": "sql/2026-09-15a_finance_general_ledger.sql",
+      "sha256": "03aeae127ea8431480f1553c43e5a8e2d581a453279c2ecf2dddbbb560b4c195",
+      "dependencies": ["2026-09-14c-finance-allocation-bank-review", "2026-09-06i-a3-sidebar-task-oriented-layout"],
+      "classification": "schema",
+      "policies": ["clean_install", "upgrade"]
+    },
+    {
+      "id": "2026-09-15b-finance-journal-assistant",
+      "order": 2026091502,
+      "path": "sql/2026-09-15b_finance_journal_assistant.sql",
+      "sha256": "133f130b0c7286318923feacfc032e6c65eabb340eb82d510d7859b5cf5b238e",
+      "dependencies": ["2026-09-15a-finance-general-ledger"],
+      "classification": "schema",
+      "policies": ["clean_install", "upgrade"]
+    },
+    {
+      "id": "2026-09-15c-application-user-guide",
+      "order": 2026091503,
+      "path": "sql/2026-09-15c_application_user_guide.sql",
+      "sha256": "a3b68fb81101fdc7fd05a60c02c283100f17fcc677aedaed64595ba122657393",
+      "dependencies": ["2026-09-06i-a3-sidebar-task-oriented-layout"],
+      "classification": "seed",
+      "policies": ["clean_install", "upgrade"]
+    },
+    {
+      "id": "2026-09-16a-procurement-stock-review",
+      "order": 2026091601,
+      "path": "sql/2026-09-16a_procurement_stock_review.sql",
+      "sha256": "c09edc815f92d8d8628a29156790e9f74458a3203fef0c1670f5aaa3ef278665",
+      "dependencies": ["2026-09-04c-a5-schema-migration-registry-foundation"],
+      "classification": "schema",
+      "policies": ["clean_install", "upgrade"]
+    },
+    {
+      "id": "2026-09-20a-pos-stock-commit-not-required",
+      "order": 2026092001,
+      "path": "sql/2026-09-20a_pos_stock_commit_not_required.sql",
+      "sha256": "43fc95b64cfca96e271c22e0fa08a7eb0f084a0defd4c7f44505fb0c1d52946d",
+      "dependencies": ["2026-09-06c-pos-mobile-reversal-step-up"],
+      "classification": "schema",
+      "policies": ["clean_install", "upgrade"]
     }
   ]
 }

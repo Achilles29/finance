@@ -78,6 +78,7 @@ $check(
         '2026-09-07a-c2-c4-business-profile-license-runtime-foundation',
         '2026-09-12a-roast-connect-catalog',
         '2026-09-13a-finance-mutation-reporting-category', '2026-09-14a-finance-control-workspace', '2026-09-14b-finance-control-operations',
+        '2026-09-14c-finance-allocation-bank-review', '2026-09-15a-finance-general-ledger', '2026-09-15b-finance-journal-assistant', '2026-09-15c-application-user-guide', '2026-09-16a-procurement-stock-review', '2026-09-20a-pos-stock-commit-not-required',
     ],
     'managed-v1 upgrade plan is exact, ordered, and excludes clean-install-only navigation seed'
 );
@@ -125,8 +126,8 @@ $validateJson = json_decode(trim($validateCli['out']), true);
 $planJson = json_decode(trim($planA['out']), true);
 $check(
     $validateCli['code'] === 0 && ($validateJson['legacy_records'] ?? null) === 7
-        && ($validateJson['managed_upgrade_migrations'] ?? null) === 19,
-    'DB-free validate reports seven retired legacy paths and seventeen managed upgrade migrations'
+        && ($validateJson['managed_upgrade_migrations'] ?? null) === 25,
+    'DB-free validate reports seven retired legacy paths and twenty-five managed upgrade migrations'
 );
 $check(
     $planA['code'] === 0 && $planA['out'] === $planB['out']

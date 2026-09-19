@@ -22,7 +22,7 @@ $check(str_contains($sql,'approval_enabled TINYINT NOT NULL DEFAULT 0')&&str_con
 $catalog=json_decode($read('tools/db/migration_catalog.json'),true);$m=array_column($catalog['migrations'],null,'id')['2026-09-14b-finance-control-operations'];
 $check($m['sha256']===hash_file('sha256',$root.'/'.$sqlPath)&&$m['dependencies']===['2026-09-14a-finance-control-workspace'],'exact migration hash/dependency');
 $profile=json_decode($read('tools/release/customer_clean_profile.json'),true);$manifest=json_decode($read('app-manifest.json'),true);
-$check($profile['profile_version']===9&&$profile['sql_sha256'][$sqlPath]===$m['sha256'],'versioned clean profile retains registered SQL');
+$check($profile['profile_version']===10&&$profile['sql_sha256'][$sqlPath]===$m['sha256'],'versioned clean profile retains registered SQL');
 $check($manifest['packaging']['profiles'][0]['rules_sha256']===hash_file('sha256',$root.'/tools/release/customer_clean_profile.json'),'manifest binds new profile content');
 foreach(['application/models/Finance_control_operation_model.php','application/libraries/Finance_control_evidence.php','application/views/finance/control_operations.php','assets/js/finance-control-operations.js','assets/js/finance-settlement-picker.js'] as $file)$check(in_array($file,$profile['code_files'],true),'runtime allowlisted '.$file);
 define('BASEPATH',$root.'/system/');define('FCPATH',$root.'/');require $root.'/application/libraries/Finance_control_evidence.php';

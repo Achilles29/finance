@@ -15,19 +15,19 @@ if($r['status']!==200||!str_contains($r['body'],'Starter POS')) {
 }
 $check($r['status']===200&&str_contains($r['body'],'Starter POS'),'signed Starter home, not mixed inventory dashboard');
 $check(str_contains($r['body'],'finance-feature-lock')&&str_contains($r['body'],'<svg width="14"'),'RBAC-visible sidebar retains paid links with inline SVG lock');
-foreach(['/inventory/stock/warehouse','/payroll/bonus','/finance-reports/financial-estimation','/pos/reservations','/master/component','/pos-mobile/auth/login']as$path){
+foreach(['/inventory/stock/warehouse','/payroll/bonus','/finance-reports/financial-estimation','/finance-reports/accounting','/finance_accounting/index?tab=settings','/pos/reservations','/master/component','/pos-mobile/auth/login']as$path){
  $r=$browser($path);$check($r['status']===403,'superadmin package denial '.$path.' HTTP='.$r['status'].' '.($r['status']!==403?substr(strip_tags($r['body']),0,300):''));
  if($path!=='/pos-mobile/auth/login')$check(str_contains($r['body'],'layout-menu')&&str_contains($r['body'],'Starter POS')&&str_contains($r['body'],'Lihat paket'),'denied HTML uses app layout/sidebar and upgrade information '.$path);
 }
 $r=$browser('/production/component_opening_export_existing');$check($r['status']===403&&($r['json']['code']??'')==='FEATURE_UPGRADE_REQUIRED','unlicensed download denied as JSON before export reads');
 $pdo->exec('USE portable_customer');
-$snapshot=static function()use($pdo):array{$result=[];foreach(['pos_order','pos_payment','inv_stock','pay_salary_disbursement','fin_company_account']as$t){try{$result[$t]=$pdo->query('SELECT COUNT(*) FROM `'.$t.'`')->fetchColumn();}catch(PDOException $e){}}return $result;};
+$snapshot=static function()use($pdo):array{$result=[];foreach(['pos_order','pos_payment','inv_stock_adjustment','pay_salary_disbursement','fin_company_account','fin_gl_journal','fin_gl_line','fin_gl_mapping','pur_division_stock_review']as$t){$result[$t]=[$pdo->query('SELECT COUNT(*) FROM `'.$t.'`')->fetchColumn(),$pdo->query('CHECKSUM TABLE `'.$t.'` EXTENDED')->fetch(PDO::FETCH_NUM)[1]];}return $result;};
 $before=$snapshot();
 foreach(['/payroll/salary_disbursement_generate','/inventory_warehouse/adjustment','/finance_accounting/post','/finance_reports/revenue_reconciliation_line_post','/pos/online_food_order_verify/1','/master/store/component','/pos/orders/payment/save']as$path){
  $r=$browser($path,['voucher_selection'=>'RULE:1']);$check($r['status']===403&&($r['json']['code']??'')==='FEATURE_UPGRADE_REQUIRED','POST direct/alias rejected before business handler '.$path.' HTTP='.$r['status'].' '.json_encode($r['json']));
 }
 $r=$browser('/payroll/bonus',null,['Accept: application/json']);$check($r['status']===403&&($r['json']['code']??'')==='FEATURE_UPGRADE_REQUIRED','AJAX GET returns consistent JSON denial');
-$check($snapshot()===$before,'rejected calls leave disposable business row counts unchanged');
+$check($snapshot()===$before,'rejected calls leave disposable business row counts and checksums unchanged');
 foreach(['/master/product','/master/uom','/master/org-employee','/master/company-account','/pos/outlets-terminals','/pos/payment-methods','/pos/printers/general','/system/feature-access','/system/license','/system/business-profile']as$path){$r=$browser($path);$check($r['status']===200,'Starter dependency page '.$path.' status='.$r['status']);}
 foreach(['/system/core/CodeIgniter.php','/system/libraries/Session/Session.php','/system/not-a-registered-route','/config/customer.json','/private/agent/agent.json']as$path)$check($browser($path)['status']===404,'public route exception never exposes source/secrets '.$path);
 // Minimal sale fixtures only, in this harness's new socket/database. No existing master data.
@@ -71,11 +71,15 @@ $layout=$insert('pos_print_layout',['layout_code'=>'TEST','layout_name'=>'Dispos
 $insert('pos_print_route',['route_code'=>'TEST','route_name'=>'Disposable receipt route','event_code'=>'ORDER_PAID_RECEIPT','document_type'=>'RECEIPT','connection_id'=>$connection,'layout_id'=>$layout,'print_mode'=>'AUTO','is_active'=>1]);
 $r=$browser('/pos/order_payment_print_targets/'.$payment);$check($r['status']===200&&!empty($r['json']['direct_print_targets']),'Starter generates configured printer payload; no physical network dispatch '.json_encode($r['json']['message']??''));
 foreach(['/pos/report_sales_document_print/'.$order.'/receipt','/pos/reports/sales','/pos/report_sales_transaction/'.$order]as$path){$r=$browser($path);$check($r['status']===200,'Starter printable receipt / sales reporting '.$path.' status='.$r['status']);}
+require $source.'/tools/tests/feature_boundary_stock_http_cases.php';
 $r=$browser('/pos/cashier/close',['actual_cash'=>20000],$headers);$check($r['status']===200&&!empty($r['json']['ok']),'Starter closes cashier '.json_encode($r['json']));
 // Same authenticated browser, new signed document via normal companion sync; no reactivation/reinstall.
 $identityBeforeUpgrade=hash_file('sha256',$root.'/private/agent/agent.json');$journalBeforeUpgrade=hash_file('sha256',$root.'/private/database.json');
 $fixture['edition']='ENTERPRISE';$fixture['issued']=time()+1;$json($base.'/fixture.json',$fixture);$r=$worker('sync');$check($r['ok'],'valid Enterprise signed upgrade sync');
 $r=$browser('/payroll/bonus');$check($r['status']===200,'same superadmin session unlocks after signed upgrade');
+foreach(['/finance-reports/accounting','/finance-reports/accounting?tab=guide','/finance_accounting/index?tab=settings','/guide','/guide?audience=server'] as $path) {
+ $r=$browser($path);$check($r['status']===200&&!str_contains($r['body'],'A PHP Error was encountered'),'Full package accounting + user-guide dependency included '.$path.' status='.$r['status']);
+}
 $r=$browser('/dashboard');$check($r['status']===200&&!str_contains($r['body'],'finance-feature-lock'),'sidebar package cache follows upgraded signed license');
 $check(hash_file('sha256',$root.'/private/agent/agent.json')===$identityBeforeUpgrade&&hash_file('sha256',$root.'/private/database.json')===$journalBeforeUpgrade,'upgrade preserves identity and SQL journal');
 $check($pdo->query('SELECT status FROM pos_order WHERE id='.$order)->fetchColumn()==='PAID','upgrade preserves transaction');
@@ -103,7 +107,7 @@ $c=curl_init('https://127.0.0.1:'.$port.'/pos/cashier');curl_setopt_array($c,[CU
 $check($cashierStatus===200,'cashier-only Starter account really accesses cashier');
 $visual=$run(['/usr/bin/node',$source.'/tools/tests/feature_boundary_browser.cjs',$base,'https://127.0.0.1:'.$port]);
 echo 'BROWSER evidence '.($visual['stdout']??$visual['output']??'').($visual['stderr']??'')."\n";
-foreach(['application/core/MY_Hooks.php','application/core/MY_Router.php','application/config/feature_access.php','application/libraries/Feature_policy.php']as$file){$original=file_get_contents($root.'/'.$file);$write($root.'/'.$file,$original."\n",0644);$check($browser('/pos/cashier')['status']===423,'changed feature core fails closed '.$file);$write($root.'/'.$file,$original,0644);}
+foreach(['application/core/MY_Hooks.php','application/core/MY_Router.php','application/config/feature_access.php','application/libraries/Feature_policy.php','tools/db/ManagedMigrationProof.php','tools/db/managed_migration_proofs.json','tools/db/migration_catalog.json','tools/db/migration_runner.php','tools/install/portable/PortableDatabase.php']as$file){$original=file_get_contents($root.'/'.$file);$write($root.'/'.$file,$original."\n",0644);$check($browser('/pos/cashier')['status']===423,'changed feature or migration core fails closed '.$file);$write($root.'/'.$file,$original,0644);}
 $savedFixture=$fixture;$fixture['entitlements']=[];$fixture['issued']=time()+3;$json($base.'/fixture.json',$fixture);$check($worker('licenseSync')['ok'],'signed missing-entitlement document sync');
 $check($browser('/pos/cashier')['status']===403,'edition name Starter without actual grants does not unlock POS');
 $fixture['revoked']=true;$json($base.'/fixture.json',$fixture);$worker('licenseSync');$check($browser('/pos/cashier')['status']===423,'revoked license blocks business even with authenticated superadmin');

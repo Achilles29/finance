@@ -29,7 +29,7 @@ $put = static function (string $path, string $bytes): void {
 try {
     $profile = CustomerReleaseProfile::fromRoot($root);
     $raw = json_decode((string)file_get_contents($root . '/' . CustomerReleaseProfile::PATH), true);
-    $check($profile->version() === 9, 'feature boundary has a new profile; published v8 is not overwritten');
+    $check($profile->version() === 10, 'feature boundary has a new profile; published v8 is not overwritten');
     $unknown = $raw; $unknown['profile_version'] = 999;
     $reject(fn() => new CustomerReleaseProfile(json_encode($unknown)), 'unreviewed profile version rejected');
     $catalogSource = json_decode((string)file_get_contents($root . '/tools/db/migration_catalog.json'), true);
@@ -108,7 +108,7 @@ try {
     foreach ($forbidden as $path) $check(!file_exists($extract . '/' . $path) && is_file($source . '/' . $path), 'build omits trap without deleting source');
     $check(CustomerReleaseProfile::installed($extract), 'installed profile is bound to inner manifest');
     $release = a513_validate_release($extract, $extract . '/RELEASE-MANIFEST.json');
-    $check(count($release['catalog']['migrations']) === 20 && $release['baseline']['ok'], 'installer accepts complete clean baseline without legacy repair files');
+    $check(count($release['catalog']['migrations']) === 26 && $release['baseline']['ok'], 'installer accepts complete clean baseline without legacy repair files');
     $cleanPlan = array_column(a5_plan($release['catalog'], 'clean_install'), 'path');
     $upgradePlan = array_column(a5_plan($release['catalog'], 'upgrade'), 'path');
     $check(in_array('sql/2026-09-05d_a5_clean_install_reference_seed.sql', $cleanPlan, true)
