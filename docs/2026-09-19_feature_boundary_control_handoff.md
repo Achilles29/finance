@@ -131,7 +131,7 @@ Daftar source/config/view/tooling/test/dokumentasi pada batch ini; tidak termasu
 
 ## Bukti dan cutoff
 
-Tanggal pengujian: 19 September 2026, Linux. Base sebelum patch: `0a7e0720a4739f0cd189bf5a138b01421e65689f` (alpha.20). Cutoff implementasi akhir dicatat sesudah commit lokal. Tidak ada push, publish, perubahan Control/core2, maupun SQL untuk database aktif.
+Tanggal pengujian: 19 September 2026, Linux. Base sebelum patch: `0a7e0720a4739f0cd189bf5a138b01421e65689f` (alpha.20). **Cutoff kode implementasi: `d13e350892b0d0b99e5fa9743137f73eb65c5a57`**, commit lokal; commit sesudahnya hanya melengkapi dokumen bukti/cutoff ini. Tidak ada push, publish, perubahan Control/core2, maupun SQL untuk database aktif.
 
 | Pemeriksaan | Hasil |
 |---|---|
@@ -142,6 +142,7 @@ Tanggal pengujian: 19 September 2026, Linux. Base sebelum patch: `0a7e0720a4739f
 | `php tools/tests/c4_control_license_agent_smoke.php --protocol-only` | 24 PASS; signature/cache/replay/grace/revocation |
 | `php tools/tests/c3_customer_clean_release_smoke.php` | 118 PASS; fixture tanpa database aplikasi |
 | `php tools/tests/c3_control_build_adapter_smoke.php` | 59 PASS; kontrak, bukan bukti build live |
+| `php tools/tests/c3_control_build_runtime_smoke.php --isolated` | **PASS delapan gate**, builder non-root: source_clean, security_scan, install_test, backup_restore, customer_data_scan, secrets_scan, clean_install, source_untouched |
 | portable / guided / durable contract | 42 / 23 / 27 PASS |
 | commercial foundation / master endpoint registry | 14 / 47 PASS |
 | quality gate manifest / finance workspace / finance operations contract | 28 / 27 / 35 PASS |
@@ -171,7 +172,9 @@ Batas bukti: tidak ada panggilan aktivasi/sinkronisasi ke Control live; issuer d
 - `sql/2026-09-15c_application_user_guide.sql`
 - `sql/2026-09-16a_procurement_stock_review.sql`
 
-Katalog dan SQL tersebut tidak diubah oleh patch. Jangan mendaftarkan/menjalankannya sembarangan untuk menghijaukan gate. Browser CSP global juga pernah timeout; bukan kegagalan probe Chrome feature-boundary yang sudah lulus. Percobaan build adapter penuh terisolasi awal berhenti `CLIENT_TIMEOUT`; hasil pengulangan dicatat pada cutoff akhir. Artinya belum ada bukti delapan gate build lengkap untuk dijadikan persetujuan release.
+Katalog dan SQL tersebut tidak diubah oleh patch. Jangan mendaftarkan/menjalankannya sembarangan untuk menghijaukan gate. Browser CSP global juga pernah timeout; bukan kegagalan probe Chrome feature-boundary yang sudah lulus. Percobaan build adapter penuh terisolasi awal berhenti `CLIENT_TIMEOUT`; **pengulangan pada kode final lulus seluruh delapan gate build**. Keberhasilan build profil customer tidak menghapus kegagalan katalog SQL keseluruhan source dan bukan persetujuan keamanan Control.
+
+Build fixture final: 1182 file terkemas, 342 dikecualikan; 306 tabel diperiksa, 293 tabel non-reference kosong, 735 record seed sistem, 0 data sample/customer/secret ditemukan, tepat 20 migrasi diterapkan. Backup/restore mempunyai logical checksum sama dan health lulus. `RELEASE-MANIFEST.json` **fixture sintetis** berhash `906045e9a124c69f9033f278f1a10f1f3115a73f3a9c36fa4afa86b0bd726853`; bukan manifest release resmi atau cutoff Control. Artefak sementara dibersihkan oleh harness, tidak dipublish/disalin ke instalasi customer. Control tetap harus membangun bukti baru dari cutoff Git Finance yang direview.
 
 ### Hash dan dependensi untuk pin Control
 
@@ -200,7 +203,7 @@ Runtime uji: PHP CLI/FPM 8.1.32, MariaDB **10.11.10** pada socket sementara (buk
 
 1. Review diff cutoff terhadap base alpha.20, matriks kemampuan dasar dan gap UAT; perbarui pin toolchain yang relevan dari commit yang sama.
 2. Terima profil v9 dan `FINANCE_FEATURE_BOUNDARY_V1` secara eksplisit; pertahankan entitlement boolean bertipe benar, signature, domain sebagai metadata, kuota server dan izin pemasangan tanpa tenggat.
-3. Jalankan ulang kontrak + acceptance dengan license issuer staging Control yang sah, selain fixture sintetis. Selesaikan gate global/build yang belum lulus sebelum persetujuan release.
+3. Jalankan ulang kontrak + acceptance dengan license issuer staging Control yang sah, selain fixture sintetis. Selesaikan gate global katalog/CSP dan UAT lanjutan yang belum lulus/tercakup sebelum persetujuan release; delapan gate builder telah lulus pada fixture tetapi harus menghasilkan bukti build cutoff resmi sendiri.
 4. Bangun **release baru alpha.21**, CUSTOMER_CLEAN v9 / sample_data NONE, dari cutoff bersih yang direview melalui alur build Control biasa. Jangan mengubah alpha.20 PUBLISHED atau menyalin bukti fixture menjadi approval produksi.
 5. Untuk core2 aktif, tutup gap updater atomik dan uji rollback/identity/kuota terlebih dahulu. Upgrade entitlement pada kode baru tidak memerlukan database ulang; pemasangan kode baru pada alpha.20 memerlukan update lane tersebut.
 
