@@ -1738,7 +1738,9 @@ $incomingServerDate = date('Y-m-d');
         <div class="row g-3 align-items-start">
           <div class="col-xl-7">
             <div class="d-flex flex-column gap-3">
-              <div class="payment-block payment-block-compact">
+              <?php require_once APPPATH.'libraries/Feature_policy.php'; $promotionIncluded = Feature_policy::runtime()->allows('PROMOTION_VOUCHER'); ?>
+              <?php if (!$promotionIncluded): ?><div class="small text-muted">Voucher memerlukan upgrade. <a href="<?= site_url('system/feature-access') ?>">Lihat informasi paket</a></div><?php endif; ?>
+              <div class="payment-block payment-block-compact" <?= !$promotionIncluded ? 'style="display:none!important" aria-hidden="true"' : '' ?>>
                 <div class="payment-block-title">Voucher &amp; Potongan</div>
                 <div class="row g-2 align-items-start">
                   <div class="col-lg-7">

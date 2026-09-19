@@ -23,6 +23,15 @@ final class Control_license_cache
             'tools/install/portable/PortablePackage.php','tools/install/portable/LinuxPreparation.php',
             'tools/install/portable/prepare.php','tools/install/portable/prepare.sh',
             'tools/install/portable/setup.php','tools/install/portable/setup.js','tools/install/portable/setup.css']);
+        if ($profileVersion >= 9) $files = array_merge($files, [
+            'app-manifest.json', 'application/core/MY_Hooks.php', 'application/core/MY_Router.php', 'application/core/MY_Controller.php',
+            'system/core/Hooks.php', 'system/core/Common.php', 'system/core/Controller.php',
+            'application/config/feature_access.php', 'application/libraries/Feature_policy.php',
+            'application/libraries/Feature_gate.php', 'application/controllers/Feature_access.php',
+            'application/controllers/Auth.php', 'application/controllers/Dashboard.php', 'application/controllers/Master.php',
+            'application/models/Pos_model.php', 'application/views/layout/sidebar.php',
+            'application/views/system/feature_home.php', 'application/views/system/feature_locked.php',
+            'application/views/system/feature_upgrade.php', 'application/views/master/detail_basic.php']);
         return $files;
     }
 
@@ -232,7 +241,7 @@ final class Control_license_cache
                     || ($method === 'POST' && $route === '/auth/do_login')
                     || (($method === 'GET' || $method === 'POST') && in_array($route, ['/logout', '/auth/logout'], true)));
             return ['allowed' => $allowed || $recovery, 'managed' => true, 'recovery_only' => !$allowed && $recovery,
-                'status' => $v['status'] ?? 'RESTRICTED', 'code' => $v['code'] ?? 'CUSTOMER_LICENSE_REQUIRED'];
+                'status' => $v['status'] ?? 'RESTRICTED', 'code' => $v['code'] ?? 'CUSTOMER_LICENSE_REQUIRED', 'verification'=>$v];
         } catch (Throwable $e) {
             return ['allowed' => false, 'managed' => true, 'status' => 'RESTRICTED',
                 'code' => $e instanceof RuntimeException ? $e->getMessage() : 'CUSTOMER_CONTEXT_INVALID'];

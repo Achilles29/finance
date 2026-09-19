@@ -2932,6 +2932,8 @@ class Pos_model extends CI_Model
 
     public function cashier_payment_prepare(int $orderId, int $actorEmployeeId): array
     {
+        require_once APPPATH.'libraries/Feature_policy.php';
+        $features = Feature_policy::runtime();
         $session = $actorEmployeeId > 0 ? $this->find_active_cashier_session($actorEmployeeId) : null;
         if (!$session) {
             return ['ok' => false, 'message' => 'Kasir belum dibuka.'];
@@ -2963,10 +2965,10 @@ class Pos_model extends CI_Model
             return ['ok' => false, 'message' => 'Order ini sudah tidak memiliki tagihan pembayaran.'];
         }
         $memberId = !empty($header['member_id']) ? (int)$header['member_id'] : 0;
-        $memberRow = $memberId > 0 ? $this->find_member($memberId) : null;
+        $memberRow = $memberId > 0 && $features->allows('CUSTOMER_LOYALTY') ? $this->find_member($memberId) : null;
         $memberPointBalance = round((float)($memberRow['point_balance_cache'] ?? 0), 4);
-        $memberStampBalance = $memberId > 0 ? $this->current_member_stamp_balance($memberId) : 0.0;
-        $memberVoucherRows = $this->cashier_member_voucher_rows($memberId, $order, $baseTotal);
+        $memberStampBalance = $memberId > 0 && $features->allows('CUSTOMER_LOYALTY') ? $this->current_member_stamp_balance($memberId) : 0.0;
+        $memberVoucherRows = $features->allows('PROMOTION_VOUCHER') ? $this->cashier_member_voucher_rows($memberId, $order, $baseTotal) : [];
         $depositPreview = $this->cashier_member_deposit_preview($memberId, $dueTotal);
 
         return [
@@ -2987,7 +2989,7 @@ class Pos_model extends CI_Model
                 'due_total' => round((float)($depositPreview['cash_due_total'] ?? $dueTotal), 2),
                 'can_edit_adjustment' => $paidTotal <= 0.009,
                 'payment_methods' => $this->deposit_payment_method_options(),
-                'voucher_options' => $this->cashier_voucher_options_for_order($order, $baseTotal),
+                'voucher_options' => $features->allows('PROMOTION_VOUCHER') ? $this->cashier_voucher_options_for_order($order, $baseTotal) : [],
                 'deposit_available_total' => round((float)($depositPreview['available_total'] ?? 0), 2),
                 'deposit_applied_total' => round((float)($depositPreview['applied_total'] ?? 0), 2),
                 'deposit_remaining_total' => round((float)($depositPreview['remaining_total'] ?? 0), 2),
@@ -3116,6 +3118,11 @@ class Pos_model extends CI_Model
 
     public function save_cashier_payment(array $payload, int $actorEmployeeId): array
     {
+        require_once APPPATH.'libraries/Feature_policy.php';
+        $denied = Feature_policy::runtime()->payload('pos', 'order_payment_save', $payload);
+        if ($denied !== null) {
+            return ['ok'=>false, 'code'=>$denied['code'], 'message'=>'Fitur promo/loyalty belum termasuk paket Anda.'];
+        }
         if ($actorEmployeeId <= 0) {
             return ['ok' => false, 'message' => 'User login belum terhubung ke employee.'];
         }
@@ -4040,20 +4047,22 @@ class Pos_model extends CI_Model
 
     private function apply_cashier_payment_loyalty(array $orderRow, int $paymentId, string $paidAt): array
     {
+        require_once APPPATH.'libraries/Feature_policy.php';
+        $features = Feature_policy::runtime();
         $memberId = (int)($orderRow['member_id'] ?? 0);
         $orderId = (int)($orderRow['id'] ?? 0);
         if ($orderId <= 0 || $paymentId <= 0) {
             return ['point_earned' => 0.0, 'stamp_earned' => 0.0, 'issued_vouchers' => []];
         }
 
-        $pointEarned = $memberId > 0
+        $pointEarned = $memberId > 0 && $features->allows('CUSTOMER_LOYALTY')
             ? $this->award_cashier_payment_points($memberId, $orderId, $paymentId, $paidAt, $orderRow)
             : 0.0;
-        $stampEarned = $memberId > 0
+        $stampEarned = $memberId > 0 && $features->allows('CUSTOMER_LOYALTY')
             ? $this->award_cashier_payment_stamps($memberId, $orderId, $paymentId, $paidAt, $orderRow)
             : 0.0;
-        $issuedVouchers = $this->issue_cashier_payment_vouchers($memberId, $orderId, $paymentId, $paidAt, $orderRow);
-        if ($memberId > 0) {
+        $issuedVouchers = $features->allows('PROMOTION_VOUCHER') ? $this->issue_cashier_payment_vouchers($memberId, $orderId, $paymentId, $paidAt, $orderRow) : [];
+        if ($memberId > 0 && $features->allows('CUSTOMER_LOYALTY')) {
             $this->sync_member_loyalty_cache($memberId);
             $this->sync_member_total_spending_cache($memberId);
         }
@@ -5443,6 +5452,10 @@ class Pos_model extends CI_Model
 
     public function daily_recon_gate_status(string $stage, string $date = ''): array
     {
+        require_once APPPATH.'libraries/Feature_policy.php';
+        if (!Feature_policy::runtime()->allows('INVENTORY_RECON')) {
+            return ['enabled'=>false, 'stage'=>$stage, 'date'=>$date ?: date('Y-m-d'), 'complete'=>true, 'missing'=>[], 'message'=>'Pemeriksaan inventory lanjutan tidak termasuk paket.'];
+        }
         $stage = strtoupper(trim($stage));
         if (!in_array($stage, ['OPEN', 'CLOSE'], true)) {
             $stage = 'OPEN';
@@ -6774,13 +6787,16 @@ class Pos_model extends CI_Model
 
     public function order_member_search(string $q, int $limit = 8): array
     {
+        require_once APPPATH.'libraries/Feature_policy.php';
+        $memberColumns = 'id, member_no, member_name, mobile_phone, member_status';
+        if (Feature_policy::runtime()->allows('CUSTOMER_LOYALTY')) $memberColumns .= ', member_tier, point_balance_cache, stamp_balance_cache, total_spending';
         $q = trim($q);
         if ($q === '') {
             return [];
         }
 
         return $this->db
-            ->select('id, member_no, member_name, mobile_phone, member_tier, member_status, point_balance_cache, stamp_balance_cache, total_spending')
+            ->select($memberColumns)
             ->from('crm_member')
             ->where('is_active', 1)
             ->where('member_status !=', 'CLOSED')

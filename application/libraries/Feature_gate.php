@@ -2,8 +2,8 @@
 defined('BASEPATH') OR exit('No direct script access allowed');
 
 /**
- * The only entitlement decision boundary. It intentionally starts in AUDIT_ONLY:
- * no running Finance instance may lose POS/data access merely because C4 is deployed.
+ * CI facade for feature decisions. Verified customer packages always enforce;
+ * the historical opt-in audit behavior is retained only for non-customer installations.
  */
 class Feature_gate
 {
@@ -18,6 +18,8 @@ class Feature_gate
 
     public function mode(): string
     {
+        require_once __DIR__.'/Feature_policy.php';
+        if (Feature_policy::runtime()->managed()) return 'ENFORCE';
         // A SQL setting alone must not switch a running customer into enforcement.
         if (getenv('FINANCE_LICENSE_ENFORCEMENT_APPROVED') !== '1') return 'AUDIT_ONLY';
         if (!$this->ci->db->table_exists('sys_app_config')) return 'AUDIT_ONLY';
@@ -50,6 +52,8 @@ class Feature_gate
     public function decision(string $featureCode, array $context = []): array
     {
         $featureCode = strtoupper(trim($featureCode));
+        require_once __DIR__.'/Feature_policy.php';
+        if (Feature_policy::runtime()->managed()) return Feature_policy::runtime()->feature($featureCode);
         $mode = $this->mode();
         $known = isset($this->catalog()[$featureCode]);
         $route = trim((string)($context['route_path'] ?? uri_string()));

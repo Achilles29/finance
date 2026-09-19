@@ -5,6 +5,23 @@
  * it must never be loaded by the web application.
  */
 
+/** Core classes loaded dynamically by CodeIgniter's load_class(). */
+class CI_Hooks
+{
+    public function call_hook($which = '') {}
+}
+class CI_Router
+{
+    public $uri;
+    public function __construct($routing = null) {}
+    public function fetch_class() {}
+    public function fetch_method() {}
+    public function set_directory($dir, $append = false) {}
+    public function set_class($class) {}
+    public function set_method($method) {}
+}
+function &load_class($class, $directory = 'libraries', $param = null) { static $instance; return $instance; }
+
 class CI_Controller
 {
     public function __construct() {}

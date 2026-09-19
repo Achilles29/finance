@@ -1061,6 +1061,11 @@ class Master extends MY_Controller
         $this->requireMasterPermission($entity, 'view');
 
         if ($entity === 'product') {
+            require_once APPPATH.'libraries/Feature_policy.php';
+            if (!Feature_policy::runtime()->all(['HPP_CONTROL', 'RECIPE_PRODUCT'])) {
+                $this->basicFeatureDetail($entity, $id, $cfg, ['id','product_code','product_name','selling_price','stock_mode','is_active']);
+                return;
+            }
             $row = $this->db->select('p.*, pd.name AS product_division_name, pc.name AS classification_name, cat.name AS category_name, u.name AS uom_name, od.name AS operational_division_name', false)
                 ->from('mst_product p')
                 ->join('mst_product_division pd', 'pd.id = p.product_division_id', 'left')
@@ -1106,6 +1111,12 @@ class Master extends MY_Controller
 
         if ($entity !== 'org-employee') {
             redirect('master/' . $entity . '/edit/' . $id);
+            return;
+        }
+
+        require_once APPPATH.'libraries/Feature_policy.php';
+        if (!Feature_policy::runtime()->all(['ATTENDANCE', 'PAYROLL'])) {
+            $this->basicFeatureDetail($entity, $id, $cfg, ['id','employee_code','employee_name','mobile_phone','email','is_active']);
             return;
         }
 
@@ -1612,11 +1623,13 @@ class Master extends MY_Controller
             if ($mode === '') {
                 $mode = 'DEFAULT';
             }
-            $data['variable_cost_mode'] = $mode;
-            if ($mode === 'NONE') {
-                $data['variable_cost_percent'] = 0;
-            } elseif ($mode === 'DEFAULT') {
-                $data['variable_cost_percent'] = $this->Master_model->get_variable_cost_default_percent($scope, 20.0);
+            if (array_key_exists('variable_cost_mode', $data)) {
+                $data['variable_cost_mode'] = $mode;
+                if ($mode === 'NONE') {
+                    $data['variable_cost_percent'] = 0;
+                } elseif ($mode === 'DEFAULT') {
+                    $data['variable_cost_percent'] = $this->Master_model->get_variable_cost_default_percent($scope, 20.0);
+                }
             }
 
             if (($cfg['table'] ?? '') === 'mst_component' || ($cfg['table'] ?? '') === 'mst_product') {
@@ -1791,6 +1804,8 @@ class Master extends MY_Controller
 
     private function variableCostDefaultsForEntity(string $entity): array
     {
+        require_once APPPATH.'libraries/Feature_policy.php';
+        if (!Feature_policy::runtime()->allows('HPP_CONTROL')) return [];
         if ($entity === 'component') {
             return ['component' => $this->Master_model->get_variable_cost_default_percent('COMPONENT', 20.0)];
         }
@@ -2200,6 +2215,8 @@ class Master extends MY_Controller
 
     private function decorateProductListRow(array $row): array
     {
+        require_once APPPATH.'libraries/Feature_policy.php';
+        if (!Feature_policy::runtime()->allows('HPP_CONTROL')) return [];
         $baseLiveHpp = $this->resolveProductListLiveHpp($row);
         $sellingPrice = (float)($row['selling_price'] ?? 0);
         if ($baseLiveHpp <= 0) {
@@ -2624,7 +2641,21 @@ class Master extends MY_Controller
             return null;
         }
         $all = $this->entities();
-        return $all[$entity] ?? null;
+        $cfg = $all[$entity] ?? null;
+        if ($cfg === null) return null;
+        require_once APPPATH.'libraries/Feature_policy.php';
+        $hidden = Feature_policy::runtime()->restrictedFields($entity);
+        foreach (['fields'=>'name', 'columns'=>'key'] as $section=>$key) {
+            $cfg[$section] = array_values(array_filter($cfg[$section] ?? [], static fn($f)=>!in_array($f[$key], $hidden, true)));
+        }
+        return $cfg;
+    }
+
+    private function basicFeatureDetail(string $entity, int $id, array $cfg, array $columns): void
+    {
+        $row = $this->db->select(implode(',', $columns))->from($cfg['table'])->where('id', $id)->get()->row_array();
+        if (!$row) show_404();
+        $this->render('master/detail_basic', ['title'=>$cfg['title'], 'active_menu'=>$cfg['active_menu'] ?? 'grp.master', 'entity'=>$entity, 'row'=>$row]);
     }
 
     private function entityNav(): array

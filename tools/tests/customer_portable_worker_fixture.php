@@ -11,11 +11,17 @@ $transport=static function(string $origin,string $path,string $body,array $heade
         return ['http'=>202,'json'=>['status'=>'PENDING','activation_id'=>'00000000-0000-4000-8000-000000000099','poll_token'=>'nlp_'.str_repeat('a',48)]];
     }
     if($path===ControlLicenseProtocol::POLL_PATH) {
+        if(!empty($f['revoked'])) return ['http'=>403,'json'=>['code'=>'license_revoked']];
         $agent=(new PortableStore($root,'private/agent'))->read('agent.json');$id=$agent['identity'];
         $issued=$f['issued'];
+        $manifest=json_decode(file_get_contents($root.'/app-manifest.json'),true,64,JSON_THROW_ON_ERROR);
+        $types=array_column($manifest['features'],'value_type','code');$entitlements=[];
+        $edition=$f['edition']??'STARTER_POS';
+        foreach($manifest['editions'] as $ed) if($ed['code']===$edition) foreach($ed['features'] as $k=>$v) $entitlements[$k]=$types[$k]==='BOOLEAN'?($v==='1'):(int)$v;
+        if(isset($f['entitlements']))$entitlements=$f['entitlements'];
         $payload=$id+['schema'=>1,'license_id'=>'disposable-portable','key_id'=>$f['trust']['key_id'],'product'=>'NAMUA_FINANCE',
-            'machine_fingerprint_sha256'=>CustomerPlatform::fingerprint(),'edition'=>'STARTER_POS','metric'=>'SERVER_INSTANCE',
-            'rights_model'=>'PERPETUAL','entitlements'=>['POS_CORE'=>true],'issued_at'=>gmdate(DATE_ATOM,$issued),
+            'machine_fingerprint_sha256'=>CustomerPlatform::fingerprint(),'edition'=>$edition,'metric'=>'SERVER_INSTANCE',
+            'rights_model'=>'PERPETUAL','entitlements'=>$entitlements,'issued_at'=>gmdate(DATE_ATOM,$issued),
             'expires_at'=>gmdate(DATE_ATOM,$issued+3600),'grace_until'=>gmdate(DATE_ATOM,$issued+7200),'maintenance_ends_at'=>gmdate(DATE_ATOM,$issued-86400)];
         $raw=json_encode($payload,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
         $e=['schema'=>1,'algorithm'=>'Ed25519','key_id'=>$f['trust']['key_id'],'payload_base64'=>base64_encode($raw),

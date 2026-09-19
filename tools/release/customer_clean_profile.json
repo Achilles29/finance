@@ -2,7 +2,7 @@
     "schema": "finance.customer-clean-profile",
     "schema_version": 1,
     "profile": "CUSTOMER_CLEAN",
-    "profile_version": 8,
+    "profile_version": 9,
     "installation_permission_policy": "UNTIL_USED_OR_REVOKED",
     "layout_contract": "FINANCE_SINGLE_FOLDER_V1",
     "setup_contract": "FINANCE_GUIDED_SETUP_V1",
@@ -15,6 +15,7 @@
     "seed_profile": "REFERENCE_ONLY",
     "demo_data": false,
     "code_files": [
+        "application/core/MY_Router.php",
         "tools/install/portable/LinuxPreparation.php",
         "tools/install/portable/SetupService.php",
         "tools/install/portable/prepare.php",
@@ -724,9 +725,18 @@
         "system/libraries/Xmlrpc.php",
         "system/libraries/Xmlrpcs.php",
         "system/libraries/Zip.php",
-        "system/libraries/index.html"
+        "system/libraries/index.html",
+        "application/core/MY_Hooks.php",
+        "application/config/feature_access.php",
+        "application/libraries/Feature_policy.php",
+        "application/controllers/Feature_access.php",
+        "application/views/system/feature_home.php",
+        "application/views/system/feature_locked.php",
+        "application/views/system/feature_upgrade.php",
+        "application/views/master/detail_basic.php"
     ],
     "files": [
+        "docs/customer_packages.md",
         "tools/release/CustomerLayout.php",
         "tools/licensing/LicenseStateStore.php",
         "tools/install/portable/PortableControl.php",
@@ -1193,5 +1203,6 @@
         "sql/2026-09-14a_finance_control_workspace.sql": "5ba57770cdd2b4b12d67cb06acb340423ea454e60bb19234f60546adaad4567e",
         "sql/2026-09-14b_finance_control_operations.sql": "9034c6db9dbea17054ff78ade67ee281d5a07f885c56a77f21a152d2e7b0f2af",
         "sql/baseline/2026-09-05_clean_install_schema.sql": "92a961016e59553c1d31d9dc9084d66fc8138cb7e6467edb73d475e45c9c20b7"
-    }
+    },
+    "feature_boundary_contract": "FINANCE_FEATURE_BOUNDARY_V1"
 }

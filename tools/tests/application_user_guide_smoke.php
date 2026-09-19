@@ -4,6 +4,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__, 2);
 define('BASEPATH', $root.'/system/');
 define('FCPATH', $root.'/');
+define('APPPATH', $root.'/application/');
 require $root.'/application/libraries/Finance_user_guide.php';
 $checks = 0;
 function check(bool $condition, string $label): void {

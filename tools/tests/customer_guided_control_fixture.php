@@ -27,7 +27,7 @@ try {
         $canonical=implode("\n",['POST',$path,$p['activation_id'],$_SERVER['HTTP_X_NAMUA_TIMESTAMP'],$_SERVER['HTTP_X_NAMUA_NONCE'],hash('sha256',$raw)]);
         if(!sodium_crypto_sign_verify_detached(base64_decode($_SERVER['HTTP_X_NAMUA_SIGNATURE'],true),$canonical,base64_decode($s['pk'],true)))throw new RuntimeException('POLL_SIGNATURE_INVALID');
         $issued=$f['issued'];$payload=$s['identity']+['schema'=>1,'license_id'=>'disposable-guided','key_id'=>$f['trust']['key_id'],'product'=>'NAMUA_FINANCE',
-            'machine_fingerprint_sha256'=>$s['fingerprint'],'edition'=>'STARTER_POS','metric'=>'SERVER_INSTANCE','rights_model'=>'PERPETUAL','entitlements'=>['POS_CORE'=>true],
+            'machine_fingerprint_sha256'=>$s['fingerprint'],'edition'=>'STARTER_POS','metric'=>'SERVER_INSTANCE','rights_model'=>'PERPETUAL','entitlements'=>['BUSINESS_PROFILE'=>true,'RBAC_CORE'=>true,'POS_WEB'=>true,'POS_PRINTER'=>true,'SALES_REPORTING'=>true,'LIMIT_OUTLETS'=>1,'LIMIT_POS_TERMINALS'=>1],
             'issued_at'=>gmdate(DATE_ATOM,$issued),'expires_at'=>gmdate(DATE_ATOM,$issued+3600),'grace_until'=>gmdate(DATE_ATOM,$issued+7200),'maintenance_ends_at'=>gmdate(DATE_ATOM,$issued-86400)];
         $bytes=json_encode($payload,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
         $e=['schema'=>1,'algorithm'=>'Ed25519','key_id'=>$f['trust']['key_id'],'payload_base64'=>base64_encode($bytes),

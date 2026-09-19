@@ -75,6 +75,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'c3-customer-clean-release', 'file' => 'c3_customer_clean_release_smoke.php'],
             ['id' => 'customer-guided-setup', 'file' => 'customer_guided_contract_smoke.php'],
             ['id' => 'customer-portable-contract', 'file' => 'customer_portable_contract_smoke.php'],
+            ['id' => 'feature-boundary-contract', 'file' => 'feature_boundary_contract_smoke.php'],
             ['id' => 'c3-control-build-adapter', 'file' => 'c3_control_build_adapter_smoke.php'],
             ['id' => 'c3-clean-install-database', 'file' => 'c3_clean_install_database_smoke.php'],
             ['id' => 'c3-deployment-instance', 'file' => 'c3_deployment_instance_smoke.php'],

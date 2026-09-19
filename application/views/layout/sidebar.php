@@ -13,6 +13,25 @@
 $active_menu  = $active_menu ?? '';
 $current_user = $current_user ?? [];
 
+// Keep the RBAC-filtered tree unchanged. Entitlement badges are calculated after the
+// RBAC cache is read, using this request's verified license (upgrade/downgrade is immediate).
+if (!function_exists('_feature_sidebar_badge')) {
+  function _feature_sidebar_badge(array $item): void
+  {
+    require_once APPPATH.'libraries/Feature_policy.php';
+    $policy = Feature_policy::runtime();
+    if (!$policy->managed() || empty($item['url']) || $item['url'] === '#') return;
+    $ci =& get_instance();
+    $decision = $policy->menu((string)$item['url'], $ci->router->routes);
+    if ($decision['allowed']) return;
+    // Inline SVG avoids a missing/icon-font version hiding the product lock.
+    echo '<span class="finance-feature-lock badge bg-label-warning ms-1" title="Memerlukan upgrade paket"'
+      .' style="display:inline-flex;align-items:center;gap:3px;flex-shrink:0;font-size:10px">'
+      .'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'
+      .'<rect x="4" y="10" width="16" height="12" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4"/></svg><span>Upgrade</span></span>';
+  }
+}
+
 // Deteksi portal mode
 $is_employee_portal = (strpos($active_menu, 'my.') === 0);
 
@@ -141,6 +160,7 @@ if (!function_exists('render_menu_tree')) {
                   <a href="javascript:void(0);" class="menu-link menu-toggle"<?php if (!empty($item['is_favoritable'])): ?> data-sidebar-favorite-url="<?= htmlspecialchars(base_url(ltrim((string)$item['url'], '/')), ENT_QUOTES, 'UTF-8') ?>"<?php endif; ?>>
                     <i class="menu-icon tf-icons ri <?= $icon_class ?>"></i>
                     <div class="flex-grow-1"><?= $label ?></div>
+                    <?php _feature_sidebar_badge($item); ?>
                     <?php if (!empty($item['is_favoritable']) && $menu_id > 0): ?>
                     <button type="button"
                             class="btn p-0 border-0 bg-transparent sidebar-pin-toggle <?= $is_fav ? 'is-pinned' : '' ?>"
@@ -165,6 +185,7 @@ if (!function_exists('render_menu_tree')) {
                   <a href="<?= base_url(ltrim($item['url'], '/')) ?>" class="menu-link">
                     <i class="menu-icon tf-icons ri <?= $icon_class ?>"></i>
                     <div class="flex-grow-1"><?= $label ?></div>
+                    <?php _feature_sidebar_badge($item); ?>
                     <?php if (!empty($item['is_favoritable']) && $menu_id > 0): ?>
                     <button type="button"
                             class="btn p-0 border-0 bg-transparent sidebar-pin-toggle <?= $is_fav ? 'is-pinned' : '' ?>"
@@ -308,6 +329,7 @@ $sb_logo_url = $sb_logo_url !== '' ? $sb_logo_url : (is_file(FCPATH . 'assets/im
         <a href="<?= base_url(ltrim($fav['url'] ?? '#', '/')) ?>" class="menu-link d-flex align-items-center">
           <i class="menu-icon tf-icons ri <?= $fav_icon ?>"></i>
           <div class="flex-grow-1"><?= htmlspecialchars($fav['menu_label'] ?? '') ?></div>
+          <?php _feature_sidebar_badge($fav); ?>
           <button type="button"
                   class="btn p-0 border-0 bg-transparent sidebar-pin-toggle is-pinned"
                   data-menu-id="<?= (int)$fav['menu_id'] ?>"

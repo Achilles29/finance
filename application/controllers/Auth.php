@@ -170,6 +170,9 @@ class Auth extends CI_Controller
 
         // Redirect ke halaman sebelumnya jika ada, fallback ke halaman pertama yang boleh diakses
         $redirect_to = $this->session->flashdata('redirect_after_login');
+        if (defined('FINANCE_FEATURE_CONTEXT') && !empty(FINANCE_FEATURE_CONTEXT['managed']) && $redirect_to === null) {
+            $redirect_to = '';
+        }
         if ($redirect_to === '') {
             $redirect_to = $this->resolve_post_login_redirect($perms);
         }
@@ -209,10 +212,24 @@ class Auth extends CI_Controller
             'payroll.cash_advance.index' => 'payroll/cash-advances',
         ];
 
+        $productPolicy = null;
+        if (defined('FINANCE_FEATURE_CONTEXT') && !empty(FINANCE_FEATURE_CONTEXT['managed'])) {
+            require_once APPPATH.'libraries/Feature_policy.php';
+            $productPolicy = Feature_policy::runtime();
+            // A customer cashier must not need a paid HR portal just to log in.
+            $candidates = ['dashboard.index'=>'dashboard', 'pos.cashier.index'=>'pos/cashier',
+                'pos.order.draft.index'=>'pos/orders/draft'] + $candidates;
+        }
+
         foreach ($candidates as $pageCode => $url) {
             if (!empty($perms[$pageCode]['can_view'])) {
+                if ($productPolicy !== null && !$productPolicy->menu($url, $this->router->routes)['allowed']) continue;
                 return $url;
             }
+        }
+
+        if ($productPolicy !== null) foreach ($perms as $permission) {
+            if (is_array($permission) && !empty($permission['can_view'])) return 'license';
         }
 
         return '';

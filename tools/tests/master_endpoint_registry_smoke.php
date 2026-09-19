@@ -169,7 +169,8 @@ $entityConfigBody = $methods['entityConfig']['body'] ?? '';
 $check(
     strpos($entityConfigBody, "if (\$entity === 'payment-channel')") !== false
         && strpos($entityConfigBody, 'return null;') !== false
-        && strpos($entityConfigBody, 'return $all[$entity] ?? null;') !== false,
+        && strpos($entityConfigBody, '$cfg = $all[$entity] ?? null;') !== false
+        && strpos($entityConfigBody, 'if ($cfg === null) return null;') !== false,
     'legacy and unknown Master entities fail closed before generic data access'
 );
 $requirePermissionBody = $methods['requireMasterPermission']['body'] ?? '';

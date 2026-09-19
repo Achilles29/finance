@@ -377,5 +377,7 @@ if (implode('', $customer_environment) !== '') {
             . '<p>Kode: <code>' . htmlspecialchars((string)$customer_decision['code'], ENT_QUOTES, 'UTF-8') . '</code></p></html>';
         exit(1);
     }
+    // Immutable request snapshot from the verified customer bootstrap, never an optional enforcement flag.
+    define('FINANCE_FEATURE_CONTEXT', ['managed'=>true, 'verification'=>$customer_decision['verification'] ?? []]);
 }
 require_once BASEPATH.'core/CodeIgniter.php';

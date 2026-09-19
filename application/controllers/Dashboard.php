@@ -20,6 +20,14 @@ class Dashboard extends MY_Controller
     {
         $this->require_registered_page_permission(self::PAGE_INDEX);
 
+        require_once APPPATH.'libraries/Feature_policy.php';
+        $features = Feature_policy::runtime();
+        // Do not query the legacy dashboard's mixed paid datasets for a basic home page.
+        if ($features->managed() && !$features->all(['SALES_REPORTING', 'INVENTORY_WAREHOUSE', 'INVENTORY_RECON', 'COMPONENT_PRODUCTION', 'HPP_CONTROL', 'FINANCE_ADVANCED', 'PERIOD_AUDIT'])) {
+            $this->render('system/feature_home', ['title'=>'Dashboard', 'active_menu'=>'dashboard', 'features'=>$features]);
+            return;
+        }
+
         $filters = $this->dashboard_filters();
         $stockCards = $this->dashboard_stock_cards();
         $salesOverview = $this->dashboard_pos_sales_overview($filters);

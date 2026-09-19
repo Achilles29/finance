@@ -102,6 +102,7 @@ final class CustomerBuild
     {
         self::validate($r, $root);
         self::need(PHP_VERSION_ID >= 80100 && PHP_VERSION_ID < 80200, 'PHP_81_REQUIRED');
+        $featureCheck = self::run([PHP_BINARY, $root.'/tools/tests/feature_boundary_contract_smoke.php'], $root, 'FEATURE_BOUNDARY_GATE_FAILED');
         $snapshot = releaseArtifactSnapshot(ReleasePackagePolicy::fromFile($root . '/tools/release/package_policy.json'), $root, CustomerReleaseProfile::fromRoot($root));
         $static = $scratch . '/static';
         self::need(mkdir($static, 0700) && is_readable('/var/lib/finance-a4-static/vendor/autoload.php')
@@ -132,7 +133,7 @@ final class CustomerBuild
             'profile' => ['code' => $r['profile_code'], 'rules_sha256' => $r['profile_rules_sha256'], 'audience' => $r['audience'], 'sample_data' => $r['sample_data']]];
         $evidence = [
             'source_clean' => ['commit' => $r['source_commit'], 'clean' => true],
-            'security_scan' => ['builder_exit' => $build['code'], 'builder_output_sha256' => hash('sha256', $build['output']), 'required_gates' => ['preflight', 'phpstan', 'osv_offline']],
+            'security_scan' => ['builder_exit' => $build['code'], 'builder_output_sha256' => hash('sha256', $build['output']), 'feature_boundary_sha256'=>hash('sha256',$featureCheck['output']), 'required_gates' => ['preflight', 'phpstan', 'osv_offline', 'feature_boundary_contract']],
             'install_test' => $database['health'], 'backup_restore' => $database['restore'],
             'customer_data_scan' => $description['customer_content_audit'] + ['database' => $database['clean']],
             'secrets_scan' => ['preflight_passed' => true, 'artifact_sha256' => $description['sha256']],

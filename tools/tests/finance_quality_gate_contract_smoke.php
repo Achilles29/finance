@@ -76,6 +76,7 @@ $expectedRequired = [
     'c3-customer-clean-release',
     'customer-guided-setup',
     'customer-portable-contract',
+    'feature-boundary-contract',
     'c3-control-build-adapter',
     'c3-clean-install-database',
     'c3-deployment-instance',
