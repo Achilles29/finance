@@ -68,6 +68,7 @@ foreach ($lineRows as $line) {
 
     $groupedRows[$groupKey]['items'][] = [
         'barang' => (string)($line['profile_name'] ?? '-'),
+        'stock_line' => $line,
         'qty' => $qty,
         'uom' => $uom !== '' ? $uom : '-',
         'keterangan' => $description,
@@ -101,9 +102,12 @@ foreach ($lineRows as $line) {
     .group-head small { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #9a6e58; }
     .group-head strong { display: block; margin-top: 4px; font-size: 16px; color: #2f1c13; }
     .group-head .right { text-align: right; }
-    table { width: 100%; border-collapse: collapse; }
-    thead th { padding: 11px 12px; background: #9f172a; color: #fff; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; text-align: left; }
-    tbody td { padding: 11px 12px; border-bottom: 1px solid #f1e6de; font-size: 12px; vertical-align: top; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { overflow-wrap: anywhere; word-wrap: break-word; }
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    thead th { padding: 8px 6px; background: #9f172a; color: #fff; font-size: 10px; text-align: left; }
+    tbody td { padding: 8px 6px; border-bottom: 1px solid #f1e6de; font-size: 11px; vertical-align: top; }
     tbody tr:last-child td { border-bottom: 0; }
     .text-end { text-align: right; white-space: nowrap; }
     .muted { color: #7a6154; }
@@ -160,11 +164,12 @@ foreach ($lineRows as $line) {
             <table>
               <thead>
                 <tr>
-                  <th>Barang</th>
-                  <th class="text-end">Kuantitas</th>
-                  <th>UOM</th>
-                  <th>Keterangan</th>
-                  <th>Route</th>
+                  <th style="width:22%">Barang</th>
+                  <th style="width:11%" class="text-end">Diajukan</th>
+                  <th style="width:7%">UOM</th>
+                  <th style="width:32%">Stok sekarang (satuan isi)</th>
+                  <th style="width:20%">Keterangan</th>
+                  <th style="width:8%">Route</th>
                 </tr>
               </thead>
               <tbody>
@@ -173,6 +178,7 @@ foreach ($lineRows as $line) {
                     <td><?php echo htmlspecialchars((string)($item['barang'] ?? '-'), ENT_QUOTES, 'UTF-8'); ?></td>
                     <td class="text-end"><?php echo number_format((float)($item['qty'] ?? 0), 2, ',', '.'); ?></td>
                     <td><?php echo htmlspecialchars((string)($item['uom'] ?? '-'), ENT_QUOTES, 'UTF-8'); ?></td>
+                    <td><?php $this->load->view('procurement/_current_stock', ['stock_line'=>$item['stock_line']]); ?></td>
                     <td class="muted"><?php echo htmlspecialchars((string)($item['keterangan'] ?? '-'), ENT_QUOTES, 'UTF-8'); ?></td>
                     <td><?php echo htmlspecialchars((string)($item['route'] ?? '-'), ENT_QUOTES, 'UTF-8'); ?></td>
                   </tr>
@@ -185,6 +191,7 @@ foreach ($lineRows as $line) {
     </div>
 
     <div class="foot">
+      Stok sekarang dibaca saat dokumen dicetak, bukan saldo pada tanggal pengajuan. Total bahan baku divisi/lokasi dan gudang dalam satuan isi; bukan hitung fisik atau reservasi. “Belum diketahui” tidak berarti nol.<br>
       <?php echo $pdfMode
         ? 'File PDF ini dibuat otomatis dari server dan disusun per tanggal butuh.'
         : 'Preview ini menampilkan susunan final PDF per tanggal butuh.'; ?>

@@ -10,6 +10,7 @@ $lastSync = is_int($sync['synced_at'] ?? null) ? $sync['synced_at'] : 0;
 $customerGuard = (string)getenv('FINANCE_CUSTOMER_INSTALLATION_FILE') !== '';
 ?>
 <div class="container-fluid py-3">
+  <?php if(!empty($can_manage_updates)): ?><div class="mb-3"><a class="btn btn-outline-primary" href="<?= site_url('system/updates') ?>">Pembaruan aplikasi</a></div><?php endif; ?>
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3"><div><h4 class="mb-1">Lisensi &amp; Aktivasi</h4><p class="text-muted mb-0">Status entitlement lokal tanpa menampilkan token atau rahasia penerbit.</p></div><span class="badge <?= ($mode ?? '') === 'ENFORCE' ? 'text-bg-warning' : 'text-bg-info' ?> p-2">Mode <?= html_escape((string)($mode ?? 'AUDIT_ONLY')) ?></span></div>
   <?php if ($customerGuard): ?><div class="alert alert-info"><strong>Pembatasan instalasi server aktif.</strong> Aplikasi hanya terbuka dengan lisensi Control bertanda tangan yang cocok dengan identitas dan mesin ini, berstatus ACTIVE atau GRACE. Tanpa lisensi sah, hanya halaman login, logout dan status lisensi yang tetap tersedia untuk pemulihan. Mode fitur di atas adalah pemeriksaan entitlement modul, terpisah dari kunci instalasi server.</div>
   <?php elseif (($mode ?? 'AUDIT_ONLY') !== 'ENFORCE'): ?><div class="alert alert-success"><i class="ri-shield-check-line me-1"></i><strong>Mode pemantauan aktif.</strong> Lisensi dipantau, tetapi belum membatasi POS, laporan, maupun data pada instalasi ini.</div><?php endif; ?>

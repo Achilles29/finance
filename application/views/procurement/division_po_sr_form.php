@@ -15,7 +15,7 @@ $isPurchaseScope = !empty($is_purchase_scope);
 $canVerify = !empty($can_verify);
 $requestId = (int)($request_id ?? 0);
 $showVendorColumn = $canVerify;
-$lineColumnCount = $canVerify ? 12 : ($showVendorColumn ? 15 : 14);
+$lineColumnCount = $canVerify ? 13 : ($showVendorColumn ? 16 : 15);
 $defaultRequestDate = (string)($header['request_date'] ?? date('Y-m-d'));
 $defaultNeededDate = (string)($header['needed_date'] ?? date('Y-m-d', strtotime('+1 day')));
 
@@ -453,6 +453,7 @@ if (!function_exists('finance_dreq_location_label')) {
           <thead>
             <tr>
               <th>Profile</th>
+              <th>Stok sekarang<br><small>Divisi / Gudang • satuan isi</small></th>
               <th>Keterangan</th>
               <th>UOM</th>
               <th class="text-end">Stok Gudang</th>
@@ -2261,6 +2262,7 @@ if (!function_exists('finance_dreq_location_label')) {
       if (isVerifyMode) {
         html += '<tr>'
           + profileCellHtml
+          + '<td data-live-stock-line="' + (idx + 1) + '">Menunggu cek stok…</td>'
           + '<td>' + esc(effectiveLineKind(row)) + '</td>'
           + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
           + vendorCellHtml
@@ -2276,6 +2278,7 @@ if (!function_exists('finance_dreq_location_label')) {
       } else {
         html += '<tr>'
           + profileCellHtml
+          + '<td data-live-stock-line="' + (idx + 1) + '">Menunggu cek stok…</td>'
           + '<td>' + esc(effectiveLineKind(row)) + '</td>'
           + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
           + vendorCellHtml

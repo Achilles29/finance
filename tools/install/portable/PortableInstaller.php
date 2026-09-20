@@ -53,6 +53,12 @@ final class PortableInstaller
         try {
             if($this->private->exists('complete.json'))return ['phase'=>'COMPLETE','percent'=>100];
             $context=PortablePackage::verify($this->root);$permit=PortablePackage::permit($this->root,$context);$credential=$this->credentials($permit);
+            if($context['distribution_profile_version']>=11&&!is_file($this->root.'/storage/setup/application-update.lock')){
+                // Never replace a live lock inode. Future requests share this stable file.
+                $gate=$this->status->lock('application-update.lock');
+                chmod($this->root.'/storage/setup/application-update.lock',0640);
+                chgrp($this->root.'/storage/setup/application-update.lock',filegroup($this->root));flock($gate,LOCK_UN);fclose($gate);
+            }
             if($this->private->exists('delivery-state.json')) {
                 $old=$this->private->read('delivery-state.json');
                 foreach(['instance_id','deployment_id','plan_sha256','release_public_id','source_commit','artifact_sha256','release_manifest_sha256','profile_sha256','profile_version','environment'] as $key)

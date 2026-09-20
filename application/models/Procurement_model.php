@@ -1225,6 +1225,7 @@ class Procurement_model extends CI_Model
             ->select($divisionNameCol . ' AS division_name', false)
             ->select('u.username AS created_by_username')
             ->select('l.id AS line_id, l.line_no, l.profile_name, l.line_kind, l.profile_buy_uom_code, l.profile_content_uom_code')
+            ->select('l.item_id, l.material_id, l.content_uom_id')
             ->select('l.qty_buy_requested, l.qty_content_requested, l.qty_content_available_snapshot, l.qty_content_to_sr, l.qty_content_to_po, l.notes AS line_notes')
             ->from('pur_division_request_line l')
             ->join('pur_division_request r', 'r.id = l.request_id')
@@ -1234,6 +1235,7 @@ class Procurement_model extends CI_Model
         if ($hasRequestUomMode) {
             $this->db->select('l.request_uom_mode');
         }
+        if ($this->has_division_request_usage_purpose_column()) $this->db->select('l.usage_purpose');
 
         if ($q !== '') {
             $this->db->group_start()
@@ -1545,6 +1547,15 @@ class Procurement_model extends CI_Model
 
         $this->db->trans_begin();
 
+        $lockedQuery = $this->db->query('SELECT * FROM pur_division_request WHERE id=? FOR UPDATE', [$requestId]);
+        $locked = $lockedQuery ? $lockedQuery->row_array() : [];
+        if (!$locked || !in_array(strtoupper((string)$locked['status']), ['SUBMITTED','REJECTED'], true)
+            || (string)($locked['updated_at'] ?? '') !== (string)($existing['updated_at'] ?? '')
+            || (int)$this->db->where('request_id',$requestId)->count_all_results('pur_division_request_link') > 0) {
+            $this->db->trans_rollback();
+            return ['ok'=>false,'message'=>'Pengajuan sudah berubah atau diverifikasi. Muat ulang halaman; dokumen dan bukti stok tidak diubah.'];
+        }
+
         $this->db
             ->where('id', $requestId)
             ->update('pur_division_request', [
@@ -1591,6 +1602,62 @@ class Procurement_model extends CI_Model
         return new Procurement_stock_review($this->db,$key);
     }
 
+    /** Read-only display, also used by PDF; never rebuild stock or write inventory. */
+    public function current_stock_rows(array $lines, array $header = []): array
+    {
+        $service = new Procurement_stock_review($this->db);
+        $debug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            foreach ($lines as &$line) {
+                $context = [
+                    'division_id'=>(int)($header['division_id'] ?? $header['request_division_id'] ?? $header['destination_division_id'] ?? $line['division_id'] ?? 0),
+                    'destination_type'=>(string)($header['destination_type'] ?? $line['destination_type'] ?? 'WAREHOUSE'),
+                ];
+                if ($context['destination_type'] === 'GUDANG') $context['destination_type'] = 'WAREHOUSE';
+                $input = $line;
+                $input['profile_name'] = $line['profile_name'] ?? $line['item_name'] ?? $line['material_name'] ?? $line['name'] ?? 'Bahan baku';
+                $input['qty_content_requested'] = $line['qty_content_requested'] ?? ((float)($line['qty_buy'] ?? 0) * (float)($line['content_per_buy'] ?? 0));
+                $snapshot = $service->snapshot($context, [$input], false);
+                $line['current_stock'] = $snapshot['rows'][0] ?? null;
+                $line['stock_checked_at'] = date('Y-m-d H:i:s');
+            }
+            unset($line);
+            return $lines;
+        } finally { $this->db->db_debug = $debug; }
+    }
+
+    /** Bound, scalar-only input for manual PO/SR informational stock reads. */
+    public function preview_manual_stock(array $payload, bool $purchaseOrder): array
+    {
+        $header = $payload['header'] ?? null; $lines = $payload['lines'] ?? null;
+        if (!is_array($header) || !is_array($lines) || count($lines)>100) {
+            throw new InvalidArgumentException('Pemeriksaan stok maksimal 100 baris.');
+        }
+        foreach (array_merge([$header], $lines) as $row) {
+            if (!is_array($row)) throw new InvalidArgumentException('Data pemeriksaan stok tidak valid.');
+            foreach ($row as $value) if ($value !== null && !is_scalar($value)) throw new InvalidArgumentException('Isian stok harus berupa nilai sederhana.');
+        }
+        $division = (int)($header['division_id'] ?? 0);
+        $destination = strtoupper(trim((string)($header['destination_type'] ?? '')));
+        if ($purchaseOrder && $destination === 'GUDANG') $destination = 'WAREHOUSE';
+        if (!($purchaseOrder && $destination === 'WAREHOUSE')) {
+            $resolved = $this->resolve_division_request_destination_type($division, $destination);
+            if ($division<=0 || !$resolved || $resolved !== $destination) throw new InvalidArgumentException('Pilih divisi dan tujuan yang sesuai sebelum memeriksa stok.');
+        }
+        $rows = $this->current_stock_rows($lines, ['division_id'=>$division, 'destination_type'=>$destination]);
+        $result = [];
+        foreach ($rows as $index=>$row) if ($row['current_stock'] !== null) {
+            $stock = $row['current_stock']; $stock['line'] = $index+1;
+            if ($purchaseOrder && $destination !== 'WAREHOUSE' && (float)($stock['warehouse']['qty'] ?? 0) > 0.00001) {
+                $stock['warning'] = trim($stock['warning'].' Stok gudang masih tersedia; pertimbangkan SR sebelum membeli lagi.');
+                $stock['needs_confirmation'] = true;
+            }
+            $result[] = $stock;
+        }
+        return ['rows'=>$result, 'checked_at'=>date('Y-m-d H:i:s'), 'warehouse_only'=>$destination === 'WAREHOUSE'];
+    }
+
     private function stock_review_context(int $requestId, array $header, int $userId): array
     {
         return ['request_id'=>$requestId,'division_id'=>(int)($header['division_id'] ?? 0),
@@ -1602,7 +1669,16 @@ class Procurement_model extends CI_Model
     {
         if (count($lines)>100) return ['ok'=>false,'message'=>'Maksimal 100 baris untuk satu pemeriksaan stok.'];
         $normalized = $this->normalize_division_request_lines($lines);
-        if (empty($normalized['ok'])) return $normalized;
+        if (empty($normalized['ok'])) {
+            // A newly selected material must show stock before quantity/profile entry is complete.
+            // Informational only: no signed verification token until normal validation succeeds.
+            $reader = new Procurement_stock_review($this->db);
+            $preview = $reader->preview($reader->snapshot($this->stock_review_context($requestId,$header,$userId), $lines),time());
+            $preview['token'] = '';
+            $preview['input_incomplete'] = true;
+            $preview['message'] = (string)($normalized['message'] ?? 'Lengkapi baris pengajuan sebelum verifikasi.');
+            return ['ok'=>true,'data'=>$preview];
+        }
         $service = $this->stock_review_service();
         $snapshot = $service->snapshot($this->stock_review_context($requestId,$header,$userId),$normalized['lines']);
         return ['ok'=>true,'data'=>$service->preview($snapshot,time())];

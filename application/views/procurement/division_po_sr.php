@@ -2,6 +2,8 @@
 $filters = $filters ?? [];
 $rows = $rows ?? [];
 $lineRows = $line_rows ?? [];
+$stockByRequest = [];
+foreach ($lineRows as $stockLine) $stockByRequest[(int)$stockLine['request_id']][] = $stockLine;
 $linksMap = $links_map ?? [];
 $printPickerRows = $print_picker_rows ?? [];
 $printPickerLinksMap = $print_picker_links_map ?? [];
@@ -340,6 +342,7 @@ if (!function_exists('finance_dreq_status_badge')) {
             <th>Status</th>
             <th class="text-end">Line</th>
             <th class="text-end">Qty</th>
+            <th>Stok sekarang per bahan baku</th>
             <th>Dokumen</th>
             <th class="text-end">Aksi</th>
           </tr>
@@ -347,7 +350,7 @@ if (!function_exists('finance_dreq_status_badge')) {
         <tbody>
           <?php if (empty($rows)): ?>
             <tr>
-              <td colspan="10" class="text-center text-muted py-4">Belum ada pengajuan divisi.</td>
+              <td colspan="11" class="text-center text-muted py-4">Belum ada pengajuan divisi.</td>
             </tr>
           <?php else: ?>
             <?php foreach ($rows as $row): ?>
@@ -375,6 +378,12 @@ if (!function_exists('finance_dreq_status_badge')) {
                 <td><span class="badge <?php echo finance_dreq_status_badge($status); ?>"><?php echo html_escape($status); ?></span></td>
                 <td class="text-end"><?php echo (int)($row['line_total'] ?? 0); ?></td>
                 <td class="text-end"><?php echo ui_num((float)($row['qty_total'] ?? 0)); ?></td>
+                <td>
+                  <?php foreach (array_slice($stockByRequest[$requestId] ?? [],0,2) as $stockLine): ?>
+                    <div class="mb-2"><strong><?= html_escape($stockLine['profile_name'] ?? '-') ?></strong><?php $this->load->view('procurement/_current_stock',['stock_line'=>$stockLine]); ?></div>
+                  <?php endforeach; ?>
+                  <a href="<?= site_url('procurement/division-po-sr/detail/'.$requestId) ?>">Lihat stok seluruh barang</a>
+                </td>
                 <td>
                   <?php if (empty($links)): ?>
                     <span class="text-muted small">Belum ada dokumen hasil</span>
@@ -414,12 +423,13 @@ if (!function_exists('finance_dreq_status_badge')) {
             <th>Divisi</th>
             <th>Lokasi</th>
             <th>Profile</th>
+            <th>Stok sekarang<br><small>Divisi / Gudang • satuan isi</small></th>
             <th>Jenis</th>
             <th>Route</th>
             <th>UOM</th>
             <th class="text-end">Qty Beli</th>
             <th class="text-end">Qty Isi</th>
-            <th class="text-end">Snapshot Stok</th>
+            <th class="text-end">Snapshot gudang saat pengajuan</th>
             <th>Pengaju</th>
             <th class="text-end">Aksi</th>
           </tr>
@@ -427,7 +437,7 @@ if (!function_exists('finance_dreq_status_badge')) {
         <tbody>
           <?php if (empty($lineRows)): ?>
             <tr>
-              <td colspan="13" class="text-center text-muted py-4">Belum ada rincian pengajuan divisi.</td>
+              <td colspan="14" class="text-center text-muted py-4">Belum ada rincian pengajuan divisi.</td>
             </tr>
           <?php else: ?>
             <?php foreach ($lineRows as $line): ?>
@@ -453,6 +463,7 @@ if (!function_exists('finance_dreq_status_badge')) {
                     <div class="small text-muted"><?php echo html_escape((string)($line['line_notes'] ?? '')); ?></div>
                   <?php endif; ?>
                 </td>
+                <td><?php $this->load->view('procurement/_current_stock', ['stock_line'=>$line]); ?></td>
                 <td><?php echo html_escape((string)($line['line_kind'] ?? '-')); ?></td>
                 <td><span class="badge <?php echo html_escape((string)($route['class'] ?? 'bg-light text-dark border')); ?>"><?php echo html_escape((string)($route['label'] ?? '-')); ?></span></td>
                 <td><?php echo html_escape((string)($line['profile_buy_uom_code'] ?? '-')); ?> -> <?php echo html_escape((string)($line['profile_content_uom_code'] ?? '-')); ?></td>

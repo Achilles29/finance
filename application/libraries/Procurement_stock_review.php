@@ -25,16 +25,17 @@ class Procurement_stock_review
         return true;
     }
 
-    public function snapshot(array $context, array $lines): array
+    public function snapshot(array $context, array $lines, bool $fresh = true): array
     {
-        $this->cache = []; // A later save must read again, not reuse the preview.
+        if ($fresh) $this->cache = []; // A later save must read again, not reuse the preview.
         $result = ['context'=>$context, 'lines_hash'=>hash('sha256', json_encode($lines, JSON_THROW_ON_ERROR)), 'rows'=>[]];
         foreach ($lines as $index=>$line) {
             // Material-linked items stay visible even if their usage is operational.
             $material = null;
-            try { $material = $this->material($line); } catch (Throwable $e) {}
+            $mappingError = null;
+            try { $material = $this->material($line); } catch (Throwable $e) { $mappingError = $e->getMessage(); }
             if (strtoupper((string)($line['usage_purpose'] ?? 'BAHAN_BAKU')) !== 'BAHAN_BAKU'
-                && (int)($line['material_id'] ?? 0)<=0 && !$material) continue;
+                && (int)($line['material_id'] ?? 0)<=0 && $mappingError === 'MATERIAL_UNMAPPED') continue;
             $row = ['line'=>$index+1, 'name'=>(string)($line['profile_name'] ?? 'Bahan baku'),
                 'requested'=>round((float)($line['qty_content_requested'] ?? 0),4),
                 'uom_id'=>(int)($line['content_uom_id'] ?? 0), 'uom'=>'?', 'material_id'=>null];
@@ -53,6 +54,14 @@ class Procurement_stock_review
             $row['needs_confirmation'] = $row['division']['state'] !== 'KNOWN'
                 || abs((float)$row['division']['qty']) > 0.00001 || $row['warehouse']['state'] !== 'KNOWN'
                 || (float)$row['warehouse']['qty'] < -0.00001;
+            $target = ($context['destination_type'] ?? '') === 'WAREHOUSE' ? $row['warehouse'] : $row['division'];
+            if (($context['destination_type'] ?? '') === 'WAREHOUSE') {
+                $row['needs_confirmation'] = $target['state'] !== 'KNOWN' || abs((float)$target['qty']) > 0.00001;
+            }
+            $row['warning'] = $target['state'] !== 'KNOWN' ? 'Saldo belum pasti; periksa sebelum melanjutkan.'
+                : ((float)$target['qty'] > 0.00001 ? ($row['requested'] > 0 && (float)$target['qty'] >= $row['requested']
+                    ? 'Stok tujuan masih mencukupi jumlah pengajuan. Konfirmasi kebutuhan tambahan.'
+                    : 'Stok tujuan masih tersisa. Konfirmasi kebutuhan tambahan.') : '');
             $result['rows'][] = $row;
         }
         return $result;
@@ -68,7 +77,8 @@ class Procurement_stock_review
         $item = (int)($line['item_id'] ?? 0); $material = (int)($line['material_id'] ?? 0);
         if ($item > 0) {
             $items = $this->rows('SELECT material_id FROM mst_item WHERE id=?', [$item]);
-            if (!$items || (int)$items[0]['material_id'] <= 0) throw new RuntimeException('MATERIAL_UNMAPPED');
+            if (!$items) throw new RuntimeException('ITEM_UNKNOWN');
+            if ((int)$items[0]['material_id'] <= 0) throw new RuntimeException('MATERIAL_UNMAPPED');
             $mapped = (int)$items[0]['material_id'];
             if ($material > 0 && $mapped !== $material) throw new RuntimeException('MATERIAL_CONFLICT');
             $material = $mapped;

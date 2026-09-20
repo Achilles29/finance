@@ -127,9 +127,10 @@ $check($m->verify_division_request(12,$header,$lines,7)['ok'],'operational-only 
 
 // Exercise actual controller POST/CSRF/scope/payload gates without constructing CI.
 class MY_Controller {
-    public $db,$input,$output,$session,$Procurement_model,$Purchase_model;
+    public $db,$input,$output,$session,$Procurement_model,$Purchase_model,$load;
+    public bool $allowed=false;
     public array $current_user=['id'=>7,'employee_id'=>3,'role_code'=>'BARISTA'];
-    public function can($page,$action):bool{return false;}
+    public function can($page,$action):bool{return $this->allowed;}
 }
 require $root.'/application/controllers/Procurement.php';
 class ReviewHttpInput {
@@ -155,6 +156,7 @@ class ReviewHttpModels {
     public function list_active_operational_divisions(){return [['id'=>1,'code'=>'BAR'],['id'=>2,'code'=>'KITCHEN']];}
     public function build_destination_guard_map($options){return [1=>['BAR','BAR_EVENT'],2=>['KITCHEN']];}
     public function preview_division_stock(...$args){$this->previews++;$this->received=$args;if($this->fail)throw new RuntimeException('sensitive fixture details');return ['ok'=>true,'data'=>[]];}
+    public function preview_manual_stock(...$args){$this->previews++;if($this->fail)throw new RuntimeException('sensitive fixture details');return ['rows'=>[]];}
 }
 $http=(new ReflectionClass(Procurement::class))->newInstanceWithoutConstructor();
 $http->db=new ReviewHttpDb();$http->input=new ReviewHttpInput();$http->session=new ReviewVerifySession();
@@ -184,5 +186,24 @@ $formCsrf=new ReflectionMethod(Procurement::class,'require_division_verification
 foreach([$csrf,'',[],str_repeat('b',64)] as $provided){
     $http->input->formToken=$provided;$http->input->verb='POST';
     $check($formCsrf->invoke($http)===($provided===$csrf),'form CSRF rejects missing/array/wrong token');
+}
+[$partialModel,$partialDb,$partialHeader,$partialLines]=fixture();
+$partialLines[0]['qty_content_requested']=0;
+$partial=$partialModel->preview_division_stock(12,$partialHeader,$partialLines,7);
+$check(!empty($partial['ok']) && !empty($partial['data']['input_incomplete']) && $partial['data']['token']==='', 'incomplete line can read stock but cannot receive verification token');
+require $root.'/application/controllers/Purchase.php';
+foreach ([Procurement::class=>'store_request_stock_preview',Purchase::class=>'order_stock_preview'] as $class=>$method) {
+    foreach (['success','get','csrf','forbidden','json','exception'] as $case) {
+        $controller=(new ReflectionClass($class))->newInstanceWithoutConstructor();
+        $controller->input=new ReviewHttpInput();$controller->output=new ReviewHttpOutput();$controller->session=new ReviewVerifySession();
+        $controller->Procurement_model=new ReviewHttpModels();$controller->load=new class { function model($name) {} };
+        $controller->session->set_userdata($class===Purchase::class?'purchase_mutation_csrf':'procurement_mutation_csrf',$csrf);
+        $controller->allowed=$case!=='forbidden';$controller->input->verb=$case==='get'?'GET':'POST';$controller->input->csrf=$case==='csrf'?'bad':$csrf;
+        $controller->input->raw_input_stream=$case==='json'?'broken':json_encode($payload);$controller->Procurement_model->fail=$case==='exception';
+        $controller->$method();$expected=['success'=>200,'get'=>405,'csrf'=>403,'forbidden'=>403,'json'=>422,'exception'=>503][$case];
+        $check($controller->output->status===$expected,$class.' manual stock '.$case.' HTTP status');
+        $check($controller->Procurement_model->previews===(in_array($case,['success','exception'],true)?1:0),$class.' manual stock guards before read');
+        $check(!str_contains($controller->output->body,'sensitive fixture'),$class.' manual stock no debug leakage');
+    }
 }
 echo "Procurement stock review verification: {$checks} PASS (SQLite; PO boundary stub, no live DB or MariaDB lock simulation).\n";

@@ -17,13 +17,15 @@ function fixture(verify=true,absent=false){
     lines.value=JSON.stringify([{item_id:1,qty_content_requested:500}]);
     const document={listeners:{},getElementById:id=>({procurementStockReview:absent?null:panel,divisionRequestForm:form,fieldLinesJson:lines,stockReviewJson:hidden})[id],
         createElement:element,addEventListener(type,fn){this.listeners[type]=fn;}};
-    const requests=[];let pendingTimer=null;
-    vm.runInNewContext(source,{document,fetch:(url,options)=>new Promise(resolve=>requests.push({url,options,resolve})),
-        setTimeout:fn=>{pendingTimer=fn;return 1;},clearTimeout:()=>{pendingTimer=null;}});
+    const requests=[],timers=new Map();let timerId=0;
+    vm.runInNewContext(source,{document,AbortController,fetch:(url,options)=>new Promise((resolve,reject)=>{
+        requests.push({url,options,resolve}); options.signal?.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'})));
+    }), setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id)});
     const finish=async(data,index=requests.length-1,httpOk=true)=>{requests[index].resolve({ok:httpOk,json:async()=>data}); await new Promise(setImmediate);};
     const submit=()=>{const event={preventDefault(){this.blocked=true;},stopImmediatePropagation(){this.stopped=true;}};form.listeners.submit?.(event);return event;};
     const confirm=()=>{nodes.contact.value='Penanggung jawab BAR';nodes.reason.value='Kebutuhan event esok hari';nodes.confirmed.checked=true;};
-    return {nodes,panel,form,lines,hidden,requests,document,destination,finish,submit,confirm,timer:()=>pendingTimer?.()};
+    return {nodes,panel,form,lines,hidden,requests,document,destination,finish,submit,confirm,
+        timer:(ms=450)=>{for(const [id,t] of timers) if(t.ms===ms){timers.delete(id);t.fn();break;}}};
 }
 const result=(overrides={})=>({ok:true,data:{has_materials:true,needs_confirmation:true,ready:true,token:'signed-token',checked_at:'fixture-time',rows:[{
     line:1,name:'<script>not executable</script>',requested:500,uom:'GR',needs_confirmation:true,
@@ -53,6 +55,10 @@ function content(el){return [el.textContent,...el.children.map(content)].join(' 
     await f.finish(result({token:'new'}),1);await f.finish(result({token:'old'}),0);f.confirm();f.submit();
     check(JSON.parse(f.hidden.value).token==='new' && !f.nodes.refresh.disabled,'late response cannot overwrite newer preview');
     f=fixture(false);check(!f.submit().blocked,'creating SUBMITTED request is not verification');
+    f=fixture();f.timer(12000);await new Promise(setImmediate);
+    check(!f.nodes.refresh.disabled && f.nodes.status.textContent.includes('terlalu lama'),'timeout recovers refresh with clear message');
+    check(f.submit().blocked,'verification stays closed after timeout');
+    f.nodes.refresh.listeners.click();await f.finish(result());f.confirm();check(!f.submit().blocked,'retry after timeout works');
     f=fixture(true,true);check(f.requests.length===0,'unrelated pages untouched');
     console.log(`Procurement stock review client: ${checks} PASS (synthetic DOM; not visual UAT).`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -45,6 +45,30 @@ try {
     elseif($mode==='verify')$r=PortablePackage::verify($root)['version'];
     elseif($mode==='permit')$r=PortablePackage::permit($root,(new PortableStore($root,'private'))->read('delivery-state.json')['context'])['permit_id'];
     elseif($mode==='guard'){$v=Control_license_cache::customer_verification($root,$root.'/storage/customer-installation.json');$r=['verified'=>$v['verified'],'status'=>$v['status'],'code'=>$v['code']];}
+    elseif($mode==='update'){
+        require $root.'/tools/update/UpdateService.php';
+        $updateTransport=static function($origin,$path,$signed,$destination)use($f,$root):array{
+            if($origin!=='https://control.example.invalid'||$path!==UpdateTransport::PATH)throw new RuntimeException('FIXTURE_UPDATE_ORIGIN');
+            $p=json_decode($signed['body'],true,32,JSON_THROW_ON_ERROR);
+            $agent=(new PortableStore($root,'private/agent'))->read('agent.json');
+            $headers=[];foreach($signed['headers']as$line){[$key,$v]=explode(': ',$line,2);$headers[$key]=$v;}
+            $canonical=implode("\n",['POST',$path,$p['activation_id'],$headers['X-Namua-Timestamp'],$headers['X-Namua-Nonce'],hash('sha256',$signed['body'])]);
+            if(!sodium_crypto_sign_verify_detached(base64_decode($headers['X-Namua-Signature']),$canonical,sodium_crypto_sign_publickey_from_secretkey(base64_decode($agent['secret_key_base64']))))throw new RuntimeException('FIXTURE_UPDATE_AUTH');
+            if($p['action']==='poll')return $f['update_offer'];
+            if($p['action']==='artifact'){
+                if($destination===null||!str_starts_with($destination,$root.'/private/'))throw new RuntimeException('FIXTURE_UPDATE_DOWNLOAD_PATH');
+                UpdateFiles::write($root,$destination,file_get_contents($f['update_tar']));return ['http'=>200,'sha256'=>hash_file('sha256',$destination)];
+            }
+            if($p['action']==='receipt'){
+                require_once $f['control_root'].'/application/libraries/Update_agent_protocol.php';
+                Update_agent_protocol::receipt($p['receipt'],$f['update_offer']['plan']);
+                (new PortableStore($root,'private'))->write('test-receipt-'.$p['receipt']['phase'].'.json',$p['receipt']);
+                return ['status'=>'accepted'];
+            }
+            throw new RuntimeException('FIXTURE_UPDATE_ACTION');
+        };
+        $r=(new UpdateService($root,$updateTransport))->tick();
+    }
     elseif($mode==='db')$r=PortableDatabase::install($root,$f['database'],$f['owner'],$f['release_hash']);
     elseif($mode==='interrupt')$r=PortableDatabase::install($root,$f['database'],$f['owner'],$f['release_hash'],static function(int $n):void{if($n===1){echo json_encode(['ok'=>true,'result'=>'PROCESS_EXIT_AT_DURABLE_CHECKPOINT'])."\n";exit(0);}});
     else $r=$i->$mode();

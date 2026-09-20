@@ -193,12 +193,13 @@ if (!function_exists('finance_dreq_usage_label')) {
         <tr>
           <th>#</th>
           <th>Profile</th>
+          <th>Stok sekarang<br><small>Divisi / Gudang • satuan isi</small></th>
           <th>Pemakaian</th>
           <th>Vendor PO</th>
           <th>UOM</th>
           <th class="text-end">Qty Beli</th>
           <th class="text-end">Qty Isi</th>
-          <th class="text-end">Snapshot Stok</th>
+          <th class="text-end">Snapshot gudang saat pengajuan</th>
           <th class="text-end">Route SR</th>
           <th class="text-end">Route PO</th>
           <th>Catatan</th>
@@ -206,7 +207,7 @@ if (!function_exists('finance_dreq_usage_label')) {
       </thead>
       <tbody>
         <?php if (empty($lines)): ?>
-          <tr><td colspan="11" class="text-center text-muted py-4">Belum ada line pengajuan.</td></tr>
+          <tr><td colspan="12" class="text-center text-muted py-4">Belum ada line pengajuan.</td></tr>
         <?php else: ?>
           <?php foreach ($lines as $line): ?>
             <tr>
@@ -214,6 +215,7 @@ if (!function_exists('finance_dreq_usage_label')) {
               <td>
                 <div class="fw-semibold"><?php echo html_escape((string)($line['profile_name'] ?? '-')); ?></div>
               </td>
+              <td><?php $this->load->view('procurement/_current_stock', ['stock_line'=>$line]); ?></td>
               <td><span class="badge bg-light text-dark border"><?php echo html_escape(finance_dreq_usage_label($line['usage_purpose'] ?? $line['default_usage_purpose'] ?? 'BAHAN_BAKU')); ?></span></td>
               <td><?php echo html_escape((string)($line['vendor_name'] ?? '-')); ?></td>
               <td><?php echo html_escape((string)($line['profile_buy_uom_code'] ?? '-')); ?> -> <?php echo html_escape((string)($line['profile_content_uom_code'] ?? '-')); ?></td>

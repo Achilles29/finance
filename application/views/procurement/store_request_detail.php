@@ -113,6 +113,7 @@ $actionLabel = static function (string $action): string {
           <tr>
             <th>#</th>
             <th>Profile</th>
+            <th>Stok sekarang<br><small>Divisi / Gudang • satuan isi</small></th>
             <th>Pemakaian</th>
             <th class="text-end">Qty Request</th>
             <th class="text-end">Qty Fulfilled</th>
@@ -121,7 +122,7 @@ $actionLabel = static function (string $action): string {
         </thead>
         <tbody>
           <?php if (empty($lines)): ?>
-            <tr><td colspan="6" class="text-center text-muted py-3">Belum ada line Store Request.</td></tr>
+            <tr><td colspan="7" class="text-center text-muted py-3">Belum ada line Store Request.</td></tr>
           <?php else: ?>
             <?php foreach ($lines as $line): ?>
               <tr>
@@ -131,6 +132,7 @@ $actionLabel = static function (string $action): string {
                   <div class="small text-muted"><?php echo html_escape((string)($line['profile_brand'] ?? '-')); ?></div>
                   <div class="small text-muted"><?php echo html_escape((string)($line['profile_description'] ?? '-')); ?></div>
                 </td>
+                <td><?php $this->load->view('procurement/_current_stock', ['stock_line'=>$line]); ?></td>
                 <td><span class="badge bg-light text-dark border"><?php echo html_escape($usagePurposeLabel($line['usage_purpose'] ?? $line['default_usage_purpose'] ?? 'BAHAN_BAKU')); ?></span></td>
                 <td class="text-end">
                   <div><?php echo number_format((float)($line['qty_buy_requested'] ?? 0), 2, ',', '.'); ?> <?php echo html_escape((string)($line['buy_uom_code'] ?? '-')); ?></div>

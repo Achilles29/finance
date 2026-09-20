@@ -35,6 +35,9 @@ final class Control_license_cache
         if ($profileVersion >= 10) $files = array_merge($files, ['tools/db/ManagedMigrationProof.php',
             'tools/db/managed_migration_proofs.json', 'tools/db/migration_catalog.json',
             'tools/db/migration_runner.php', 'tools/install/portable/PortableDatabase.php']);
+        if ($profileVersion >= 11) $files = array_merge($files, ['application/libraries/Customer_update_guard.php',
+            'tools/update/UpdateAuthorization.php','tools/update/UpdateTransport.php','tools/update/UpdateFiles.php',
+            'tools/update/UpdateDatabase.php','tools/update/UpdateService.php']);
         return $files;
     }
 

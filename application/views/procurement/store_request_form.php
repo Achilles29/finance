@@ -125,10 +125,11 @@ foreach ($lines as $ln) {
 
     <div class="table-responsive">
       <table class="table table-sm table-striped mb-0">
-        <thead><tr><th>Profile</th><th>Keterangan</th><th>Jenis</th><th>Pemakaian</th><th>UOM</th><th class="text-end">Stok Gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
-        <tbody id="srLineTableBody"><tr><td colspan="11" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
+        <thead><tr><th>Profile</th><th>Stok sekarang<br><small>Divisi / Gudang • satuan isi</small></th><th>Keterangan</th><th>Jenis</th><th>Pemakaian</th><th>UOM</th><th class="text-end">Snapshot profil gudang</th><th class="text-end">Harga Satuan</th><th>Exp Date</th><th>Qty Beli Req</th><th>Qty Isi Req</th><th>Aksi</th></tr></thead>
+        <tbody id="srLineTableBody"><tr><td colspan="12" class="text-muted text-center py-2">Belum ada line.</td></tr></tbody>
       </table>
     </div>
+    <?php $this->load->view('procurement/_manual_stock_toolbar'); ?>
     <div class="d-flex gap-2 justify-content-end mt-3">
       <a href="<?php echo site_url('store-requests'); ?>" class="btn btn-outline-secondary">Batal</a>
       <button type="button" class="btn btn-outline-primary" id="btnSaveSrSubmit"><?php echo $isEdit ? 'Update & Submit' : 'Simpan & Submit'; ?></button>
@@ -154,6 +155,13 @@ foreach ($lines as $ln) {
   var profileSearchTimer = null;
   var profileSearchAbort = null;
   var alertBox = document.getElementById('srFormAlert');
+  var stockControl = window.ProcurementCurrentStock.create({
+    url: <?php echo json_encode(site_url('procurement/store-request/stock-preview')); ?>,
+    csrfHeader: 'X-Procurement-Mutation-Csrf', csrf: procurementMutationCsrfToken,
+    payload: function () { return {header:{division_id:Number(document.getElementById('sr_division_id').value),
+      destination_type:document.getElementById('sr_destination_type').value}, lines:createLines}; }
+  });
+  document.addEventListener('change', function () { queueMicrotask(function () { stockControl.changed(); }); });
 
   function flash(type, msg){
     if (!alertBox) return;
@@ -269,13 +277,14 @@ foreach ($lines as $ln) {
 
   function renderCreateLines(){
     var tb = document.getElementById('srLineTableBody'); if(!tb) return;
-    if(!createLines.length){ tb.innerHTML = '<tr><td colspan="11" class="text-muted text-center py-2">Belum ada line.</td></tr>'; return; }
+    if(!createLines.length){ tb.innerHTML = '<tr><td colspan="12" class="text-muted text-center py-2">Belum ada line.</td></tr>'; stockControl.changed(); return; }
     var html = '';
     createLines.forEach(function(line, idx){
       var lineBrand = line.profile_brand ? '<div class="small text-muted">Brand: ' + esc(line.profile_brand) + '</div>' : '';
       var lineDescription = line.profile_description ? esc(line.profile_description) : '<span class="text-muted">-</span>';
       html += '<tr>'
         + '<td><strong>' + esc(line.profile_name || '-') + '</strong>' + lineBrand + '</td>'
+        + '<td data-live-stock-line="' + (idx + 1) + '">Menunggu cek stok…</td>'
         + '<td class="small">' + lineDescription + '</td>'
         + '<td>' + esc(line.line_kind || '-') + '</td>'
         + '<td><select class="form-select form-select-sm sr-usage-purpose" data-idx="' + idx + '">' + renderUsagePurposeOptions(line.usage_purpose || line.default_usage_purpose) + '</select></td>'
@@ -289,6 +298,7 @@ foreach ($lines as $ln) {
         + '</tr>';
     });
     tb.innerHTML = html;
+    stockControl.changed();
   }
 
   function addCreateLine(row){
@@ -424,7 +434,7 @@ foreach ($lines as $ln) {
 
   var btnSave = document.getElementById('btnSaveSr');
   if (btnSave){
-    btnSave.addEventListener('click', function(){
+    btnSave.addEventListener('click', async function(){
       if (!createLines.length) { flash('warning', 'Line Store Request belum ada.'); return; }
       var old = btnSave.innerHTML;
       btnSave.disabled = true;
@@ -453,6 +463,13 @@ foreach ($lines as $ln) {
       }
 
       var submitUrl = isEdit ? (updateBaseUrl + requestId) : storeUrl;
+      var submittedLines = JSON.stringify(payload.lines);
+      if (!(await stockControl.confirmBeforeSave())) { btnSave.disabled=false; btnSave.innerHTML=old; return; }
+      if (submittedLines !== JSON.stringify(createLines)
+          || payload.header.request_division_id !== Number(document.getElementById('sr_division_id').value)
+          || payload.header.destination_type !== document.getElementById('sr_destination_type').value) {
+        flash('warning','Pengajuan berubah saat pemeriksaan. Periksa lagi lalu simpan ulang.'); btnSave.disabled=false; btnSave.innerHTML=old; return;
+      }
       fetchJson(submitUrl, {
         method: 'POST',
         credentials: 'same-origin',

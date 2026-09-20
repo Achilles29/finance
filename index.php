@@ -58,6 +58,15 @@ date_default_timezone_set('Asia/Jakarta'); // Sesuaikan timezone
     require_once __DIR__.'/application/libraries/CustomerLocalConfig.php';
     $finance_customer_local = CustomerLocalConfig::present(__DIR__);
     $finance_customer_package = CustomerLocalConfig::packaged(__DIR__);
+    if (CustomerPlatform::portable(__DIR__) && is_file(__DIR__.'/storage/customer-installation.json')) {
+        // Installer writes the marker only while draining all participating requests/jobs.
+        require_once __DIR__.'/application/libraries/Customer_update_guard.php';
+        try { Customer_update_guard::enter(__DIR__); }
+        catch (Throwable $e) {
+            http_response_code(503);header('Cache-Control: no-store');header('Retry-After: 60');
+            exit('Finance sedang diperbarui. Data Anda tetap tersimpan. Silakan buka kembali beberapa saat lagi.');
+        }
+    }
     if (CustomerPlatform::portable(__DIR__) && !defined('FINANCE_PUBLIC_ROOT') && PHP_SAPI!=='cli') {
         http_response_code(503);
         exit('Paket customer harus diakses melalui document root public/.');

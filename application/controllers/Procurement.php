@@ -215,6 +215,7 @@ class Procurement extends MY_Controller
             'detail' => $detail,
             'stock_review_history' => $this->Procurement_model->stock_review_history('SR',$id),
         ];
+        $data['detail']['lines'] = $this->Procurement_model->current_stock_rows((array)$detail['lines'], (array)$detail['header']);
 
         $this->render('procurement/store_request_detail', $data);
     }
@@ -565,6 +566,23 @@ class Procurement extends MY_Controller
         } finally { $this->db->db_debug = $dbDebugBefore; }
     }
 
+    public function store_request_stock_preview()
+    {
+        if (!$this->can(self::PAGE_SR, 'create') && !$this->can(self::PAGE_SR, 'edit')) {
+            $this->jsonError('Akses pemeriksaan stok SR tidak tersedia.',403); return;
+        }
+        if (!$this->require_procurement_mutation_csrf()) return;
+        $this->output->set_header('Cache-Control: private, no-store');
+        $raw = (string)$this->input->raw_input_stream;
+        $payload = strlen($raw)<=131072 ? json_decode($raw,true,16) : null;
+        try {
+            if (!is_array($payload)) throw new InvalidArgumentException('Data pemeriksaan stok tidak valid.');
+            $data = $this->Procurement_model->preview_manual_stock($payload, false);
+            $this->output->set_content_type('application/json')->set_output(json_encode(['ok'=>true,'data'=>$data],JSON_INVALID_UTF8_SUBSTITUTE));
+        } catch (InvalidArgumentException $e) { $this->jsonError($e->getMessage(),422); }
+        catch (Throwable $e) { $this->jsonError('Stok belum dapat dibaca. Coba perbarui; saldo ini bukan nol.',503); }
+    }
+
     public function division_po_sr_profile_search()
     {
         $this->require_permission(self::PAGE_DIVISION, 'view');
@@ -652,6 +670,8 @@ class Procurement extends MY_Controller
         $canVerify = $scope['can_verify'] && $status === 'SUBMITTED';
         $canEditOwn = $scope['can_edit_own'] && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs;
         $canVoid = ($scope['can_verify'] || $canEditOwn) && in_array($status, ['SUBMITTED', 'REJECTED'], true);
+
+        $detail['lines'] = $this->Procurement_model->current_stock_rows((array)$detail['lines'], (array)$detail['header']);
 
         $this->render('procurement/division_po_sr_detail', [
             'title' => 'Detail Pengajuan Divisi',
@@ -1180,6 +1200,7 @@ class Procurement extends MY_Controller
     {
         $rows = $this->Procurement_model->list_division_requests($filters, $limit);
         $lineRows = $this->Procurement_model->list_division_request_line_rows($filters, $limit);
+        $lineRows = $this->Procurement_model->current_stock_rows($lineRows);
         $requestIds = array_values(array_unique(array_filter(array_merge(
             array_map(static function ($row) {
                 return (int)($row['id'] ?? 0);

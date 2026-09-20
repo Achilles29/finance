@@ -124,6 +124,7 @@ class Purchase extends MY_Controller
 
         $this->load->model('Procurement_model');
         $data['stock_review_history'] = $this->Procurement_model->stock_review_history('PO',$purchaseOrderId);
+        $data['detail']['lines'] = $this->Procurement_model->current_stock_rows((array)$detail['lines'], (array)$detail['order']);
 
         $this->render('purchase/order_detail', $data);
     }
@@ -580,6 +581,24 @@ class Purchase extends MY_Controller
         ];
 
         $this->render('purchase/order_create', $data);
+    }
+
+    public function order_stock_preview()
+    {
+        if (!$this->can(self::PAGE_ORDER, 'create') && !$this->can(self::PAGE_ORDER, 'edit')) {
+            $this->jsonError('Akses pemeriksaan stok PO tidak tersedia.',403); return;
+        }
+        if (!$this->require_purchase_mutation_csrf()) return;
+        $this->output->set_header('Cache-Control: private, no-store');
+        $raw = (string)$this->input->raw_input_stream;
+        $payload = strlen($raw)<=131072 ? json_decode($raw,true,16) : null;
+        try {
+            if (!is_array($payload)) throw new InvalidArgumentException('Data pemeriksaan stok tidak valid.');
+            $this->load->model('Procurement_model');
+            $data = $this->Procurement_model->preview_manual_stock($payload, true);
+            $this->output->set_content_type('application/json')->set_output(json_encode(['ok'=>true,'data'=>$data],JSON_INVALID_UTF8_SUBSTITUTE));
+        } catch (InvalidArgumentException $e) { $this->jsonError($e->getMessage(),422); }
+        catch (Throwable $e) { $this->jsonError('Stok belum dapat dibaca. Coba perbarui; saldo ini bukan nol.',503); }
     }
 
     public function order_edit(int $purchaseOrderId = 0)

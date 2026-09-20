@@ -1,5 +1,14 @@
 # Log Eksekusi Codex Finance
 
+## 20 September 2026 — Stok sekarang pengajuan divisi / PO / SR
+
+- Prioritas: tampilkan saldo bahan baku sekarang pada form, list/detail dan PDF; warning controlling purchase dan PO/SR manual.
+- Implementasi fixer tunggal: gunakan satu reader stok, pisahkan snapshot lama, pertahankan bukti verifikasi server; tutup race edit/verifikasi, kegagalan mapping yang sempat melewatkan cek dan timeout client.
+- File: Procurement/Purchase controller, Procurement_model/stock-review library, feature/route map, view pengajuan/PO/SR/print, JS review/current-stock, allowlist/manifest dan regresi. Daftar rinci/tes/UAT ada di [laporan](2026-09-20_procurement_current_stock.md).
+- SQL: tidak ada. Tidak mengubah DB aktif, stok, transaksi, konfigurasi, Control/customer atau credential; tidak commit/push/deploy.
+- Review: tetap read-only untuk saldo; server menjaga verifikasi divisi, dialog manual PO/SR merupakan kontrol UI. Tidak mengklaim saldo fisik, reservasi atau E2E customer berdasarkan fixture.
+- Berikut: pengguna UAT dengan peran divisi/purchase, lalu Control review cutoff/hash dan build resmi. Status gate/build akhir diperbarui di laporan modul.
+
 ## Batch 270 — 2026-09-18 — Guided setup customer, alpha.18/v7
 
 - Prioritas: hilangkan langkah terminal berulang customer; audit alpha.17/v6 dan class ZIP/izin Control secara read-only. Fixer tunggal dengan review diff/tes, bukan diskusi subagent.

@@ -17,7 +17,7 @@ final class CustomerReleaseProfile
         $p = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
         if (!is_array($p) || ($p['schema'] ?? '') !== 'finance.customer-clean-profile'
             || ($p['schema_version'] ?? null) !== 1 || ($p['profile'] ?? '') !== self::ID
-            || !in_array($p['profile_version'] ?? null, [1,2,3,4,5,6,7,8,9,10], true) || ($p['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
+            || !in_array($p['profile_version'] ?? null, [1,2,3,4,5,6,7,8,9,10,11], true) || ($p['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
             || ($p['demo_data'] ?? null) !== false) throw new RuntimeException('CUSTOMER_PROFILE_INVALID');
         foreach (['code_files', 'files', 'static_sha256', 'sql_sha256'] as $field) {
             if (!isset($p[$field]) || !is_array($p[$field]) || $p[$field] === []) throw new RuntimeException('CUSTOMER_PROFILE_INVALID');
@@ -39,6 +39,7 @@ final class CustomerReleaseProfile
         if ($p['profile_version']>=8 && ($p['installation_permission_policy']??'')!=='UNTIL_USED_OR_REVOKED') throw new RuntimeException('CUSTOMER_SETUP_CONTRACT_INVALID');
         if ($p['profile_version']>=9 && ($p['feature_boundary_contract']??'')!=='FINANCE_FEATURE_BOUNDARY_V1') throw new RuntimeException('CUSTOMER_FEATURE_CONTRACT_INVALID');
         if ($p['profile_version']>=10 && ($p['managed_migration_contract']??'')!=='FINANCE_MANAGED_ADOPTION_V1') throw new RuntimeException('CUSTOMER_MIGRATION_CONTRACT_INVALID');
+        if ($p['profile_version']>=11 && ($p['application_update_contract']??'')!=='FINANCE_APPLICATION_UPDATE_V1') throw new RuntimeException('CUSTOMER_UPDATE_CONTRACT_INVALID');
         $this->digest = hash('sha256', $raw);
     }
 

@@ -26,6 +26,7 @@ class License extends MY_Controller
         }
         $this->render('system/license_index', [
             'page_title' => 'Lisensi & Aktivasi',
+            'can_manage_updates' => $this->is_superadmin(),
             'active_menu' => self::PAGE,
             'installation' => $this->License_runtime_model->installation(),
             'license' => $this->License_runtime_model->current_license(),

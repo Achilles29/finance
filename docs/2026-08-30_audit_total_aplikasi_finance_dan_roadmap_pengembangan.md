@@ -1,5 +1,7 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**20 September 2026 — kontrol stok procurement:** [x] stok divisi/gudang sekarang pada pengajuan, detail/list, PDF, PO/SR manual; [x] peringatan sebelum verifikasi/simpan; [x] regresi race edit/verifikasi dan timeout. Tidak mengubah saldo atau SQL aktif. Checklist UAT/bukti dan batas validasi pada [laporan modul](2026-09-20_procurement_current_stock.md). UAT pengguna dan build resmi Control tetap terpisah dari tes fixture.
+
 **Update 20 September 2026 — alpha.22/v10:** lima SQL manual sudah masuk katalog customer dengan proof adopsi schema; tambahan korektif `2026-09-20a` menyelaraskan ENUM status POS tanpa resep. Total 26 clean-install / 25 upgrade / 7 legacy. Paket jurnal dan panduan dilengkapi. Status apply database aktif pada register tetap historis: batch ini hanya memakai MariaDB disposable. Hasil/gap update aplikasi aktif ada pada [handoff terbaru](2026-09-20_customer_v10_migrations_update_control_handoff.md); belum publish atau rollout customer.
 
 **Batch 270 — 2026-09-18 (UX installer customer saja):** satu perintah persiapan

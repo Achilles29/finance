@@ -30,7 +30,7 @@ final class ControlDelivery
         if(preg_match('/\A\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?\z/D',$p['release']['version']??'')!==1)throw new RuntimeException('PLAN_RELEASE_INVALID');
         if (array_key_exists('distribution_profile', $p['release'])) {
             if (($p['release']['distribution_profile'] ?? '') !== CustomerReleaseProfile::ID
-                || !in_array($p['release']['distribution_profile_version'] ?? null, [1,2,3,4,5,6,7,8,9,10], true)
+                || !in_array($p['release']['distribution_profile_version'] ?? null, [1,2,3,4,5,6,7,8,9,10,11], true)
                 || ($p['release']['seed_profile'] ?? '') !== 'REFERENCE_ONLY'
                 || preg_match('/\A[a-f0-9]{64}\z/D', $p['release']['customer_content_profile_sha256'] ?? '') !== 1) throw new RuntimeException('PLAN_CUSTOMER_PROFILE_INVALID');
         }

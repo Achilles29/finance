@@ -172,6 +172,8 @@ $route['procurement/division-po-sr/detail/(:num)'] = 'procurement/division_po_sr
 $route['procurement/division-po-sr/verify/(:num)'] = 'procurement/division_po_sr_verify/$1';
 $route['procurement/division-po-sr/action/(:num)'] = 'procurement/division_po_sr_action/$1';
 $route['procurement/store-request/profile-search'] = 'procurement/store_request_profile_search';
+$route['procurement/store-request/stock-preview'] = 'procurement/store_request_stock_preview';
+$route['purchase-orders/stock-preview'] = 'purchase/order_stock_preview';
 $route['procurement/store-request/store'] = 'procurement/store_request_store';
 $route['procurement/store-request/update/(:num)'] = 'procurement/store_request_update/$1';
 $route['procurement/store-request/action/(:num)'] = 'procurement/store_request_action/$1';
@@ -982,6 +984,8 @@ $route['system/roast-connect'] = 'roast_integrations/index';
 $route['system/roast-connect/save'] = 'roast_integrations/save';
 $route['system/roast-connect/token'] = 'roast_integrations/rotate';
 $route['system/license']                        = 'license/index';
+$route['system/updates']                        = 'application_update/index';
+$route['system/updates/confirm']                = 'application_update/confirm';
 
 $route['purchase/item-price-history']           = 'purchase/item_price_history';
 $route['purchase/item-price-history/item-search'] = 'purchase/item_price_history_item_search';

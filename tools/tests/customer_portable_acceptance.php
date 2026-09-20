@@ -27,14 +27,15 @@ try {
     $list=$base.'/tar.list';$write($list,implode("\n",array_merge(array_column($entries,'path'),['RELEASE-MANIFEST.json'])));
     $tar=$base.'/package.tar';$r=$run(['/usr/bin/tar','--create','--format=gnu','--owner=0','--group=0','--numeric-owner','--no-recursion','-C',$root,'-T',$list,'-f',$tar]);
     $check($r['code']===0,'disposable mapped TAR built without moving development files');
-    $inspection=ControlReleaseBridge::inspect($tar);$check(($inspection['distribution_profile_version']??null)===10,'independent TAR validator accepts mapped durable profile v10');
+    $inspection=ControlReleaseBridge::inspect($tar);$check(($inspection['distribution_profile_version']??null)===11,'independent TAR validator accepts mapped update profile v11');
     $r=$run(['sh',$source.'/tools/install/portable/prepare-linux.sh',$root,'namua-build','www','www']);$check($r['code']===0,'one-time provisioning with distinct non-root worker/web accounts');
     // All evidence stays inside one parent folder; trust is a generated test-only issuer.
     $kp=sodium_crypto_sign_keypair();$sk=sodium_crypto_sign_secretkey($kp);$pk=sodium_crypto_sign_publickey($kp);
     $trust=['schema'=>1,'product_code'=>'NAMUA_FINANCE','algorithm'=>'Ed25519','status'=>'ACTIVE','key_id'=>'00000000-0000-4000-8000-000000000011','public_key_base64'=>base64_encode($pk),'public_key_sha256'=>hash('sha256',$pk)];
     $wire=['schema'=>1,'context'=>'NAMUA_RELEASE_MANIFEST_V1','product_code'=>'NAMUA_FINANCE','release_public_id'=>'00000000-0000-4000-8000-000000000012',
-        'version'=>'0.1.0-alpha.22','source_commit'=>str_repeat('a',40),'filename'=>'package.tar','media_type'=>'application/x-tar','size_bytes'=>filesize($tar),'sha256'=>hash_file('sha256',$tar),
-        'source_manifest_sha256'=>hash_file('sha256',$root.'/app-manifest.json'),'customer_runtime_guard'=>'FINANCE_CUSTOMER_SERVER_V1','distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>10,
+        'version'=>'0.1.0-alpha.23','source_commit'=>str_repeat('a',40),'filename'=>'package.tar','media_type'=>'application/x-tar','size_bytes'=>filesize($tar),'sha256'=>hash_file('sha256',$tar),
+        'source_manifest_sha256'=>hash_file('sha256',$root.'/app-manifest.json'),'customer_runtime_guard'=>'FINANCE_CUSTOMER_SERVER_V1','distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>11,
+        'application_update_contract'=>'FINANCE_APPLICATION_UPDATE_V1',
         'customer_content_audit'=>['status'=>'PASS','profile_sha256'=>$profile->digest(),'artifact_sha256'=>hash_file('sha256',$tar),'source_manifest_sha256'=>hash_file('sha256',$root.'/RELEASE-MANIFEST.json')],
         'packaging'=>['profile_code'=>'CUSTOMER_CLEAN','rules_sha256'=>$profile->digest(),'audience'=>'CUSTOMER','sample_data'=>'NONE'],'contains_customer_data'=>false,'contains_secrets'=>false,'verification'=>[]];
     foreach(ControlReleaseBridge::BUILD_GATES as $g)$wire['verification'][$g]=['status'=>'PASS','evidence_sha256'=>hash('sha256','FIXTURE_NOT_RELEASE_'.$g)];
@@ -47,7 +48,7 @@ try {
     $json($dir.'/credentials.json',$credential);
     $permit=['purpose'=>'NAMUA_FINANCE_SETUP_V1','product_code'=>'NAMUA_FINANCE','permit_id'=>'00000000-0000-4000-8000-000000000014','instance_id'=>'portable-fixture',
         'deployment_id'=>'00000000-0000-4000-8000-000000000015','plan_sha256'=>hash('sha256','fixture-plan'),'release_public_id'=>$wire['release_public_id'],'source_commit'=>$wire['source_commit'],
-        'release_manifest_sha256'=>hash('sha256',$raw),'artifact_sha256'=>$wire['sha256'],'profile_sha256'=>$profile->digest(),'profile_version'=>10,'environment'=>'STAGING',
+        'release_manifest_sha256'=>hash('sha256',$raw),'artifact_sha256'=>$wire['sha256'],'profile_sha256'=>$profile->digest(),'profile_version'=>11,'environment'=>'STAGING',
         'credentials_sha256'=>hash_file('sha256',$dir.'/credentials.json'),'setup_secret_sha256'=>hash('sha256',$secret),'issued_at'=>time()-86400*45,'expires_at'=>null,'permission_policy'=>'UNTIL_USED_OR_REVOKED'];
     $signPermit=static function(array $value)use($sk,$trust,$dir,$json):void{$raw=json_encode($value,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);$json($dir.'/permit.json',['key_id'=>$trust['key_id'],'payload_base64'=>base64_encode($raw),'signature_base64'=>base64_encode(sodium_crypto_sign_detached("NAMUA_FINANCE_SETUP_V1\n".hash('sha256',$raw),$sk))]);};$signPermit($permit);
     $fixture=['root'=>$root,'issuer'=>base64_encode($sk),'trust'=>$trust,'issued'=>time()-5,'monitoring_secret'=>$monitor];$json($base.'/fixture.json',$fixture);
@@ -137,6 +138,7 @@ try {
     $before=hash_file('sha256',$root.'/private/database.json');$check($worker('run')['ok']&&hash_file('sha256',$root.'/private/database.json')===$before,'repeat scheduled run does not replay SQL');
     $r=$worker('sync');$check($r['ok']&&$r['result']['heartbeat']==='ACKNOWLEDGED','separate signed license sync and HMAC heartbeat with URL-derived hostname');
     if(in_array('--feature-boundary',$argv,true)) require __DIR__.'/feature_boundary_http_cases.php';
+    if(in_array('--update',$argv,true)) require __DIR__.'/customer_update_integration_cases.php';
     $config=file_get_contents($root.'/config/customer.json');$write($root.'/config/customer.json','{broken',0640);$check($http('/login')['status']===503,'broken local JSON blocks runtime without fallback');$write($root.'/config/customer.json',$config,0640);
     chmod($root.'/config/customer.json',0666);$check($http('/login')['status']===503,'unsafe local permissions block runtime');chmod($root.'/config/customer.json',0640);
     rename($root.'/storage/customer-installation.json',$base.'/context.saved');$check($http('/pos')['status']===423,'missing context cannot become legacy');rename($base.'/context.saved',$root.'/storage/customer-installation.json');

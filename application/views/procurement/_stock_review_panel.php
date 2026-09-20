@@ -27,4 +27,5 @@
 </section>
 <input type="hidden" name="procurement_csrf" value="<?= html_escape($reviewCsrf) ?>">
 <input type="hidden" name="stock_review_json" id="stockReviewJson" value="">
-<script src="<?= html_escape(base_url('assets/js/procurement-stock-review.js')) ?>" defer></script>
+<script src="<?= html_escape(base_url('assets/js/procurement-current-stock.js?v=20260920')) ?>" defer></script>
+<script src="<?= html_escape(base_url('assets/js/procurement-stock-review.js?v=20260920')) ?>" defer></script>

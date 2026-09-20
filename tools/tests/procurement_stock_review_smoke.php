@@ -11,7 +11,7 @@ class StockReviewResult {
     public function row_array(): array { return $this->rows[0]??[]; }
 }
 class StockReviewDb {
-    public PDO $pdo; public ?string $fail=null; public array $queries=[];
+    public PDO $pdo; public ?string $fail=null; public array $queries=[]; public bool $db_debug=true;
     public function __construct() {
         $this->pdo=new PDO('sqlite::memory:'); $this->pdo->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
     }

@@ -8,7 +8,7 @@ final class SetupUi
     public static function permissionExpired(array $b,?int $now=null): bool
     {
         if(($b['permission_policy']??'FIXED_EXPIRY')==='UNTIL_USED_OR_REVOKED') {
-            return !in_array($b['profile_version']??null,[8,9,10],true) || !array_key_exists('expires_at',$b) || $b['expires_at']!==null;
+            return !in_array($b['profile_version']??null,[8,9,10,11],true) || !array_key_exists('expires_at',$b) || $b['expires_at']!==null;
         }
         return ($b['permission_policy']??'FIXED_EXPIRY')!=='FIXED_EXPIRY' || !is_int($b['expires_at']??null) || $b['expires_at']<=($now??time());
     }

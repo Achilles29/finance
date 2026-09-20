@@ -272,6 +272,7 @@ if (!function_exists('finance_po_usage_purpose_from_notes')) {
                             <tr>
                                 <th>#</th>
                                 <th>Nama Snapshot</th>
+                                <th>Stok sekarang<br><small>Satuan isi</small></th>
                                 <th>Merk</th>
                                 <th>Keterangan</th>
                                 <th>Pemakaian</th>
@@ -283,7 +284,7 @@ if (!function_exists('finance_po_usage_purpose_from_notes')) {
                         </thead>
                         <tbody>
                             <?php if (empty($lines)): ?>
-                                <tr><td colspan="9" class="text-center text-muted py-3">Tidak ada line PO.</td></tr>
+                                <tr><td colspan="10" class="text-center text-muted py-3">Tidak ada line PO.</td></tr>
                             <?php else: ?>
                                 <?php foreach ($lines as $ln): ?>
                                     <?php
@@ -295,6 +296,7 @@ if (!function_exists('finance_po_usage_purpose_from_notes')) {
                                     <tr>
                                         <td><?php echo (int)($ln['line_no'] ?? 0); ?></td>
                                         <td><?php echo html_escape($lineName); ?></td>
+                                        <td><?php $this->load->view('procurement/_current_stock', ['stock_line'=>$ln,'stock_warehouse_only'=>in_array($order['destination_type'] ?? '',['GUDANG','WAREHOUSE'],true)]); ?></td>
                                         <td><?php echo html_escape((string)($ln['snapshot_brand_name'] ?? '-')); ?></td>
                                         <td><?php echo html_escape((string)($ln['snapshot_line_description'] ?? '-')); ?></td>
                                         <td><?php echo html_escape((string)($ln['usage_purpose'] ?? '') !== '' ? (((string)$ln['usage_purpose'] === 'OPERASIONAL') ? 'Kebutuhan Operasional' : 'Persediaan Produksi') : finance_po_usage_purpose_from_notes((string)($ln['notes'] ?? ''))); ?></td>

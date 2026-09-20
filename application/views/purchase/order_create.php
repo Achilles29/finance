@@ -537,6 +537,7 @@ foreach ($detailLines as $ln) {
           <tr>
             <th>#</th>
             <th>Nama</th>
+            <th>Stok sekarang<br><small>Tujuan / Gudang • satuan isi</small></th>
             <th>Merk</th>
             <th>Keterangan</th>
             <th class="line-usage-col">Pemakaian</th>
@@ -550,7 +551,7 @@ foreach ($detailLines as $ln) {
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="12" class="text-center text-muted py-3">Belum ada line.</td></tr>
+          <tr><td colspan="13" class="text-center text-muted py-3">Belum ada line.</td></tr>
         </tbody>
       </table>
     </div>
@@ -631,6 +632,7 @@ foreach ($detailLines as $ln) {
   </div>
 </div>
 
+<?php $this->load->view('procurement/_manual_stock_toolbar'); ?>
 <div class="modal fade po-review-modal" id="poReviewModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content shadow-lg">
@@ -693,6 +695,20 @@ foreach ($detailLines as $ln) {
   var catalogDraftCancelBtn = document.getElementById('btn-catalog-draft-cancel');
   var catalogDraftApplyBtn = document.getElementById('btn-catalog-draft-apply');
   var lineTbody = document.querySelector('#po-line-table tbody');
+  function stockControlInput() { return {lines:lines,division:document.getElementById('destination_division_id').value,destination:document.getElementById('destination_type').value}; }
+  var stockControl = window.ProcurementCurrentStock.create({
+    url: <?php echo json_encode(site_url('purchase-orders/stock-preview')); ?>,
+    csrfHeader:'X-Purchase-Mutation-Csrf', csrf:<?php echo json_encode($purchaseMutationCsrfToken); ?>,
+    payload: function () { return {header:{division_id:Number(document.getElementById('destination_division_id').value),
+      destination_type:document.getElementById('destination_type').value || 'WAREHOUSE'}, lines:lines.map(function (line) {
+        return {item_id:line.item_id,material_id:line.material_id,content_uom_id:line.content_uom_id,
+          usage_purpose:line.usage_purpose || line.default_usage_purpose || 'OPERASIONAL',
+          profile_name:line.item_name || line.material_name || line.name || line.custom_name || 'Barang',
+          qty_buy:line.qty_buy,content_per_buy:line.content_per_buy};
+      })}; }
+  });
+  document.addEventListener('change', function () { queueMicrotask(function () { stockControl.changed(); }); });
+  document.addEventListener('input', function () { queueMicrotask(function () { stockControl.changed(); }); });
   var alertArea = document.getElementById('alert-area');
   var reviewModalEl = document.getElementById('poReviewModal');
   var reviewBodyEl = document.getElementById('po-review-body');
@@ -1567,10 +1583,13 @@ foreach ($detailLines as $ln) {
     return true;
   }
 
-  function submitPurchase(header, submitLines, btnSave) {
+  async function submitPurchase(header, submitLines, btnSave) {
     var origHtml = btnSave.innerHTML;
     btnSave.disabled = true;
     btnSave.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Menyimpan...';
+    var stockInput = JSON.stringify(stockControlInput());
+    if (!isPaymentOnlyEditMode && !(await stockControl.confirmBeforeSave())) { btnSave.disabled=false; btnSave.innerHTML=origHtml; return; }
+    if (stockInput !== JSON.stringify(stockControlInput())) { alertMsg('warning','Barang atau tujuan berubah; periksa dan simpan ulang.'); btnSave.disabled=false; btnSave.innerHTML=origHtml; return; }
     fetch(storeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Purchase-Mutation-CSRF': <?php echo json_encode($purchaseMutationCsrfToken); ?> },
@@ -1632,7 +1651,8 @@ foreach ($detailLines as $ln) {
 
   function refreshLines() {
     if (!lines.length) {
-      lineTbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-3">Belum ada line.</td></tr>';
+      lineTbody.innerHTML = '<tr><td colspan="13" class="text-center text-muted py-3">Belum ada line.</td></tr>';
+      stockControl.changed();
       return;
     }
 
@@ -1673,6 +1693,7 @@ foreach ($detailLines as $ln) {
         '<td>' + (idx + 1) + '</td>' +
         '<td><div class="d-flex gap-1 align-items-center"><input type="text" class="form-control form-control-sm line-name" value="' + esc(nameInput) + '"' + (lineInputsDisabled ? ' disabled' : '') + '>' +
         '<input type="text" class="form-control form-control-sm line-material-name" value="' + esc(materialNameInput) + '" placeholder="Profil Persediaan Produksi" readonly' + (showMaterialForm ? '' : ' style="display:none;"') + '></div>' + suggestionHtml + '</td>' +
+        '<td data-live-stock-line="' + (idx + 1) + '">Menunggu cek stok…</td>' +
         '<td><input type="text" class="form-control form-control-sm line-brand" value="' + esc(brand === '-' ? '' : brand) + '"' + (lineInputsDisabled ? ' disabled' : '') + '></td>' +
         '<td><input type="text" class="form-control form-control-sm line-desc" value="' + esc(desc === '-' ? '' : desc) + '"' + (lineInputsDisabled ? ' disabled' : '') + '></td>' +
         '<td class="line-usage-col">' + usageHtml + '</td>' +
@@ -1687,6 +1708,7 @@ foreach ($detailLines as $ln) {
     });
 
     lineTbody.innerHTML = html.join('');
+    stockControl.changed();
   }
 
   function renderCatalogPreview(items) {

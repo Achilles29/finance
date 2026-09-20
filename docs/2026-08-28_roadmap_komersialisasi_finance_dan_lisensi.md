@@ -1,5 +1,7 @@
 # Roadmap Komersialisasi Finance POS
 
+**20 September 2026 — follow-up procurement:** [x] lengkapi allowlist panel/library/JS pemeriksaan stok dan cocokkan hash profil pada manifest. Kandidat alpha.22/v10 belum dipublish; revisi inventaris wajib direview Control bersama cutoff baru. [Laporan, hash dan UAT](2026-09-20_procurement_current_stock.md). Tidak ada perubahan entitlement/aktivasi, SQL baru, publish atau rollout customer oleh batch ini.
+
 Update 20 September 2026: **alpha.22 / CUSTOMER_CLEAN v10 / REVIEW_REQUIRED / NOT_PUBLISHED**. Lihat [handoff terbaru](2026-09-20_customer_v10_migrations_update_control_handoff.md). Kelengkapan jurnal/panduan, enam migrasi customer, proof adopsi dan regresi Starter menjadi lingkup kandidat ini. Kontrol paket tetap melalui entitlement terverifikasi dan kuota server, tanpa tenggat mulai instalasi. Control perlu review cutoff/profil/build resmi; jalur update atomik instalasi lama belum selesai dan rollout harus ditahan. Detail status teknis tetap hanya pada `_30` dan handoff, bukan menganggap catatan lama di bawah sebagai status terbaru.
 
 Batch 270 — 2026-09-18: **alpha.18 / CUSTOMER_CLEAN v7 / FINANCE_GUIDED_SETUP_V1 / REVIEW_REQUIRED / NOT_PUBLISHED**.

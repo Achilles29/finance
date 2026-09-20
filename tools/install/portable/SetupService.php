@@ -31,7 +31,10 @@ final class SetupService
         $this->public->write('worker.json',['at'=>time(),'pid'=>getmypid(),'state'=>'RUNNING'],0640);
         $failure='';
         try {
-            if($this->private->exists('complete.json'))return ['phase'=>'COMPLETE'];
+            if($this->private->exists('complete.json')){
+                require_once dirname(__DIR__,2).'/update/UpdateService.php';
+                return (new UpdateService($this->root))->tick();
+            }
             PortablePackage::verify($this->root);
             $installer=new PortableInstaller($this->root,$this->transport);
             $count=0;
@@ -110,6 +113,8 @@ final class SetupService
             $this->public->write($kind.'.json',['at'=>time(),'status'=>'RUNNING'],0640);
             if(!$this->private->exists('complete.json'))$result=['status'=>'WAITING_INSTALLATION'];
             else {
+                require_once dirname(__DIR__,3).'/application/libraries/Customer_update_guard.php';
+                Customer_update_guard::enter($this->root);
                 $last=$kind.'-attempt.json';
                 if($this->private->exists($last)&&($this->private->read($last)['at']??0)>time()-300){
                     $this->public->write($kind.'.json',['at'=>time(),'status'=>'WAIT_NEXT_INTERVAL'],0640);

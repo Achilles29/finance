@@ -19,7 +19,14 @@ try {
     // Include new, not-yet-committed implementation files explicitly, never all untracked runtime files.
     $files = array_unique(array_merge($files, ['tools/build/CustomerBuild.php', 'tools/build/customer_package.php',
         'tools/build/DisposableBuildDatabase.php', 'tools/build/verify_control_build.php', 'tools/tests/c3_control_build_adapter_smoke.php',
-        'tools/tests/c3_control_build_runtime_smoke.php']));
+        'tools/tests/c3_control_build_runtime_smoke.php',
+        'tools/tests/procurement_current_stock_smoke.php',
+        'tools/tests/customer_source_coverage_smoke.php',
+        'tools/update/UpdateJournal.php',
+        'tools/update/preflight.php',
+        'application/views/procurement/_current_stock.php',
+        'application/views/procurement/_manual_stock_toolbar.php',
+        'assets/js/procurement-current-stock.js']));
     foreach ($files as $p) {
         // Old product photographs, marketing assets and development reports are not copied even to this fixture.
         if ((str_starts_with($p, 'assets/') || str_starts_with($p, 'docs/')) && !$profile->allows($p)) continue;
@@ -93,6 +100,21 @@ try {
     CustomerBuild::need((ControlReleaseBridge::json($verification['output'])['status'] ?? '') === 'PASS', 'TRUSTED_VALIDATOR_FAILED');
     $report = ControlReleaseBridge::json((string)file_get_contents($output . '/build-report.json'));
     foreach (ControlReleaseBridge::BUILD_GATES as $gate) CustomerBuild::need(($result['gates'][$gate]['status'] ?? '') === 'PASS', 'REAL_BUILD_GATE_FAILED');
+    // Verify the completed TAR contains current bytes of the whole reviewed batch, including new files.
+    define('FINANCE_CUSTOMER_COVERAGE_LIBRARY_ONLY', true);
+    require $root . '/tools/tests/customer_source_coverage_smoke.php';
+    $expected = [];
+    foreach (financeCustomerBatchFiles() as $path) {
+        $expected[$path] = hash_file('sha256', $source . '/' . $path);
+        CustomerBuild::need(hash_equals($expected[$path], hash_file('sha256', $root . '/' . $path)), 'BATCH_SOURCE_CHANGED_DURING_TEST');
+    }
+    $package = $output . '/' . $result['artifacts']['application_package']['file'];
+    // The build log runner retains only a tail: use the bounded full-output archive reader for JSON.
+    $inventoryRead = financeArtifactSignatureRun(['/usr/bin/tar', '--extract', '--to-stdout', '--file=' . $package, '--', 'RELEASE-MANIFEST.json']);
+    CustomerBuild::need($inventoryRead['code'] === 0 && !$inventoryRead['overflow'], 'BATCH_INVENTORY_READ_FAILED');
+    $inventory = ControlReleaseBridge::json($inventoryRead['stdout']);
+    financeCustomerBatchInventory($inventory['files'], $expected);
+    echo "PASS exact source-to-TAR coverage: " . count($expected) . " procurement/update/schema runtime dependencies.\n";
     // Optional read-only cross-application check: import function definitions only, never Control's worker main/DB/signing key.
     foreach (array_slice($argv, 1) as $arg) if (str_starts_with($arg, '--control-root=')) {
         $control = substr($arg, 15);

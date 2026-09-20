@@ -1,7 +1,6 @@
 <?php
 declare(strict_types=1);
-// Review-only reproduction of open defects. Does not bootstrap CI or connect to Finance.
-// Exit 1 means a defect was reproduced, not that this probe repaired it.
+// Regression of PR-01/02. Does not bootstrap CI or connect to Finance.
 require __DIR__.'/procurement_stock_review_verify_smoke.php';
 
 class ProcurementReviewProbeDb extends ReviewVerifyDb
@@ -36,7 +35,7 @@ $result=$model->update_division_request(12,$header,$lines,7);
 $row=$db->query('SELECT status FROM pur_division_request WHERE id=12')->row_array();
 $qty=(float)$db->query('SELECT qty_content_requested FROM pur_division_request_line WHERE request_id=12')->row_array()['qty_content_requested'];
 $links=(int)$db->query('SELECT COUNT(*) AS n FROM pur_division_request_link')->row_array()['n'];
-if (!empty($result['ok']) && $row['status']==='SUBMITTED' && $qty===900. && $links===1) {
+if (!empty($result['ok']) || !str_contains($result['message'] ?? '', 'berubah') || $qty===900.) {
     $findings[]=['id'=>'PR-01','severity'=>'HIGH','observed'=>'Edit accepted after verification interleave; request reset to SUBMITTED and lines changed while PO link/review remained.'];
 }
 
@@ -49,8 +48,9 @@ $line=['item_id'=>1,'material_id'=>null,'usage_purpose'=>'OPERASIONAL','content_
 $service=new Procurement_stock_review($db,str_repeat('a',64));
 $context=['request_id'=>12,'division_id'=>1,'destination_type'=>'BAR','user_id'=>7,'month'=>date('Y-m-01')];
 $before=$service->snapshot($context,[$line]);$db->failMaterialRead=true;
-$failed=$service->snapshot($context,[$line]);$accepted=$service->validate($failed,[],time());
-if (count($before['rows'])===1 && $failed['rows']===[] && $accepted===[]) {
+$failed=$service->snapshot($context,[$line]);$rejected=false;
+try { $service->validate($failed,[],time()); } catch (InvalidArgumentException $e) { $rejected=true; }
+if (count($before['rows'])!==1 || count($failed['rows'])!==1 || !$failed['rows'][0]['needs_confirmation'] || !$rejected) {
     $findings[]=['id'=>'PR-02','severity'=>'MEDIUM','observed'=>'Material-linked operational item disappears from review when material lookup throws; validator accepts empty confirmation.'];
 }
 
