@@ -10,6 +10,11 @@ class Module_notification
         'DIVISION_REQUEST' => 'Pengajuan PO / SR divisi',
     ];
 
+    public static function events(string $channel): array
+    {
+        return self::EVENTS + ($channel === 'WA' ? ['DAILY_SALES' => 'Daily Sales (PDF)'] : []);
+    }
+
     public static function validChannel(string $channel): bool
     {
         return in_array($channel, ['WA', 'TELEGRAM'], true);

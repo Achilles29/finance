@@ -1,5 +1,23 @@
 # Log Eksekusi Codex Finance
 
+## 23 September 2026 — Koreksi stok PDF pengajuan WA
+
+- Prioritas: PDF WA salah menandai seluruh baris bukan bahan baku, berbeda dari unduhan. Review mandiri menemukan jalur WA tidak memanggil reader stok; konteks divisi dan alias catatan juga hilang.
+- File: `Procurement.php`, `Module_notification_model.php`, tes parity PDF/antrean, manifest quality gate, panduan/roadmap. Perubahan yang sebelumnya belum commit tetap dipertahankan.
+- Perubahan: helper persiapan baris bersama untuk unduhan dan WA, stok kanonis read-only dan catatan sama. Revisi dedup PDF memungkinkan kirim ulang versi terkoreksi, tanpa menghapus bukti kiriman lama atau menonaktifkan dedup klik ulang.
+- Validasi: parity PDF 52 + stock review 52 PASS, Chrome PDF nyata + pdftotext, current stock 91 cumulative PASS, UI 74 DOM + 15 JS PASS, gate contract 28 PASS; lint/diff check. Tidak mengubah SQL/data aktif, pengaturan bot, atau mengirim WA nyata.
+- Risiko/batch berikut: UAT PDF yang diterima di grup; bandingkan pengajuan sama dan perhatikan waktu baca stok. File lama tidak berubah otomatis. Rincian pada [laporan notifikasi](2026-09-23_module_notifications.md).
+- Hasil akhir antrean: **74 PASS** MariaDB disposable, termasuk versi PDF baru setelah PDF lama/dedup/riwayat tetap utuh. Tidak ada kiriman nyata.
+
+## 23 September 2026 — Daily Sales PDF via WA
+
+- Permintaan: tambah pilihan Daily Sales pada pengaturan dan tombol kirim di laporan; pertahankan revisi modul WA pengguna. Implementasi/review mandiri; `wa/settings.php`, `Whatsapp.php`, engine dan config aktif tidak berubah.
+- File: `Pos.php`, routes/feature_access, `Module_notification*`, `Daily_sales_pdf.php`, view Daily Sales/cetak dan dua penambahan kecil partial notifikasi; allowlist/manifest; tes dan panduan.
+- Perubahan: PDF snapshot sesuai tanggal/outlet melalui renderer Chrome existing dependency; antrean/group recipient existing, dedup, gate paket/RBAC/CSRF, lampiran privat. Tidak mengubah perhitungan laporan atau data bisnis.
+- Validasi: 71 MariaDB disposable PASS, 74 UI + 15 JS existing PASS; 19 Chrome UI PASS; Daily Sales endpoint/PDF/JS dan regresi WA/urut laporan PASS, lint/diff PASS. PDF asli diuji header, A4 landscape dan isi teks. Tidak ada pengiriman nyata.
+- Risiko sisa: izin renderer/worker dan penerimaan PDF nyata perlu UAT; gate global feature boundary terhambat aksi Procurement existing yang belum dipetakan. SQL lampiran `23b` existing belum terdaftar dalam katalog customer; butuh batch migrasi/review Control terpisah sebelum packaging resmi.
+- SQL baru: tidak ada; SQL aktif tidak dieksekusi. Belum commit/push/publish. Detail/bukti/checklist pada [laporan notifikasi](2026-09-23_module_notifications.md); langkah customer pada [panduan](module_notifications.md).
+
 ## 23 September 2026, 20:47 WIB — Tab pengaturan WA dan grup notifikasi
 
 - Prioritas: rapikan pengaturan; pisahkan status balasan chat grup dari penerimaan notifikasi modul. Implementasi/review mandiri, tanpa subagent.

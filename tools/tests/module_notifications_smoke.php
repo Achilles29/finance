@@ -4,7 +4,15 @@ declare(strict_types=1);
 // actual clean baseline, synthetic bot/entitlements. Never loads active DB credentials.
 $root = dirname(__DIR__, 2);
 define('BASEPATH', $root . '/system/');
-define('APPPATH', $root . '/application/');
+$notificationAppPath = $root . '/application/';
+if (in_array('--disposable', $argv, true)) {
+    // Private test runtime; read source through links, never write real application/cache.
+    $notificationAppPath = sys_get_temp_dir() . '/finance-notification-app-' . bin2hex(random_bytes(8)) . '/';
+    mkdir($notificationAppPath, 0700);
+    foreach (['libraries','models','controllers','config'] as $part) symlink($root . '/application/' . $part, $notificationAppPath . $part);
+    mkdir($notificationAppPath . 'cache', 0700);
+}
+define('APPPATH', $notificationAppPath);
 define('ENVIRONMENT', 'testing');
 date_default_timezone_set('Asia/Jakarta');
 require APPPATH . 'libraries/Module_notification.php';
@@ -105,6 +113,7 @@ try {
     $check(!$model->ready() && $model->enabled_channels() === [], 'missing migration fails closed without breaking existing modules');
     $sql = file_get_contents($root . '/sql/2026-09-23a_module_notifications.sql');
     $execute($pdo, $sql);
+    $execute($pdo, file_get_contents($root . '/sql/2026-09-23b_module_notification_pdf_attachment.sql'));
     $context->db->data_cache = [];
     $pdo->exec('ALTER TABLE app_notification_queue DROP INDEX uq_notification_delivery');
     $check(!(new Module_notification_model())->ready(), 'missing deduplication index fails closed');
@@ -162,6 +171,15 @@ try {
     $detail['lines'][0]['qty_buy_requested'] = 3;
     $model->enqueue_division('WA', $detail, 0);
     $check($model->run('WA', $send)['processed'] === 1, 'changed request can be shared as a new revision');
+    $divisionMessage = Module_notification::message('DIVISION_REQUEST', $detail['header'], $detail['lines'], site_url('procurement/division-po-sr/detail/1'));
+    $legacyPdfKey = Module_notification::key('WA', 'DIVISION_REQUEST', 1, 'group:1', hash('sha256', $divisionMessage . '|pdf-v1'));
+    $pdo->prepare("INSERT INTO app_notification_queue (delivery_key,channel,event_code,source_id,target_key,destination,target_label,message_text,status,created_at) VALUES (?,'WA','DIVISION_REQUEST',1,'group:1','1200001@g.us','Fixture',?,'SENT',NOW())")->execute([$legacyPdfKey, $divisionMessage]);
+    $pdfFixture = ['name'=>'pengajuan-fixture.pdf','path'=>'/synthetic-only/fixture.pdf'];
+    $model->enqueue_division('WA', $detail, 0, $pdfFixture);
+    $check($model->run('WA', $send)['processed'] === 1, 'corrected stock PDF may be explicitly sent after legacy PDF');
+    $model->enqueue_division('WA', $detail, 0, $pdfFixture);
+    $check($model->run('WA', $send)['processed'] === 0, 'corrected PDF repeat click remains deduplicated');
+    $check($pdo->query('SELECT status FROM app_notification_queue WHERE delivery_key=' . $pdo->quote($legacyPdfKey))->fetchColumn() === 'SENT', 'legacy delivery evidence retained');
     $detail['header']['status'] = 'VOID';
     $reject(fn() => $model->enqueue_division('WA', $detail, 0), 'void request cannot be shared');
     $insertOrder(6);
@@ -218,6 +236,34 @@ try {
     $model->save_rules('WA', $wa, 0);
     $insertOrder(12);
     $check($model->run('WA', $send)['processed'] === 1, 'unchecking a group stops its future notifications');
+    $check($model->enabled_channels('DAILY_SALES') === [], 'Daily Sales OFF by default');
+    $dailyRules = $wa; $dailyRules['DAILY_SALES'] = ['enabled'=>'1','targets'=>['group:1','group:2']];
+    $model->save_rules('WA', $dailyRules, 0);
+    $check($model->enabled_channels('DAILY_SALES') === ['WA'], 'Daily Sales supports configured WA channel only');
+    $filters = ['date'=>'2026-09-23','outlet_id'=>1];
+    require_once APPPATH . 'libraries/Daily_sales_pdf.php';
+    $fingerprint = Daily_sales_pdf::snapshot($filters, ['total'=>100], 'Fixture');
+    mkdir(APPPATH . 'cache/wa-attachments', 0700);
+    $attachment = ['path'=>APPPATH . 'cache/wa-attachments/daily-sales-' . $fingerprint . '.pdf', 'name'=>'daily-sales-2026-09-23-outlet-1.pdf'];
+    file_put_contents($attachment['path'], "%PDF-1.4\nqueue fixture only");
+    $businessBefore = $pdo->query('CHECKSUM TABLE pos_order,pos_order_line,pur_division_request EXTENDED')->fetchAll(PDO::FETCH_ASSOC);
+    $model->enqueue_daily_sales($filters, 'Fixture', $fingerprint, 0, $attachment);
+    $model->enqueue_daily_sales($filters, 'Fixture', $fingerprint, 0, $attachment);
+    $check($model->run('WA', $send)['processed'] === 2, 'Daily Sales PDF sends once per selected group, no pos_order lookup/cutoff');
+    $dailyCalls = array_values(array_filter($calls, static fn(array $row): bool => $row['event_code'] === 'DAILY_SALES'));
+    $check(count($dailyCalls) === 2 && $dailyCalls[0]['attachment_path'] === $attachment['path'], 'PDF attachment delivered through existing worker');
+    $check($model->run('WA', $send)['processed'] === 0, 'Daily Sales replay deduplicated');
+    $changed = Daily_sales_pdf::snapshot($filters, ['total'=>120], 'Fixture');
+    $model->enqueue_daily_sales($filters, 'Fixture', $changed, 0, $attachment);
+    $context->feature_gate->denied = ['SALES_REPORTING'];
+    $reject(fn() => $model->enqueue_daily_sales($filters, 'Fixture', $changed, 0, $attachment), 'Daily Sales entitlement required for enqueue');
+    $check($model->run('WA', $send)['processed'] === 0, 'license downgrade cancels unsent report');
+    $context->feature_gate->denied = [];
+    $changedAgain = Daily_sales_pdf::snapshot($filters, ['total'=>130], 'Fixture');
+    $model->enqueue_daily_sales($filters, 'Fixture', $changedAgain, 0, $attachment);
+    $model->save_rules('WA', $wa, 0);
+    $check($model->run('WA', $send)['processed'] === 0, 'turning Daily Sales OFF cancels pending report');
+    $check($businessBefore === $pdo->query('CHECKSUM TABLE pos_order,pos_order_line,pur_division_request EXTENDED')->fetchAll(PDO::FETCH_ASSOC), 'report sends leave business tables unchanged');
     $snapshot = $pdo->query('CHECKSUM TABLE app_notification_rule,app_notification_queue EXTENDED')->fetchAll(PDO::FETCH_ASSOC);
     $execute($pdo, $sql);
     $check($snapshot === $pdo->query('CHECKSUM TABLE app_notification_rule,app_notification_queue EXTENDED')->fetchAll(PDO::FETCH_ASSOC), 'SQL replay preserves settings and delivery evidence');

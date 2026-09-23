@@ -89,7 +89,7 @@ const markup = view => '<!doctype html><html lang="id"><head><meta charset="utf-
     check(await evaluate('fixtureCalls.every(c => !c.options.method || c.options.method === "GET")'), 'tab navigation triggers no mutation or message send');
     pageHtml = markup(views.read);
     await cdp('Page.reload', {ignoreCache:true}); await delay(450);
-    check(await evaluate('document.querySelectorAll("#module-notifications fieldset:disabled").length === 3'), 'read-only account cannot change recipient checklists');
+    check(await evaluate('document.querySelectorAll("#module-notifications fieldset:disabled").length === 4'), 'read-only account cannot change recipient checklists');
     check(await evaluate('!document.getElementById("env-card") && !document.getElementById("btn-session-reset")'), 'technical mutations unavailable to read-only account');
     check(errors.length === 0, 'no script exceptions: ' + errors.join(';'));
     console.log(JSON.stringify({status:'PASS',checks,evidence,limits:'Synthetic HTML data and HTTP responses; real Chrome and local Bootstrap; no real bot messages.'}));

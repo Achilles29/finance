@@ -114,6 +114,7 @@ return [
             'INVENTORY_RECON' => 'daily_recon_settings daily_recon_settings_save availability_queue availability_queue_process availability_queue_retry',
             'PROMOTION_VOUCHER' => 'order_payment_voucher_search',
             'SALES_REPORTING' => 'report_sales report_sales_detail report_sales_extra report_sales_audit report_sales_transaction report_sales_document_print report_sales_payment_line_update report_payments report_daily_sales report_daily_sales_print report_payment_detail report_payment_methods report_payment_accounts report_refunds report_refund_detail report_voids report_cashier_close report_cashier_close_detail report_void_detail',
+            'SALES_REPORTING AUTOMATION_MESSAGING' => 'report_daily_sales_notify',
         ],
         'pos_mobile' => [
             'POS_MOBILE_APK' => 'ping login logout bootstrap catalog member_search extra_options orders order_load order_reversal_preview order_reversal_step_up_verify cashier_close_step_up_verify order_void_save order_refund_save order_save order_confirm payment_prepare payment_save session_status cashier_open cashier_close_preview cashier_close orders_push',

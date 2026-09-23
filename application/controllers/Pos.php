@@ -5076,10 +5076,13 @@ public function self_order_tables_print()
         $filters = $this->daily_sales_report_filters();
         $dataset = $this->Pos_report_model->daily_sales_report((string)$filters['date'], (int)$filters['outlet_id']);
 
+        $this->load->model('Module_notification_model');
         $this->render('pos/report_daily_sales', [
             'page_title' => 'Daily Sales POS',
             'active_menu' => 'pos.report.daily_sales',
             'report_nav_active' => 'daily_sales',
+            'daily_sales_wa_enabled' => in_array('WA', $this->Module_notification_model->enabled_channels('DAILY_SALES'), true),
+            'daily_sales_wa_csrf' => $this->pos_transaction_csrf(),
             'filters' => $filters,
             'outlets' => $this->Pos_report_model->outlet_options(),
             'overview' => (array)($dataset['overview'] ?? []),
@@ -5092,6 +5095,45 @@ public function self_order_tables_print()
             'prev_date' => date('Y-m-d', strtotime((string)$filters['date'] . ' -1 day')),
             'next_date' => date('Y-m-d', strtotime((string)$filters['date'] . ' +1 day')),
         ]);
+    }
+
+    public function report_daily_sales_notify()
+    {
+        if (!$this->require_pos_transaction_csrf()) return;
+        $pageCode = $this->can('pos.report.daily_sales.index', 'view')
+            ? 'pos.report.daily_sales.index' : $this->report_view_page_code('pos.report.sales.index');
+        if (!$this->can($pageCode, 'view')) {
+            $this->json_error('Anda tidak memiliki izin melihat dan membagikan laporan Daily Sales.', 403);
+            return;
+        }
+        $this->load->model('Module_notification_model');
+        if (!in_array('WA', $this->Module_notification_model->enabled_channels('DAILY_SALES'), true)) {
+            $this->json_error('Daily Sales (PDF) belum aktif atau belum memiliki grup penerima. Periksa pengaturan WA dan hak paket.', 403);
+            return;
+        }
+        $this->load->library('Daily_sales_pdf');
+        try {
+            $filters = Daily_sales_pdf::filters($this->input->get('date', true), $this->input->get('outlet_id', true));
+            $outletName = 'Semua Outlet';
+            if ($filters['outlet_id'] > 0) {
+                $options = array_column($this->Pos_report_model->outlet_options(), 'outlet_name', 'id');
+                if (!isset($options[$filters['outlet_id']])) throw new InvalidArgumentException('Outlet tidak tersedia. Pilih kembali outlet pada laporan.');
+                $outletName = (string)$options[$filters['outlet_id']];
+            }
+            $dataset = $this->Pos_report_model->daily_sales_report($filters['date'], $filters['outlet_id']);
+            $snapshot = Daily_sales_pdf::snapshot($filters, $dataset, $outletName);
+            $html = $this->load->view('pos/report_daily_sales_print', $filters + [
+                'outlet_name' => $outletName, 'pdf_mode' => true,
+            ] + $dataset, true);
+            $attachment = $this->daily_sales_pdf->create($html, $filters, $snapshot);
+            $result = $this->Module_notification_model->enqueue_daily_sales($filters, $outletName, $snapshot, (int)($this->current_user['id'] ?? 0), $attachment);
+            $this->json_ok($result);
+        } catch (InvalidArgumentException | RuntimeException $error) {
+            $this->json_error($error->getMessage(), 422);
+        } catch (Throwable $error) {
+            log_message('error', 'Daily Sales PDF notification failed; inspect renderer/storage and queue.');
+            $this->json_error('PDF Daily Sales belum dapat diantrekan. Periksa status WA sebelum mencoba kembali.', 500);
+        }
     }
 
     public function report_daily_sales_print()

@@ -1,5 +1,9 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**23 September 2026 — PDF PO/SR via WA:** [x] perbaiki jalur PDF yang melewatkan pembacaan stok dan salah menandai semua baris non-bahan baku; [x] samakan reader divisi/gudang/catatan dengan unduhan; [x] uji parity HTML/PDF nyata dan pembacaan read-only. [ ] UAT penerimaan PDF baru di grup. [Bukti](2026-09-23_module_notifications.md).
+
+**23 September 2026 — Daily Sales PDF WA:** [x] event/manual send dari laporan sesuai tanggal/outlet; [x] PDF privat, dedup, permission/CSRF/lisensi; [x] uji renderer nyata dan antrean disposable. Pengaturan WA pengguna dipertahankan. [ ] UAT kirim PDF nyata; [ ] tindak lanjut mapping Procurement existing pada gate global. [Bukti/panduan](2026-09-23_module_notifications.md).
+
 **23 September 2026 — revisi pengaturan WA:** [x] empat tab; [x] checklist beberapa grup per modul termasuk grup nonaktif; [x] pisahkan flag balasan chat dari penerima notifikasi hingga validasi/worker; [x] 62 uji DB disposable, 74 DOM + 15 JS, 19 Chrome PASS. [ ] UAT pesan nyata. Gate global 133/136, tersisa temuan konfigurasi lokal/scanner fixture existing yang tidak diubah dalam batch ini. [Rincian](2026-09-23_module_notifications.md).
 
 **23 September 2026 — integrasi notifikasi modul:** [x] sakelar/tujuan per kejadian pada pengaturan WA/Telegram; [x] antrean self order/online order melalui worker existing; [x] tombol pengajuan PO/SR di daftar/detail, scope/CSRF/dedup; [x] uji MariaDB disposable dan UI. [ ] apply SQL aktif/konfirmasi operator dan UAT pengiriman bot nyata. WA personal tetap terkunci sesuai perlindungan akun existing. Detail dan checklist: [laporan modul](2026-09-23_module_notifications.md).

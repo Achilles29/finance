@@ -20,6 +20,11 @@ $this->load->view('pos/_report_styles');
           <p class="pos-report-copy mb-0">Ringkasan penjualan harian POS dengan breakdown divisi produk, metode pembayaran, rekening penerimaan, dan riwayat shift pada tanggal terpilih.</p>
         </div>
         <div class="d-flex flex-wrap gap-2">
+          <button type="button" id="daily-sales-send-wa" class="btn btn-success"
+            data-url="<?= html_escape(site_url('pos/reports/daily-sales/notify?' . http_build_query(['date' => $filters['date'] ?? '', 'outlet_id' => (int)($filters['outlet_id'] ?? 0)]))) ?>"
+            data-csrf="<?= html_escape($daily_sales_wa_csrf ?? '') ?>" <?= empty($daily_sales_wa_enabled) ? 'disabled' : '' ?>>
+            <i class="ri-whatsapp-line me-1"></i>Kirim WA (PDF)
+          </button>
           <a href="<?php echo html_escape($printUrl); ?>" target="_blank" class="btn btn-outline-dark">
             <i class="ri-printer-line me-1"></i>Cetak / PDF
           </a>
@@ -31,6 +36,7 @@ $this->load->view('pos/_report_styles');
           </a>
         </div>
       </div>
+      <div id="daily-sales-wa-result" class="small mt-2" role="status" aria-live="polite"><?= empty($daily_sales_wa_enabled) ? 'Untuk kirim PDF, aktifkan Daily Sales (PDF) dan pilih grup penerima di pengaturan WA. Hubungi pengelola pengaturan bila diperlukan.' : 'PDF mengikuti tanggal dan outlet laporan yang ditampilkan. Penerima sesuai pengaturan Daily Sales di WA.' ?></div>
     </div>
 
     <?php $this->load->view('pos/_report_nav', ['report_nav_active' => 'daily_sales']); ?>
@@ -78,3 +84,31 @@ $this->load->view('pos/_report_styles');
   </div>
 </div>
 
+<script>
+(function () {
+  const button = document.getElementById('daily-sales-send-wa');
+  const notice = document.getElementById('daily-sales-wa-result');
+  if (!button || !notice) return;
+  button.addEventListener('click', async function () {
+    if (button.disabled || !window.confirm('Kirim PDF Daily Sales sesuai tanggal dan outlet yang sedang ditampilkan ke grup WA pilihan admin?')) return;
+    button.disabled = true;
+    notice.textContent = 'Membuat PDF dan memasukkan laporan ke antrean WA…';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 75000);
+    try {
+      const response = await fetch(button.dataset.url, {
+        method: 'POST', credentials: 'same-origin', signal: controller.signal,
+        headers: {'X-Requested-With': 'XMLHttpRequest', 'X-Pos-Transaction-CSRF': button.dataset.csrf}
+      });
+      let data;
+      try { data = await response.json(); } catch (_) { throw new Error('INVALID_RESPONSE'); }
+      notice.textContent = typeof data.message === 'string' ? data.message : 'Laporan belum dapat diantrekan. Periksa pengaturan WA.';
+    } catch (_) {
+      notice.textContent = 'Koneksi terputus atau proses belum selesai. Periksa status di pengaturan WA sebelum mencoba kembali. Laporan dengan data yang sama tidak dikirim ganda.';
+    } finally {
+      clearTimeout(timer);
+      button.disabled = false;
+    }
+  });
+})();
+</script>

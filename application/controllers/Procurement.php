@@ -1293,7 +1293,7 @@ class Procurement extends MY_Controller
     {
         $rows = $this->Procurement_model->list_division_requests($filters, $limit);
         $lineRows = $this->Procurement_model->list_division_request_line_rows($filters, $limit);
-        $lineRows = $this->Procurement_model->current_stock_rows($lineRows);
+        $lineRows = $this->prepareDivisionPoSrPrintRows($lineRows);
         $requestIds = array_values(array_unique(array_filter(array_merge(
             array_map(static function ($row) {
                 return (int)($row['id'] ?? 0);
@@ -1440,18 +1440,35 @@ class Procurement extends MY_Controller
         return null;
     }
 
+    /** Both download and outbound PDF use the same read-only stock enrichment. */
+    private function prepareDivisionPoSrPrintRows(array $lines, array $header = []): array
+    {
+        if ($header) {
+            foreach ($lines as &$line) {
+                $line += [
+                    'request_id' => (int)($header['id'] ?? 0),
+                    'request_no' => $header['request_no'] ?? '-',
+                    'request_date' => $header['request_date'] ?? '',
+                    'division_id' => (int)($header['division_id'] ?? 0),
+                    'division_name' => $header['division_name'] ?? '-',
+                    'destination_type' => $header['destination_type'] ?? '',
+                    'needed_date' => $header['needed_date'] ?? '',
+                    // Detail reader uses notes; download reader aliases it as line_notes.
+                    'line_notes' => $line['notes'] ?? '',
+                ];
+            }
+            unset($line);
+        }
+        return $this->Procurement_model->current_stock_rows($lines, $header);
+    }
+
     private function createDivisionNotificationPdf(array $detail): array
     {
         $header = (array)($detail['header'] ?? []);
         $id = (int)($header['id'] ?? 0);
         $lines = (array)($detail['lines'] ?? []);
         if ($id <= 0 || !$lines) throw new RuntimeException('PDF pengajuan tidak dapat dibuat karena data rincian kosong.');
-        $lineRows = array_map(static function (array $line) use ($header, $id): array {
-            return $line + [
-                'request_id' => $id, 'request_no' => $header['request_no'] ?? '-', 'division_name' => $header['division_name'] ?? '-',
-                'destination_type' => $header['destination_type'] ?? '-', 'needed_date' => $header['needed_date'] ?? '',
-            ];
-        }, $lines);
+        $lineRows = $this->prepareDivisionPoSrPrintRows($lines, $header);
         $html = $this->load->view('procurement/division_po_sr_print', [
             'title' => 'Pengajuan PO / SR ' . (string)($header['request_no'] ?? ''), 'line_rows' => $lineRows,
             'filters' => ['date_start' => $header['needed_date'] ?? ''], 'printed_at' => date('Y-m-d H:i:s'),

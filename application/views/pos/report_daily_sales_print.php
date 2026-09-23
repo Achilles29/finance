@@ -34,10 +34,15 @@ $outletName = trim((string)($outlet_name ?? ''));
     .kv td:last-child { text-align:right; font-weight:600; }
     .print-btn { position:fixed; top:16px; right:16px; padding:8px 18px; background:var(--accent); color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:13px; }
     @media print { body { padding:0; } .sheet { max-width:none; } .print-btn { display:none; } .section { border-radius:0; } }
+    <?php if (!empty($pdf_mode)): ?>
+    @page { size:A4 landscape; margin:12mm; }
+    body { padding:0; }
+    .sheet { max-width:none; }
+    <?php endif; ?>
   </style>
 </head>
 <body>
-<button class="print-btn" onclick="window.print()">Cetak / PDF</button>
+<?php if (empty($pdf_mode)): ?><button class="print-btn" onclick="window.print()">Cetak / PDF</button><?php endif; ?>
 <div class="sheet">
   <div class="header">
     <div>
@@ -120,6 +125,6 @@ $outletName = trim((string)($outlet_name ?? ''));
     </table>
   </div>
 </div>
-<script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 150); });</script>
+<?php if (empty($pdf_mode)): ?><script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 150); });</script><?php endif; ?>
 </body>
 </html>

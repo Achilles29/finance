@@ -18,6 +18,7 @@
     "demo_data": false,
     "code_files": [
         "application/libraries/Module_notification.php",
+        "application/libraries/Daily_sales_pdf.php",
         "application/models/Module_notification_model.php",
         "application/views/notifications/settings.php",
         "application/views/notifications/division_buttons.php",

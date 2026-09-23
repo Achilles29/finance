@@ -38,6 +38,7 @@ foreach ($notification_rules as $notification_rule) {
               <input class="form-check-input" type="checkbox" id="notify-<?= html_escape($event) ?>" name="notifications[<?= html_escape($event) ?>][enabled]" value="1" <?= !empty($rule['is_enabled']) ? 'checked' : '' ?>>
               <label class="form-check-label fw-semibold" for="notify-<?= html_escape($event) ?>"><?= html_escape($rule['title']) ?></label>
             </div>
+            <?php if ($event === 'DAILY_SALES'): ?><p class="small text-muted">Kirim manual lewat tombol <strong>Kirim WA</strong> di laporan Daily Sales. PDF mengikuti tanggal dan outlet yang ditampilkan, bukan jadwal otomatis.</p><?php endif; ?>
             <?php if ($notification_channel === 'WA'): ?>
             <div class="form-label small" id="targets-label-<?= html_escape($event) ?>">Grup penerima — centang satu atau lebih</div>
             <div class="border rounded p-2" role="group" aria-labelledby="targets-label-<?= html_escape($event) ?>" style="max-height:240px;overflow-y:auto;">
@@ -78,7 +79,7 @@ foreach ($notification_rules as $notification_rule) {
         <p class="small text-muted mt-2">Antrean belum berarti pesan diterima. Jika hasil belum pasti, periksa chat tujuan sebelum mengirim ulang agar tidak ganda. Pesan terkirim tidak dapat ditarik kembali dengan mematikan integrasi.</p>
         <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Waktu</th><th>Kejadian / ID</th><th>Tujuan</th><th>Status</th><th>Tindakan</th></tr></thead><tbody>
         <?php foreach ($notification_rows as $row): ?>
-          <tr><td class="text-nowrap"><?= html_escape($row['created_at']) ?></td><td><?= html_escape(Module_notification::EVENTS[$row['event_code']] ?? $row['event_code']) ?> #<?= (int)$row['source_id'] ?></td><td><?= html_escape($row['target_label']) ?></td>
+          <tr><td class="text-nowrap"><?= html_escape($row['created_at']) ?></td><td><?= html_escape(Module_notification::events($notification_channel)[$row['event_code']] ?? $row['event_code']) ?> #<?= (int)$row['source_id'] ?></td><td><?= html_escape($row['target_label']) ?></td>
           <td><?= html_escape(['PENDING'=>'Menunggu jadwal bot','PROCESSING'=>'Sedang dikirim','SENT'=>'Terkirim','FAILED'=>'Gagal','UNKNOWN'=>'Belum pasti — periksa chat','CANCELLED'=>'Dibatalkan'][$row['status']] ?? $row['status']) ?><div class="small text-muted"><?= html_escape($row['last_error'] ?? '') ?></div></td>
           <td><?php if ($notification_can_edit && $row['status'] === 'FAILED'): ?><form method="post" action="<?= site_url($notification_action) ?>">
             <input type="hidden" name="<?= html_escape($notification_csrf_name) ?>" value="<?= html_escape($notification_csrf) ?>"><input type="hidden" name="action" value="retry"><input type="hidden" name="queue_id" value="<?= (int)$row['id'] ?>"><button class="btn btn-sm btn-outline-primary" type="submit">Coba kembali</button>

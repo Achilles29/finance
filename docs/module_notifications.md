@@ -8,6 +8,19 @@
 
 Notifikasi berisi ringkasan dan tautan aplikasi yang tetap membutuhkan login, bukan bukti pembayaran. Hak pengguna dan lisensi modul tetap berlaku. Mematikan integrasi tidak menarik pesan yang sudah terkirim.
 
+Catatan PDF pengajuan PO/SR: kolom stok memakai pembacaan yang sama dengan PDF unduhan, termasuk saldo divisi/gudang dalam satuan isi dan catatan item. Jika sebelumnya menerima PDF yang salah menandai semua item “Tidak terkait bahan baku”, tekan **Kirim WA** lagi untuk versi perbaikan. Pesan/PDF lama tidak berubah otomatis; klik ulang versi baru tetap dilindungi dari kiriman ganda.
+
+## Kirim PDF Daily Sales ke WhatsApp
+
+1. Di **WA → Pengaturan → Notifikasi**, aktifkan **Daily Sales (PDF)**, centang grup penerima, lalu simpan. Pengaturan modul lainnya tidak perlu diubah.
+2. Buka **POS → Laporan → Daily Sales**, pilih tanggal dan outlet, lalu klik **Tampilkan**.
+3. Klik **Kirim WA (PDF)** dan konfirmasi. PDF mengikuti tanggal/outlet laporan yang ditampilkan (bukan filter yang baru diketik tetapi belum diterapkan).
+4. Periksa **Status 30 notifikasi terakhir** di pengaturan WA. Pesan “masuk antrean” belum berarti sudah diterima; worker bot yang sudah ada akan mengirimkannya.
+
+Ini pengiriman manual, bukan jadwal harian otomatis. Laporan dengan data sama tidak dikirim ganda. Bila data laporan berubah, tombol membuat snapshot PDF baru. PDF yang sudah dikirim tidak berubah mengikuti transaksi berikutnya. Bila hasil pengiriman belum pasti, periksa chat dahulu; jangan memaksa pengiriman ulang.
+
+Tombol nonaktif berarti pengaturan/tujuan/lisensi atau tabel lampiran belum siap. Pembuatan PDF server memakai Google Chrome pada Linux dan penyimpanan lampiran WA yang sama dengan pengajuan divisi. Tidak ada SQL baru untuk Daily Sales; dukungan lampiran existing memerlukan `2026-09-23b_module_notification_pdf_attachment.sql` **sudah terpasang**. Jangan menjalankannya ulang tanpa memeriksa kolom karena SQL existing tersebut bukan replay-safe.
+
 **Grup WA aktif/nonaktif:** status di menu Grup WA mengatur bot membalas chat masuk, bukan penerima notifikasi modul. Semua grup terdaftar ditampilkan pada checklist notifikasi; grup nonaktif tetap dapat menerima jika dicentang dan modul diaktifkan. Hapus centang atau matikan modul untuk menghentikan notifikasi. Grup tanpa ID valid tetap terlihat dengan keterangan perbaikan, tetapi belum bisa dipilih. Bot tetap harus menjadi anggota grup dan dapat mengirim pesan.
 
 **Tab pengaturan WA:** Notifikasi untuk penerima/modul/riwayat; Koneksi & QR untuk menyambungkan akun; Pengujian untuk cek koneksi; Teknis & pemulihan untuk admin mengelola proses bot. Tab yang terakhir dibuka dipertahankan setelah menyimpan.

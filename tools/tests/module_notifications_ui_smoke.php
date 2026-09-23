@@ -20,7 +20,7 @@ $context->Module_notification_model = new class {
     public function ready(): bool { return $this->schema; }
     public function rules($channel): array {
         $rules = [];
-        foreach (Module_notification::EVENTS as $event => $title) $rules[$event] = ['title'=>$title,'is_enabled'=>0,'targets'=>$this->selected ? array_intersect_key($this->available_targets($channel), array_flip(['group:1','group:2'])) : []];
+        foreach (Module_notification::events($channel) as $event => $title) $rules[$event] = ['title'=>$title,'is_enabled'=>0,'targets'=>$this->selected ? array_intersect_key($this->available_targets($channel), array_flip(['group:1','group:2'])) : []];
         return $rules;
     }
     public function available_targets($channel, bool $include_unavailable = false): array {
@@ -62,17 +62,18 @@ $xpath = static function (string $html): DOMXPath {
 foreach (['WA','TELEGRAM'] as $channel) {
     $base = ['notification_channel'=>$channel, 'notification_csrf_name'=>'fixture_csrf', 'notification_csrf'=>'fixture-value', 'notification_action'=>'fixture/save'];
     foreach ([true,false] as $edit) {
+        $eventCount = count(Module_notification::events($channel));
         $html = $render('settings', $base + ['notification_can_edit'=>$edit]);
         $x = $xpath($html);
-        $check($x->query('//input[@type="checkbox" and starts-with(@id,"notify-")]')->length === 3, $channel . ' three event switches');
+        $check($x->query('//input[@type="checkbox" and starts-with(@id,"notify-")]')->length === $eventCount, $channel . ' event switches including WA-only Daily Sales');
         $check($x->query('//select[@multiple]')->length === ($channel === 'WA' ? 0 : 3), $channel . ' WA checklist / Telegram select');
         if ($channel === 'WA') {
-            $check($x->query('//input[@type="checkbox" and starts-with(@id,"target-")]')->length === 9, 'all three groups shown separately per module');
-            $check($x->query('//input[@type="checkbox" and @disabled]')->length === 3, 'invalid JID visible but cannot be selected');
+            $check($x->query('//input[@type="checkbox" and starts-with(@id,"target-")]')->length === $eventCount * 3, 'all three groups shown separately per module');
+            $check($x->query('//input[@type="checkbox" and @disabled]')->length === $eventCount, 'invalid JID visible but cannot be selected');
             $check(strpos($html, 'Status grup di menu Grup WA hanya mengatur balasan chat bot') !== false, 'inbound/outbound distinction explained');
         }
         $check($x->query('//input[@checked]')->length === 0, $channel . ' defaults OFF');
-        $check($x->query('//fieldset[@disabled]')->length === ($edit ? 0 : 3), $channel . ' read-only settings respect RBAC');
+        $check($x->query('//fieldset[@disabled]')->length === ($edit ? 0 : $eventCount), $channel . ' read-only settings respect RBAC');
         $check($x->query('//button[@type="submit"]')->length === ($edit ? 2 : 0), $channel . ' editors alone can save/retry');
         $check($x->query('//img|//script|//svg')->length === 0, $channel . ' recipients and errors escaped');
         $check(strpos($html, 'belum terdeteksi') !== false, $channel . ' absent worker clearly explained');
@@ -82,7 +83,7 @@ foreach (['WA','TELEGRAM'] as $channel) {
 $context->Module_notification_model->selected = true;
 foreach ([true,false] as $edit) {
     $html = $page->render($edit); $x = $xpath($html);
-    $check($x->query('//input[@checked and starts-with(@id,"target-")]')->length === 6, 'multiple saved selections restored per module');
+    $check($x->query('//input[@checked and starts-with(@id,"target-")]')->length === 8, 'multiple saved selections restored per module');
     $check($x->query('//*[@role="tab"]')->length === 4 && $x->query('//*[@role="tabpanel"]')->length === 4, 'four accessible sections');
     $check($x->query('//*[@id="wa-notifications"]//*[@id="module-notifications"]')->length === 1, 'notification panel belongs to its tab');
     $check($x->query('//*[@id="wa-connection"]//*[@id="qr-panel"]')->length === 1, 'QR panel belongs to connection tab');

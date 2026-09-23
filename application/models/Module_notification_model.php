@@ -29,7 +29,7 @@ class Module_notification_model extends CI_Model
         $ci =& get_instance();
         $ci->load->library('Feature_gate');
         $features = ['AUTOMATION_MESSAGING'];
-        if ($event !== '') $features[] = ['SELF_ORDER' => 'SELF_ORDER', 'ONLINE_ORDER' => 'ONLINE_ORDER', 'DIVISION_REQUEST' => 'PROCUREMENT'][$event] ?? '__UNKNOWN__';
+        if ($event !== '') $features[] = ['SELF_ORDER' => 'SELF_ORDER', 'ONLINE_ORDER' => 'ONLINE_ORDER', 'DIVISION_REQUEST' => 'PROCUREMENT', 'DAILY_SALES' => 'SALES_REPORTING'][$event] ?? '__UNKNOWN__';
         foreach ($features as $feature) {
             if (empty($ci->feature_gate->decision($feature, ['source' => 'module_notification'])['allowed'])) return false;
         }
@@ -62,7 +62,7 @@ class Module_notification_model extends CI_Model
     public function rules(string $channel): array
     {
         $rules = [];
-        foreach (Module_notification::EVENTS as $event => $title) {
+        foreach (Module_notification::events($channel) as $event => $title) {
             $rules[$event] = ['is_enabled' => 0, 'order_start_id' => 0, 'targets' => [], 'title' => $title];
         }
         if (!$this->ready()) return $rules;
@@ -98,7 +98,7 @@ class Module_notification_model extends CI_Model
         }
         $available = $this->available_targets($channel);
         $prepared = [];
-        foreach (Module_notification::EVENTS as $event => $title) {
+        foreach (Module_notification::events($channel) as $event => $title) {
             $row = is_array($input[$event] ?? null) ? $input[$event] : [];
             if (isset($row['phones']) && !is_string($row['phones'])) throw new InvalidArgumentException('Nomor tujuan harus berupa teks.');
             $targets = Module_notification::targets($row['targets'] ?? [], (string)($row['phones'] ?? ''), $available, $channel);
@@ -162,12 +162,12 @@ class Module_notification_model extends CI_Model
         return $channel === 'WA';
     }
 
-    public function enabled_channels(): array
+    public function enabled_channels(string $event = 'DIVISION_REQUEST'): array
     {
-        if (!$this->ready() || !$this->allowed('DIVISION_REQUEST')) return [];
+        if (!$this->ready() || !$this->allowed($event)) return [];
         $channels = [];
         foreach (['WA', 'TELEGRAM'] as $channel) {
-            $rule = $this->rules($channel)['DIVISION_REQUEST'];
+            $rule = $this->rules($channel)[$event] ?? [];
             if (!empty($rule['is_enabled']) && $this->live_targets($channel, $rule) && $this->channel_enabled($channel)) $channels[] = $channel;
         }
         return $channels;
@@ -198,7 +198,9 @@ class Module_notification_model extends CI_Model
         $message = Module_notification::message('DIVISION_REQUEST', $header, $detail['lines'], site_url('procurement/division-po-sr/detail/' . $id));
         // PDF is a distinct delivery revision from the legacy text-only
         // notification, but remains idempotent when the same button is clicked again.
-        $revision = hash('sha256', $message . '|' . (!empty($attachment['name']) ? 'pdf-v1' : 'text-v1'));
+        // Permit one corrected PDF after the old stock-less template, while
+        // preserving deduplication for repeated clicks on the corrected version.
+        $revision = hash('sha256', $message . '|' . (!empty($attachment['name']) ? 'pdf-v2-stock' : 'text-v1'));
         $rule = $this->rules($channel)['DIVISION_REQUEST'];
         $count = 0;
         foreach ($this->live_targets($channel, $rule) as $key => $target) {
@@ -207,6 +209,33 @@ class Module_notification_model extends CI_Model
         return ['ok' => true, 'message' => $count > 0
             ? 'Pengajuan masuk antrean ' . $channel . '. Status kirim tersedia di pengaturan kanal.'
             : 'Pengajuan yang sama sudah tercatat di antrean. Tidak dikirim ganda; periksa status di pengaturan kanal.'];
+    }
+
+    public function enqueue_daily_sales(array $filters, string $outletName, string $snapshot, int $actor, array $attachment): array
+    {
+        require_once APPPATH . 'libraries/Daily_sales_pdf.php';
+        $filters = Daily_sales_pdf::filters($filters['date'] ?? null, $filters['outlet_id'] ?? null);
+        if (!preg_match('/\A[a-f0-9]{64}\z/D', $snapshot)) throw new InvalidArgumentException('Snapshot laporan tidak valid.');
+        Daily_sales_pdf::assertAttachment($attachment);
+        if (!$this->lock('WA')) throw new RuntimeException('Pengiriman WA sedang berjalan. Coba kembali sebentar lagi.');
+        try {
+            if (!in_array('WA', $this->enabled_channels('DAILY_SALES'), true)) {
+                throw new RuntimeException('Aktifkan Daily Sales (PDF) dan pilih grup penerima di pengaturan WA terlebih dahulu.');
+            }
+            $message = "Daily Sales POS\nTanggal: " . $filters['date'] . "\nOutlet: " . Module_notification::clean($outletName)
+                . "\nPDF sesuai snapshot laporan saat tombol Kirim WA ditekan.\nBuka laporan (perlu login): "
+                . site_url('pos/reports/daily-sales?' . http_build_query($filters));
+            $revision = hash('sha256', 'daily-sales-pdf-v1|' . json_encode($filters) . '|' . $snapshot);
+            $count = 0;
+            foreach ($this->live_targets('WA', $this->rules('WA')['DAILY_SALES']) as $key => $target) {
+                $count += $this->enqueue('WA', 'DAILY_SALES', (int)str_replace('-', '', $filters['date']), $key, $target, $message, $actor, $revision, $attachment);
+            }
+            return ['message' => $count > 0
+                ? 'PDF Daily Sales masuk antrean WA. Periksa status pengiriman di pengaturan WA.'
+                : 'PDF dengan data yang sama sudah tercatat. Tidak dikirim ganda; periksa status di pengaturan WA.'];
+        } finally {
+            $this->unlock('WA');
+        }
     }
 
     private function enqueue(string $channel, string $event, int $id, string $key, array $target, string $message, int $actor = 0, string $revision = '', array $attachment = []): int
@@ -280,6 +309,15 @@ class Module_notification_model extends CI_Model
                 if ($valid && $row['event_code'] === 'DIVISION_REQUEST') {
                     $source = $this->db->select('status')->from('pur_division_request')->where('id', $row['source_id'])->get()->row_array();
                     $valid = $source && in_array($source['status'], ['SUBMITTED', 'VERIFIED'], true);
+                } elseif ($valid && $row['event_code'] === 'DAILY_SALES') {
+                    // A report is a snapshot, not a pos_order ID. Never apply the order cutoff to it.
+                    require_once APPPATH . 'libraries/Daily_sales_pdf.php';
+                    try {
+                        Daily_sales_pdf::assertAttachment(['path' => $row['attachment_path'], 'name' => $row['attachment_name']]);
+                        $valid = $channel === 'WA';
+                    } catch (RuntimeException $error) {
+                        $valid = false;
+                    }
                 } elseif ($valid) {
                     $source = $this->db->select('status')->from('pos_order')->where('id', $row['source_id'])->get()->row_array();
                     $valid = (int)$row['source_id'] > (int)$rule['order_start_id'] && $source && !in_array($source['status'], ['VOID', 'CANCELLED', 'REJECTED', 'REFUND_FULL'], true);
