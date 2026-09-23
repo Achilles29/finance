@@ -447,7 +447,7 @@ $pathPosition = strpos($endpointBlock, "realpath(FCPATH . 'wa-engine')");
 $readPosition = strpos($endpointBlock, 'file_get_contents($envFile)');
 $updatesPosition = strpos($endpointBlock, 'waEnvUpdatesFromPayload($payload)');
 $mergePosition = strpos($endpointBlock, 'mergeWaEnvContent($existingContent, $updates)');
-$writePosition = strpos($endpointBlock, 'file_put_contents($envFile, $content, LOCK_EX)');
+$writePosition = strpos($endpointBlock, 'writeWaEnvAtomically($envFile, $content)');
 whatsapp_env_save_csrf_check(
     $permissionPosition !== false
         && $guardPosition !== false
@@ -465,7 +465,16 @@ whatsapp_env_save_csrf_check(
         && $readPosition < $updatesPosition
         && $updatesPosition < $mergePosition
         && $mergePosition < $writePosition,
-    'api_env_save keeps RBAC -> method/scoped CSRF -> payload -> path/read -> updates/merge -> write order'
+    'api_env_save keeps RBAC -> method/scoped CSRF -> payload -> path/read -> updates/merge -> atomic write order'
+);
+
+$atomicWriteBlock = whatsapp_env_save_csrf_method_block($controllerSource, 'writeWaEnvAtomically');
+whatsapp_env_save_csrf_check(
+    strpos($atomicWriteBlock, 'tempnam($directory,') !== false
+        && strpos($atomicWriteBlock, 'file_put_contents($temporary, $content, LOCK_EX)') !== false
+        && strpos($atomicWriteBlock, 'rename($temporary, $envFile)') !== false
+        && strpos($atomicWriteBlock, 'chmod($envFile, 0660)') !== false,
+    'atomic env writer preserves the old file until replace and retains runtime group write access'
 );
 
 $canEditPosition = strpos($settingsBlock, '$canEdit = $this->can(self::PAGE_SETTINGS, \'edit\');');

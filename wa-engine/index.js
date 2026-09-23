@@ -493,6 +493,11 @@ function startServer() {
   const server = http.createServer(async (req, res) => {
     try {
       const url   = new URL(req.url || '/', `http://127.0.0.1`);
+      // Liveness probe only. The server binds to loopback and this endpoint
+      // intentionally exposes no bot, QR, or session information.
+      if (url.pathname === '/health' && req.method === 'GET') {
+        return jsonReply(res, 200, { ok: true });
+      }
       if (url.pathname.startsWith('/internal/') && !authorizeInternalRequest(req, url)) {
         return jsonReply(res, 403, { ok: false, message: 'Forbidden' });
       }

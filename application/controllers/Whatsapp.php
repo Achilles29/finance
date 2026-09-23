@@ -1913,13 +1913,12 @@ class Whatsapp extends MY_Controller
         }
 
         $status = $this->engineStatusSnapshot();
-        $engineApi = $this->callBotApi('/internal/status', 'GET', [], 1);
-        $apiRunning = !empty($engineApi['ok']);
-        $running = $status['running'] || $apiRunning;
-        $portListening = $status['port_listening'] || $apiRunning;
+        $engineHealthy = $this->engineHealthCheck(1);
+        $running = $status['running'] || $engineHealthy;
+        $portListening = $status['port_listening'] || $engineHealthy;
         $message = '';
-        if ($apiRunning) {
-            $message = 'Engine merespons API internal.';
+        if ($engineHealthy) {
+            $message = 'Engine merespons health-check lokal.';
         } elseif ($status['running'] && !$status['port_listening']) {
             $message = 'Proses node terdeteksi, tetapi port belum listen.';
         } elseif (!$status['running'] && $status['port_listening']) {
@@ -1955,15 +1954,21 @@ class Whatsapp extends MY_Controller
             $this->jsonOut(['ok' => false, 'message' => 'Folder wa-engine tidak ditemukan di: ' . FCPATH . 'wa-engine']);
             return;
         }
+        if (!is_dir($engineDir . '/node_modules')) {
+            $this->jsonOut([
+                'ok' => false,
+                'message' => 'Dependency wa-engine belum terpasang. Jalankan npm ci dari folder wa-engine sebelum Start.',
+            ]);
+            return;
+        }
 
-        // Cek endpoint engine langsung. Deteksi lsof/ss dapat gagal ketika
-        // PHP-FPM tidak diizinkan melihat PID Node, padahal engine hidup.
-        $engineApi = $this->callBotApi('/internal/status', 'GET', [], 1);
-        if (!empty($engineApi['ok'])) {
+        // Health-check loopback tidak memerlukan credential API. Deteksi
+        // lsof/ss dapat gagal ketika PHP-FPM tidak diizinkan melihat PID Node.
+        if ($this->engineHealthCheck(1)) {
             $this->jsonOut([
                 'ok'      => true,
                 'running' => true,
-                'message' => 'wa-engine sudah berjalan dan merespons API internal.',
+                'message' => 'wa-engine sudah berjalan dan merespons health-check lokal.',
             ]);
             return;
         }
@@ -2005,6 +2010,14 @@ class Whatsapp extends MY_Controller
         $logPath = $this->engineLogPath($engineDir, true);
         if (!file_exists($logPath)) {
             @touch($logPath);
+        }
+        clearstatcache(true, $logPath);
+        if (!is_file($logPath) || !is_writable($logPath)) {
+            $this->jsonOut([
+                'ok' => false,
+                'message' => 'Log runtime wa-engine tidak dapat ditulis. Periksa permission folder wa-engine sebelum Start.',
+            ]);
+            return;
         }
         $pidPath = rtrim($engineDir, '/\\') . '/wa-engine.pid';
         if (file_exists($pidPath)) {
@@ -2051,12 +2064,15 @@ class Whatsapp extends MY_Controller
 
         $running = false;
         $portListening = false;
-        for ($i = 0; $i < 12; $i++) {
+        // Import Baileys dan pemulihan sesi dapat melampaui enam detik pada
+        // server yang sedang sibuk. Tunggu sampai 20 detik sebelum menyatakan
+        // bootstrap gagal, sambil tetap memeriksa port setiap setengah detik.
+        for ($i = 0; $i < 40; $i++) {
             usleep(500000);
             $check = $this->engineStatusSnapshot();
-            $engineApi = $this->callBotApi('/internal/status', 'GET', [], 1);
-            $running = $check['running'] || !empty($engineApi['ok']);
-            $portListening = $check['port_listening'] || !empty($engineApi['ok']);
+            $engineHealthy = $this->engineHealthCheck(1);
+            $running = $check['running'] || $engineHealthy;
+            $portListening = $check['port_listening'] || $engineHealthy;
             if ($running && $portListening) {
                 break;
             }
@@ -2085,7 +2101,7 @@ class Whatsapp extends MY_Controller
                     if ($raw !== '') $logHint = 'Log: ' . $raw;
                 }
             }
-            $this->jsonOut(['ok' => false, 'message' => "Port {$port} belum terbuka setelah 6 detik. {$logHint} | Node: {$nodePath}{$cmdHint}"]);
+            $this->jsonOut(['ok' => false, 'message' => "Port {$port} belum terbuka setelah 20 detik. {$logHint} | Node: {$nodePath}{$cmdHint}"]);
         }
     }
 
@@ -2232,12 +2248,11 @@ class Whatsapp extends MY_Controller
         }
 
         $content = $this->mergeWaEnvContent($existingContent, $updates);
-        $written = @file_put_contents($envFile, $content, LOCK_EX);
-        if ($written === false) {
+        if (!$this->writeWaEnvAtomically($envFile, $content)) {
             $this->jsonOut([
                 'ok' => false,
                 'permission' => true,
-                'message' => 'Konfigurasi wa-engine tidak dapat disimpan. Periksa permission folder di server.',
+                'message' => 'Konfigurasi wa-engine tidak dapat disimpan. Pastikan folder runtime wa-engine dapat ditulis oleh proses PHP.',
             ]);
             return;
         }
@@ -2356,6 +2371,33 @@ class Whatsapp extends MY_Controller
         }
 
         return rtrim(implode("\n", $merged), "\n") . "\n";
+    }
+
+    /**
+     * Keep the previous .env intact if a write is interrupted. The runtime
+     * directory is shared by PHP-FPM and the Node process, so retain group
+     * write access after replacing the file.
+     */
+    private function writeWaEnvAtomically(string $envFile, string $content): bool
+    {
+        $directory = dirname($envFile);
+        if (!is_dir($directory) || !is_writable($directory)) {
+            return false;
+        }
+
+        $temporary = @tempnam($directory, '.env-write-');
+        if ($temporary === false) {
+            return false;
+        }
+
+        $written = @file_put_contents($temporary, $content, LOCK_EX);
+        if ($written === false || !@chmod($temporary, 0660) || !@rename($temporary, $envFile)) {
+            @unlink($temporary);
+            return false;
+        }
+
+        @chmod($envFile, 0660);
+        return true;
     }
 
     // JSON API — hapus sesi WA (auth_info) untuk paksa QR baru
@@ -2768,6 +2810,31 @@ class Whatsapp extends MY_Controller
     protected function initializeBotApiCurl(string $url)
     {
         return curl_init($url);
+    }
+
+    /**
+     * Liveness check for the local Node process. Unlike /internal/* this
+     * endpoint is intentionally unauthenticated, but it is loopback-only and
+     * returns no session, QR, or WhatsApp data.
+     */
+    private function engineHealthCheck(int $timeout = 1): bool
+    {
+        if (!function_exists('fsockopen')) {
+            return false;
+        }
+
+        $port = $this->enginePort();
+        $socket = @fsockopen('127.0.0.1', $port, $errno, $error, max(1, $timeout));
+        if (!is_resource($socket)) {
+            return false;
+        }
+
+        stream_set_timeout($socket, max(1, $timeout));
+        fwrite($socket, "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+        $line = fgets($socket);
+        fclose($socket);
+
+        return is_string($line) && preg_match('/\AHTTP\/1\.[01]\s+200\b/', $line) === 1;
     }
 
     private function callBotApi(string $endpoint, string $method = 'GET', array $payload = [], int $timeout = 8): array
@@ -5627,10 +5694,8 @@ class Whatsapp extends MY_Controller
     private function buildEnvString(string $engineDir): string
     {
         $envFile = $engineDir . '/.env';
-        if (!file_exists($envFile)) return '';
-
-        $str = '';
-        foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+        $values = [];
+        foreach (file_exists($envFile) ? (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []) : [] as $line) {
             $line = trim($line);
             if ($line === '' || strpos($line, '#') === 0) continue;
             [$k, $v] = array_pad(explode('=', $line, 2), 2, '');
@@ -5642,8 +5707,30 @@ class Whatsapp extends MY_Controller
                 continue;
             }
             if ($k !== '' && preg_match('/^[A-Z_][A-Z0-9_]*$/i', $k)) {
-                $str .= $k . '=' . escapeshellarg($v) . ' ';
+                $values[$k] = $v;
             }
+        }
+
+        // Ikuti koneksi aktif Finance bila .env belum dibuat atau hanya
+        // sebagian diisi. Nilai .env yang sengaja diatur tetap diprioritaskan.
+        foreach ([
+            'DB_HOST' => 'hostname',
+            'DB_USER' => 'username',
+            'DB_PASS' => 'password',
+            'DB_NAME' => 'database',
+        ] as $envKey => $databaseProperty) {
+            if (isset($values[$envKey]) && trim((string)$values[$envKey]) !== '') {
+                continue;
+            }
+            $value = isset($this->db->{$databaseProperty}) ? (string)$this->db->{$databaseProperty} : '';
+            if ($value !== '') {
+                $values[$envKey] = $value;
+            }
+        }
+
+        $str = '';
+        foreach ($values as $key => $value) {
+            $str .= $key . '=' . escapeshellarg($value) . ' ';
         }
         return $str;
     }
@@ -5729,13 +5816,24 @@ class Whatsapp extends MY_Controller
         $port = $this->enginePort();
         $processPids = $this->engineProcessPids();
         $portPids = $this->enginePortPids($port);
+        $portListening = !empty($portPids);
+
+        // PHP-FPM tertentu tidak diizinkan melihat PID Node via lsof/ss.
+        // Socket loopback adalah bukti langsung bahwa engine sudah menerima koneksi.
+        if (!$portListening && function_exists('fsockopen')) {
+            $socket = @fsockopen('127.0.0.1', $port, $errno, $error, 0.5);
+            if (is_resource($socket)) {
+                $portListening = true;
+                fclose($socket);
+            }
+        }
 
         return [
             'port'           => $port,
             'process_pids'   => $processPids,
             'port_pids'      => $portPids,
             'running'        => !empty($processPids),
-            'port_listening' => !empty($portPids),
+            'port_listening' => $portListening,
         ];
     }
 

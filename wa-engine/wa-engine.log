@@ -1,406 +1,14 @@
 🚀 wa-engine dimulai...
+🔒 Pengiriman personal WA dinonaktifkan oleh safety lock. Laporan grup tetap tersedia.
 🔄  Internal API siap di http://127.0.0.1:3070
-🔑  Token internal dikonfigurasi.
-✅  WA terhubung — nomor: 6285139324878
-Failed to decrypt message with any known session...
-Session error:Error: Bad MAC Error: Bad MAC
-    at Object.verifyMAC (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/crypto.js:87:15)
-    at SessionCipher.doDecryptWhisperMessage (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:250:16)
-    at async SessionCipher.decryptWithSessions (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:147:29)
-    at async 255675242426487_1.0 [as awaitable] (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:171:28)
-    at async _asyncQueueExecutor (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/queue_job.js:20:29)
-Session error:Error: Bad MAC Error: Bad MAC
-    at Object.verifyMAC (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/crypto.js:87:15)
-    at SessionCipher.doDecryptWhisperMessage (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:250:16)
-    at async SessionCipher.decryptWithSessions (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:147:29)
-    at async 255675242426487_1.0 [as awaitable] (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:171:28)
-    at async _asyncQueueExecutor (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/queue_job.js:20:29)
-Failed to decrypt message with any known session...
-Session error:Error: Bad MAC Error: Bad MAC
-    at Object.verifyMAC (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/crypto.js:87:15)
-    at SessionCipher.doDecryptWhisperMessage (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:250:16)
-    at async SessionCipher.decryptWithSessions (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:147:29)
-    at async 255675242426487_1.0 [as awaitable] (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:171:28)
-    at async _asyncQueueExecutor (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/queue_job.js:20:29)
-Session error:Error: Bad MAC Error: Bad MAC
-    at Object.verifyMAC (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/crypto.js:87:15)
-    at SessionCipher.doDecryptWhisperMessage (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:250:16)
-    at async SessionCipher.decryptWithSessions (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:147:29)
-    at async 255675242426487_1.0 [as awaitable] (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/session_cipher.js:171:28)
-    at async _asyncQueueExecutor (/www/wwwroot/finance/wa-engine/node_modules/libsignal/src/queue_job.js:20:29)
-Closing open session in favor of incoming prekey bundle
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB0EE05FABF600346C9C6 -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0EE05FABF600346C9C6: 0 (463, Your account has been restricted)
-➜ Pesan personal diterima engine: 3EB05E66B2E47C36A73CA2 -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB05E66B2E47C36A73CA2: 0 (463, Your account has been restricted)
-ℹ Status pesan WhatsApp 3AB3C1DCB6F83BA40F6C: 4
-✓ Delivery WhatsApp dikonfirmasi: 3AB3C1DCB6F83BA40F6C
-ℹ Status pesan WhatsApp 3A5A9860B09A76ADC183: 4
-✓ Delivery WhatsApp dikonfirmasi: 3A5A9860B09A76ADC183
-ℹ Status pesan WhatsApp 3A56775D4B9302B6746D: 4
-✓ Delivery WhatsApp dikonfirmasi: 3A56775D4B9302B6746D
-ℹ Status pesan WhatsApp 3AD3CF7F40E41D3135DA: 4
-✓ Delivery WhatsApp dikonfirmasi: 3AD3CF7F40E41D3135DA
-ℹ Status pesan WhatsApp 3A5777267073AEC0F820: 4
-✓ Delivery WhatsApp dikonfirmasi: 3A5777267073AEC0F820
-ℹ Status pesan WhatsApp 3EB0DB00DC6212DC662A87: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB0DB00DC6212DC662A87
-Decrypted message with closed session.
-ℹ Status pesan WhatsApp A5B989851CD507F148054F5963EA3307: 3
-✓ Delivery WhatsApp dikonfirmasi: A5B989851CD507F148054F5963EA3307
-ℹ Status pesan WhatsApp A5B989851CD507F148054F5963EA3307: 3
-✓ Delivery WhatsApp dikonfirmasi: A5B989851CD507F148054F5963EA3307
-Decrypted message with closed session.
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ Status pesan WhatsApp A5B989851CD507F148054F5963EA3307: 4
-✓ Delivery WhatsApp dikonfirmasi: A5B989851CD507F148054F5963EA3307
-🧹  Sesi WA logged out. Auth lama dibersihkan, engine akan meminta QR baru.
-⚠️   Terputus (401). Reconnect: false, delay: 6000ms
+⚠️  Credential API internal belum tersedia; seluruh endpoint /internal/* menolak request.
 📱 QR WhatsApp tersedia di Pengaturan WA Bot.
-🚀 wa-engine dimulai...
-🔄  Internal API siap di http://127.0.0.1:3070
-🔑  Token internal dikonfigurasi.
 📱 QR WhatsApp tersedia di Pengaturan WA Bot.
-⚠️   Terputus (515). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB0353A21DA7ADA01AEF9 -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0353A21DA7ADA01AEF9: 2
-ℹ Status pesan WhatsApp 3EB0353A21DA7ADA01AEF9: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0353A21DA7ADA01AEF9
-ℹ Status pesan WhatsApp 3EB0353A21DA7ADA01AEF9: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0353A21DA7ADA01AEF9
-➜ Pesan personal diterima engine: 3EB02FACCA69EB09A7E0EE -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB02FACCA69EB09A7E0EE: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB02FACCA69EB09A7E0EE
-ℹ Status pesan WhatsApp 3EB02FACCA69EB09A7E0EE: 2
-ℹ Status pesan WhatsApp 3EB0353A21DA7ADA01AEF9: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB0353A21DA7ADA01AEF9
-ℹ Status pesan WhatsApp 3EB02FACCA69EB09A7E0EE: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB02FACCA69EB09A7E0EE
-ℹ Status pesan WhatsApp 3EB02FACCA69EB09A7E0EE: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB02FACCA69EB09A7E0EE
-➜ Pesan personal diterima engine: 3EB0779F15A6D5BFD4F378 -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0779F15A6D5BFD4F378: 0 (463, Your account has been restricted)
-➜ Pesan personal diterima engine: 3EB098C37B81AAE1EFC562 -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB098C37B81AAE1EFC562: 2
-ℹ Status pesan WhatsApp 3EB098C37B81AAE1EFC562: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB098C37B81AAE1EFC562
-ℹ Status pesan WhatsApp 3EB098C37B81AAE1EFC562: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB098C37B81AAE1EFC562
-ℹ Status pesan WhatsApp A5B989851CD507F148054F5963EA3307: 3
-✓ Delivery WhatsApp dikonfirmasi: A5B989851CD507F148054F5963EA3307
-ℹ Status pesan WhatsApp 3EB0353A21DA7ADA01AEF9: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0353A21DA7ADA01AEF9
-ℹ Status pesan WhatsApp 3EB02FACCA69EB09A7E0EE: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB02FACCA69EB09A7E0EE
-ℹ Status pesan WhatsApp 3EB098C37B81AAE1EFC562: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB098C37B81AAE1EFC562
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB0BA37C6E525A1F6EE03 -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
-ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
-ℹ Status pesan WhatsApp 3EB098C37B81AAE1EFC562: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB098C37B81AAE1EFC562
-ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB0446453538F76ADE18C -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0446453538F76ADE18C: 0 (463, Your account has been restricted)
-ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
-ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 2
-ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
-➜ Pesan personal diterima engine: 3EB08A69FFA1869580E9CE -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB08A69FFA1869580E9CE: 0 (463, Your account has been restricted)
-ℹ Status pesan WhatsApp A5A3A738C98BED1D89EB3087D47CE207: 3
-✓ Delivery WhatsApp dikonfirmasi: A5A3A738C98BED1D89EB3087D47CE207
-➜ Pesan personal diterima engine: 3EB024759DA657D892D0B2 -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB024759DA657D892D0B2: 0 (463, Your account has been restricted)
-ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
-➜ Pesan personal diterima engine: 3EB0D238602AC0A02D940F -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 2
-ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
-ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
-➜ Pesan personal diterima engine: 3EB049348D51DA7B7DABCD -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB049348D51DA7B7DABCD: 0 (463, Your account has been restricted)
-ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
-➜ Pesan personal diterima engine: 3EB027FF13AC73CAF8A168 -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB027FF13AC73CAF8A168: 0 (463, Your account has been restricted)
-ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
-ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB0A065C1C9526C355C95 -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0A065C1C9526C355C95: 0 (463, Your account has been restricted)
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB029A255BBBC326383B5 -> 6285231412324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB029A255BBBC326383B5: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB029A255BBBC326383B5
-ℹ Status pesan WhatsApp 3EB029A255BBBC326383B5: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB029A255BBBC326383B5
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB0979116F5D59F491E12 -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
-➜ Pesan personal diterima engine: 3EB06153DDF922903DCB66 -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB06153DDF922903DCB66: 0 (463, Your account has been restricted)
-➜ Pesan personal diterima engine: 3EB0445BDA0F75DF60AAE5 -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0445BDA0F75DF60AAE5: 0 (463, Your account has been restricted)
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB07979C298D626E4656F -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB07979C298D626E4656F: 0 (463, Your account has been restricted)
-ℹ Status pesan WhatsApp 3EB029A255BBBC326383B5: 2
-ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 2
-Closing open session in favor of incoming prekey bundle
-ℹ libsignal: Closing session (detail disembunyikan)
-Decrypted message with closed session.
-ℹ Status pesan WhatsApp A58C7F70FA8BCDEC9A1840F8C2004980: 3
-✓ Delivery WhatsApp dikonfirmasi: A58C7F70FA8BCDEC9A1840F8C2004980
-Decrypted message with closed session.
-ℹ Status pesan WhatsApp A55F71E939420AD90BE9FAE2859F028C: 3
-✓ Delivery WhatsApp dikonfirmasi: A55F71E939420AD90BE9FAE2859F028C
-Decrypted message with closed session.
-ℹ Status pesan WhatsApp A50303196FED246BD30662D33EC33072: 3
-✓ Delivery WhatsApp dikonfirmasi: A50303196FED246BD30662D33EC33072
-ℹ Status pesan WhatsApp 2AA79DA5541EC922CABC: 4
-✓ Delivery WhatsApp dikonfirmasi: 2AA79DA5541EC922CABC
-Decrypted message with closed session.
-ℹ Status pesan WhatsApp A5154F0EEF3DAB0E219628213AC31579: 3
-✓ Delivery WhatsApp dikonfirmasi: A5154F0EEF3DAB0E219628213AC31579
-➜ Pesan personal diterima engine: 3EB0CE8922FB5466FD839A -> 6285292961993@s.whatsapp.net
-↻ WhatsApp meminta retry enkripsi: 3EB0CE8922FB5466FD839A
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ Status pesan WhatsApp 3EB0CE8922FB5466FD839A: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0CE8922FB5466FD839A
-ℹ Status pesan WhatsApp 3EB0CE8922FB5466FD839A: 2
-➜ Pesan personal diterima engine: 3EB037D0468870A09AC0CC -> 6285198374391@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB037D0468870A09AC0CC: 2
-ℹ Status pesan WhatsApp 3EB0CE8922FB5466FD839A: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0CE8922FB5466FD839A
-ℹ Status pesan WhatsApp A5154F0EEF3DAB0E219628213AC31579: 3
-✓ Delivery WhatsApp dikonfirmasi: A5154F0EEF3DAB0E219628213AC31579
-ℹ Status pesan WhatsApp 3EB037D0468870A09AC0CC: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB037D0468870A09AC0CC
-ℹ Status pesan WhatsApp 3EB037D0468870A09AC0CC: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB037D0468870A09AC0CC
-🚀 wa-engine dimulai...
-🔄  Internal API siap di http://127.0.0.1:3070
-🔑  Token internal dikonfigurasi.
-🚀 wa-engine dimulai...
-🔄  Internal API siap di http://127.0.0.1:3070
-🔑  Token internal dikonfigurasi.
-✅  WA terhubung — nomor: 6285139324878
-ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
-ℹ Status pesan WhatsApp A5B989851CD507F148054F5963EA3307: 3
-✓ Delivery WhatsApp dikonfirmasi: A5B989851CD507F148054F5963EA3307
-ℹ Status pesan WhatsApp 3EB0353A21DA7ADA01AEF9: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0353A21DA7ADA01AEF9
-ℹ Status pesan WhatsApp 3EB02FACCA69EB09A7E0EE: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB02FACCA69EB09A7E0EE
-ℹ Status pesan WhatsApp 3EB098C37B81AAE1EFC562: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB098C37B81AAE1EFC562
-ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
-ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
-ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB07B05913E073984F277 -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
-ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB0DF0524B80A48218E91 -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
-ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
-ℹ Status pesan WhatsApp 3EB0DF0524B80A48218E91: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0DF0524B80A48218E91
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB0B59B09CDE545F58DB7 -> 6285198374391@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB0B59B09CDE545F58DB7: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0B59B09CDE545F58DB7
-ℹ Status pesan WhatsApp 3EB0B59B09CDE545F58DB7: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB0B59B09CDE545F58DB7
-ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 2
-ℹ Status pesan WhatsApp 3EB0DF0524B80A48218E91: 2
-ℹ Status pesan WhatsApp 3EB0B59B09CDE545F58DB7: 2
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
-ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (503). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️  Gagal memproses command grup: fetch failed
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (503). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (503). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (503). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (503). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-ℹ Status pesan WhatsApp A5A3A738C98BED1D89EB3087D47CE207: 3
-✓ Delivery WhatsApp dikonfirmasi: A5A3A738C98BED1D89EB3087D47CE207
-ℹ Status pesan WhatsApp A58C7F70FA8BCDEC9A1840F8C2004980: 3
-✓ Delivery WhatsApp dikonfirmasi: A58C7F70FA8BCDEC9A1840F8C2004980
-ℹ Status pesan WhatsApp A55F71E939420AD90BE9FAE2859F028C: 3
-✓ Delivery WhatsApp dikonfirmasi: A55F71E939420AD90BE9FAE2859F028C
-ℹ Status pesan WhatsApp A50303196FED246BD30662D33EC33072: 3
-✓ Delivery WhatsApp dikonfirmasi: A50303196FED246BD30662D33EC33072
-ℹ Status pesan WhatsApp A5154F0EEF3DAB0E219628213AC31579: 3
-✓ Delivery WhatsApp dikonfirmasi: A5154F0EEF3DAB0E219628213AC31579
-ℹ Status pesan WhatsApp 3EB0CE8922FB5466FD839A: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0CE8922FB5466FD839A
-ℹ Status pesan WhatsApp 3EB0DF0524B80A48218E91: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0DF0524B80A48218E91
-ℹ Status pesan WhatsApp 3EB0AC74298EF918AFE4C8: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0AC74298EF918AFE4C8
-ℹ Status pesan WhatsApp 3EB0B64B084A4BAEC743F8: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0B64B084A4BAEC743F8
-ℹ Status pesan WhatsApp A5A3A738C98BED1D89EB3087D47CE207: 3
-✓ Delivery WhatsApp dikonfirmasi: A5A3A738C98BED1D89EB3087D47CE207
-ℹ Status pesan WhatsApp A58C7F70FA8BCDEC9A1840F8C2004980: 3
-✓ Delivery WhatsApp dikonfirmasi: A58C7F70FA8BCDEC9A1840F8C2004980
-ℹ Status pesan WhatsApp A55F71E939420AD90BE9FAE2859F028C: 3
-✓ Delivery WhatsApp dikonfirmasi: A55F71E939420AD90BE9FAE2859F028C
-ℹ Status pesan WhatsApp A50303196FED246BD30662D33EC33072: 3
-✓ Delivery WhatsApp dikonfirmasi: A50303196FED246BD30662D33EC33072
-ℹ Status pesan WhatsApp A5154F0EEF3DAB0E219628213AC31579: 3
-✓ Delivery WhatsApp dikonfirmasi: A5154F0EEF3DAB0E219628213AC31579
-ℹ Status pesan WhatsApp 3EB0CE8922FB5466FD839A: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0CE8922FB5466FD839A
-ℹ Status pesan WhatsApp 3EB0DF0524B80A48218E91: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0DF0524B80A48218E91
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-ℹ Status pesan WhatsApp A5B989851CD507F148054F5963EA3307: 3
-✓ Delivery WhatsApp dikonfirmasi: A5B989851CD507F148054F5963EA3307
-ℹ Status pesan WhatsApp 3EB0353A21DA7ADA01AEF9: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0353A21DA7ADA01AEF9
-ℹ Status pesan WhatsApp 3EB02FACCA69EB09A7E0EE: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB02FACCA69EB09A7E0EE
-ℹ Status pesan WhatsApp 3EB098C37B81AAE1EFC562: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB098C37B81AAE1EFC562
-ℹ Status pesan WhatsApp 3EB0BA37C6E525A1F6EE03: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0BA37C6E525A1F6EE03
-ℹ Status pesan WhatsApp 3EB0D238602AC0A02D940F: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0D238602AC0A02D940F
-ℹ Status pesan WhatsApp 3EB0979116F5D59F491E12: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB0979116F5D59F491E12
-ℹ Status pesan WhatsApp 3EB07B05913E073984F277: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB07B05913E073984F277
-Closing open session in favor of incoming prekey bundle
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ Status pesan WhatsApp 3EB073AC834AF5B67B02B5: 0 (479)
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-🚀 wa-engine dimulai...
-🔄  Internal API siap di http://127.0.0.1:3070
-🔑  Token internal dikonfigurasi.
-✅  WA terhubung — nomor: 6285139324878
-🚀 wa-engine dimulai...
-🔄  Internal API siap di http://127.0.0.1:3070
-🔑  Token internal dikonfigurasi.
-✅  WA terhubung — nomor: 6285139324878
-ℹ Status pesan WhatsApp 3AA3AD557BE7D795D72A: 4
-✓ Delivery WhatsApp dikonfirmasi: 3AA3AD557BE7D795D72A
-ℹ Status pesan WhatsApp 3EB0C3CE9F5DDA667FE7E1: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB0C3CE9F5DDA667FE7E1
-ℹ Status pesan WhatsApp 3ABC3B63F6CBE58E13AF: 4
-✓ Delivery WhatsApp dikonfirmasi: 3ABC3B63F6CBE58E13AF
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (503). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (503). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-ℹ libsignal: Closing session (detail disembunyikan)
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB068639043E6D043F04C -> 6285730012324@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
-ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 2
-ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
-ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 4
-✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
-ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB034FE0FB1FA7E95FE94 -> 6285292961993@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB034FE0FB1FA7E95FE94: 2
-ℹ Status pesan WhatsApp 3EB034FE0FB1FA7E95FE94: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB034FE0FB1FA7E95FE94
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB00C37F10E0351E15A8A -> 6285198374391@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB00C37F10E0351E15A8A: 2
-ℹ Status pesan WhatsApp 3EB00C37F10E0351E15A8A: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB00C37F10E0351E15A8A
-ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-ℹ Status pesan WhatsApp 3EB034FE0FB1FA7E95FE94: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB034FE0FB1FA7E95FE94
-ℹ Status pesan WhatsApp 3EB068639043E6D043F04C: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB068639043E6D043F04C
-ℹ libsignal: Closing session (detail disembunyikan)
-➜ Pesan personal diterima engine: 3EB02E084D352F6286EB1A -> 6281325110990@s.whatsapp.net
-ℹ Status pesan WhatsApp 3EB02E084D352F6286EB1A: 3
-✓ Delivery WhatsApp dikonfirmasi: 3EB02E084D352F6286EB1A
-🧹  Sesi WA logged out. Auth lama dibersihkan, engine akan meminta QR baru.
-⚠️   Terputus (401). Reconnect: false, delay: 6000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 6000ms
 📱 QR WhatsApp tersedia di Pengaturan WA Bot.
 📱 QR WhatsApp tersedia di Pengaturan WA Bot.
 📱 QR WhatsApp tersedia di Pengaturan WA Bot.
@@ -423,53 +31,109 @@ Closing open session in favor of incoming prekey bundle
 📱 QR WhatsApp tersedia di Pengaturan WA Bot.
 ⚠️   Terputus (408). Reconnect: true, delay: 48000ms
 📱 QR WhatsApp tersedia di Pengaturan WA Bot.
-🚀 wa-engine dimulai...
-🔒 Pengiriman personal WA dinonaktifkan oleh safety lock. Laporan grup tetap tersedia.
-🔄  Internal API siap di http://127.0.0.1:3070
-🔑  Token internal dikonfigurasi.
 📱 QR WhatsApp tersedia di Pengaturan WA Bot.
-⚠️   Terputus (515). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (408). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (503). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (503). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
-ℹ libsignal: Closing session (detail disembunyikan)
-⚠️   Terputus (428). Reconnect: true, delay: 6000ms
-✅  WA terhubung — nomor: 6285139324878
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 96000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+⚠️   Terputus (408). Reconnect: true, delay: 120000ms
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
+📱 QR WhatsApp tersedia di Pengaturan WA Bot.
