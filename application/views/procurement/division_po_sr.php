@@ -402,6 +402,7 @@ if (!function_exists('finance_dreq_status_badge')) {
                 <td class="text-end text-nowrap">
                   <div class="dreq-action-wrap">
                     <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-info dreq-action-btn" title="Detail Pengajuan" aria-label="Detail Pengajuan"><i class="ri ri-eye-line"></i></a>
+                    <?php $this->load->view('notifications/division_buttons', ['notification_request_id'=>$requestId, 'notification_status'=>$row['status'] ?? '']); ?>
                     <?php if ($canEditRow || $canVerifyRow): ?>
                       <a href="<?php echo site_url('procurement/division-po-sr/edit/' . $requestId); ?>" class="btn btn-sm <?php echo $canVerifyRow ? 'btn-outline-success' : 'btn-outline-primary'; ?> dreq-action-btn" title="<?php echo $canVerifyRow ? 'Verifikasi Pengajuan' : 'Edit Pengajuan'; ?>" aria-label="<?php echo $canVerifyRow ? 'Verifikasi Pengajuan' : 'Edit Pengajuan'; ?>"><i class="ri <?php echo $canVerifyRow ? 'ri-check-line' : 'ri-edit-line'; ?>"></i></a>
                     <?php endif; ?>
@@ -485,6 +486,7 @@ if (!function_exists('finance_dreq_status_badge')) {
   <?php endif; ?>
 </div>
 
+<?php if (!empty($notification_channels)): ?><script src="<?= base_url('assets/js/module-notifications.js') ?>" defer></script><?php endif; ?>
 <div class="modal fade" id="dreqPrintPickerModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">

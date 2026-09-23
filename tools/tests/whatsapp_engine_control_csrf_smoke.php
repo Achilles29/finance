@@ -336,8 +336,10 @@ function whatsapp_engine_control_csrf_no_side_effect(array $events, string $labe
 
 function whatsapp_engine_control_csrf_render_view(string $path, array $variables): string
 {
+    require_once __DIR__ . '/module_notification_view_stub.php';
     $renderer = new class {
         public $session;
+        public $load;
 
         public function __construct()
         {
@@ -351,6 +353,7 @@ function whatsapp_engine_control_csrf_render_view(string $path, array $variables
 
         public function render(string $path, array $variables): string
         {
+            $this->load = new ModuleNotificationViewStub();
             extract($variables, EXTR_SKIP);
             ob_start();
             include $path;

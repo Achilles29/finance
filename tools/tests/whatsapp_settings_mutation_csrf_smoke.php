@@ -364,10 +364,17 @@ function whatsapp_settings_csrf_render(string $viewPath, array $variables): stri
 {
     $renderer = new class {
         public $session;
+        public $load;
 
         public function __construct()
         {
             $this->session = new WhatsappSettingsCsrfSession();
+            // The integration partial has its own DB/disposable/render tests.
+            $this->load = new class {
+                public function view(string $path, array $data): void {
+                    if ($path !== 'notifications/settings') throw new RuntimeException('Unexpected partial');
+                }
+            };
         }
 
         public function render(string $viewPath, array $variables): string

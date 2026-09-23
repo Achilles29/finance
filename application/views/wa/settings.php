@@ -21,6 +21,11 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
     <div class="alert alert-danger alert-dismissible fade show"><?= html_escape($flash) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
   <?php endif; ?>
 
+  <?php $this->load->view('notifications/settings', [
+      'notification_channel' => 'WA', 'notification_can_edit' => $canEdit,
+      'notification_csrf_name' => 'wa_settings_mutation_csrf', 'notification_csrf' => $settingsMutationCsrf,
+      'notification_action' => 'wa/notification-settings',
+  ]); ?>
   <div class="row g-3">
     <div class="col-md-7">
       <!-- Koneksi Bot -->

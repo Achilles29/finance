@@ -63,7 +63,7 @@ file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON
 chmod($manifestPath, 0644);
 
 $release = a513_validate_release($releaseRoot, $manifestPath);
-$check(($release['baseline']['ok'] ?? false) === true && count($release['catalog']['migrations'] ?? []) === 26, 'release manifest binds the canonical baseline, seeds, catalog, and health checker');
+$check(($release['baseline']['ok'] ?? false) === true && count($release['catalog']['migrations'] ?? []) === 27, 'release manifest binds the canonical baseline, seeds, catalog, and health checker');
 
 $mutated = $releaseRoot . '/tools/db/post_install_health_check.php';
 file_put_contents($mutated, "\n// drift", FILE_APPEND);
@@ -80,7 +80,7 @@ while (($line = fgets(STDIN)) !== false) {
     if (strpos($line, '__A513_TABLE__') !== false) {
         echo "__A513_TABLE__\t" . ($mode === 'missing_table' ? '0' : '1') . "\n";
     } elseif (strpos($line, '__A513_LEDGER_COUNT__') !== false) {
-        echo "__A513_LEDGER_COUNT__\t" . ($mode === 'ledger_count' ? '99' : ($policy === 'clean_install' || $mode === 'installed' || $mode === 'seed_receipt_drift' ? '26' : '25')) . "\n";
+        echo "__A513_LEDGER_COUNT__\t" . ($mode === 'ledger_count' ? '99' : ($policy === 'clean_install' || $mode === 'installed' || $mode === 'seed_receipt_drift' ? '27' : '26')) . "\n";
     } elseif (strpos($line, '__A513_LEDGER__') !== false) {
         $seed = strpos($line, bin2hex('2026-09-05d-a5-clean-install-reference-seed')) !== false;
         if ($seed && $policy === 'upgrade' && !in_array($mode, ['installed','seed_receipt_drift'], true)) echo "__A513_LEDGER__\t0\t0\n";
@@ -108,13 +108,13 @@ chmod($option, 0600);
 chmod($databaseName, 0600);
 putenv('PATH=' . $tmp . '/bin');
 $upgrade = a513_check_database($release, 'upgrade', $option, 'a513_upgrade_ok');
-$check(($upgrade['migration_ledger_rows'] ?? null) === 25 && ($upgrade['reference_seed'] ?? '') === 'preserved_customer_state', 'upgrade health checks release files, required schema, exact ledger, RBAC, and owner without replacing customer seed');
+$check(($upgrade['migration_ledger_rows'] ?? null) === 26 && ($upgrade['reference_seed'] ?? '') === 'preserved_customer_state', 'upgrade health checks release files, required schema, exact ledger, RBAC, and owner without replacing customer seed');
 $installed = a513_check_database($release, 'upgrade', $option, 'a513_upgrade_installed');
-$check($installed['migration_ledger_rows'] === 26, 'upgrade accepts verified historical clean-install seed without rerunning it');
+$check($installed['migration_ledger_rows'] === 27, 'upgrade accepts verified historical clean-install seed without rerunning it');
 $check($failureCode(static fn() => a513_check_database($release, 'upgrade', $option, 'a513_upgrade_seed_receipt_drift')) === 'migration_ledger_drift', 'historical seed checksum drift is rejected');
 
 $clean = a513_check_database($release, 'clean_install', $option, 'a513_clean_ok');
-$check(($clean['migration_ledger_rows'] ?? null) === 26 && ($clean['reference_seed'] ?? '') === 'exact', 'clean-install health additionally checks exact reference seed and Telegram safe default');
+$check(($clean['migration_ledger_rows'] ?? null) === 27 && ($clean['reference_seed'] ?? '') === 'exact', 'clean-install health additionally checks exact reference seed and Telegram safe default');
 $check($failureCode(static fn() => a513_check_database($release, 'clean_install', $option, 'a513_clean_permission_gap')) === 'superadmin_contract', 'missing canonical permission still blocks clean install');
 $check(strpos(a513_permission_match_sql(), "BINARY p.page_code IN ('tg.guide','finance.accounting.index','system.guide.index','system.guide.server') THEN 0 ELSE 1") !== false
     && strpos(a513_permission_match_sql(), 'rp.can_view=1') === 0, 'view permission stays mandatory and static guide cannot mutate; module-specific policies are tested by adapter contract');

@@ -57,6 +57,8 @@ function finance_quality_gate_manifest(): array
             ['id' => 'pos-sales-order-sort', 'file' => 'pos_sales_order_sort_smoke.php'],
             ['id' => 'procurement-stock-review', 'file' => 'procurement_stock_review_smoke.php'],
             ['id' => 'procurement-current-stock', 'file' => 'procurement_current_stock_smoke.php'],
+            ['id' => 'module-notifications', 'file' => 'module_notifications_smoke.php'],
+            ['id' => 'module-notifications-ui', 'file' => 'module_notifications_ui_smoke.php'],
             ['id' => 'procurement-stock-review-race', 'file' => 'procurement_stock_review_review_probe.php'],
             ['id' => 'procurement-stock-review-verify', 'file' => 'procurement_stock_review_verify_smoke.php'],
             ['id' => 'procurement-stock-review-client', 'file' => 'procurement_stock_review_client_smoke.cjs', 'runtime' => '/usr/bin/node'],

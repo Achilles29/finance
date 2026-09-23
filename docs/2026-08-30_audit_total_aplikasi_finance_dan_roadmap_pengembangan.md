@@ -1,5 +1,7 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**23 September 2026 — integrasi notifikasi modul:** [x] sakelar/tujuan per kejadian pada pengaturan WA/Telegram; [x] antrean self order/online order melalui worker existing; [x] tombol pengajuan PO/SR di daftar/detail, scope/CSRF/dedup; [x] uji MariaDB disposable dan UI. [ ] apply SQL aktif/konfirmasi operator dan UAT pengiriman bot nyata. WA personal tetap terkunci sesuai perlindungan akun existing. Detail dan checklist: [laporan modul](2026-09-23_module_notifications.md).
+
 **20 September 2026 — kontrol stok procurement:** [x] stok divisi/gudang sekarang pada pengajuan, detail/list, PDF, PO/SR manual; [x] peringatan sebelum verifikasi/simpan; [x] regresi race edit/verifikasi dan timeout. Tidak mengubah saldo atau SQL aktif. Checklist UAT/bukti dan batas validasi pada [laporan modul](2026-09-20_procurement_current_stock.md). UAT pengguna dan build resmi Control tetap terpisah dari tes fixture.
 
 **Update 20 September 2026 — alpha.22/v10:** lima SQL manual sudah masuk katalog customer dengan proof adopsi schema; tambahan korektif `2026-09-20a` menyelaraskan ENUM status POS tanpa resep. Total 26 clean-install / 25 upgrade / 7 legacy. Paket jurnal dan panduan dilengkapi. Status apply database aktif pada register tetap historis: batch ini hanya memakai MariaDB disposable. Hasil/gap update aplikasi aktif ada pada [handoff terbaru](2026-09-20_customer_v10_migrations_update_control_handoff.md); belum publish atau rollout customer.
@@ -674,9 +676,10 @@ dilanjutkan melalui IDE; checkbox aktivasi tetap terbuka.
 | `2026-09-15c_application_user_guide.sql` | Managed seed metadata customer | `USER_REPORTED_APPLIED` | Pengguna mengonfirmasi sudah dijalankan, dicatat 2026-09-15 11:24 WIB; target pada perintah db_finance. Output postcheck belum diterima. Tidak mengulang SQL atau mengubah checksum. | `NOT_RELEASED` | v10: terdaftar clean_install/upgrade dengan hash asli; adopsi manual wajib proof. Tes disposable, bukan apply ulang DB aktif. Review Control dan jalur update aman sebelum rollout. |
 | `2026-09-16a_procurement_stock_review.sql` | Managed schema customer | `USER_REPORTED_APPLIED` | Pengguna mengonfirmasi apply, dicatat 2026-09-16 06:21 WIB; target perintah sebelumnya db_finance. Belum menerima postcheck. Agent tidak mengulang apply atau mengubah checksum. | `NOT_RELEASED` | v10: terdaftar clean_install/upgrade dengan hash asli; adopsi manual wajib proof. Tes disposable, bukan apply ulang DB aktif. Review Control dan jalur update aman sebelum rollout. |
 | `2026-09-20a_pos_stock_commit_not_required.sql` | Managed schema korektif | `NOT_APPLIED_ACTIVE` | Menambah NOT_REQUIRED pada ENUM status stok POS yang sudah dipakai kode; uji hanya disposable, tidak memperbaiki transaksi lama otomatis. | `PENDING_CONTROL` | Melalui upgrade resmi setelah review; status kosong/drift wajib peninjauan. Jangan menjalankan ke database aktif dari thread ini. |
-| `baseline/2026-09-05_clean_install_schema.sql` | Clean-install schema-only | `CODE_PASS` | 296 tabel baseline tetap immutable; dilanjutkan 26 migration terdaftar, tanpa impor data development. | `NOT_FOR_UPGRADE` | Hanya database customer kosong; bukan jalur update instalasi aktif. |
+| `2026-09-23a_module_notifications.sql` | Managed schema notifikasi | `NOT_APPLIED_ACTIVE` | BELUM DIJALANKAN pada db_finance; dua tabel pengaturan/antrean kosong, tanpa mutasi transaksi. Lulus MariaDB disposable; perintah dan prasyarat pada laporan 2026-09-23. | `PENDING_CONTROL` | Hash terdaftar clean_install/upgrade; tujuan, pesan, nomor dan credential customer bukan seed. |
+| `baseline/2026-09-05_clean_install_schema.sql` | Clean-install schema-only | `CODE_PASS` | 296 tabel baseline tetap immutable; dilanjutkan 27 migration terdaftar, tanpa impor data development. | `NOT_FOR_UPGRADE` | Hanya database customer kosong; bukan jalur update instalasi aktif. |
 
-Migration runner kini mengelola 26 file: `2026-09-04c`, clean-install-only
+Migration runner kini mengelola 27 file: `2026-09-04c`, clean-install-only
 `2026-09-05d`, repeat-safe `2026-09-05e`, `2026-09-05a`–`2026-09-05c`, dan
 `2026-09-06a`–`2026-09-06b` Formula Component history/restore serta
 `2026-09-06c`–`2026-09-06d` proof reversal/reprint POS Mobile dan
@@ -685,7 +688,7 @@ Migration runner kini mengelola 26 file: `2026-09-04c`, clean-install-only
 Studio template, `2026-09-06i` layout sidebar berbasis tugas, dan `2026-09-07a`
 fondasi profil usaha/lisensi audit-only, `2026-09-12a` Roast Connect (pekerjaan
 thread lain, kelayakan rilis belum diverifikasi di Batch 247), serta `2026-09-13a`
-kategori mutasi keuangan, `2026-09-14a` Kontrol Keuangan, `2026-09-14b` operasi kontrol, `2026-09-14c`, `2026-09-15a/b/c`, `2026-09-16a`, dan `2026-09-20a` koreksi ENUM POS. Upgrade memuat 25 entri, tanpa seed clean-install-only.
+kategori mutasi keuangan, `2026-09-14a` Kontrol Keuangan, `2026-09-14b` operasi kontrol, `2026-09-14c`, `2026-09-15a/b/c`, `2026-09-16a`, `2026-09-20a` koreksi ENUM POS, dan `2026-09-23a` notifikasi modul. Upgrade memuat 26 entri, tanpa seed clean-install-only.
 Tujuh file lain tetap legacy/non-deployable, tetapi disposition-nya sudah final
 dan dijaga otomatis: 1 baseline, 4 enroll via fingerprint, 1 replace, dan
 1 retire. Jangan menjalankan seluruh folder `sql/` sekaligus.

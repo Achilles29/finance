@@ -17,6 +17,12 @@
     "seed_profile": "REFERENCE_ONLY",
     "demo_data": false,
     "code_files": [
+        "application/libraries/Module_notification.php",
+        "application/models/Module_notification_model.php",
+        "application/views/notifications/settings.php",
+        "application/views/notifications/division_buttons.php",
+        "assets/js/module-notifications.js",
+        "docs/module_notifications.md",
         "application/libraries/Procurement_stock_review.php",
         "application/views/procurement/_stock_review_panel.php",
         "application/views/procurement/_stock_review_history.php",
@@ -1220,6 +1226,7 @@
         "assets/vendor/vendor/libs/popper/popper.js": "ff8c5e4c56c60917642315c5acb68aacf77d34480d53dbcb61c1c0679bf8f7c8"
     },
     "sql_sha256": {
+        "sql/2026-09-23a_module_notifications.sql": "4eda52e6ade8be12aeb22a8a3036f3084588394f48acaadb59fab4499639cd7f",
         "sql/2026-09-20a_pos_stock_commit_not_required.sql": "43fc95b64cfca96e271c22e0fa08a7eb0f084a0defd4c7f44505fb0c1d52946d",
         "sql/2026-09-14c_finance_allocation_bank_review.sql": "ea623937ac6456b9643d4216768744c9c4f3e45c59369d238b37f21dd7d5657d",
         "sql/2026-09-15a_finance_general_ledger.sql": "03aeae127ea8431480f1553c43e5a8e2d581a453279c2ecf2dddbbb560b4c195",

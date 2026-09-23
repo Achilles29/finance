@@ -58,6 +58,8 @@ $expectedRequired = [
     'pos-sales-order-sort',
     'procurement-stock-review',
     'procurement-current-stock',
+    'module-notifications',
+    'module-notifications-ui',
     'procurement-stock-review-race',
     'procurement-stock-review-verify',
     'procurement-stock-review-client',

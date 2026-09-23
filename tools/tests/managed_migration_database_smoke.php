@@ -40,10 +40,11 @@ try {
         $assert(ManagedMigrationProof::state($root,$id,$read)==='ABSENT','old database: pending '.$id);
     }
     $before=$pdo->query('SELECT COUNT(*) FROM auth_user')->fetchColumn();
-    $r=a5_apply($catalog,$root,'upgrade',$option,'migration_old');$assert($r['applied']===6&&$r['skipped']===19,'real streaming upgrade applies five manual migrations and one POS correction');
+    $expectedUpgradeCount=count(a5_plan($catalog,'upgrade'));
+    $r=a5_apply($catalog,$root,'upgrade',$option,'migration_old');$assert($r['applied']===6&&$r['skipped']===$expectedUpgradeCount-6,'real streaming upgrade applies five manual migrations and one POS correction');
     $snapshot=static function(PDO $db):array{$r=[];foreach($db->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN)as$t)$r[$t]=$db->query('CHECKSUM TABLE `'.$t.'` EXTENDED')->fetch(PDO::FETCH_NUM)[1];return $r;};
     $hashes=$snapshot($pdo);$r=a5_apply($catalog,$root,'upgrade',$option,'migration_old');
-    $assert($r['applied']===0&&$r['skipped']===25&&$hashes===$snapshot($pdo),'upgrade replay preserves every table checksum and ledger');
+    $assert($r['applied']===0&&$r['skipped']===$expectedUpgradeCount&&$hashes===$snapshot($pdo),'upgrade replay preserves every table checksum and ledger');
     $assert($before===$pdo->query('SELECT COUNT(*) FROM auth_user')->fetchColumn(),'upgrade does not create customer accounts');
     // A separate manually-applied fixture has no ledger. Copy verified EARLIER records only;
     // the five new records must be written by the real verifier, not this test.

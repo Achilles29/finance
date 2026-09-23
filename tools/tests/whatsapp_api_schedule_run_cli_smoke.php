@@ -189,6 +189,8 @@ final class WhatsappScheduleSmokeOutput
 
 class CI_Controller
 {
+    public $load;
+    public $Module_notification_model;
     public $input;
     public $output;
     public $session;
@@ -213,6 +215,18 @@ function whatsapp_schedule_smoke_controller(WhatsappScheduleSmokeInput $input): 
     $controller->db = $db;
     $controller->output = new WhatsappScheduleSmokeOutput();
     $controller->session = new WhatsappScheduleSmokeSession();
+    // Integration worker is exercised against MariaDB by module_notifications_smoke.php.
+    $controller->load = new class {
+        public function model(string $name): void {
+            if ($name !== 'Module_notification_model') throw new RuntimeException('Unexpected model');
+        }
+    };
+    $controller->Module_notification_model = new class {
+        public function run(string $channel, callable $send): array {
+            if ($channel !== 'WA') throw new RuntimeException('Unexpected channel');
+            return ['state' => 'DISABLED'];
+        }
+    };
 
     return ['controller' => $controller, 'db' => $db];
 }

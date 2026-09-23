@@ -377,8 +377,10 @@ function wa_send_test_rejection(WhatsappSendTestSmokeHarness $controller, int $s
 
 function wa_send_test_render(string $path, array $variables): string
 {
+    require_once __DIR__ . '/module_notification_view_stub.php';
     $renderer = new class {
         public $session;
+        public $load;
 
         public function __construct()
         {
@@ -392,6 +394,7 @@ function wa_send_test_render(string $path, array $variables): string
 
         public function render(string $path, array $variables): string
         {
+            $this->load = new ModuleNotificationViewStub();
             extract($variables, EXTR_SKIP);
             ob_start();
             include $path;

@@ -342,6 +342,15 @@
       "dependencies": ["2026-09-06c-pos-mobile-reversal-step-up"],
       "classification": "schema",
       "policies": ["clean_install", "upgrade"]
+    },
+    {
+      "id": "2026-09-23a-module-notifications",
+      "order": 2026092301,
+      "path": "sql/2026-09-23a_module_notifications.sql",
+      "sha256": "4eda52e6ade8be12aeb22a8a3036f3084588394f48acaadb59fab4499639cd7f",
+      "dependencies": ["2026-09-05a-telegram-bot-foundation"],
+      "classification": "schema",
+      "policies": ["clean_install", "upgrade"]
     }
   ]
 }

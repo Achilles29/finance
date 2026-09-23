@@ -1257,6 +1257,24 @@ class Whatsapp extends MY_Controller
     // ──────────────────────────────────────────────────────────
     // JSON API — status bot
     // ──────────────────────────────────────────────────────────
+    public function notification_settings()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'edit');
+        if (!$this->require_wa_settings_mutation_csrf()) return;
+        $this->load->model('Module_notification_model');
+        try {
+            if ($this->input->post('action', true) === 'retry') {
+                $this->Module_notification_model->retry('WA', (int)$this->input->post('queue_id', true));
+            } else {
+                $this->Module_notification_model->save_rules('WA', (array)$this->input->post('notifications'), (int)($this->current_user['id'] ?? 0));
+            }
+            $this->session->set_flashdata('success', 'Pengaturan / antrean notifikasi WhatsApp tersimpan.');
+        } catch (InvalidArgumentException | RuntimeException $error) {
+            $this->session->set_flashdata('error', $error->getMessage());
+        }
+        redirect('wa/settings');
+    }
+
     public function api_status()
     {
         $this->require_permission(self::PAGE_DASHBOARD, 'view');
@@ -1684,6 +1702,19 @@ class Whatsapp extends MY_Controller
         }
 
         $result = $this->runDueWaReportSchedules();
+        $this->load->model('Module_notification_model');
+        try {
+            $result['module_notifications'] = $this->Module_notification_model->run('WA', function (array $row): array {
+                if (strpos($row['target_key'], 'phone:') === 0) {
+                    if (!$this->personalOutboundEnabled()) return ['ok' => false, 'status' => 'FAILED'];
+                    return $this->callBotApi('/internal/send', 'POST', ['to' => $row['destination'], 'message' => $row['message_text']]);
+                }
+                return $this->callBotApi('/internal/send-group', 'POST', ['group_jid' => $row['destination'], 'message' => $row['message_text']]);
+            });
+        } catch (Throwable $error) {
+            log_message('error', 'Module notification WA worker failed; queue evidence retained.');
+            $result['module_notifications'] = ['state' => 'ERROR'];
+        }
         $this->jsonOut($result);
     }
 
@@ -2841,13 +2872,13 @@ class Whatsapp extends MY_Controller
     {
         $serviceToken = trim((string)getenv(self::WA_ENGINE_API_TOKEN_ENV));
         if ($serviceToken === '' || preg_match('/[\x00-\x1F\x7F]/', $serviceToken)) {
-            return ['ok' => false, 'message' => 'Credential internal WA Bot belum dikonfigurasi.'];
+            return ['ok' => false, 'status' => 'FAILED', 'message' => 'Credential internal WA Bot belum dikonfigurasi.'];
         }
 
         $session = $this->waSession();
         $botApiBaseUrl = $this->normalizeBotApiBaseUrl((string)($session['bot_api_url'] ?? ''));
         if ($botApiBaseUrl === null) {
-            return ['ok' => false, 'message' => 'Konfigurasi URL WA Bot tidak valid.'];
+            return ['ok' => false, 'status' => 'FAILED', 'message' => 'Konfigurasi URL WA Bot tidak valid.'];
         }
 
         $url = $botApiBaseUrl . $endpoint;
@@ -2895,6 +2926,12 @@ class Whatsapp extends MY_Controller
         $decoded = json_decode($response ?: '', true);
         if (!is_array($decoded)) {
             return ['ok' => false, 'message' => 'Respon bot tidak valid (HTTP ' . $httpCode . ')'];
+        }
+
+        // These HTTP responses reject before dispatch in wa-engine. A 500/timeout
+        // is ambiguous and must not cause an automatic duplicate notification.
+        if (in_array($endpoint, ['/internal/send', '/internal/send-group'], true) && empty($decoded['ok'])) {
+            $decoded['status'] = in_array($httpCode, [400, 401, 403, 423, 503], true) ? 'FAILED' : 'UNKNOWN';
         }
 
         // Update last_ping_at jika status endpoint

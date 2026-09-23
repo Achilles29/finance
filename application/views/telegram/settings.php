@@ -1,4 +1,9 @@
 <?php
+$this->load->view('notifications/settings', [
+    'notification_channel' => 'TELEGRAM', 'notification_can_edit' => !empty($can_edit),
+    'notification_csrf_name' => 'tg_settings_csrf', 'notification_csrf' => (string)($settings_csrf ?? ''),
+    'notification_action' => 'telegram/notification-settings',
+]);
 $botCheck = (array)($bot_check ?? []);
 $webhookCheck = (array)($webhook_check ?? []);
 $discoveredTargets = (array)($discovered_targets ?? []);

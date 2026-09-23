@@ -258,6 +258,7 @@ class Procurement extends MY_Controller
             'print_picker_week_end' => $printPicker['week_end'],
         ];
 
+        $data += $this->division_notification_view($scope);
         $this->render('procurement/division_po_sr', $data);
     }
 
@@ -683,7 +684,52 @@ class Procurement extends MY_Controller
             'can_void' => $canVoid,
             'is_purchase_scope' => $scope['is_purchase'],
             'stock_review_history' => $this->Procurement_model->stock_review_history('REQUEST',$id),
-        ]);
+        ] + $this->division_notification_view($scope));
+    }
+
+    private function division_notification_view(array $scope): array
+    {
+        $channels = [];
+        if (!empty($scope['can_view']) && (!empty($scope['can_create']) || !empty($scope['can_edit_own']) || !empty($scope['can_verify']))) {
+            $this->load->model('Module_notification_model');
+            $channels = $this->Module_notification_model->enabled_channels();
+        }
+        return ['notification_channels' => $channels, 'notification_csrf' => $channels ? $this->procurement_mutation_csrf() : ''];
+    }
+
+    public function division_po_sr_notify(int $id = 0)
+    {
+        if (!$this->require_procurement_mutation_csrf()) return;
+        $scope = $this->divisionPoSrScope();
+        if (empty($scope['can_view']) || (empty($scope['can_create']) && empty($scope['can_edit_own']) && empty($scope['can_verify']))) {
+            $this->jsonError('Anda tidak memiliki izin mengirim pengajuan divisi.', 403);
+            return;
+        }
+        // Check scope before reading request items or generating an outbound payload.
+        $header = $this->db->select('division_id')->from('pur_division_request')->where('id', $id)->get()->row_array();
+        if (!$header || !$this->isDivisionRequestAccessible((int)$header['division_id'], $scope)) {
+            $this->jsonError('Pengajuan tidak ditemukan atau berada di luar divisi Anda.', 403);
+            return;
+        }
+        $payload = $this->requestPayload();
+        $channel = is_string($payload['channel'] ?? null) ? $payload['channel'] : '';
+        if (!in_array($channel, ['WA', 'TELEGRAM'], true)) {
+            $this->jsonError('Pilih kanal WhatsApp atau Telegram.', 422);
+            return;
+        }
+        $this->load->model('Module_notification_model');
+        if (!$this->Module_notification_model->allowed('DIVISION_REQUEST')) {
+            $this->jsonError('Integrasi notifikasi belum tersedia dalam paket aplikasi.', 403);
+            return;
+        }
+        try {
+            $detail = $this->Procurement_model->get_division_request_detail($id);
+            if (!$detail) throw new RuntimeException('Pengajuan tidak ditemukan.');
+            $result = $this->Module_notification_model->enqueue_division($channel, $detail, (int)($this->current_user['id'] ?? 0));
+            $this->output->set_content_type('application/json')->set_output(json_encode($result));
+        } catch (RuntimeException $error) {
+            $this->jsonError($error->getMessage(), 422);
+        }
     }
 
     public function division_po_sr_verify(int $id = 0)

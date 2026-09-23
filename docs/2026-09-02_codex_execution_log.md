@@ -1,5 +1,16 @@
 # Log Eksekusi Codex Finance
 
+## 23 September 2026 — Notifikasi modul WA / Telegram
+
+- Prioritas: sakelar/penerima per modul; notifikasi order masuk dan kirim manual pengajuan divisi. Implementasi fixer tunggal sesuai pola kerja terbaru, tanpa subagent diskusi berulang.
+- File utama: `Module_notification`, `Module_notification_model`, controllers `Whatsapp`, `Telegram`, `Procurement`, routes/feature_access, view settings/tombol, `module-notifications.js`, katalog/profil/manifest dan SQL `2026-09-23a`.
+- Perubahan: polling database order bersama pada worker bot existing; queue persisten, unique key, lock worker, pengiriman ambigu tidak retry otomatis; RBAC/CSRF/scope dan entitlement tetap aktif. Tidak mengubah aturan pembayaran/stok. WA personal sengaja tetap terkunci oleh kebijakan existing.
+- Validasi: 51 checks policy + MariaDB disposable PASS, 50 HTML/DOM + 15 JS client PASS; regresi Telegram 102, feature boundary 2156, WA settings CSRF 123, env-save 71, engine-control 160, send-test 91, CLI schedule 30, service-auth 17 PASS. Validasi katalog: 27 managed / 7 legacy. Quality gate akhir `parallel`: 136/136 PASS/exit 0; runtime/security/static full-release tetap terpisah.
+- Review mandiri: perbaiki pengambilan nama item dengan join produk/bundle aktual; pertahankan link/suffix pada batas byte Telegram; pastikan tujuan yang berubah tidak menerima antrean lama, dan aktivasi ulang tidak membanjiri order historis.
+- SQL: BELUM pada database aktif; hanya disposable, menunggu konfirmasi operator. Tidak mengubah config/credential/cron/layanan aktif, Control, customer core2 atau bridge. Tidak kirim pesan nyata; tidak commit/push.
+- Regresi migrasi global MariaDB disposable juga PASS/exit 0 (baseline, upgrade, replay, adopsi dan penolakan drift/partial). Pengecekan read-only lokasi cron umum belum menemukan referensi langsung worker bot aplikasi; wrapper eksternal belum diverifikasi.
+- Risiko/batch berikut: apply schema setelah persetujuan, pasang/verifikasi jadwal bot dan UAT grup uji operator; review/paket resmi oleh Control. Checklist dan panduan: [laporan notifikasi](2026-09-23_module_notifications.md).
+
 ## 20 September 2026 — Stok sekarang pengajuan divisi / PO / SR
 
 - Prioritas: tampilkan saldo bahan baku sekarang pada form, list/detail dan PDF; warning controlling purchase dan PO/SR manual.

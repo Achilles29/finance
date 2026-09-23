@@ -82,6 +82,7 @@ if (!function_exists('finance_dreq_usage_label')) {
     </small>
   </div>
   <div class="dreq-action-wrap">
+    <?php $this->load->view('notifications/division_buttons', ['notification_request_id'=>(int)($header['id'] ?? 0), 'notification_status'=>$header['status'] ?? '']); ?>
     <a href="<?php echo site_url('procurement/division-po-sr'); ?>" class="btn btn-outline-secondary dreq-action-btn"><i class="ri ri-arrow-left-line"></i><span>Kembali</span></a>
     <?php if ($canEdit || $canVerify): ?>
       <a href="<?php echo site_url('procurement/division-po-sr/edit/' . (int)($header['id'] ?? 0)); ?>" class="btn <?php echo $canVerify ? 'btn-outline-success' : 'btn-outline-primary'; ?> dreq-action-btn">
@@ -93,6 +94,7 @@ if (!function_exists('finance_dreq_usage_label')) {
 </div>
 
 <?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'division-po-sr']); ?>
+<?php if (!empty($notification_channels)): ?><script src="<?= base_url('assets/js/module-notifications.js') ?>" defer></script><?php endif; ?>
 
 <?php if ($this->session->flashdata('success')): ?>
   <div class="alert alert-success"><?php echo html_escape((string)$this->session->flashdata('success')); ?></div>

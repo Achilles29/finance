@@ -234,6 +234,24 @@ class Telegram extends MY_Controller
         ]);
     }
 
+    public function notification_settings()
+    {
+        $this->require_permission(self::PAGE_SETTINGS, 'edit');
+        if (!$this->require_post_csrf('settings')) return;
+        $this->load->model('Module_notification_model');
+        try {
+            if ($this->input->post('action', true) === 'retry') {
+                $this->Module_notification_model->retry('TELEGRAM', (int)$this->input->post('queue_id', true));
+            } else {
+                $this->Module_notification_model->save_rules('TELEGRAM', (array)$this->input->post('notifications'), $this->actor_id());
+            }
+            $this->session->set_flashdata('success', 'Pengaturan / antrean notifikasi Telegram tersimpan.');
+        } catch (InvalidArgumentException | RuntimeException $error) {
+            $this->session->set_flashdata('error', $error->getMessage());
+        }
+        redirect('telegram/settings');
+    }
+
     public function setup_check_bot()
     {
         $this->require_permission(self::PAGE_SETTINGS, 'create');
@@ -360,7 +378,8 @@ class Telegram extends MY_Controller
         $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Jakarta'));
         $enqueued = $this->Telegram_model->enqueue_due_schedules($now);
         $processed = $this->process_queue_batch(50);
-        echo json_encode(['ok' => true, 'enqueued' => $enqueued, 'processed' => $processed], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+        $moduleNotifications = $this->run_module_notifications();
+        echo json_encode(['ok' => true, 'enqueued' => $enqueued, 'processed' => $processed, 'module_notifications' => $moduleNotifications], JSON_UNESCAPED_SLASHES) . PHP_EOL;
     }
 
     /** CLI worker: php index.php telegram process_queue */
@@ -373,7 +392,20 @@ class Telegram extends MY_Controller
             echo json_encode(['ok' => false, 'message' => 'Telegram belum siap atau dinonaktifkan.']) . PHP_EOL;
             return;
         }
-        echo json_encode(['ok' => true, 'processed' => $this->process_queue_batch(50)], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+        echo json_encode(['ok' => true, 'processed' => $this->process_queue_batch(50), 'module_notifications' => $this->run_module_notifications()], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    }
+
+    private function run_module_notifications(): array
+    {
+        $this->load->model('Module_notification_model');
+        try {
+            return $this->Module_notification_model->run('TELEGRAM', function (array $row): array {
+                return $this->telegram_client->send_message($row['destination'], $row['message_text']);
+            });
+        } catch (Throwable $error) {
+            log_message('error', 'Module notification Telegram worker failed; queue evidence retained.');
+            return ['state' => 'ERROR'];
+        }
     }
 
     private function process_queue_batch(int $limit): int

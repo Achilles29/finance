@@ -127,6 +127,7 @@ return [
             'POS_PRINTER' => 'bootstrap',
         ],
         'procurement' => [
+            'PROCUREMENT AUTOMATION_MESSAGING' => 'division_po_sr_notify',
             'PROCUREMENT' => 'workbench division_requests purchasing_desk store_requests store_request_create store_request_edit store_request_detail division_po_sr division_po_sr_print division_po_sr_pdf division_po_sr_create division_po_sr_edit division_stock_preview division_po_sr_profile_search division_po_sr_store division_po_sr_detail division_po_sr_verify division_po_sr_action store_request_profile_search store_request_stock_preview store_request_store store_request_update store_request_action store_request_split_preview store_request_fulfill store_request_repair_history store_request_generate_po',
         ],
         'production' => [
@@ -161,7 +162,7 @@ return [
             'RBAC_CORE' => 'index backup_guide replication_guide settings settings_save action_list_tables action_run_backup action_test_db action_apply_mysql_config action_setup_master action_check_replication action_initial_sync action_compare_data action_failover action_restart_replication backup_status replication_status',
         ],
         'telegram' => [
-            'AUTOMATION_MESSAGING' => 'index guide target_save delivery schedule_save log resolve_unknown settings setup_check_bot setup_discover_targets setup_save_discovered_target setup_install_webhook setup_check_webhook test_send run_due process_queue',
+            'AUTOMATION_MESSAGING' => 'index guide target_save delivery schedule_save log resolve_unknown settings notification_settings setup_check_bot setup_discover_targets setup_save_discovered_target setup_install_webhook setup_check_webhook test_send run_due process_queue',
         ],
         'telegram_webhook' => [
             'AUTOMATION_MESSAGING' => 'index',
@@ -177,7 +178,7 @@ return [
             '' => 'index',
         ],
         'whatsapp' => [
-            'AUTOMATION_MESSAGING' => 'dashboard broadcast broadcast_create broadcast_edit broadcast_detail broadcast_delete broadcast_deactivate template report_schedules group log manual settings api_status api_send_test api_log_retry api_member_search api_member_picker api_broadcast_start api_template_preview api_schedule_run api_group_command api_qr api_engine_status api_engine_start api_engine_stop api_engine_logs api_env_read api_env_save api_session_reset guide',
+            'AUTOMATION_MESSAGING' => 'dashboard broadcast broadcast_create broadcast_edit broadcast_detail broadcast_delete broadcast_deactivate template report_schedules group log manual settings notification_settings api_status api_send_test api_log_retry api_member_search api_member_picker api_broadcast_start api_template_preview api_schedule_run api_group_command api_qr api_engine_status api_engine_start api_engine_stop api_engine_logs api_env_read api_env_save api_session_reset guide',
         ],
         'feature_access' => [
             '' => 'index upgrade',
