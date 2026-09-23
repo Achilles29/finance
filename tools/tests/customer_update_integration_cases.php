@@ -16,7 +16,7 @@ foreach($entries as$entry){$path=$entry['path'];$bytes=file_get_contents($root.'
     $write($target.'/'.$path,$bytes,0644);$nextEntries[]=['path'=>$path,'sha256'=>hash('sha256',$bytes),'size'=>strlen($bytes),'mode'=>'0644'];
 }
 $json($target.'/RELEASE-MANIFEST.json',['schema'=>'finance.release-artifact-manifest','schema_version'=>1,'source_epoch'=>1700000100,'files'=>$nextEntries],0644);
-$nextTar=$base.'/next.tar';$r=$run(['/usr/bin/tar','--create','--format=ustar','--owner=0','--group=0','--numeric-owner','--no-recursion','-C',$target,'-T',$list,'-f',$nextTar]);
+$nextTar=$base.'/next.tar';$r=$run(['/usr/bin/tar','--create','--format=gnu','--owner=0','--group=0','--numeric-owner','--no-recursion','-C',$target,'-T',$list,'-f',$nextTar]);
 $check($r['code']===0,'separate synthetic next release built');$write($nextTar,file_get_contents($nextTar),0640);
 $nextWire=$wire;$nextWire['version']='0.1.0-alpha.24';$nextWire['release_public_id']='00000000-0000-4000-8000-000000000024';$nextWire['source_commit']=str_repeat('b',40);
 $nextWire['size_bytes']=filesize($nextTar);$nextWire['sha256']=hash_file('sha256',$nextTar);$nextWire['source_manifest_sha256']=hash_file('sha256',$target.'/app-manifest.json');

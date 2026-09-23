@@ -33,7 +33,9 @@ try {
     echo json_encode(['status' => 'PASS', 'request_sha256' => hash('sha256', CustomerBuild::canonical($r)),
         'source_commit' => $inspection['source_commit'], 'artifact_sha256' => $inspection['sha256'],
         'distribution_profile' => $inspection['distribution_profile'], 'distribution_profile_version' => $inspection['distribution_profile_version'], 'seed_profile' => 'REFERENCE_ONLY',
-        'customer_content_audit' => $inspection['customer_content_audit'], 'database_accessed' => false], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        'customer_content_audit' => $inspection['customer_content_audit'],
+        'application_update_contract' => $inspection['application_update_contract'] ?? null,
+        'database_accessed' => false], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 } catch (Throwable $e) {
     $reason = preg_match('/\A[A-Z][A-Z0-9_]{2,79}\z/D', $e->getMessage()) === 1 ? $e->getMessage() : 'VALIDATION_FAILED';
     fwrite(STDERR, json_encode(['status' => 'FAIL', 'error_code' => $reason]) . "\n"); exit(1);

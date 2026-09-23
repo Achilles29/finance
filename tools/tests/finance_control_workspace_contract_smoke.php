@@ -25,12 +25,12 @@ $check(str_contains($view,'data-save="settlement"') && str_contains($view,'data-
 $check(str_contains($view,"if($".'can_edit)') && str_contains($view,'message.textContent=text'),'read-only UI and safe error rendering');
 $catalog=json_decode($read('tools/db/migration_catalog.json'),true);$m=array_column($catalog['migrations'],null,'id')['2026-09-14a-finance-control-workspace'];
 $check(hash_file('sha256',$root.'/'.$m['path'])===$m['sha256'] && $m['dependencies']===['2026-09-13a-finance-mutation-reporting-category'],'migration exact checksum and dependency');
-$profile=json_decode($read('tools/release/customer_clean_profile.json'),true);$check($profile['profile_version']===10 && ($profile['sql_sha256'][$m['path']]??'')===$m['sha256'],'versioned clean profile retains registered SQL');
+$profile=json_decode($read('tools/release/customer_clean_profile.json'),true);$check($profile['profile_version']===11 && ($profile['sql_sha256'][$m['path']]??'')===$m['sha256'],'versioned clean profile retains registered SQL');
 foreach(['application/controllers/Finance_insights.php','application/models/Finance_insight_model.php','application/libraries/Finance_settlement_control.php','application/views/finance/control.php','application/views/finance/_settlement_select.php'] as $file)$check(in_array($file,$profile['code_files'],true),'clean runtime includes '.$file);
 $check(!str_contains($read($m['path']),'DELETE FROM') && !str_contains($read($m['path']),'UPDATE fin_company_account'),'migration does not repair balances');
 require $root.'/tools/release/CustomerReleaseProfile.php';
 require $root.'/tools/install/ControlDelivery.php';
-$policy=CustomerReleaseProfile::fromRoot($root);$check($policy->version()===10,'actual profile parser exposes version 10');
+$policy=CustomerReleaseProfile::fromRoot($root);$check($policy->version()===11,'actual profile parser exposes version 11');
 $bad=$profile;$bad['profile_version']=999;try{new CustomerReleaseProfile(json_encode($bad));$rejected=false;}catch(RuntimeException $e){$rejected=true;}$check($rejected,'unknown profile version rejected');
 $binding=['distribution_profile'=>'CUSTOMER_CLEAN','distribution_profile_version'=>3,'seed_profile'=>'REFERENCE_ONLY'];
 $verified=$binding+['customer_clean_eligible'=>true,'customer_content_audit'=>['profile_sha256'=>$policy->digest()]];

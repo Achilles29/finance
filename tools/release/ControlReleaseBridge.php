@@ -127,8 +127,11 @@ final class ControlReleaseBridge
             'contains_customer_data' => $customerAudit !== null ? false : null, 'contains_secrets' => false,
             'channel' => 'ALPHA', 'readiness' => 'INTERNAL_CANDIDATE',
             'apk' => ['bundled' => false, 'commercial_work' => 'ALLOWED', 'operational_bugfixes' => 'DEFERRED', 'release_ready' => false]];
-        if ($customerAudit !== null) $description += ['distribution_profile' => CustomerReleaseProfile::ID,
-            'distribution_profile_version' => $profile->version(), 'seed_profile' => 'REFERENCE_ONLY', 'customer_content_audit' => $customerAudit];
+        if ($customerAudit !== null) {
+            $description += ['distribution_profile' => CustomerReleaseProfile::ID,
+                'distribution_profile_version' => $profile->version(), 'seed_profile' => 'REFERENCE_ONLY', 'customer_content_audit' => $customerAudit];
+            if ($profile->version() >= 11) $description['application_update_contract'] = 'FINANCE_APPLICATION_UPDATE_V1';
+        }
         return $description;
     }
 
@@ -280,6 +283,7 @@ final class ControlReleaseBridge
             'customer_clean_eligible' => $clean,
             'distribution_profile' => $clean ? CustomerReleaseProfile::ID : 'LEGACY_INTERNAL',
             'distribution_profile_version' => $clean ? $inspection['distribution_profile_version'] : null,
+            'application_update_contract' => $clean ? ($inspection['application_update_contract'] ?? null) : null,
             'seed_profile' => $clean ? 'REFERENCE_ONLY' : null,
             'customer_content_audit' => $inspection['customer_content_audit'] ?? ['status' => 'NOT_AUDITED'],
             'install_manifest' => $manifest];

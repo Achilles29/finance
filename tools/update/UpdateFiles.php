@@ -51,6 +51,7 @@ final class UpdateFiles
         if(!str_starts_with($destination,$root.'/private/')||file_exists($destination)||is_link($destination)
             ||!hash_equals($expectedHash,hash_file('sha256',$tar))||filesize($tar)>1073741824)throw new RuntimeException('UPDATE_ARCHIVE_INVALID');
         self::directory($root,$destination);$h=fopen($tar,'rb');$seen=[];$size=0;$ended=false;
+        $longName=null;
         try{while(!feof($h)){
             $header=fread($h,512);if($header===str_repeat("\0",512)){$ended=true;break;}
             if(strlen($header)!==512||substr($header,257,5)!=='ustar')throw new RuntimeException('UPDATE_TAR_INVALID');
@@ -58,6 +59,13 @@ final class UpdateFiles
             if(array_sum(unpack('C*',$checked))!==$sum)throw new RuntimeException('UPDATE_TAR_INVALID');
             $p=rtrim(substr($header,0,100),"\0");$prefix=rtrim(substr($header,345,155),"\0");if($prefix!=='')$p=$prefix.'/'.$p;
             $type=$header[156];$bytes=self::octal(substr($header,124,12));
+            if($type==='L'){
+                if($longName!==null||$p!=='././@LongLink'||$bytes<1||$bytes>4096)throw new RuntimeException('UPDATE_TAR_ENTRY_INVALID');
+                $raw='';$remaining=$bytes;while($remaining>0){$chunk=fread($h,min($remaining,4096));if($chunk==='')throw new RuntimeException('UPDATE_TAR_TRUNCATED');$raw.=$chunk;$remaining-=strlen($chunk);}
+                $padding=(512-$bytes%512)%512;if($padding&&strlen(fread($h,$padding))!==$padding)throw new RuntimeException('UPDATE_TAR_TRUNCATED');
+                $longName=rtrim($raw,"\0");if(!ReleasePackagePolicy::relativePathValid($longName))throw new RuntimeException('UPDATE_TAR_ENTRY_INVALID');continue;
+            }
+            if($longName!==null){$p=$longName;$longName=null;}
             if($type==='5')$p=rtrim($p,'/');
             if(!ReleasePackagePolicy::relativePathValid($p)||self::writablePath($p)||isset($seen[$p])||!in_array($type,["\0",'0','5'],true)
                 ||++$size>50000||$bytes>268435456)throw new RuntimeException('UPDATE_TAR_ENTRY_INVALID');
@@ -67,7 +75,7 @@ final class UpdateFiles
             self::directory($root,dirname($destination.'/'.$p),0750);self::write($root,$destination.'/'.$p,$raw,0640);
             $padding=(512-$bytes%512)%512;if($padding&&strlen(fread($h,$padding))!==$padding)throw new RuntimeException('UPDATE_TAR_TRUNCATED');
         }
-        if(!$ended)throw new RuntimeException('UPDATE_TAR_TRUNCATED');
+        if(!$ended||$longName!==null)throw new RuntimeException('UPDATE_TAR_TRUNCATED');
         while(!feof($h)){if(trim(fread($h,1048576),"\0")!=='')throw new RuntimeException('UPDATE_TAR_TRAILING_CONTENT');}
         }finally{fclose($h);}
         if(!hash_equals($expectedHash,hash_file('sha256',$tar)))throw new RuntimeException('UPDATE_ARCHIVE_CHANGED');
@@ -82,7 +90,7 @@ final class UpdateFiles
         CustomerPlatform::installer($root);
         if(!str_starts_with($candidate,$root.'/private/')||!str_starts_with($backup,$root.'/private/'))throw new RuntimeException('UPDATE_PATH_UNSAFE');
         self::directory($root,$backup);
-        foreach($old as$p=>$e){
+        foreach($old as$p=>$e)if(!isset($next[$p])||$next[$p]['sha256']!==$e['sha256']){
             if(self::writablePath($p))throw new RuntimeException('UPDATE_CUSTOMER_STATE_PROTECTED');
             CustomerPlatform::path($root,$root.'/'.$p);
             if(hash_file('sha256',$root.'/'.$p)!==$e['sha256'])throw new RuntimeException('UPDATE_CURRENT_CODE_CHANGED');

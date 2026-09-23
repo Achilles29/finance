@@ -62,7 +62,7 @@ try {
             if($p['action']==='receipt'){
                 require_once $f['control_root'].'/application/libraries/Update_agent_protocol.php';
                 Update_agent_protocol::receipt($p['receipt'],$f['update_offer']['plan']);
-                (new PortableStore($root,'private'))->write('test-receipt-'.$p['receipt']['phase'].'.json',$p['receipt']);
+                (new PortableStore($root,'private'))->write('test-receipt-'.strtolower($p['receipt']['phase']).'.json',$p['receipt']);
                 return ['status'=>'accepted'];
             }
             throw new RuntimeException('FIXTURE_UPDATE_ACTION');
