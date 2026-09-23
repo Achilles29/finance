@@ -112,8 +112,14 @@ try {
     $check($model->ready() && $model->enabled_channels() === [], 'clean migration creates empty inactive integration');
     $execute($pdo, $sql);
     $check((int)$pdo->query('SELECT COUNT(*) FROM app_notification_rule')->fetchColumn() === 0, 'migration replay has no seeds or side effects');
-    $pdo->exec("INSERT INTO wa_group_map (id,group_key,group_name,group_jid) VALUES (1,'FIXTURE','WA Fixture','1200001@g.us')");
+    $pdo->exec("INSERT INTO wa_group_map (id,group_key,group_name,group_jid,is_active) VALUES (1,'FIXTURE','WA Fixture','1200001@g.us',0),(2,'OTHER','Other registered group','1200002@g.us',0),(3,'INVALID','Missing JID','',0)");
+    $check(count($model->available_targets('WA')) === 2, 'inactive registered WA groups remain sendable; malformed JID excluded');
+    $check(count($model->available_targets('WA', true)) === 3 && $model->available_targets('WA', true)['group:3']['unavailable'], 'all registered WA groups visible; invalid JID display-only');
+    $reject(fn() => Module_notification::targets(['group:3'], '', $model->available_targets('WA'), 'WA'), 'display-only invalid JID cannot bypass server validation');
     $pdo->exec("INSERT INTO tg_target (id,chat_id,target_type,title,is_active) VALUES (1,'-100123456','SUPERGROUP','Telegram Fixture',1)");
+    $pdo->exec('UPDATE tg_target SET is_active=0 WHERE id=1');
+    $check($model->available_targets('TELEGRAM') === [], 'Telegram inactive targets still excluded');
+    $pdo->exec('UPDATE tg_target SET is_active=1 WHERE id=1');
     $context->Telegram_model->save_enabled(true, 0);
     // Seed only this disposable schema; use real baseline constraints/columns.
     $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
@@ -136,9 +142,16 @@ try {
     $send = static function (array $row) use (&$calls): array { $calls[] = $row; return ['ok' => true, 'status' => 'SENT']; };
     $check($model->run('WA', $send)['queued'] === 0, 'initial activation does not broadcast historical orders');
     $insertOrder(2); $insertOrder(3, 'DELIVERY'); $insertOrder(4, 'CASHIER'); $insertOrder(5, 'SELF_ORDER', 'VOID');
+    $pdo->exec('UPDATE wa_group_map SET is_active=1 WHERE id=1');
+    $model->save_rules('WA', $wa, 0);
+    $pdo->exec('UPDATE wa_group_map SET is_active=0 WHERE id=1');
+    $model->save_rules('WA', $wa, 0);
+    $check((int)$model->rules('WA')['SELF_ORDER']['order_start_id'] === 1, 'toggling inbound replies then saving retains notification cutoff');
     $before = $pdo->query('CHECKSUM TABLE pos_order, pos_order_line, pur_division_request EXTENDED')->fetchAll(PDO::FETCH_ASSOC);
     $r = $model->run('WA', $send);
     $check($r['queued'] === 2 && $r['processed'] === 2, 'actual SQL discovers self/online orders but excludes cashier/void');
+    $check(count($calls) === 2 && count(array_filter($calls, static fn(array $row): bool => $row['target_key'] === 'group:1')) === 2, 'inactive selected group receives notifications; unselected group does not');
+    $check((int)$pdo->query('SELECT SUM(is_active) FROM wa_group_map')->fetchColumn() === 0, 'saving and dispatch never activate inbound bot replies');
     $check(strpos($calls[0]['message_text'], 'Kopi Fixture') !== false, 'order lines read through real product join');
     $check($model->run('WA', $send)['processed'] === 0, 'repeated polling does not duplicate messages');
     $check($model->run('TELEGRAM', $send)['processed'] === 2, 'independent Telegram delivery');
@@ -196,6 +209,15 @@ try {
     $check($pdo->query('SELECT status FROM app_notification_queue WHERE id=' . $unknown)->fetchColumn() === 'UNKNOWN', 'interrupted worker retains ambiguous delivery evidence');
     $context->Telegram_model->save_enabled(false, 0);
     $check($model->run('TELEGRAM', $send)['state'] === 'DISABLED', 'Telegram master switch respected');
+    $multi = $wa; $multi['SELF_ORDER']['targets'] = ['group:1', 'group:2'];
+    $model->save_rules('WA', $multi, 0);
+    $insertOrder(11);
+    $check($model->run('WA', $send)['processed'] === 2, 'multiple checked inactive groups each receive the new self order');
+    $check((int)$pdo->query("SELECT COUNT(DISTINCT target_key) FROM app_notification_queue WHERE channel='WA' AND source_id=11 AND status='SENT'")->fetchColumn() === 2, 'separate delivery evidence for each selected group');
+    $check($model->run('WA', $send)['processed'] === 0, 'multiple recipients remain deduplicated');
+    $model->save_rules('WA', $wa, 0);
+    $insertOrder(12);
+    $check($model->run('WA', $send)['processed'] === 1, 'unchecking a group stops its future notifications');
     $snapshot = $pdo->query('CHECKSUM TABLE app_notification_rule,app_notification_queue EXTENDED')->fetchAll(PDO::FETCH_ASSOC);
     $execute($pdo, $sql);
     $check($snapshot === $pdo->query('CHECKSUM TABLE app_notification_rule,app_notification_queue EXTENDED')->fetchAll(PDO::FETCH_ASSOC), 'SQL replay preserves settings and delivery evidence');

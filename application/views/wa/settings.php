@@ -8,7 +8,7 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
       <h4 class="mb-1 fw-bold"><i class="ri ri-settings-3-line me-1"></i>Pengaturan WA Bot</h4>
-      <p class="text-muted mb-0 small">Konfigurasi koneksi ke WhatsApp Bot yang berjalan di server.</p>
+      <p class="text-muted mb-0 small">Atur penerima notifikasi, sambungkan WhatsApp, dan periksa bot melalui tab berikut.</p>
     </div>
     <a href="<?= site_url('wa/guide') ?>" class="btn btn-outline-info btn-sm">
       <i class="ri ri-book-open-line me-1"></i>Panduan Instalasi & Penggunaan
@@ -21,13 +21,47 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
     <div class="alert alert-danger alert-dismissible fade show"><?= html_escape($flash) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
   <?php endif; ?>
 
+  <ul class="nav nav-pills flex-wrap gap-2 mb-3" id="wa-settings-tabs" role="tablist" aria-label="Bagian pengaturan WhatsApp">
+    <li class="nav-item" role="presentation"><button class="nav-link active" id="wa-tab-notifications" data-bs-toggle="pill" data-bs-target="#wa-notifications" type="button" role="tab" aria-controls="wa-notifications" aria-selected="true"><i class="ri ri-notification-3-line me-1" aria-hidden="true"></i>Notifikasi</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="wa-tab-connection" data-bs-toggle="pill" data-bs-target="#wa-connection" type="button" role="tab" aria-controls="wa-connection" aria-selected="false"><i class="ri ri-qr-code-line me-1" aria-hidden="true"></i>Koneksi & QR</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="wa-tab-testing" data-bs-toggle="pill" data-bs-target="#wa-testing" type="button" role="tab" aria-controls="wa-testing" aria-selected="false"><i class="ri ri-wifi-line me-1" aria-hidden="true"></i>Pengujian</button></li>
+    <li class="nav-item" role="presentation"><button class="nav-link" id="wa-tab-technical" data-bs-toggle="pill" data-bs-target="#wa-technical" type="button" role="tab" aria-controls="wa-technical" aria-selected="false"><i class="ri ri-tools-line me-1" aria-hidden="true"></i>Teknis & pemulihan</button></li>
+  </ul>
+  <div class="tab-content p-0 bg-transparent shadow-none">
+    <div class="tab-pane show active" id="wa-notifications" role="tabpanel" aria-labelledby="wa-tab-notifications" tabindex="0">
   <?php $this->load->view('notifications/settings', [
       'notification_channel' => 'WA', 'notification_can_edit' => $canEdit,
       'notification_csrf_name' => 'wa_settings_mutation_csrf', 'notification_csrf' => $settingsMutationCsrf,
       'notification_action' => 'wa/notification-settings',
   ]); ?>
-  <div class="row g-3">
-    <div class="col-md-7">
+    </div>
+    <div class="tab-pane" id="wa-connection" role="tabpanel" aria-labelledby="wa-tab-connection" tabindex="0">
+      <div class="row g-3">
+        <div class="col-12 col-lg-7">
+      <!-- QR Code Panel -->
+      <div class="card border-0 shadow-sm mb-3" id="qr-panel">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h5 class="mb-0">Scan QR Code</h5>
+          <button class="btn btn-sm btn-outline-success" id="btn-load-qr">
+            <i class="ri ri-qr-code-line me-1"></i>Muat QR Code
+          </button>
+        </div>
+        <div class="card-body text-center">
+          <div id="qr-status-msg" class="text-muted small mb-2">
+            Klik "Muat QR Code" untuk menampilkan kode scan.
+            QR Code akan muncul jika status bot adalah <strong>Menunggu QR</strong>.
+          </div>
+          <div id="qr-container" class="d-flex justify-content-center mb-2"></div>
+          <div id="qr-countdown" class="text-muted small d-none">
+            <i class="ri ri-time-line me-1"></i>QR kadaluarsa dalam <span id="qr-seconds">60</span> detik. Refresh otomatis…
+          </div>
+          <div id="qr-connected" class="d-none">
+            <i class="ri ri-checkbox-circle-line text-success me-1" style="font-size:2rem;"></i>
+            <div class="text-success fw-semibold">WhatsApp Terhubung!</div>
+            <div class="text-muted small" id="qr-phone"></div>
+          </div>
+        </div>
+      </div>
       <!-- Koneksi Bot -->
       <div class="card border-0 shadow-sm mb-3">
         <div class="card-header"><h5 class="mb-0">Koneksi Bot</h5></div>
@@ -68,7 +102,65 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
           <?php endif; ?>
         </form>
       </div>
-
+        </div>
+        <div class="col-12 col-lg-5">
+      <!-- Status Bot WA -->
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header"><h5 class="mb-0">Status WA Bot</h5></div>
+        <div class="card-body">
+          <?php
+          $st = strtoupper($session['status'] ?? 'UNKNOWN');
+          $badge = match($st) { 'CONNECTED' => 'bg-success', 'WAITING_QR' => 'bg-warning', 'DISCONNECTED' => 'bg-danger', default => 'bg-secondary' };
+          $label = match($st) { 'CONNECTED' => 'Terhubung', 'WAITING_QR' => 'Menunggu QR', 'DISCONNECTED' => 'Terputus', default => 'Tidak Diketahui' };
+          ?>
+          <dl class="row mb-0 small">
+            <dt class="col-5">Status</dt>
+            <dd class="col-7"><span class="badge <?= $badge ?>"><?= $label ?></span></dd>
+            <dt class="col-5">Nomor Terhubung</dt>
+            <dd class="col-7"><?= html_escape($session['phone_number'] ?? '-') ?></dd>
+            <dt class="col-5">Ping Terakhir</dt>
+            <dd class="col-7"><?= html_escape($session['last_ping_at'] ?? '-') ?></dd>
+          </dl>
+        </div>
+      </div>
+        </div>
+      </div>
+    </div>
+    <div class="tab-pane" id="wa-testing" role="tabpanel" aria-labelledby="wa-tab-testing" tabindex="0">
+      <!-- Test Koneksi -->
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header"><h5 class="mb-0">Test Koneksi & Kirim Pesan</h5></div>
+        <div class="card-body">
+          <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-outline-primary btn-sm" id="btn-ping">
+              <i class="ri ri-wifi-line me-1"></i>Ping Bot
+            </button>
+            <div id="ping-result" class="align-self-center small text-muted"></div>
+          </div>
+          <?php if ($canEdit): ?>
+          <hr>
+          <div class="mb-2">
+            <label class="form-label fw-semibold">Kirim Pesan Test</label>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-5">
+              <input type="text" id="test-phone" class="form-control form-control-sm font-monospace" placeholder="6281234567890">
+            </div>
+            <div class="col-md-7">
+              <textarea id="test-message" class="form-control form-control-sm" rows="2" placeholder="Halo! Ini pesan test dari Finance App."></textarea>
+            </div>
+          </div>
+          <button class="btn btn-success btn-sm" id="btn-send-test">
+            <i class="ri ri-send-plane-line me-1"></i>Kirim
+          </button>
+          <div id="test-result" class="mt-2 small"></div>
+          <?php endif; ?>
+        </div>
+      </div>
+    </div>
+    <div class="tab-pane" id="wa-technical" role="tabpanel" aria-labelledby="wa-tab-technical" tabindex="0">
+      <div class="row g-3">
+        <div class="col-12 col-lg-7">
       <!-- Konfigurasi .env Node.js -->
       <?php if ($canEdit): ?>
       <div class="card border-0 shadow-sm mb-3" id="env-card">
@@ -123,66 +215,8 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
         </div>
       </div>
       <?php endif; ?>
-
-      <!-- QR Code Panel -->
-      <div class="card border-0 shadow-sm mb-3" id="qr-panel">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <h5 class="mb-0">Scan QR Code</h5>
-          <button class="btn btn-sm btn-outline-success" id="btn-load-qr">
-            <i class="ri ri-qr-code-line me-1"></i>Muat QR Code
-          </button>
         </div>
-        <div class="card-body text-center">
-          <div id="qr-status-msg" class="text-muted small mb-2">
-            Klik "Muat QR Code" untuk menampilkan kode scan.
-            QR Code akan muncul jika status bot adalah <strong>Menunggu QR</strong>.
-          </div>
-          <div id="qr-container" class="d-flex justify-content-center mb-2"></div>
-          <div id="qr-countdown" class="text-muted small d-none">
-            <i class="ri ri-time-line me-1"></i>QR kadaluarsa dalam <span id="qr-seconds">60</span> detik. Refresh otomatis…
-          </div>
-          <div id="qr-connected" class="d-none">
-            <i class="ri ri-checkbox-circle-line text-success me-1" style="font-size:2rem;"></i>
-            <div class="text-success fw-semibold">WhatsApp Terhubung!</div>
-            <div class="text-muted small" id="qr-phone"></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Test Koneksi -->
-      <div class="card border-0 shadow-sm mb-3">
-        <div class="card-header"><h5 class="mb-0">Test Koneksi & Kirim Pesan</h5></div>
-        <div class="card-body">
-          <div class="d-flex gap-2 mb-3">
-            <button class="btn btn-outline-primary btn-sm" id="btn-ping">
-              <i class="ri ri-wifi-line me-1"></i>Ping Bot
-            </button>
-            <div id="ping-result" class="align-self-center small text-muted"></div>
-          </div>
-          <?php if ($canEdit): ?>
-          <hr>
-          <div class="mb-2">
-            <label class="form-label fw-semibold">Kirim Pesan Test</label>
-          </div>
-          <div class="row g-2 mb-2">
-            <div class="col-md-5">
-              <input type="text" id="test-phone" class="form-control form-control-sm font-monospace" placeholder="6281234567890">
-            </div>
-            <div class="col-md-7">
-              <textarea id="test-message" class="form-control form-control-sm" rows="2" placeholder="Halo! Ini pesan test dari Finance App."></textarea>
-            </div>
-          </div>
-          <button class="btn btn-success btn-sm" id="btn-send-test">
-            <i class="ri ri-send-plane-line me-1"></i>Kirim
-          </button>
-          <div id="test-result" class="mt-2 small"></div>
-          <?php endif; ?>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-md-5">
-
+        <div class="col-12 col-lg-5">
       <!-- Engine Process Control -->
       <div class="card border-0 shadow-sm mb-3">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -228,27 +262,6 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
           <?php endif; ?>
         </div>
       </div>
-
-      <!-- Status Bot WA -->
-      <div class="card border-0 shadow-sm mb-3">
-        <div class="card-header"><h5 class="mb-0">Status WA Bot</h5></div>
-        <div class="card-body">
-          <?php
-          $st = strtoupper($session['status'] ?? 'UNKNOWN');
-          $badge = match($st) { 'CONNECTED' => 'bg-success', 'WAITING_QR' => 'bg-warning', 'DISCONNECTED' => 'bg-danger', default => 'bg-secondary' };
-          $label = match($st) { 'CONNECTED' => 'Terhubung', 'WAITING_QR' => 'Menunggu QR', 'DISCONNECTED' => 'Terputus', default => 'Tidak Diketahui' };
-          ?>
-          <dl class="row mb-0 small">
-            <dt class="col-5">Status</dt>
-            <dd class="col-7"><span class="badge <?= $badge ?>"><?= $label ?></span></dd>
-            <dt class="col-5">Nomor Terhubung</dt>
-            <dd class="col-7"><?= html_escape($session['phone_number'] ?? '-') ?></dd>
-            <dt class="col-5">Ping Terakhir</dt>
-            <dd class="col-7"><?= html_escape($session['last_ping_at'] ?? '-') ?></dd>
-          </dl>
-        </div>
-      </div>
-
       <!-- Reset Sesi WA -->
       <?php if ($canEdit): ?>
       <div class="card border-0 shadow-sm mb-3 border-danger border-opacity-25">
@@ -267,7 +280,8 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
         </div>
       </div>
       <?php endif; ?>
-
+        </div>
+      </div>
       <!-- Panduan singkat -->
       <div class="card border-0 shadow-sm">
         <div class="card-header"><h5 class="mb-0">Langkah Setup</h5></div>
@@ -275,10 +289,10 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
           <ol class="mb-0">
             <li class="mb-2">Pastikan <code>finance/wa-engine/.env</code> sudah dikonfigurasi (DB_PASS, dll).</li>
             <li class="mb-2">Pastikan credential API internal sudah di-inject ke environment proses PHP/FPM dan wa-engine.</li>
-            <li class="mb-2">Klik <strong>Start</strong> di atas untuk menjalankan wa-engine.</li>
-            <li class="mb-2">Klik <strong>Muat QR Code</strong> di panel kiri → scan dengan WA.</li>
+            <li class="mb-2">Klik <strong>Start</strong> pada panel proses di tab ini untuk menjalankan wa-engine.</li>
+            <li class="mb-2">Klik <strong>Muat QR Code</strong> pada tab Koneksi &amp; QR → scan dengan WA.</li>
             <li class="mb-2">Status WA Bot berubah ke <span class="badge bg-success">Terhubung</span>.</li>
-            <li>Klik <strong>Ping Bot</strong> untuk memverifikasi koneksi.</li>
+            <li>Buka tab Pengujian, lalu klik <strong>Ping Bot</strong> untuk memverifikasi koneksi.</li>
           </ol>
           <div class="mt-2">
             <a href="<?= site_url('wa/guide') ?>" class="btn btn-outline-info btn-sm w-100">
@@ -294,6 +308,24 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
 <!-- QR Code library (qrcodejs) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
+// Retain the selected section after saving; only known pane IDs may be restored.
+document.addEventListener('DOMContentLoaded', function () {
+  const tabs = Array.from(document.querySelectorAll('#wa-settings-tabs [data-bs-toggle="pill"]'));
+  const storageKey = 'finance-wa-settings-tab:' + window.location.pathname;
+  let saved = '';
+  try { saved = window.sessionStorage.getItem(storageKey) || ''; } catch (_) {}
+  const hash = window.location.hash === '#module-notifications' ? '#wa-notifications' : window.location.hash;
+  const selected = tabs.find(tab => tab.dataset.bsTarget === hash) || tabs.find(tab => tab.dataset.bsTarget === saved);
+  tabs.forEach(tab => tab.addEventListener('shown.bs.tab', function () {
+    try { window.sessionStorage.setItem(storageKey, tab.dataset.bsTarget); } catch (_) {}
+    // Replace rather than add history entries; avoids old hashes overriding a saved tab.
+    try { window.history.replaceState(null, '', tab.dataset.bsTarget); } catch (_) {}
+  }));
+  if (selected && window.bootstrap && window.bootstrap.Tab) {
+    window.bootstrap.Tab.getOrCreateInstance(selected).show();
+  }
+});
+
 // ─── QR Code ───────────────────────────────────────────────
 let qrInterval = null;
 let qrCountdown = 60;

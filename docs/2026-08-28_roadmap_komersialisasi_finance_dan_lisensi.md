@@ -1,5 +1,7 @@
 # Roadmap Komersialisasi Finance POS
 
+**23 September 2026 — revisi UX WA:** [x] tab/checklist dan pemisahan grup balasan/notifikasi pada file yang sudah di-allowlist; tidak ada SQL/kontrak profil baru. [ ] review cutoff/build resmi tetap di Control; gate global pada HEAD sekarang masih terhambat konfigurasi lokal dan scanner fixture existing (lihat [laporan](2026-09-23_module_notifications.md)), bukan klaim release-ready.
+
 **23 September 2026 — integrasi notifikasi:** [x] allowlist library/model/view/JS dan SQL `2026-09-23a` pada clean-install/upgrade; default OFF dan dua tabel kosong tanpa tujuan/pesan customer. [x] gate `AUTOMATION_MESSAGING` + modul asal. [ ] review cutoff/hash baru dan build resmi Control; tidak publish/push atau mengubah paket terbit. Fungsional/UAT dicatat di `_30` dan [laporan modul](2026-09-23_module_notifications.md); versi/layout kontrak kandidat tidak diubah.
 
 **20 September 2026 — follow-up procurement:** [x] lengkapi allowlist panel/library/JS pemeriksaan stok dan cocokkan hash profil pada manifest. Kandidat alpha.22/v10 belum dipublish; revisi inventaris wajib direview Control bersama cutoff baru. [Laporan, hash dan UAT](2026-09-20_procurement_current_stock.md). Tidak ada perubahan entitlement/aktivasi, SQL baru, publish atau rollout customer oleh batch ini.

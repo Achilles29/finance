@@ -23,7 +23,7 @@ class Module_notification
         $result = [];
         foreach ($values as $key) {
             if (!is_string($key) || !isset($available[$key])) {
-                throw new InvalidArgumentException('Tujuan sudah tidak aktif. Muat ulang pengaturan dan pilih kembali.');
+                throw new InvalidArgumentException('Tujuan tidak tersedia. Muat ulang pengaturan dan pilih kembali dari daftar tujuan terdaftar.');
             }
             $result[$key] = $available[$key];
         }

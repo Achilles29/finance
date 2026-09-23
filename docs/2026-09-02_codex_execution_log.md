@@ -1,5 +1,14 @@
 # Log Eksekusi Codex Finance
 
+## 23 September 2026, 20:47 WIB — Tab pengaturan WA dan grup notifikasi
+
+- Prioritas: rapikan pengaturan; pisahkan status balasan chat grup dari penerimaan notifikasi modul. Implementasi/review mandiri, tanpa subagent.
+- File: view `wa/settings`, `notifications/settings`; model/library `Module_notification`; smoke UI/DB dan browser `wa_settings_browser.cjs`; panduan dan kedua roadmap.
+- Perubahan: empat tab dengan restore pilihan, checklist banyak grup per modul; grup nonaktif tetap tersedia/dikirimi bila dipilih. Grup JID invalid terlihat tetapi disabled. Tidak mengubah flag balasan; target Telegram tetap harus aktif. Validasi server, CSRF, RBAC, lisensi, dedup/cutoff dan pengunci WA pribadi tetap dipertahankan.
+- Validasi: PHP lint/diff check PASS; 62 MariaDB disposable, 74 HTML/DOM + 15 JS, 19 Chrome UI PASS; seluruh regresi keamanan WA yang dipilih PASS. Review memastikan perubahan flag inbound tidak mereset cutoff dan pengubahan JID tetap membatalkan antrean lama.
+- Global parallel: 133/136 PASS, tiga gate gagal pada konfigurasi `database.php`/`.user.ini` yang diminta dipertahankan serta literal username fixture yang sudah ada sebelum revisi. Tidak mengubah config maupun melemahkan scanner. Detail di [laporan](2026-09-23_module_notifications.md).
+- Tidak ada SQL baru, perubahan DB aktif, pesan nyata, cron, credential, commit atau push. Risiko/batch berikut: UAT grup operator; review konfigurasi untuk release terpisah, bukan diubah dalam tugas UI ini.
+
 ## 23 September 2026 — Notifikasi modul WA / Telegram
 
 - Prioritas: sakelar/penerima per modul; notifikasi order masuk dan kirim manual pengajuan divisi. Implementasi fixer tunggal sesuai pola kerja terbaru, tanpa subagent diskusi berulang.

@@ -36,13 +36,17 @@ class Module_notification_model extends CI_Model
         return true;
     }
 
-    public function available_targets(string $channel): array
+    public function available_targets(string $channel, bool $include_unavailable = false): array
     {
         $result = [];
         if ($channel === 'WA' && $this->db->table_exists('wa_group_map')) {
-            foreach ($this->db->from('wa_group_map')->where('is_active', 1)->get()->result_array() as $row) {
+            // is_active controls inbound bot replies, not outbound module notifications.
+            foreach ($this->db->from('wa_group_map')->order_by('group_name', 'ASC')->order_by('id', 'ASC')->get()->result_array() as $row) {
                 if (preg_match('/\A[0-9-]+@g\.us\z/D', (string)$row['group_jid'])) {
                     $result['group:' . (int)$row['id']] = ['destination' => $row['group_jid'], 'label' => $row['group_name']];
+                } elseif ($include_unavailable) {
+                    // Display-only: validation and workers always use the default sendable list.
+                    $result['group:' . (int)$row['id']] = ['destination' => '', 'label' => $row['group_name'], 'unavailable' => true];
                 }
             }
         } elseif ($channel === 'TELEGRAM' && $this->db->table_exists('tg_target')) {
@@ -100,7 +104,7 @@ class Module_notification_model extends CI_Model
             $targets = Module_notification::targets($row['targets'] ?? [], (string)($row['phones'] ?? ''), $available, $channel);
             $enabled = ($row['enabled'] ?? '') === '1';
             if ($enabled && (!$targets || !$this->allowed($event))) {
-                throw new InvalidArgumentException($title . ': pilih tujuan aktif dan pastikan modul termasuk dalam lisensi.');
+                throw new InvalidArgumentException($title . ': pilih tujuan terdaftar yang tersedia dan pastikan modul termasuk dalam lisensi.');
             }
             if ($enabled && $channel === 'WA' && !$this->personal_enabled() && $this->has_phones($targets)) {
                 throw new InvalidArgumentException('Pengiriman WA pribadi masih dikunci untuk perlindungan akun. Pilih grup WA; pembukaan kanal pribadi memerlukan review terpisah.');

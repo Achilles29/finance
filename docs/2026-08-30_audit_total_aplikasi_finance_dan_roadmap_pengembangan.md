@@ -1,5 +1,7 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**23 September 2026 — revisi pengaturan WA:** [x] empat tab; [x] checklist beberapa grup per modul termasuk grup nonaktif; [x] pisahkan flag balasan chat dari penerima notifikasi hingga validasi/worker; [x] 62 uji DB disposable, 74 DOM + 15 JS, 19 Chrome PASS. [ ] UAT pesan nyata. Gate global 133/136, tersisa temuan konfigurasi lokal/scanner fixture existing yang tidak diubah dalam batch ini. [Rincian](2026-09-23_module_notifications.md).
+
 **23 September 2026 — integrasi notifikasi modul:** [x] sakelar/tujuan per kejadian pada pengaturan WA/Telegram; [x] antrean self order/online order melalui worker existing; [x] tombol pengajuan PO/SR di daftar/detail, scope/CSRF/dedup; [x] uji MariaDB disposable dan UI. [ ] apply SQL aktif/konfirmasi operator dan UAT pengiriman bot nyata. WA personal tetap terkunci sesuai perlindungan akun existing. Detail dan checklist: [laporan modul](2026-09-23_module_notifications.md).
 
 **20 September 2026 — kontrol stok procurement:** [x] stok divisi/gudang sekarang pada pengajuan, detail/list, PDF, PO/SR manual; [x] peringatan sebelum verifikasi/simpan; [x] regresi race edit/verifikasi dan timeout. Tidak mengubah saldo atau SQL aktif. Checklist UAT/bukti dan batas validasi pada [laporan modul](2026-09-20_procurement_current_stock.md). UAT pengguna dan build resmi Control tetap terpisah dari tes fixture.

@@ -4,7 +4,7 @@ $ci->load->model('Module_notification_model');
 $notifications = $ci->Module_notification_model;
 $notification_ready = $notifications->ready();
 $notification_rules = $notifications->rules($notification_channel);
-$notification_targets = $notifications->available_targets($notification_channel);
+$notification_targets = $notifications->available_targets($notification_channel, true);
 $notification_rows = $notifications->recent($notification_channel);
 $notification_last_worker = '';
 foreach ($notification_rules as $notification_rule) {
@@ -24,6 +24,7 @@ foreach ($notification_rules as $notification_rule) {
         Jadwal bot: <?= $notification_last_worker !== '' ? 'terakhir berjalan ' . html_escape($notification_last_worker) : 'belum terdeteksi sejak integrasi disiapkan. Setelah menyimpan, pastikan admin memeriksa jadwal bot.' ?>
       </p>
       <?php if ($notification_channel === 'WA'): ?>
+      <div class="alert alert-info small"><strong>Grup untuk notifikasi berbeda dari pengaturan balasan bot.</strong> Semua grup WA terdaftar ditampilkan, baik aktif maupun nonaktif. Status grup di menu Grup WA hanya mengatur balasan chat bot. Untuk menerima notifikasi, centang grup tujuan dan aktifkan modulnya di bawah. Maksimal 10 tujuan per modul.</div>
       <div class="alert alert-warning small">WA pribadi masih dikunci oleh kebijakan perlindungan akun yang sudah ada. Untuk saat ini pilih grup WA terdaftar. Nomor dapat disimpan saat integrasi nonaktif, tetapi belum dapat diaktifkan untuk pengiriman pribadi. Daftar grup di <a href="<?= site_url('wa/group') ?>">Grup WA</a>.</div>
       <?php else: ?>
       <p class="small text-muted">Gunakan chat pribadi atau grup yang sudah didaftarkan di <a href="<?= site_url('telegram') ?>">Telegram → Tujuan</a>. Master switch Telegram juga harus aktif.</p>
@@ -37,6 +38,21 @@ foreach ($notification_rules as $notification_rule) {
               <input class="form-check-input" type="checkbox" id="notify-<?= html_escape($event) ?>" name="notifications[<?= html_escape($event) ?>][enabled]" value="1" <?= !empty($rule['is_enabled']) ? 'checked' : '' ?>>
               <label class="form-check-label fw-semibold" for="notify-<?= html_escape($event) ?>"><?= html_escape($rule['title']) ?></label>
             </div>
+            <?php if ($notification_channel === 'WA'): ?>
+            <div class="form-label small" id="targets-label-<?= html_escape($event) ?>">Grup penerima — centang satu atau lebih</div>
+            <div class="border rounded p-2" role="group" aria-labelledby="targets-label-<?= html_escape($event) ?>" style="max-height:240px;overflow-y:auto;">
+            <?php foreach ($notification_targets as $key => $target): ?>
+              <?php $target_id = 'target-' . $event . '-' . str_replace(':', '-', $key); ?>
+              <div class="form-check py-2 ms-1 mb-0">
+                <input class="form-check-input" type="checkbox" id="<?= html_escape($target_id) ?>" name="notifications[<?= html_escape($event) ?>][targets][]" value="<?= html_escape($key) ?>" <?= !empty($target['unavailable']) ? 'disabled' : (isset($rule['targets'][$key]) ? 'checked' : '') ?>>
+                <label class="form-check-label d-block text-break" for="<?= html_escape($target_id) ?>"><?= html_escape($target['label']) ?></label>
+                <?php if (!empty($target['unavailable'])): ?><span class="small text-warning">ID grup belum valid. Perbaiki di menu Grup WA agar dapat dipilih.</span><?php endif; ?>
+              </div>
+            <?php endforeach; ?>
+            <?php if (!$notification_targets): ?><p class="small text-warning mb-0">Belum ada grup dengan ID valid. Daftarkan atau periksa ID grup di menu Grup WA; tidak perlu mengaktifkan balasan bot.</p><?php endif; ?>
+            </div>
+            <p class="form-text mb-0">Hanya grup yang dicentang menerima notifikasi modul ini. Hapus centang untuk menghentikan notifikasi ke grup tersebut.</p>
+            <?php else: ?>
             <label class="form-label small" for="targets-<?= html_escape($event) ?>">Tujuan terdaftar (boleh lebih dari satu)</label>
             <select class="form-select" multiple size="4" id="targets-<?= html_escape($event) ?>" name="notifications[<?= html_escape($event) ?>][targets][]">
             <?php foreach ($notification_targets as $key => $target): ?>
@@ -44,6 +60,7 @@ foreach ($notification_rules as $notification_rule) {
             <?php endforeach; ?>
             </select>
             <?php if (!$notification_targets): ?><p class="small text-warning mt-1">Belum ada tujuan aktif. Daftarkan tujuan terlebih dahulu.</p><?php endif; ?>
+            <?php endif; ?>
             <?php if ($notification_channel === 'WA'): ?>
               <label class="form-label small mt-2" for="phones-<?= html_escape($event) ?>">Nomor WA tersimpan — pengiriman pribadi terkunci</label>
               <textarea class="form-control" rows="2" id="phones-<?= html_escape($event) ?>" name="notifications[<?= html_escape($event) ?>][phones]" placeholder="6281234567890"><?php

@@ -11,6 +11,17 @@
 
 **Batas WA pribadi:** aplikasi lama sengaja mengunci pengiriman WA personal untuk melindungi akun yang dibatasi (`Whatsapp::PERSONAL_OUTBOUND_ENABLED=false`), dan engine memiliki pengunci sendiri. Integrasi tidak melewati keduanya. Nomor dapat didaftarkan saat integrasi nonaktif, tetapi aktivasi dengan nomor ditolak secara jelas. Grup WA dan chat pribadi/grup Telegram didukung. Pembukaan WA personal/kanal resmi merupakan keputusan terpisah, bukan mengganti credential atau env diam-diam.
 
+## Revisi 23 September 2026, 20:47 WIB — tab WA dan pilihan grup
+
+- [x] `/wa/settings`: empat tab Notifikasi, Koneksi & QR, Pengujian, Teknis & pemulihan. ID kontrol, CSRF, pembatas edit, dan fungsi lama dipertahankan. Tab terakhir kembali setelah simpan/reload; tampilan ponsel tidak melebar.
+- [x] Checklist grup terpisah per modul, dapat memilih lebih dari satu; semua grup terdaftar terlihat termasuk nonaktif. Grup ber-ID tidak valid tetap terlihat dengan keterangan, tetapi tidak dapat dipilih/kirim. Urut nama grup, maksimal 10 tujuan tetap diperiksa server.
+- [x] `available_targets()` pada validasi/worker WA tidak lagi memakai flag balasan `wa_group_map.is_active`. Flag tidak diubah oleh penyimpanan atau pengiriman; Telegram tetap mensyaratkan tujuan aktif. ID tujuan yang berubah tetap membatalkan payload lama. Perubahan flag balasan tidak mereset cutoff order.
+- File runtime: `application/views/wa/settings.php`, `application/views/notifications/settings.php`, `application/models/Module_notification_model.php`, `application/libraries/Module_notification.php`. File ini sudah masuk allowlist customer; tidak menambah SQL, kontrak profil, atau dependensi.
+- Uji terbaru: `module_notifications_smoke.php --disposable` **62 PASS**, MariaDB 10.11.10 nyata, sender/entitlement sintetis; database sementara `/var/lib/finance-notification-test-0662f7326e6687d4`, proses dihentikan. `module_notifications_ui_smoke.php` **74 HTML/DOM + 15 JS PASS**. `node tools/tests/wa_settings_browser.cjs` **19 PASS**, Chrome nyata dengan data/HTTP fixture lokal, termasuk pilihan ganda, readonly, tab restore, dan lebar layar 390px; screenshot `/tmp/finance-wa-settings-browser-P5VKjL/wa-settings-mobile.png`.
+- Regresi WA settings CSRF **123**, env-save **71**, engine-control **160**, send-test **91**, inbound mutation disabled **18**, service-auth **31**, secret boundary **20**, log boundary **24**, CLI schedule **30** semuanya PASS. PHP lint dan diff whitespace PASS.
+- **Quality gate global belum hijau pada HEAD sekarang:** `parallel` 133/136 PASS; `gap01-repository-runtime-boundary`, `deployment-secret-config`, `a4-release-preflight` gagal karena konfigurasi lokal `application/config/database.php` / `.user.ini` serta temuan scanner username fixture disposable pada baris 102. Koneksi fixture tersebut identik dengan HEAD sebelum revisi ini. Konfigurasi lokal sengaja tidak diubah sesuai instruksi pengguna; scanner tidak dilemahkan. Angka 136/136 pada bagian bukti implementasi awal di bawah bersifat historis, bukan hasil revisi sekarang.
+- Parent HEAD revisi `f96dea8`; perubahan belum commit/push. Tidak membaca/mengubah credential, menjalankan SQL aktif, mengubah status grup/penerima aktif, menjadwalkan ulang bot, atau mengirim pesan sungguhan. UAT penerimaan pesan nyata tetap dilakukan operator dengan grup uji.
+
 ## Pemasangan / administrator
 
 - Migrasi baru: `sql/2026-09-23a_module_notifications.sql`, klasifikasi schema, kebijakan **clean_install + upgrade**, bergantung pada foundation Telegram. Membuat dua tabel InnoDB kosong: `app_notification_rule`, `app_notification_queue`. Tidak membawa seed penerima, pesan, nomor, identitas usaha, atau credential.
@@ -30,7 +41,7 @@ mysql -u root -p db_finance < /www/wwwroot/finance/sql/2026-09-23a_module_notifi
 ## Kontrak dan pengamanan
 
 - Source order: `pos_order.order_channel=SELF_ORDER` atau `DELIVERY`, dibaca dari database aplikasi seperti reader POS saat ini. Tidak mengubah aplikasi member terpisah. Polling hanya membaca order tersimpan yang mempunyai line aktif; bukan jalur simpan/pembayaran.
-- Switch per channel/per event dan pemeriksaan penerima aktif dilakukan kembali di server. Penerima yang JID/chat ID-nya diganti tidak menerima payload lama. Menonaktifkan integrasi tidak dapat menarik pesan yang sudah terkirim.
+- Switch per channel/per event dan pemeriksaan penerima dilakukan kembali di server. WA memakai grup terdaftar dengan JID valid tanpa memfilter `is_active` (flag ini untuk balasan chat masuk); Telegram tetap memakai target aktif. Penerima yang JID/chat ID-nya diganti tidak menerima payload lama. Menonaktifkan integrasi tidak dapat menarik pesan yang sudah terkirim.
 - `AUTOMATION_MESSAGING` dan hak modul asal (`SELF_ORDER`, `ONLINE_ORDER`, `PROCUREMENT`) diperiksa; upgrade/downgrade lisensi tidak dilewati oleh SUPERADMIN. RBAC/settings edit dan CSRF existing tetap digunakan. Endpoint kirim memeriksa scope divisi sebelum membaca item pengajuan. Pengguna hanya punya view tidak mendapat kewenangan konfigurasi.
 - Unique delivery key mencegah pengiriman ganda akibat polling/klik ulang. Revisi ringkasan pengajuan membentuk key baru. Worker menggunakan advisory lock per database/kanal; save settings menolak jika pengiriman sedang berjalan. Proses yang terputus setelah claim ditandai UNKNOWN, bukan langsung diulang.
 - Tidak menjanjikan exactly-once pada jaringan eksternal. Timeout WA/Telegram tetap ambigu. Retry otomatis UNKNOWN sengaja dilarang. Hanya penolakan pasti boleh diproses ulang dari UI. Tidak menyalin error provider/secret mentah ke log.
@@ -43,7 +54,9 @@ mysql -u root -p db_finance < /www/wwwroot/finance/sql/2026-09-23a_module_notifi
 - [ ] Buat self order baru dan order online baru; nomor/item/outlet benar, pesan sekali per tujuan. Order kasir biasa dan order lama tidak ikut dikirim.
 - [ ] Kirim pengajuan dari divisi yang sesuai melalui daftar/detail. Klik ulang tidak menggandakan; revisi pengajuan dapat dikirim lagi.
 - [ ] Akun divisi lain tidak bisa mengirim pengajuan di luar scope melalui URL/API.
-- [ ] Matikan switch, nonaktifkan target, atau batalkan pengajuan sebelum worker berjalan: tidak terkirim.
+- [ ] Matikan switch, hapus centang grup WA, nonaktifkan target Telegram, atau batalkan pengajuan sebelum worker berjalan: tidak terkirim.
+- [ ] Buka keempat tab WA; simpan pengaturan dan pastikan tab kembali sesuai bagian yang disimpan.
+- [ ] Pilih lebih dari satu grup, termasuk grup WA nonaktif. Semua grup terpilih menerima; bot tetap tidak membalas chat di grup nonaktif.
 - [ ] Putuskan koneksi bot: pengajuan/order tetap tersimpan. Periksa status gagal/ambigu; jangan menyimpulkan antrean berarti terkirim.
 - [ ] Pastikan jadwal worker terakhir terus diperbarui dan penerimaan nyata di chat sesuai.
 
