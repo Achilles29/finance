@@ -173,6 +173,7 @@ $route['procurement/division-po-sr/notify/(:num)'] = 'procurement/division_po_sr
 $route['wa/notification-settings'] = 'whatsapp/notification_settings';
 $route['telegram/notification-settings'] = 'telegram/notification_settings';
 $route['procurement/division-po-sr/verify/(:num)'] = 'procurement/division_po_sr_verify/$1';
+$route['procurement/division-po-sr/(:num)/lines/(:num)/decision'] = 'procurement/division_po_sr_line_action/$1/$2';
 $route['procurement/division-po-sr/action/(:num)'] = 'procurement/division_po_sr_action/$1';
 $route['procurement/store-request/profile-search'] = 'procurement/store_request_profile_search';
 $route['procurement/store-request/stock-preview'] = 'procurement/store_request_stock_preview';

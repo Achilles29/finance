@@ -13,11 +13,15 @@
     const confirmed = panel.querySelector('[data-stock-confirmed]');
     const refresh = panel.querySelector('[data-stock-refresh]');
     const verifying = panel.dataset.verify === '1';
+    const perLine = panel.dataset.lineReview === '1';
     let current = null, lastInput = '', generation = 0, timer = null, pending = null;
-    function paint(data) { if (typeof window !== 'undefined' && window.ProcurementCurrentStock) window.ProcurementCurrentStock.paint(data); }
+    function paint(data) {
+        if (perLine && window.DivisionLineReview && window.DivisionLineReview.getIndex()>=0) return;
+        if (typeof window !== 'undefined' && window.ProcurementCurrentStock) window.ProcurementCurrentStock.paint(data);
+    }
     function payload() {
         return {request_id:Number(panel.dataset.requestId), header:{division_id:form.elements.namedItem('division_id').value,
-            destination_type:form.elements.namedItem('destination_type').value}, lines:JSON.parse(lines.value || '[]')};
+            destination_type:form.elements.namedItem('destination_type').value}, lines:perLine && window.DivisionLineReview ? window.DivisionLineReview.getLines() : JSON.parse(lines.value || '[]')};
     }
     function clear() {
         current = null; hidden.value = ''; generation++;
@@ -93,8 +97,7 @@
     form.addEventListener('change',changed);
     form.addEventListener('input',changed);
     document.addEventListener('procurement-lines-changed',changed);
-    form.addEventListener('submit',function (event) {
-        if (!verifying) return;
+    function getConfirmation() {
         let unchanged = false;
         try { unchanged = JSON.stringify(payload()) === lastInput; } catch (_) {}
         let message = '';
@@ -103,11 +106,17 @@
         else if (current.has_materials && (!current.ready || !current.token)) message='Pencatatan konfirmasi stok belum aktif atau tinjauan tidak valid.';
         else if (current.needs_confirmation && (!confirmed.checked || contact.value.trim().length<3 || reason.value.trim().length<10)) message='Konfirmasi ke divisi, isi nama dan alasan minimal 10 karakter, lalu centang pernyataan konfirmasi.';
         if (message) {
-            event.preventDefault(); event.stopImmediatePropagation(); status.textContent=message;
-            panel.scrollIntoView({block:'center',behavior:'smooth'}); return;
+            status.textContent=message;
+            panel.scrollIntoView({block:'center',behavior:'smooth'}); throw new Error(message);
         }
-        hidden.value = JSON.stringify({token:current.token,confirmed:confirmed ? confirmed.checked : false,
-            confirmed_with:contact ? contact.value.trim() : '',reason:reason ? reason.value.trim() : ''});
+        return {token:current.token,confirmed:confirmed ? confirmed.checked : false,
+            confirmed_with:contact ? contact.value.trim() : '',reason:reason ? reason.value.trim() : ''};
+    }
+    window.ProcurementStockReview = {confirmation:getConfirmation};
+    form.addEventListener('submit',function (event) {
+        if (!verifying || perLine) return;
+        try { hidden.value=JSON.stringify(getConfirmation()); }
+        catch (_) { event.preventDefault(); event.stopImmediatePropagation(); }
     },true);
     load();
 }());

@@ -23,8 +23,8 @@ $waPhone  = $session['phone_number'] ?? '';
 
   <!-- Status -->
   <?php
-  $sBadge = match($waStatus) { 'CONNECTED' => 'bg-success', 'WAITING_QR' => 'bg-warning', 'DISCONNECTED' => 'bg-danger', default => 'bg-secondary' };
-  $sLabel = match($waStatus) { 'CONNECTED' => 'Terhubung', 'WAITING_QR' => 'Menunggu QR', 'DISCONNECTED' => 'Terputus', default => 'Tidak Diketahui' };
+  $sBadge = match($waStatus) { 'CONNECTED' => 'bg-success', 'WAITING_QR' => 'bg-warning', 'DISCONNECTED', 'LOGGED_OUT' => 'bg-danger', default => 'bg-secondary' };
+  $sLabel = match($waStatus) { 'CONNECTED' => 'Terhubung', 'WAITING_QR' => 'Menunggu QR', 'DISCONNECTED' => 'Terputus', 'LOGGED_OUT' => 'Sesi Keluar', default => 'Tidak Diketahui' };
   ?>
   <div class="alert alert-light border d-flex align-items-center gap-3 mb-4">
     <span class="badge <?= $sBadge ?> fs-6"><?= $sLabel ?></span>
@@ -553,8 +553,8 @@ function guideFetchQr() {
     .then(data => {
       const status = (data.status || 'UNKNOWN').toUpperCase();
       const badge  = document.getElementById('guide-qr-status-badge');
-      const labelMap = { CONNECTED: 'Terhubung', WAITING_QR: 'Menunggu QR', DISCONNECTED: 'Terputus', UNKNOWN: 'Tidak Diketahui' };
-      const classMap = { CONNECTED: 'bg-success', WAITING_QR: 'bg-warning text-dark', DISCONNECTED: 'bg-danger', UNKNOWN: 'bg-secondary' };
+      const labelMap = { CONNECTED: 'Terhubung', WAITING_QR: 'Menunggu QR', DISCONNECTED: 'Terputus', LOGGED_OUT: 'Sesi Keluar', UNKNOWN: 'Tidak Diketahui' };
+      const classMap = { CONNECTED: 'bg-success', WAITING_QR: 'bg-warning text-dark', DISCONNECTED: 'bg-danger', LOGGED_OUT: 'bg-danger', UNKNOWN: 'bg-secondary' };
       badge.className = 'badge ' + (classMap[status] || 'bg-secondary');
       badge.textContent = labelMap[status] || status;
 

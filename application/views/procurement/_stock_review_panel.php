@@ -2,7 +2,7 @@
 <section class="card mb-3" id="procurementStockReview"
  data-url="<?= html_escape(site_url('procurement/division-po-sr/stock-preview')) ?>"
  data-csrf="<?= html_escape($reviewCsrf) ?>" data-request-id="<?= (int)($request_id ?? 0) ?>"
- data-verify="<?= !empty($can_verify) ? '1' : '0' ?>">
+ data-verify="<?= !empty($can_verify) ? '1' : '0' ?>" data-line-review="<?= !empty($line_review) ? '1' : '0' ?>">
  <div class="card-body">
   <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
    <h6 class="mb-0">Cek stok sebelum menyetujui kebutuhan</h6>
@@ -28,4 +28,4 @@
 <input type="hidden" name="procurement_csrf" value="<?= html_escape($reviewCsrf) ?>">
 <input type="hidden" name="stock_review_json" id="stockReviewJson" value="">
 <script src="<?= html_escape(base_url('assets/js/procurement-current-stock.js?v=20260920')) ?>" defer></script>
-<script src="<?= html_escape(base_url('assets/js/procurement-stock-review.js?v=20260920')) ?>" defer></script>
+<script src="<?= html_escape(base_url('assets/js/procurement-stock-review.js?v=20260923line')) ?>" defer></script>

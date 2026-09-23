@@ -18,7 +18,7 @@ function fixture(verify=true,absent=false){
     const document={listeners:{},getElementById:id=>({procurementStockReview:absent?null:panel,divisionRequestForm:form,fieldLinesJson:lines,stockReviewJson:hidden})[id],
         createElement:element,addEventListener(type,fn){this.listeners[type]=fn;}};
     const requests=[],timers=new Map();let timerId=0;
-    vm.runInNewContext(source,{document,AbortController,fetch:(url,options)=>new Promise((resolve,reject)=>{
+    vm.runInNewContext(source,{document,window:{},AbortController,fetch:(url,options)=>new Promise((resolve,reject)=>{
         requests.push({url,options,resolve}); options.signal?.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'})));
     }), setTimeout:(fn,ms)=>{timers.set(++timerId,{fn,ms});return timerId;},clearTimeout:id=>timers.delete(id)});
     const finish=async(data,index=requests.length-1,httpOk=true)=>{requests[index].resolve({ok:httpOk,json:async()=>data}); await new Promise(setImmediate);};

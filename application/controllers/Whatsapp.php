@@ -39,6 +39,8 @@ class Whatsapp extends MY_Controller
     private const WA_GROUP_COMMAND_TOKEN_CI_HEADER = 'X-Finance-Group-Command-Token';
     private const WA_GROUP_COMMAND_LEGACY_CI_HEADER = 'X-Sync-Token';
     private const WA_ENGINE_API_TOKEN_ENV = 'FINANCE_WA_ENGINE_API_TOKEN';
+    private const WA_ENGINE_COMMAND_URL_ENV = 'FINANCE_COMMAND_URL';
+    private const WA_ENGINE_SECRET_FILE = '/etc/finance-wa-engine.env';
     private const WA_ENGINE_API_TOKEN_HEADER = 'X-Finance-Wa-Engine-Token';
     private const WA_ENV_FIELDS = ['WA_PORT', 'DB_HOST', 'DB_USER', 'DB_PASS', 'DB_NAME'];
     private const WA_ENV_SECRET_FIELDS = ['DB_PASS'];
@@ -1709,7 +1711,7 @@ class Whatsapp extends MY_Controller
                     if (!$this->personalOutboundEnabled()) return ['ok' => false, 'status' => 'FAILED'];
                     return $this->callBotApi('/internal/send', 'POST', ['to' => $row['destination'], 'message' => $row['message_text']]);
                 }
-                return $this->callBotApi('/internal/send-group', 'POST', ['group_jid' => $row['destination'], 'message' => $row['message_text']]);
+                return $this->callBotApi('/internal/send-group', 'POST', ['group_jid' => $row['destination'], 'message' => $row['message_text'], 'document_path' => $row['attachment_path'] ?? null, 'document_name' => $row['attachment_name'] ?? null]);
             });
         } catch (Throwable $error) {
             log_message('error', 'Module notification WA worker failed; queue evidence retained.');
@@ -1889,7 +1891,7 @@ class Whatsapp extends MY_Controller
             return false;
         }
 
-        $expectedToken = trim((string)getenv(self::WA_GROUP_COMMAND_TOKEN_ENV));
+        $expectedToken = $this->waEngineSecretValue(self::WA_GROUP_COMMAND_TOKEN_ENV);
         if ($expectedToken === '') {
             $this->reject_wa_group_command_service_auth(403, 'Credential command tidak valid.');
             return false;
@@ -1921,16 +1923,36 @@ class Whatsapp extends MY_Controller
     {
         $this->require_permission(self::PAGE_SETTINGS, 'view');
         $result = $this->callBotApi('/internal/qr', 'GET');
-        if (($result['ok'] ?? false) === false) {
+        if (($result['ok'] ?? false) === true) {
+            $this->jsonOut($result);
+            return;
+        }
+
+        // Token internal dapat belum tersedia pada process manager, sedangkan
+        // engine tetap sehat dan sudah menyimpan QR terbaru di wa_session.
+        // Jangan pernah melayani QR cache bila engine mati agar QR kedaluwarsa
+        // tidak disalahartikan sebagai QR aktif.
+        if ($this->engineHealthCheck(1)) {
+            $session = $this->waSession();
+            $qr = trim((string)($session['qr_data'] ?? ''));
             $this->jsonOut([
-                'ok'      => false,
-                'status'  => 'ENGINE_OFFLINE',
-                'has_qr'  => false,
-                'message' => 'wa-engine tidak dapat dijangkau. Jalankan atau restart engine untuk membuat QR baru.',
+                'ok'     => true,
+                'status' => (string)($session['status'] ?? 'UNKNOWN'),
+                'qr'     => $qr !== '' ? $qr : null,
+                'has_qr' => $qr !== '',
+                'message' => $qr !== ''
+                    ? 'QR aktif diambil dari status engine.'
+                    : 'Engine aktif, menunggu QR baru dari WhatsApp.',
             ]);
             return;
         }
-        $this->jsonOut($result);
+
+        $this->jsonOut([
+            'ok'      => false,
+            'status'  => 'ENGINE_OFFLINE',
+            'has_qr'  => false,
+            'message' => 'wa-engine tidak dapat dijangkau. Jalankan atau restart engine untuk membuat QR baru.',
+        ]);
     }
 
     // JSON API — cek apakah proses wa-engine berjalan
@@ -2870,7 +2892,7 @@ class Whatsapp extends MY_Controller
 
     private function callBotApi(string $endpoint, string $method = 'GET', array $payload = [], int $timeout = 8): array
     {
-        $serviceToken = trim((string)getenv(self::WA_ENGINE_API_TOKEN_ENV));
+        $serviceToken = $this->waEngineSecretValue(self::WA_ENGINE_API_TOKEN_ENV);
         if ($serviceToken === '' || preg_match('/[\x00-\x1F\x7F]/', $serviceToken)) {
             return ['ok' => false, 'status' => 'FAILED', 'message' => 'Credential internal WA Bot belum dikonfigurasi.'];
         }
@@ -5765,11 +5787,42 @@ class Whatsapp extends MY_Controller
             }
         }
 
+        // Secrets stay outside the document root. They are injected only into
+        // the child process and are never written to wa-engine/.env or output.
+        foreach ([self::WA_ENGINE_API_TOKEN_ENV, self::WA_GROUP_COMMAND_TOKEN_ENV, self::WA_ENGINE_COMMAND_URL_ENV] as $secretKey) {
+            $secretValue = $this->waEngineSecretValue($secretKey);
+            if ($secretValue !== '') {
+                $values[$secretKey] = $secretValue;
+            }
+        }
+
         $str = '';
         foreach ($values as $key => $value) {
             $str .= $key . '=' . escapeshellarg($value) . ' ';
         }
         return $str;
+    }
+
+    /** Read one process secret from environment or the root-managed runtime file. */
+    private function waEngineSecretValue(string $key): string
+    {
+        $value = trim((string)getenv($key));
+        if ($value !== '') {
+            return preg_match('/[\x00-\x1F\x7F]/', $value) ? '' : $value;
+        }
+
+        $path = self::WA_ENGINE_SECRET_FILE;
+        if (!is_readable($path)) {
+            return '';
+        }
+        foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            if (!preg_match('/^' . preg_quote($key, '/') . '=(.+)$/D', trim($line), $matches)) {
+                continue;
+            }
+            $value = trim((string)$matches[1]);
+            return preg_match('/[\x00-\x1F\x7F]/', $value) ? '' : $value;
+        }
+        return '';
     }
 
     private function engineScriptPath(): string

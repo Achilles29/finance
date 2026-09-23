@@ -35,4 +35,18 @@ $renderer=new ProcurementViewFixture();$result=[];
 foreach(['division'=>'procurement/division_po_sr_form','sr'=>'procurement/store_request_form','po'=>'purchase/order_create','print'=>'procurement/division_po_sr_print'] as $key=>$view) {
     $result[$key]=$renderer->view($view,$common,true);
 }
+$result['division_verify']=$renderer->view('procurement/division_po_sr_form',array_replace($common,[
+ 'mode'=>'verify','can_verify'=>true,'request_id'=>12,
+ 'vendor_options'=>[['id'=>2,'vendor_name'=>'Vendor fixture']],
+ 'lines'=>[
+   $line+['id'=>21,'review_status'=>'PENDING'],
+   array_replace($line,['id'=>22,'line_no'=>2,'profile_name'=>'Rincian kedua','review_status'=>'PENDING']),
+   array_replace($line,['id'=>23,'line_no'=>3,'profile_name'=>'Rincian ditolak','review_status'=>'REJECTED','review_notes'=>'Tidak dibutuhkan']),
+   array_replace($line,['id'=>24,'line_no'=>4,'profile_name'=>'Rincian selesai','review_status'=>'VERIFIED'])
+ ]]),true);
+$staticHeader=['id'=>12,'request_no'=>'TEST-001','request_date'=>date('Y-m-d'),'division_name'=>'BAR','destination_type'=>'BAR','status'=>'SUBMITTED','line_total'=>1,'pending_count'=>1];
+$staticLine=$line+['id'=>21,'line_id'=>21,'review_status'=>'PENDING','status'=>'SUBMITTED'];
+$result['division_detail']=$renderer->view('procurement/division_po_sr_detail',array_replace($common,['can_verify'=>true,'detail'=>['header'=>$staticHeader,'lines'=>[$staticLine],'links'=>[]]]),true);
+$result['division_list']=$renderer->view('procurement/division_po_sr',array_replace($common,['can_verify'=>true,'rows'=>[$staticHeader],'line_rows'=>[$staticLine]]),true);
+$result['division_list_lines']=$renderer->view('procurement/division_po_sr',array_replace($common,['can_verify'=>true,'active_tab'=>'lines','rows'=>[$staticHeader],'line_rows'=>[$staticLine]]),true);
 echo json_encode($result,JSON_THROW_ON_ERROR);

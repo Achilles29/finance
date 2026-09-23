@@ -23,6 +23,57 @@ class Procurement_model extends CI_Model
         return $this->db->field_exists('request_uom_mode', 'pur_division_request_line');
     }
 
+    public function has_division_line_review_schema(): bool
+    {
+        return $this->db->field_exists('review_notes', 'pur_division_request_line')
+            && $this->db->field_exists('request_line_id', 'pur_division_request_link')
+            && $this->db->field_exists('request_line_id', 'pur_division_stock_review');
+    }
+
+    private function division_request_review_status(int $requestId): string
+    {
+        $rows = $this->db->query('SELECT review_status FROM pur_division_request_line WHERE request_id=?', [$requestId])->result_array();
+        $statuses = array_column($rows, 'review_status');
+        if (in_array('PENDING', $statuses, true)) return 'SUBMITTED';
+        return in_array('VERIFIED', $statuses, true) ? 'VERIFIED' : 'REJECTED';
+    }
+
+    public function decide_division_request_line(int $requestId, int $lineId, string $action, array $payload, int $userId, string $sourceIp = ''): array
+    {
+        if (!$this->has_division_line_review_schema()) {
+            return ['ok'=>false, 'message'=>'Pembaruan verifikasi per rincian belum terpasang. Jalankan SQL 2026-09-23c.'];
+        }
+        if ($action === 'VERIFY') {
+            $header = $this->db->query('SELECT * FROM pur_division_request WHERE id=?', [$requestId])->row_array();
+            if (!$header) return ['ok'=>false, 'message'=>'Pengajuan tidak ditemukan.'];
+            $header['stock_review'] = $payload['stock_review'] ?? [];
+            return $this->verify_division_request($requestId, $header, [$payload['line'] ?? []], $userId, $sourceIp, $lineId);
+        }
+        if (!in_array($action, ['REJECT', 'REOPEN'], true)) return ['ok'=>false, 'message'=>'Aksi rincian tidak valid.'];
+        $reason = trim((string)($payload['reason'] ?? ''));
+        if (strlen($reason)<3 || mb_strlen($reason)>1000) return ['ok'=>false, 'message'=>'Isi alasan 3 sampai 1.000 karakter.'];
+        if ($this->db->trans_begin() === false) return ['ok'=>false, 'message'=>'Transaksi belum dapat dimulai.'];
+        try {
+            $header = $this->db->query('SELECT * FROM pur_division_request WHERE id=? FOR UPDATE', [$requestId])->row_array();
+            $line = $this->db->query('SELECT * FROM pur_division_request_line WHERE id=? AND request_id=? FOR UPDATE', [$lineId,$requestId])->row_array();
+            $expected = $action === 'REJECT' ? 'PENDING' : 'REJECTED';
+            if (!$header || $header['status']==='VOID' || !$line || $line['review_status']!==$expected) {
+                throw new RuntimeException('Rincian sudah diproses atau tidak dapat diubah. Muat ulang halaman.');
+            }
+            $this->db->where('id',$lineId)->update('pur_division_request_line', [
+                'review_status'=>$action==='REJECT'?'REJECTED':'PENDING', 'reviewed_by'=>$userId,
+                'reviewed_at'=>date('Y-m-d H:i:s'), 'review_notes'=>$reason,
+            ]);
+            $status = $this->division_request_review_status($requestId);
+            $this->db->where('id',$requestId)->update('pur_division_request', ['status'=>$status,'updated_at'=>date('Y-m-d H:i:s')]);
+            if (!$this->db->trans_status() || !$this->db->trans_commit()) throw new RuntimeException('Keputusan rincian gagal disimpan.');
+            return ['ok'=>true,'message'=>$action==='REJECT'?'Rincian ditolak. Rincian lainnya tidak berubah.':'Rincian dibuka kembali untuk verifikasi.', 'status'=>$status];
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            return ['ok'=>false,'message'=>$e instanceof RuntimeException?$e->getMessage():'Keputusan rincian gagal disimpan.'];
+        }
+    }
+
     private function has_division_request_vendor_column(): bool
     {
         return $this->db->field_exists('vendor_id', 'pur_division_request_line');
@@ -1171,6 +1222,11 @@ class Procurement_model extends CI_Model
             ->join('(SELECT request_id, COUNT(*) AS line_total, SUM(qty_content_requested) AS qty_total FROM pur_division_request_line GROUP BY request_id) la', 'la.request_id = r.id', 'left', false)
             ->join("(SELECT request_id, SUM(CASE WHEN doc_type='SR' THEN 1 ELSE 0 END) AS sr_count, SUM(CASE WHEN doc_type='PO' THEN 1 ELSE 0 END) AS po_count FROM pur_division_request_link GROUP BY request_id) ln", 'ln.request_id = r.id', 'left', false);
 
+        if ($this->has_division_line_review_schema()) {
+            $this->db->select('COALESCE(rv.verified_count,0) AS verified_count, COALESCE(rv.rejected_count,0) AS rejected_count, COALESCE(rv.pending_count,0) AS pending_count',false)
+                ->join("(SELECT request_id, SUM(review_status='VERIFIED') AS verified_count, SUM(review_status='REJECTED') AS rejected_count, SUM(review_status='PENDING') AS pending_count FROM pur_division_request_line GROUP BY request_id) rv",'rv.request_id=r.id','left',false);
+        }
+
         if ($q !== '') {
             $this->db->group_start()
                 ->like('r.request_no', $q)
@@ -1236,6 +1292,7 @@ class Procurement_model extends CI_Model
             $this->db->select('l.request_uom_mode');
         }
         if ($this->has_division_request_usage_purpose_column()) $this->db->select('l.usage_purpose');
+        if ($this->has_division_line_review_schema()) $this->db->select('l.review_status, l.review_notes');
 
         if ($q !== '') {
             $this->db->group_start()
@@ -1549,6 +1606,13 @@ class Procurement_model extends CI_Model
 
         $lockedQuery = $this->db->query('SELECT * FROM pur_division_request WHERE id=? FOR UPDATE', [$requestId]);
         $locked = $lockedQuery ? $lockedQuery->row_array() : [];
+        if ($this->has_division_line_review_schema()) {
+            $decided = $this->db->query('SELECT id FROM pur_division_request_line WHERE request_id=? AND reviewed_at IS NOT NULL LIMIT 1',[$requestId])->row_array();
+            if ($decided) {
+                $this->db->trans_rollback();
+                return ['ok'=>false,'message'=>'Sebagian rincian sudah ditinjau. Gunakan aksi per rincian agar keputusan sebelumnya tetap tersimpan.'];
+            }
+        }
         if (!$locked || !in_array(strtoupper((string)$locked['status']), ['SUBMITTED','REJECTED'], true)
             || (string)($locked['updated_at'] ?? '') !== (string)($existing['updated_at'] ?? '')
             || (int)$this->db->where('request_id',$requestId)->count_all_results('pur_division_request_link') > 0) {
@@ -1692,14 +1756,15 @@ class Procurement_model extends CI_Model
         $params = [$id];
         if ($type==='REQUEST') $sql .= ' WHERE v.request_id=?';
         else {
-            $sql .= ' WHERE EXISTS (SELECT 1 FROM pur_division_request_link l WHERE l.request_id=v.request_id AND l.doc_id=? AND l.doc_type=?)';
+            $lineMatch = $this->has_division_line_review_schema() ? ' AND (v.request_line_id=0 OR l.request_line_id=v.request_line_id)' : '';
+            $sql .= ' WHERE EXISTS (SELECT 1 FROM pur_division_request_link l WHERE l.request_id=v.request_id AND l.doc_id=? AND l.doc_type=?'.$lineMatch.')';
             $params[] = $type;
         }
         $query = $this->db->query($sql.' ORDER BY v.id DESC LIMIT 10',$params);
         return $query ? $query->result_array() : [];
     }
 
-    public function verify_division_request(int $requestId, array $header, array $lines, int $userId, string $sourceIp = ''): array
+    public function verify_division_request(int $requestId, array $header, array $lines, int $userId, string $sourceIp = '', int $requestLineId = 0): array
     {
         if (!$this->has_division_request_schema()) {
             return ['ok' => false, 'message' => 'Schema PO/SR Divisi belum tersedia.'];
@@ -1709,6 +1774,13 @@ class Procurement_model extends CI_Model
         }
         if ($requestId <= 0) {
             return ['ok' => false, 'message' => 'Request ID tidak valid.'];
+        }
+
+        if ($this->has_division_line_review_schema() && $requestLineId <= 0) {
+            return ['ok'=>false,'message'=>'Gunakan tombol Verifikasi pada masing-masing rincian.'];
+        }
+        if ($requestLineId > 0 && (!$this->has_division_line_review_schema() || count($lines)!==1)) {
+            return ['ok'=>false,'message'=>'Data verifikasi rincian tidak valid.'];
         }
 
         $existing = $this->db
@@ -1782,6 +1854,14 @@ class Procurement_model extends CI_Model
             $this->db->trans_rollback();
             return ['ok'=>false,'message'=>'Pengajuan sudah berubah atau diverifikasi pengguna lain. Muat ulang halaman.'];
         }
+        $lockedLine = null;
+        if ($requestLineId > 0) {
+            $lockedLine = $this->db->query('SELECT * FROM pur_division_request_line WHERE id=? AND request_id=? FOR UPDATE', [$requestLineId,$requestId])->row_array();
+            if (!$lockedLine || $lockedLine['review_status']!=='PENDING') {
+                $this->db->trans_rollback();
+                return ['ok'=>false,'message'=>'Rincian sudah diproses. Muat ulang halaman; dokumen tidak digandakan.'];
+            }
+        }
         try {
             $snapshot = $reviewService->snapshot($reviewContext,$lineRows);
             $reviewEvidence = $reviewService->validate($snapshot,$confirmation,time());
@@ -1790,6 +1870,7 @@ class Procurement_model extends CI_Model
             return ['ok'=>false,'message'=>$e instanceof InvalidArgumentException ? $e->getMessage() : 'Pemeriksaan stok gagal. Tidak ada verifikasi yang disimpan.'];
         }
         if ($reviewEvidence) {
+            if ($requestLineId > 0) $reviewEvidence['request_line_id'] = $requestLineId;
             $savedReview = $this->db->insert('pur_division_stock_review',$reviewEvidence+[
                 'request_id'=>$requestId,'reviewed_by'=>$userId,'reviewed_at'=>date('Y-m-d H:i:s'),
                 'source_ip'=>substr($sourceIp,0,45)]);
@@ -1799,11 +1880,22 @@ class Procurement_model extends CI_Model
             }
         }
 
-        $this->db->where('request_id', $requestId)->delete('pur_division_request_link');
-        $this->db->where('request_id', $requestId)->delete('pur_division_request_line');
-        foreach ($insertLines as $row) {
-            $row['request_id'] = $requestId;
-            $this->db->insert('pur_division_request_line', $row);
+        if ($requestLineId > 0) {
+            $row = $insertLines[0];
+            unset($row['created_at']);
+            $row['line_no'] = (int)$lockedLine['line_no'];
+            $row['review_status'] = 'VERIFIED';
+            $row['reviewed_by'] = $userId;
+            $row['reviewed_at'] = date('Y-m-d H:i:s');
+            $row['review_notes'] = null;
+            $this->db->where('id',$requestLineId)->where('request_id',$requestId)->update('pur_division_request_line', $row);
+        } else {
+            $this->db->where('request_id', $requestId)->delete('pur_division_request_link');
+            $this->db->where('request_id', $requestId)->delete('pur_division_request_line');
+            foreach ($insertLines as $row) {
+                $row['request_id'] = $requestId;
+                $this->db->insert('pur_division_request_line', $row);
+            }
         }
 
         $createdSr = null;
@@ -1829,7 +1921,7 @@ class Procurement_model extends CI_Model
             }
 
             $createdSr = ['id' => $srId, 'no' => (string)($createSr['sr_no'] ?? '')];
-            $this->db->insert('pur_division_request_link', [
+            $this->db->insert('pur_division_request_link', ($requestLineId > 0 ? ['request_line_id'=>$requestLineId] : []) + [
                 'request_id' => $requestId,
                 'doc_type' => 'SR',
                 'doc_id' => $srId,
@@ -1879,7 +1971,7 @@ class Procurement_model extends CI_Model
                     'no' => (string)($poData['po_no'] ?? ''),
                     'vendor_id' => (int)$vendorId,
                 ];
-                $this->db->insert('pur_division_request_link', [
+                $this->db->insert('pur_division_request_link', ($requestLineId > 0 ? ['request_line_id'=>$requestLineId] : []) + [
                     'request_id' => $requestId,
                     'doc_type' => 'PO',
                     'doc_id' => $poId,
@@ -1896,7 +1988,7 @@ class Procurement_model extends CI_Model
                 'needed_date' => $neededDate,
                 'division_id' => $divisionId,
                 'destination_type' => $destinationType,
-                'status' => 'VERIFIED',
+                'status' => $requestLineId > 0 ? $this->division_request_review_status($requestId) : 'VERIFIED',
                 'notes' => $notes,
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);
@@ -1937,6 +2029,9 @@ class Procurement_model extends CI_Model
         if (!in_array($action, ['REJECT', 'VOID'], true)) {
             return ['ok' => false, 'message' => 'Aksi pengajuan divisi tidak valid.'];
         }
+        if ($action==='REJECT' && $this->has_division_line_review_schema()) {
+            return ['ok'=>false,'message'=>'Gunakan tombol Tolak pada masing-masing rincian.'];
+        }
 
         $header = $this->db
             ->from('pur_division_request')
@@ -1959,6 +2054,17 @@ class Procurement_model extends CI_Model
         $nextStatus = $action === 'REJECT' ? 'REJECTED' : 'VOID';
         $mergedNotes = $this->merge_division_request_notes((string)($header['notes'] ?? ''), $notes, $nextStatus);
 
+        if (!$this->db->trans_begin()) return ['ok'=>false,'message'=>'Transaksi belum dapat dimulai.'];
+        $locked = $this->db->query('SELECT status FROM pur_division_request WHERE id=? FOR UPDATE',[$requestId])->row_array();
+        $linked = $this->db->query('SELECT id FROM pur_division_request_link WHERE request_id=? LIMIT 1',[$requestId])->row_array();
+        if (!$locked || $locked['status']!==$status || $linked) {
+            $this->db->trans_rollback();
+            return ['ok'=>false,'message'=>'Pengajuan sudah diproses atau memiliki SR/PO. Muat ulang dan kelola rincian yang masih menunggu.'];
+        }
+        if ($this->has_division_line_review_schema()) {
+            $this->db->where('request_id',$requestId)->update('pur_division_request_line',['review_status'=>$nextStatus]);
+        }
+
         $this->db
             ->where('id', $requestId)
             ->update('pur_division_request', [
@@ -1967,7 +2073,8 @@ class Procurement_model extends CI_Model
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);
 
-        if ((int)($this->db->error()['code'] ?? 0) !== 0) {
+        if (!$this->db->trans_status() || !$this->db->trans_commit()) {
+            $this->db->trans_rollback();
             return ['ok' => false, 'message' => 'Gagal memproses aksi pengajuan divisi.'];
         }
 

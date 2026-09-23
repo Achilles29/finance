@@ -11,7 +11,7 @@ class Module_notification_model extends CI_Model
         if ($this->schemaReady) return true;
         $required = [
             'app_notification_rule' => ['channel','event_code','is_enabled','order_start_id','targets_json','updated_by','updated_at','last_worker_at'],
-            'app_notification_queue' => ['id','delivery_key','channel','event_code','source_id','target_key','destination','target_label','message_text','status','attempts','claimed_at','sent_at','last_error','created_by','created_at'],
+            'app_notification_queue' => ['id','delivery_key','channel','event_code','source_id','target_key','destination','target_label','message_text','attachment_path','attachment_name','status','attempts','claimed_at','sent_at','last_error','created_by','created_at'],
         ];
         foreach ($required as $table => $columns) {
             if (!$this->db->table_exists($table) || array_diff($columns, $this->db->list_fields($table))) return false;
@@ -187,7 +187,7 @@ class Module_notification_model extends CI_Model
         return $result;
     }
 
-    public function enqueue_division(string $channel, array $detail, int $actor): array
+    public function enqueue_division(string $channel, array $detail, int $actor, array $attachment = []): array
     {
         if (!in_array($channel, $this->enabled_channels(), true)) throw new RuntimeException('Kanal notifikasi ini belum diaktifkan atau tujuannya sudah tidak aktif.');
         $header = $detail['header'];
@@ -196,22 +196,25 @@ class Module_notification_model extends CI_Model
         }
         $id = (int)$header['id'];
         $message = Module_notification::message('DIVISION_REQUEST', $header, $detail['lines'], site_url('procurement/division-po-sr/detail/' . $id));
-        $revision = hash('sha256', $message);
+        // PDF is a distinct delivery revision from the legacy text-only
+        // notification, but remains idempotent when the same button is clicked again.
+        $revision = hash('sha256', $message . '|' . (!empty($attachment['name']) ? 'pdf-v1' : 'text-v1'));
         $rule = $this->rules($channel)['DIVISION_REQUEST'];
         $count = 0;
         foreach ($this->live_targets($channel, $rule) as $key => $target) {
-            $count += $this->enqueue($channel, 'DIVISION_REQUEST', $id, $key, $target, $message, $actor, $revision);
+            $count += $this->enqueue($channel, 'DIVISION_REQUEST', $id, $key, $target, $message, $actor, $revision, $attachment);
         }
         return ['ok' => true, 'message' => $count > 0
             ? 'Pengajuan masuk antrean ' . $channel . '. Status kirim tersedia di pengaturan kanal.'
             : 'Pengajuan yang sama sudah tercatat di antrean. Tidak dikirim ganda; periksa status di pengaturan kanal.'];
     }
 
-    private function enqueue(string $channel, string $event, int $id, string $key, array $target, string $message, int $actor = 0, string $revision = ''): int
+    private function enqueue(string $channel, string $event, int $id, string $key, array $target, string $message, int $actor = 0, string $revision = '', array $attachment = []): int
     {
-        $ok = $this->db->query('INSERT INTO app_notification_queue (delivery_key,channel,event_code,source_id,target_key,destination,target_label,message_text,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,NOW()) ON DUPLICATE KEY UPDATE delivery_key=VALUES(delivery_key)', [
+        $ok = $this->db->query("INSERT INTO app_notification_queue (delivery_key,channel,event_code,source_id,target_key,destination,target_label,message_text,attachment_path,attachment_name,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW()) ON DUPLICATE KEY UPDATE message_text=IF(status='PENDING', VALUES(message_text), message_text), attachment_path=IF(status='PENDING', VALUES(attachment_path), attachment_path), attachment_name=IF(status='PENDING', VALUES(attachment_name), attachment_name)", [
             Module_notification::key($channel, $event, $id, $key, $revision), $channel, $event, $id, $key,
-            $target['destination'], mb_substr($target['label'], 0, 190), $message, $actor ?: null,
+            $target['destination'], mb_substr($target['label'], 0, 190), $message,
+            $attachment['path'] ?? null, $attachment['name'] ?? null, $actor ?: null,
         ]);
         if (!$ok) throw new RuntimeException('Notifikasi belum masuk antrean. Coba kembali.');
         return $this->db->affected_rows() === 1 ? 1 : 0;

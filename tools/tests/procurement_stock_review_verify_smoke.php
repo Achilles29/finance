@@ -65,8 +65,8 @@ class ReviewVerifyPurchase {
     public bool $fail=false;public int $calls=0;
     public function __construct(private $db){}
     public function store_order_with_lines($header,$lines,$user,$ip):array{
-        $this->calls++;$this->db->insert('fixture_po',['id'=>91,'vendor_id'=>$header['vendor_id']]);
-        return $this->fail?['ok'=>false,'message'=>'synthetic failure']:['ok'=>true,'data'=>['purchase_order_id'=>91,'po_no'=>'PO-FIXTURE']];
+        $id=91+$this->calls++;$this->db->insert('fixture_po',['id'=>$id,'vendor_id'=>$header['vendor_id']]);
+        return $this->fail?['ok'=>false,'message'=>'synthetic failure']:['ok'=>true,'data'=>['purchase_order_id'=>$id,'po_no'=>'PO-FIXTURE']];
     }
 }
 function fixture():array{
@@ -206,4 +206,62 @@ foreach ([Procurement::class=>'store_request_stock_preview',Purchase::class=>'or
         $check(!str_contains($controller->output->body,'sensitive fixture'),$class.' manual stock no debug leakage');
     }
 }
+// Independent decisions must preserve sibling lines, links and stock evidence.
+function lineFixture():array {
+    [$m,$db,$header,$lines]=fixture();
+    $db->pdo->exec("ALTER TABLE pur_division_request_line ADD COLUMN review_status TEXT DEFAULT 'PENDING';
+        ALTER TABLE pur_division_request_line ADD COLUMN reviewed_by INTEGER;
+        ALTER TABLE pur_division_request_line ADD COLUMN reviewed_at TEXT;
+        ALTER TABLE pur_division_request_line ADD COLUMN review_notes TEXT;
+        ALTER TABLE pur_division_request_link ADD COLUMN request_line_id INTEGER;
+        DROP TABLE pur_division_stock_review;
+        CREATE TABLE pur_division_stock_review(id INTEGER PRIMARY KEY,request_id INTEGER,request_line_id INTEGER DEFAULT 0,reviewed_by INTEGER,reviewed_at TEXT,source_ip TEXT,confirmed_with TEXT,reason TEXT,snapshot_hash TEXT,snapshot_json TEXT,UNIQUE(request_id,request_line_id));
+        INSERT INTO pur_division_request_line(id,request_id,line_no,profile_name) VALUES(2,12,2,'second line');
+        INSERT INTO pur_division_request_line(id,request_id,line_no,profile_name) VALUES(3,99,1,'foreign line');");
+    return [$m,$db,$header,$lines];
+}
+function lineConfirmation($m,$db,$lines):array {
+    $header=$db->query('SELECT * FROM pur_division_request WHERE id=12')->row_array();
+    $preview=$m->preview_division_stock(12,$header,$lines,7);
+    return ['token'=>$preview['data']['token'],'confirmed'=>true,'confirmed_with'=>'Kepala BAR','reason'=>'Kebutuhan telah dikonfirmasi untuk event'];
+}
+foreach (['success','wrong-parent','repeat','po-failed','reject','reopen','all-rejected','stale-status','two-verified'] as $case) {
+    [$m,$db,$header,$lines]=lineFixture();
+    $payload=['line'=>$lines[0],'stock_review'=>lineConfirmation($m,$db,$lines)];
+    if ($case==='po-failed') $m->Purchase_model->fail=true;
+    if ($case==='stale-status') $db->onBegin=static fn($d)=>$d->pdo->exec("UPDATE pur_division_request_line SET review_status='REJECTED' WHERE id=1");
+    $r=$m->decide_division_request_line(12,$case==='wrong-parent'?3:1,'VERIFY',$payload,7);
+    $success=!in_array($case,['wrong-parent','po-failed','stale-status'],true);
+    $check($r['ok']===$success,'line '.$case.' result');
+    $check($count($db,'fixture_po')===($success?1:0),'line '.$case.' atomic documents');
+    $check($count($db,'pur_division_request_line')===3,'line '.$case.' preserves all IDs');
+    $check($db->query('SELECT review_status FROM pur_division_request_line WHERE id=2')->row_array()['review_status']==='PENDING','line '.$case.' leaves sibling pending');
+    $check($db->query('SELECT status FROM pur_division_request')->row_array()['status']==='SUBMITTED','line '.$case.' parent remains open');
+    $check(!$db->pdo->inTransaction(),'line '.$case.' transaction closed');
+    if ($case==='repeat') {
+        $payload['stock_review']=lineConfirmation($m,$db,$lines);
+        $check(!$m->decide_division_request_line(12,1,'VERIFY',$payload,7)['ok'] && $count($db,'fixture_po')===1,'repeat does not duplicate PO');
+    }
+    if (in_array($case,['reject','reopen'],true)) {
+        $check($m->decide_division_request_line(12,2,'REJECT',['reason'=>'Barang tidak diperlukan'],7)['ok'],'reject only pending sibling');
+        $check($db->query('SELECT status FROM pur_division_request')->row_array()['status']==='VERIFIED','mixed completed decisions finalize parent');
+        $check($count($db,'fixture_po')===1 && $count($db,'pur_division_request_link')===1,'reject preserves verified document');
+        $check(!$m->decide_division_request_line(12,1,'REJECT',['reason'=>'No'],7)['ok'],'cannot reject verified line');
+        if ($case==='reopen') {
+            $check($m->decide_division_request_line(12,2,'REOPEN',['reason'=>'Kebutuhan tambahan dikonfirmasi'],7)['ok'],'reopen rejected line');
+            $check($db->query('SELECT status FROM pur_division_request')->row_array()['status']==='SUBMITTED','reopen parent without touching prior docs');
+        }
+    }
+    if ($case==='two-verified') {
+        $payload['stock_review']=lineConfirmation($m,$db,$lines);
+        $check($m->decide_division_request_line(12,2,'VERIFY',$payload,7)['ok'],'second line verifies independently');
+        $check($count($db,'pur_division_stock_review')===2 && $count($db,'fixture_po')===2,'separate evidence and documents');
+        $check(count($m->stock_review_history('PO',91))===1 && count($m->stock_review_history('PO',92))===1,'each PO gets only its own review');
+        $check($db->query('SELECT status FROM pur_division_request')->row_array()['status']==='VERIFIED','all verified parent');
+    }
+}
+[$m,$db,$header,$lines]=lineFixture();
+$check($m->decide_division_request_line(12,1,'REJECT',['reason'=>'Tidak dibutuhkan'],7)['ok'],'reject first line');
+$check($m->decide_division_request_line(12,2,'REJECT',['reason'=>'Tidak dibutuhkan'],7)['ok'],'reject second line');
+$check($db->query('SELECT status FROM pur_division_request')->row_array()['status']==='REJECTED' && $count($db,'fixture_po')===0,'all rejected creates no documents');
 echo "Procurement stock review verification: {$checks} PASS (SQLite; PO boundary stub, no live DB or MariaDB lock simulation).\n";

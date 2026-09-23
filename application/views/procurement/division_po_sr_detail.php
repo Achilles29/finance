@@ -94,7 +94,7 @@ if (!function_exists('finance_dreq_usage_label')) {
 </div>
 
 <?php $this->load->view('purchase/_po_sr_tabs', ['po_sr_active' => 'division-po-sr']); ?>
-<?php if (!empty($notification_channels)): ?><script src="<?= base_url('assets/js/module-notifications.js') ?>" defer></script><?php endif; ?>
+<?php if (!empty($notification_channels)): ?><script src="<?= base_url('assets/js/module-notifications.js') ?>?v=20260923pdf2" defer></script><?php endif; ?>
 
 <?php if ($this->session->flashdata('success')): ?>
   <div class="alert alert-success"><?php echo html_escape((string)$this->session->flashdata('success')); ?></div>
@@ -190,46 +190,44 @@ if (!function_exists('finance_dreq_usage_label')) {
     <h6 class="mb-0">Line Pengajuan</h6>
   </div>
   <div class="table-responsive">
-    <table class="table table-striped mb-0">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Profile</th>
-          <th>Stok sekarang<br><small>Divisi / Gudang • satuan isi</small></th>
-          <th>Pemakaian</th>
-          <th>Vendor PO</th>
-          <th>UOM</th>
-          <th class="text-end">Qty Beli</th>
-          <th class="text-end">Qty Isi</th>
-          <th class="text-end">Snapshot gudang saat pengajuan</th>
-          <th class="text-end">Route SR</th>
-          <th class="text-end">Route PO</th>
-          <th>Catatan</th>
-        </tr>
-      </thead>
+    <table class="table table-striped mb-0 dreq-detail-table">
+      <thead><tr>
+        <th>Barang / Jenis</th><th>Stok sekarang</th><th>Jumlah / Satuan</th>
+        <th>Pemakaian / Vendor</th><th>Alokasi SR / PO</th><th>Status / Catatan</th><th>Aksi</th>
+      </tr></thead>
       <tbody>
-        <?php if (empty($lines)): ?>
-          <tr><td colspan="12" class="text-center text-muted py-4">Belum ada line pengajuan.</td></tr>
-        <?php else: ?>
-          <?php foreach ($lines as $line): ?>
-            <tr>
-              <td><?php echo (int)($line['line_no'] ?? 0); ?></td>
-              <td>
-                <div class="fw-semibold"><?php echo html_escape((string)($line['profile_name'] ?? '-')); ?></div>
-              </td>
-              <td><?php $this->load->view('procurement/_current_stock', ['stock_line'=>$line]); ?></td>
-              <td><span class="badge bg-light text-dark border"><?php echo html_escape(finance_dreq_usage_label($line['usage_purpose'] ?? $line['default_usage_purpose'] ?? 'BAHAN_BAKU')); ?></span></td>
-              <td><?php echo html_escape((string)($line['vendor_name'] ?? '-')); ?></td>
-              <td><?php echo html_escape((string)($line['profile_buy_uom_code'] ?? '-')); ?> -> <?php echo html_escape((string)($line['profile_content_uom_code'] ?? '-')); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($line['qty_buy_requested'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($line['qty_content_requested'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($line['qty_content_available_snapshot'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($line['qty_content_to_sr'] ?? 0)); ?></td>
-              <td class="text-end"><?php echo ui_num((float)($line['qty_content_to_po'] ?? 0)); ?></td>
-              <td><?php echo html_escape((string)($line['notes'] ?? '')); ?></td>
-            </tr>
-          <?php endforeach; ?>
-        <?php endif; ?>
+      <?php if (!$lines): ?><tr><td colspan="7" class="text-center py-4">Belum ada rincian.</td></tr><?php endif; ?>
+      <?php foreach ($lines as $line):
+        $lineStatus = $line['review_status'] ?? ($header['status']==='SUBMITTED'?'PENDING':$header['status']);
+      ?>
+        <tr>
+          <td><strong><?= html_escape($line['profile_name'] ?? '-') ?></strong>
+            <div class="small text-muted"><?= html_escape($line['profile_brand'] ?? '') ?> / <?= html_escape($line['line_kind'] ?? '') ?></div>
+            <div class="small"><?= html_escape($line['profile_description'] ?? '') ?></div>
+          </td>
+          <td><?php $this->load->view('procurement/_current_stock', ['stock_line'=>$line]); ?></td>
+          <td><strong><?= ui_num($line['qty_buy_requested']) ?> <?= html_escape($line['profile_buy_uom_code'] ?? '') ?></strong>
+            <div class="small text-muted"><?= ui_num($line['qty_content_requested']) ?> <?= html_escape($line['profile_content_uom_code'] ?? '') ?></div>
+          </td>
+          <td><?= html_escape(finance_dreq_usage_label($line['usage_purpose'] ?? 'BAHAN_BAKU')) ?>
+            <div class="small text-muted">Vendor: <?= html_escape($line['vendor_name'] ?? '-') ?></div>
+            <div class="small">Rp <?= ui_num($line['estimated_unit_price'] ?? 0) ?> / <?= html_escape($line['profile_buy_uom_code'] ?? '') ?></div>
+          </td>
+          <td><?php if ($lineStatus==='REJECTED'): ?><span class="text-muted">Tidak diproses</span><?php else: ?>
+            <div>SR: <?= ui_num($line['qty_content_to_sr']) ?> <?= html_escape($line['profile_content_uom_code'] ?? '') ?></div>
+            <div>PO: <?= ui_num($line['qty_content_to_po']) ?> <?= html_escape($line['profile_content_uom_code'] ?? '') ?></div>
+            <?php endif; ?>
+          </td>
+          <td><span class="badge <?= finance_dreq_detail_badge($lineStatus==='PENDING'?'SUBMITTED':$lineStatus) ?>"><?= html_escape(['PENDING'=>'Menunggu','VERIFIED'=>'Terverifikasi','REJECTED'=>'Ditolak','VOID'=>'Void'][$lineStatus] ?? $lineStatus) ?></span>
+            <div class="small mt-1"><?= html_escape($line['review_notes'] ?? $line['notes'] ?? '') ?></div>
+            <div class="small text-muted"><?= html_escape($line['reviewed_at'] ?? '') ?></div>
+          </td>
+          <td><?php if ($canVerify && in_array($lineStatus,['PENDING','REJECTED'],true)): ?>
+            <a class="btn btn-sm btn-outline-success" href="<?= site_url('procurement/division-po-sr/edit/'.(int)$header['id']).'#dreq-line-'.(int)$line['id'] ?>">Tinjau</a>
+            <?php else: ?><span class="text-muted">-</span><?php endif; ?>
+          </td>
+        </tr>
+      <?php endforeach; ?>
       </tbody>
     </table>
   </div>

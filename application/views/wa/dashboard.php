@@ -11,12 +11,14 @@ $badgeClass = match($waStatus) {
     'CONNECTED'    => 'bg-success',
     'WAITING_QR'   => 'bg-warning',
     'DISCONNECTED' => 'bg-danger',
+    'LOGGED_OUT'   => 'bg-danger',
     default        => 'bg-secondary',
 };
 $badgeLabel = match($waStatus) {
     'CONNECTED'    => 'Terhubung',
     'WAITING_QR'   => 'Menunggu QR',
     'DISCONNECTED' => 'Terputus',
+    'LOGGED_OUT'   => 'Sesi Keluar',
     default        => 'Tidak Diketahui',
 };
 ?>
@@ -198,8 +200,8 @@ document.getElementById('btn-refresh-status')?.addEventListener('click', functio
     .then(data => {
       const badge = document.getElementById('bot-status-badge');
       const phone = document.getElementById('bot-phone');
-      const labelMap  = { CONNECTED: 'Terhubung', WAITING_QR: 'Menunggu QR', DISCONNECTED: 'Terputus', UNKNOWN: 'Tidak Diketahui' };
-      const classMap  = { CONNECTED: 'bg-success', WAITING_QR: 'bg-warning', DISCONNECTED: 'bg-danger', UNKNOWN: 'bg-secondary' };
+      const labelMap  = { CONNECTED: 'Terhubung', WAITING_QR: 'Menunggu QR', DISCONNECTED: 'Terputus', LOGGED_OUT: 'Sesi Keluar', UNKNOWN: 'Tidak Diketahui' };
+      const classMap  = { CONNECTED: 'bg-success', WAITING_QR: 'bg-warning', DISCONNECTED: 'bg-danger', LOGGED_OUT: 'bg-danger', UNKNOWN: 'bg-secondary' };
       const s = (data.status || 'UNKNOWN').toUpperCase();
       badge.className = 'badge ' + (classMap[s] || 'bg-secondary') + ' fs-6';
       badge.textContent = labelMap[s] || s;

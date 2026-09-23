@@ -336,8 +336,7 @@ if (!function_exists('finance_dreq_status_badge')) {
           <tr>
             <th>Tanggal</th>
             <th>No Request</th>
-            <th>Divisi</th>
-            <th>Lokasi</th>
+            <th>Divisi / Lokasi</th>
             <th>Pengaju</th>
             <th>Status</th>
             <th class="text-end">Line</th>
@@ -350,7 +349,7 @@ if (!function_exists('finance_dreq_status_badge')) {
         <tbody>
           <?php if (empty($rows)): ?>
             <tr>
-              <td colspan="11" class="text-center text-muted py-4">Belum ada pengajuan divisi.</td>
+              <td colspan="10" class="text-center text-muted py-4">Belum ada pengajuan divisi.</td>
             </tr>
           <?php else: ?>
             <?php foreach ($rows as $row): ?>
@@ -360,7 +359,7 @@ if (!function_exists('finance_dreq_status_badge')) {
                 $links = (array)($linksMap[$requestId] ?? []);
                 $hasDocs = !empty($links);
                 $canEditRow = $canManageOwn && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs;
-                $canVerifyRow = $canVerify && $status === 'SUBMITTED';
+                $canVerifyRow = $canVerify && $status !== 'VOID' && ((int)($row['pending_count'] ?? 0)+(int)($row['rejected_count'] ?? 0)>0);
               ?>
               <tr>
                 <td class="text-nowrap">
@@ -372,10 +371,13 @@ if (!function_exists('finance_dreq_status_badge')) {
                     <?php echo html_escape((string)($row['request_no'] ?? '-')); ?>
                   </a>
                 </td>
-                <td><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></td>
-                <td><span class="badge bg-light text-dark border"><?php echo html_escape(finance_dreq_location_badge((string)($row['destination_type'] ?? ''))); ?></span></td>
+                <td><div class="fw-semibold"><?php echo html_escape((string)($row['division_name'] ?? '-')); ?></div><span class="badge bg-light text-dark border mt-1"><?php echo html_escape(finance_dreq_location_badge((string)($row['destination_type'] ?? ''))); ?></span></td>
                 <td><?php echo html_escape((string)($row['created_by_username'] ?? '-')); ?></td>
-                <td><span class="badge <?php echo finance_dreq_status_badge($status); ?>"><?php echo html_escape($status); ?></span></td>
+                <td><span class="badge <?php echo finance_dreq_status_badge($status); ?>"><?php echo html_escape($status); ?></span>
+                  <div class="small mt-1"><?= (int)($row['verified_count'] ?? 0) ?>/<?= (int)($row['line_total'] ?? 0) ?> diverifikasi</div>
+                  <?php if (!empty($row['pending_count'])): ?><div class="small text-muted"><?= (int)$row['pending_count'] ?> menunggu</div><?php endif; ?>
+                  <?php if (!empty($row['rejected_count'])): ?><div class="small text-danger"><?= (int)$row['rejected_count'] ?> ditolak</div><?php endif; ?>
+                </td>
                 <td class="text-end"><?php echo (int)($row['line_total'] ?? 0); ?></td>
                 <td class="text-end"><?php echo ui_num((float)($row['qty_total'] ?? 0)); ?></td>
                 <td>
@@ -421,8 +423,7 @@ if (!function_exists('finance_dreq_status_badge')) {
           <tr>
             <th>Tanggal</th>
             <th>No Request</th>
-            <th>Divisi</th>
-            <th>Lokasi</th>
+            <th>Divisi / Lokasi</th>
             <th>Profile</th>
             <th>Stok sekarang<br><small>Divisi / Gudang • satuan isi</small></th>
             <th>Jenis</th>
@@ -438,7 +439,7 @@ if (!function_exists('finance_dreq_status_badge')) {
         <tbody>
           <?php if (empty($lineRows)): ?>
             <tr>
-              <td colspan="14" class="text-center text-muted py-4">Belum ada rincian pengajuan divisi.</td>
+              <td colspan="13" class="text-center text-muted py-4">Belum ada rincian pengajuan divisi.</td>
             </tr>
           <?php else: ?>
             <?php foreach ($lineRows as $line): ?>
@@ -456,10 +457,10 @@ if (!function_exists('finance_dreq_status_badge')) {
                     <?php echo html_escape((string)($line['request_no'] ?? '-')); ?>
                   </a>
                 </td>
-                <td><?php echo html_escape((string)($line['division_name'] ?? '-')); ?></td>
-                <td><span class="badge bg-light text-dark border"><?php echo html_escape(finance_dreq_location_badge((string)($line['destination_type'] ?? ''))); ?></span></td>
+                <td><div class="fw-semibold"><?php echo html_escape((string)($line['division_name'] ?? '-')); ?></div><span class="badge bg-light text-dark border mt-1"><?php echo html_escape(finance_dreq_location_badge((string)($line['destination_type'] ?? ''))); ?></span></td>
                 <td>
                   <div class="fw-semibold"><?php echo html_escape((string)($line['profile_name'] ?? '-')); ?></div>
+                  <span class="badge <?= finance_dreq_status_badge($line['review_status'] ?? $line['status'] ?? '') ?>"><?= html_escape(['PENDING'=>'Menunggu','VERIFIED'=>'Terverifikasi','REJECTED'=>'Ditolak'][$line['review_status'] ?? ''] ?? ($line['status'] ?? '')) ?></span>
                   <?php if (trim((string)($line['line_notes'] ?? '')) !== ''): ?>
                     <div class="small text-muted"><?php echo html_escape((string)($line['line_notes'] ?? '')); ?></div>
                   <?php endif; ?>
@@ -475,6 +476,9 @@ if (!function_exists('finance_dreq_status_badge')) {
                 <td class="text-end text-nowrap">
                   <div class="dreq-action-wrap">
                     <a href="<?php echo site_url('procurement/division-po-sr/detail/' . $requestId); ?>" class="btn btn-sm btn-outline-secondary dreq-action-btn" title="Detail Pengajuan" aria-label="Detail Pengajuan"><i class="ri ri-eye-line"></i></a>
+                    <?php if ($canVerify && in_array($line['review_status'] ?? '', ['PENDING','REJECTED'], true) && ($line['status'] ?? '') !== 'VOID'): ?>
+                    <a class="btn btn-sm btn-outline-success dreq-action-btn" title="Tinjau rincian" aria-label="Tinjau rincian" href="<?= site_url('procurement/division-po-sr/edit/'.$requestId).'#dreq-line-'.(int)$line['line_id'] ?>"><i class="ri ri-check-line"></i></a>
+                    <?php endif; ?>
                   </div>
                 </td>
               </tr>
@@ -486,7 +490,7 @@ if (!function_exists('finance_dreq_status_badge')) {
   <?php endif; ?>
 </div>
 
-<?php if (!empty($notification_channels)): ?><script src="<?= base_url('assets/js/module-notifications.js') ?>" defer></script><?php endif; ?>
+<?php if (!empty($notification_channels)): ?><script src="<?= base_url('assets/js/module-notifications.js') ?>?v=20260923pdf2" defer></script><?php endif; ?>
 <div class="modal fade" id="dreqPrintPickerModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">

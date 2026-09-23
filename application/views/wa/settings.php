@@ -110,8 +110,8 @@ $settingsMutationCsrf = (string)($wa_settings_mutation_csrf ?? '');
         <div class="card-body">
           <?php
           $st = strtoupper($session['status'] ?? 'UNKNOWN');
-          $badge = match($st) { 'CONNECTED' => 'bg-success', 'WAITING_QR' => 'bg-warning', 'DISCONNECTED' => 'bg-danger', default => 'bg-secondary' };
-          $label = match($st) { 'CONNECTED' => 'Terhubung', 'WAITING_QR' => 'Menunggu QR', 'DISCONNECTED' => 'Terputus', default => 'Tidak Diketahui' };
+          $badge = match($st) { 'CONNECTED' => 'bg-success', 'WAITING_QR' => 'bg-warning', 'DISCONNECTED', 'LOGGED_OUT' => 'bg-danger', default => 'bg-secondary' };
+          $label = match($st) { 'CONNECTED' => 'Terhubung', 'WAITING_QR' => 'Menunggu QR', 'DISCONNECTED' => 'Terputus', 'LOGGED_OUT' => 'Sesi Keluar', default => 'Tidak Diketahui' };
           ?>
           <dl class="row mb-0 small">
             <dt class="col-5">Status</dt>

@@ -219,6 +219,20 @@ function authorizeInternalRequest(req, url, expectedToken = FINANCE_WA_ENGINE_AP
 function buildOutgoingMessage(payload) {
   const message = String(payload.message || '').trim();
   const imagePath = String(payload.image_path || '').trim();
+  const documentPath = String(payload.document_path || '').trim();
+  const documentName = String(payload.document_name || 'pengajuan.pdf').trim();
+
+  if (documentPath) {
+    const resolvedPath = path.resolve(documentPath);
+    const attachmentRoot = path.resolve(__dirname, '../application/cache/wa-attachments') + path.sep;
+    if (!resolvedPath.startsWith(attachmentRoot) || !fs.existsSync(resolvedPath)) {
+      const err = new Error('Dokumen lampiran tidak tersedia.'); err.httpCode = 400; throw err;
+    }
+    if (path.extname(resolvedPath).toLowerCase() !== '.pdf' || fs.statSync(resolvedPath).size > 10 * 1024 * 1024) {
+      const err = new Error('Lampiran harus PDF maksimal 10 MB.'); err.httpCode = 400; throw err;
+    }
+    return { content: { document: { url: resolvedPath }, mimetype: 'application/pdf', fileName: documentName, caption: message || undefined }, hasContent: true };
+  }
 
   if (imagePath) {
     const resolvedPath = path.resolve(imagePath);

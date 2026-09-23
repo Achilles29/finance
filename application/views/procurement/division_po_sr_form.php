@@ -15,7 +15,7 @@ $isPurchaseScope = !empty($is_purchase_scope);
 $canVerify = !empty($can_verify);
 $requestId = (int)($request_id ?? 0);
 $showVendorColumn = $canVerify;
-$lineColumnCount = $canVerify ? 13 : ($showVendorColumn ? 16 : 15);
+$lineColumnCount = 7;
 $defaultRequestDate = (string)($header['request_date'] ?? date('Y-m-d'));
 $defaultNeededDate = (string)($header['needed_date'] ?? date('Y-m-d', strtotime('+1 day')));
 
@@ -63,6 +63,10 @@ foreach ((array)$lines as $line) {
     $storedLineKind = $materialId !== null ? 'MATERIAL' : 'ITEM';
   }
     $initialLines[] = [
+        'id' => (int)($line['id'] ?? 0),
+        'line_no' => (int)($line['line_no'] ?? 0),
+        'review_status' => (string)($line['review_status'] ?? 'PENDING'),
+        'review_notes' => (string)($line['review_notes'] ?? ''),
         'line_kind' => $storedLineKind,
         'item_id' => $itemId,
         'material_id' => $materialId,
@@ -356,6 +360,32 @@ if (!function_exists('finance_dreq_location_label')) {
       width: 100%;
     }
   }
+  .dreq-line-table, .dreq-line-table.is-verify { width:100%; min-width:0; table-layout:fixed; }
+  .dreq-line-table th, .dreq-line-table td,
+  .dreq-line-table.is-verify th:nth-child(n), .dreq-line-table.is-verify td:nth-child(n) {
+    width:auto; min-width:0; padding:.8rem .6rem; text-align:left; vertical-align:top;
+    white-space:normal; overflow-wrap:anywhere;
+  }
+  .dreq-line-table .form-control, .dreq-line-table .form-select { width:100%; min-width:0; }
+  .dreq-line-table .badge { white-space:normal; line-height:1.4; }
+  .dreq-line-table [data-live-stock-line] { min-width:0 !important; }
+  .dreq-row-actions { display:flex; flex-direction:column; gap:.4rem; }
+  .dreq-row-actions .btn { padding:.35rem .3rem; white-space:normal; }
+  .dreq-row-rejected { background:#fff3f1; }
+  .dreq-row-verified { background:#f2faf5; }
+  .dreq-search-table th, .dreq-search-table td { text-align:left; white-space:normal; padding:.65rem; }
+  .dreq-search-scroll { overflow:auto; }
+  .dreq-search-table { min-width:680px; }
+  @media (max-width:1100px) {
+    .dreq-line-table colgroup, .dreq-line-table thead { display:none; }
+    .dreq-line-table, .dreq-line-table tbody { display:block; }
+    .dreq-line-table tbody tr { display:grid; grid-template-columns:1fr 1fr; border:1px solid #eaded7; border-radius:12px; margin-bottom:1rem; overflow:hidden; }
+    .dreq-line-table td::before { content:attr(data-label); display:block; font-size:.7rem; font-weight:700; color:#85675e; margin-bottom:.35rem; text-transform:uppercase; }
+    .dreq-line-table td:first-child, .dreq-line-table td:last-child { grid-column:1 / -1; }
+    .dreq-row-actions { flex-direction:row; flex-wrap:wrap; align-items:center; }
+    .dreq-row-actions .btn { padding:.4rem .8rem; }
+  }
+  @media (max-width:540px) { .dreq-line-table tbody tr { grid-template-columns:1fr; } }
 </style>
 
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
@@ -382,7 +412,7 @@ if (!function_exists('finance_dreq_location_label')) {
 <form method="post" action="<?php echo $formAction; ?>" id="divisionRequestForm">
   <div class="card mb-3">
     <div class="card-body">
-      <div class="row g-3">
+      <fieldset <?= $canVerify ? 'disabled' : '' ?>><div class="row g-3">
         <div class="col-md-2">
           <label class="form-label mb-1">No Request</label>
           <input type="text" class="form-control" value="<?php echo html_escape((string)($header['request_no'] ?? 'AUTO')); ?>" readonly>
@@ -425,11 +455,12 @@ if (!function_exists('finance_dreq_location_label')) {
           <label class="form-label mb-1">Catatan</label>
           <input type="text" name="notes" class="form-control" value="<?php echo html_escape((string)($header['notes'] ?? '')); ?>" placeholder="Opsional">
         </div>
-      </div>
+      </div></fieldset>
     </div>
   </div>
 
-  <div class="card mb-3">
+  <div id="dreqFormAlert" role="status"></div>
+  <div class="card mb-3" <?= $canVerify ? 'hidden' : '' ?>>
     <div class="card-body">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <h6 class="mb-0">Cari Barang</h6>
@@ -438,7 +469,6 @@ if (!function_exists('finance_dreq_location_label')) {
       <div class="dreq-guidance small text-muted mb-3">
         Jika stok gudang ada, daftar pencarian hanya menampilkan stok gudang agar pilihan utama tetap jelas. Setelah barang dipilih, tiap line bisa diinput memakai <strong>UOM Beli</strong> atau <strong>UOM Isi</strong>. Bila kebutuhan melebihi stok snapshot, isi saja <strong>Qty Request</strong> sesuai kebutuhan total; sistem akan pecah otomatis: stok yang ada masuk <strong>SR</strong>, sisanya diarahkan ke <strong>PO</strong> saat simpan/verifikasi.
       </div>
-      <div id="dreqFormAlert"></div>
       <div id="dreqSearchMeta" class="small text-muted mb-2"></div>
       <div class="row g-2 mb-2">
         <div class="col-md-10">
@@ -452,19 +482,16 @@ if (!function_exists('finance_dreq_location_label')) {
         <table class="table table-sm mb-0 dreq-search-table">
           <thead>
             <tr>
-              <th>Profile</th>
-              <th>Stok sekarang<br><small>Divisi / Gudang • satuan isi</small></th>
-              <th>Keterangan</th>
-              <th>UOM</th>
+              <th>Barang / Jenis</th>
+              <th>Satuan</th>
               <th class="text-end">Stok Gudang</th>
               <th class="text-end">Harga Satuan</th>
-              <th>Exp Date</th>
-              <th>Tgl Beli Terakhir</th>
+              <th>Expired / Pembelian</th>
               <th style="width:90px">Aksi</th>
             </tr>
           </thead>
           <tbody id="searchResultRows">
-            <tr><td colspan="8" class="text-center text-muted py-3">Belum ada pencarian.</td></tr>
+            <tr><td colspan="6" class="text-center text-muted py-3">Belum ada pencarian.</td></tr>
           </tbody>
         </table>
       </div>
@@ -527,30 +554,28 @@ if (!function_exists('finance_dreq_location_label')) {
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <h6 class="mb-0">Line Pengajuan</h6>
         <small class="text-muted"><?php echo $canVerify
-          ? 'Purchase review per line lewat tombol Verifikasi. Di dalam modal, buyer bisa cek data pengajuan, cari saran profile, lalu simpan hasil review per baris.'
+          ? 'Verifikasi atau tolak setiap rincian melalui kolom aksi. Keputusan langsung disimpan; rincian lainnya tetap menunggu.'
           : 'Pilih mode input per line. `Qty Request`, `Ke SR`, `Qty Tambahan PO`, dan `Ke PO` akan mengikuti UOM beli atau isi yang dipilih, sementara sistem tetap menyimpan konversi buy-content yang konsisten.'; ?></small>
       </div>
+      <?php if ($canVerify): $reviewCounts = array_count_values(array_column($initialLines, 'review_status')); ?>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <span class="badge bg-warning text-dark"><?= (int)($reviewCounts['PENDING'] ?? 0) ?> menunggu</span>
+        <span class="badge bg-success"><?= (int)($reviewCounts['VERIFIED'] ?? 0) ?> diverifikasi</span>
+        <span class="badge bg-danger"><?= (int)($reviewCounts['REJECTED'] ?? 0) ?> ditolak</span>
+      </div>
+      <?php endif; ?>
       <div class="table-responsive">
         <table class="table table-striped table-sm dreq-line-table<?php echo $canVerify ? ' is-verify' : ''; ?> mb-0">
+          <colgroup><col style="width:23%"><col style="width:18%"><col style="width:15%"><col style="width:12%"><col style="width:14%"><col style="width:10%"><col style="width:8%"></colgroup>
           <thead>
             <tr>
-              <th>Profile</th>
-              <th>Jenis</th>
-              <th>Route</th>
-              <?php if ($showVendorColumn): ?><th>Vendor PO</th><?php endif; ?>
-              <th>UOM</th>
+              <th>Barang / Jenis</th>
+              <th>Stok</th>
+              <th>Jumlah / Satuan</th>
               <th>Pemakaian</th>
-              <th class="text-end">Snapshot Gudang (Beli)</th>
-              <th class="text-end">Snapshot Gudang (Isi)</th>
-              <th>Input Request</th>
-              <th>Ke SR</th>
-              <th>Ke PO</th>
-              <?php if (!$canVerify): ?>
-              <th>Qty Tambahan PO</th>
-              <th>Qty Isi</th>
-              <th>Catatan</th>
-              <?php endif; ?>
-              <th style="width:140px">Aksi</th>
+              <th>Alokasi SR / PO</th>
+              <th>Harga / Catatan</th>
+              <th>Aksi</th>
             </tr>
           </thead>
           <tbody id="requestLineRows">
@@ -562,11 +587,11 @@ if (!function_exists('finance_dreq_location_label')) {
   </div>
 
   <input type="hidden" name="lines_json" id="fieldLinesJson" value="">
-  <?php $this->load->view('procurement/_stock_review_panel', ['stock_review_csrf'=>$stock_review_csrf ?? '', 'request_id'=>$requestId, 'can_verify'=>$canVerify]); ?>
+  <?php if (!$canVerify) $this->load->view('procurement/_stock_review_panel', ['stock_review_csrf'=>$stock_review_csrf ?? '', 'request_id'=>$requestId, 'can_verify'=>false]); ?>
 
   <div class="d-flex justify-content-end gap-2 mb-4">
     <a href="<?php echo $requestId > 0 ? site_url('procurement/division-po-sr/detail/' . $requestId) : site_url('procurement/division-po-sr'); ?>" class="btn btn-light">Batal</a>
-    <button type="submit" class="btn btn-primary" id="btnSubmitDivisionRequest"><?php echo html_escape($submitLabel); ?></button>
+    <?php if (!$canVerify): ?><button type="submit" class="btn btn-primary" id="btnSubmitDivisionRequest"><?php echo html_escape($submitLabel); ?></button><?php else: ?><span class="small text-muted align-self-center">Keputusan disimpan dari aksi setiap rincian.</span><?php endif; ?>
   </div>
 </form>
 
@@ -759,16 +784,27 @@ if (!function_exists('finance_dreq_location_label')) {
           <div class="fw-semibold" id="dreqVerifyRouteLabel">Pilih mode input dan qty request dulu.</div>
           <div class="small text-muted mt-1" id="dreqVerifyRouteNote">Route SR/PO dan kebutuhan vendor akan dihitung dari data review ini.</div>
         </div>
+        <?php if ($canVerify) $this->load->view('procurement/_stock_review_panel', ['stock_review_csrf'=>$stock_review_csrf ?? '', 'request_id'=>$requestId, 'can_verify'=>true, 'line_review'=>true]); ?>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
-        <button type="button" class="btn btn-primary" id="btnApplyDreqVerify">Simpan Hasil Review Line</button>
+        <button type="button" class="btn btn-primary" id="btnApplyDreqVerify">Verifikasi &amp; Buat SR / PO Rincian Ini</button>
       </div>
     </div>
   </div>
 </div>
 
 <?php $this->load->view('purchase/_vendor_quick_create_modal'); ?>
+
+<div class="modal fade" id="dreqDecisionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="dreqDecisionTitle">Keputusan Rincian</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Tutup"></button></div>
+    <div class="modal-body"><div id="dreqDecisionName" class="fw-semibold mb-3"></div>
+      <label for="dreqDecisionReason" class="form-label">Alasan</label><textarea id="dreqDecisionReason" class="form-control" rows="3" maxlength="1000"></textarea>
+      <div id="dreqDecisionError" role="alert" class="text-danger small mt-2"></div>
+    </div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Batal</button><button type="button" id="dreqDecisionSave" class="btn btn-danger">Simpan keputusan</button></div>
+  </div></div>
+</div>
 
 <script>
 (function () {
@@ -833,6 +869,33 @@ if (!function_exists('finance_dreq_location_label')) {
   var verifyVendorAddBtn = document.getElementById('btnDreqVerifyVendorAdd');
   var verifyApplyBtn = document.getElementById('btnApplyDreqVerify');
   var activeVerifyLineIdx = -1;
+  var decisionIdx = -1, decisionAction = '', savingDecision = false;
+  var decisionBaseUrl = <?= json_encode(site_url('procurement/division-po-sr/'.$requestId.'/lines/')) ?>;
+  var decisionCsrf = <?= json_encode((string)($stock_review_csrf ?? '')) ?>;
+  function cleanLine(row) {
+    var payload = Object.assign({},row);
+    delete payload.catalog_suggestions; delete payload.suggestion_loading; delete payload.suggestion_query;
+    return payload;
+  }
+  window.DivisionLineReview = {
+    getLines: function () { var row = buildVerifyModalRow(); return row ? [cleanLine(row)] : requestLines.map(cleanLine); },
+    getIndex: function () { return activeVerifyLineIdx; }
+  };
+  async function saveDecision(row, action, extra) {
+    if (savingDecision) throw new Error('Keputusan sedang disimpan.');
+    savingDecision = true;
+    try {
+      var response = await fetch(decisionBaseUrl + row.id + '/decision', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest','X-Procurement-Mutation-Csrf':decisionCsrf},
+        body:JSON.stringify(Object.assign({action:action},extra || {}))
+      });
+      var result;
+      try { result = await response.json(); } catch (_) { throw new Error('Respons server tidak terbaca. Muat ulang untuk memeriksa status rincian.'); }
+      if (!response.ok || !result.ok) throw new Error(result.message || 'Keputusan gagal disimpan.');
+      window.location.reload();
+    } finally { savingDecision = false; }
+  }
 
   function esc(value) {
     return String(value || '').replace(/[&<>"']/g, function (char) {
@@ -844,6 +907,10 @@ if (!function_exists('finance_dreq_location_label')) {
     var parsed = Number(value || 0);
     return Number.isFinite(parsed) ? parsed : 0;
   }
+
+  function roundQty(value) { return Math.round(num(value) * 10000) / 10000; }
+
+  function quantityInput(value) { return String(roundQty(value)); }
 
   function round2(value) {
     return Math.round(num(value) * 100) / 100;
@@ -931,7 +998,7 @@ if (!function_exists('finance_dreq_location_label')) {
   }
 
   function qtyWithCode(value, code) {
-    return fixed2(value) + ' ' + String(code || '-').trim();
+    return num(value).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:4}) + ' ' + String(code || '-').trim();
   }
 
   function normalizeToken(value) {
@@ -991,6 +1058,8 @@ if (!function_exists('finance_dreq_location_label')) {
       qtyBuyBalance = qtyContentBalance / contentPerBuy;
     }
     var normalized = {
+      id: num(row.id), line_no: num(row.line_no),
+      review_status: row.review_status || 'PENDING', review_notes: row.review_notes || '',
       line_kind: canonicalLineKind(row),
       item_id: num(row.item_id) > 0 ? num(row.item_id) : null,
       material_id: num(row.material_id) > 0 ? num(row.material_id) : null,
@@ -1010,12 +1079,12 @@ if (!function_exists('finance_dreq_location_label')) {
       request_uom_mode: selectedRequestMode(row.request_uom_mode || defaultRequestModeForRow(row)),
       vendor_id: num(row.vendor_id) > 0 ? num(row.vendor_id) : null,
       vendor_name: row.vendor_name || '',
-      qty_buy_requested: round2(num(row.qty_buy_requested) > 0 ? num(row.qty_buy_requested) : 0),
-      qty_content_requested: round2(num(row.qty_content_requested) > 0 ? num(row.qty_content_requested) : 0),
-      qty_buy_po_requested: round2(num(row.qty_buy_po_requested)),
-      qty_content_po_requested: round2(num(row.qty_content_po_requested)),
-      qty_buy_balance: round2(qtyBuyBalance),
-      qty_content_balance: round2(qtyContentBalance),
+      qty_buy_requested: roundQty(num(row.qty_buy_requested) > 0 ? num(row.qty_buy_requested) : 0),
+      qty_content_requested: roundQty(num(row.qty_content_requested) > 0 ? num(row.qty_content_requested) : 0),
+      qty_buy_po_requested: roundQty(num(row.qty_buy_po_requested)),
+      qty_content_po_requested: roundQty(num(row.qty_content_po_requested)),
+      qty_buy_balance: roundQty(qtyBuyBalance),
+      qty_content_balance: roundQty(qtyContentBalance),
       standard_price: round2(num(row.standard_price || 0)),
       last_unit_price: round2(num(row.last_unit_price || row.standard_price || 0)),
       last_purchase_date: row.last_purchase_date || '',
@@ -1035,13 +1104,13 @@ if (!function_exists('finance_dreq_location_label')) {
       normalized.qty_buy_po_requested = 0;
       normalized.qty_content_po_requested = 0;
     } else if (String(normalized.source_type || '').toUpperCase() !== 'WAREHOUSE') {
-      normalized.qty_buy_po_requested = round2(normalized.qty_buy_requested);
-      normalized.qty_content_po_requested = round2(normalized.qty_content_requested);
+      normalized.qty_buy_po_requested = roundQty(normalized.qty_buy_requested);
+      normalized.qty_content_po_requested = roundQty(normalized.qty_content_requested);
     } else if (normalized.qty_buy_po_requested <= 0 && normalized.qty_content_po_requested <= 0) {
-      normalized.qty_buy_po_requested = round2(Math.max(0, normalized.qty_buy_requested - Math.min(normalized.qty_buy_requested, normalized.qty_buy_balance)));
-      normalized.qty_content_po_requested = round2(normalized.qty_buy_po_requested * contentPerBuy);
+      normalized.qty_content_po_requested = roundQty(Math.max(0, normalized.qty_content_requested - Math.min(normalized.qty_content_requested, normalized.qty_content_balance)));
+      normalized.qty_buy_po_requested = roundQty(normalized.qty_content_po_requested / contentPerBuy);
     } else if (normalized.qty_content_po_requested <= 0 && normalized.qty_buy_po_requested > 0) {
-      normalized.qty_content_po_requested = round2(normalized.qty_buy_po_requested * contentPerBuy);
+      normalized.qty_content_po_requested = roundQty(normalized.qty_buy_po_requested * contentPerBuy);
     }
 
     return normalized;
@@ -1055,22 +1124,22 @@ if (!function_exists('finance_dreq_location_label')) {
 
   function requestQtyValue(row) {
     return requestMode(row && row.request_uom_mode) === 'CONTENT'
-      ? round2(num(row.qty_content_requested))
-      : round2(num(row.qty_buy_requested));
+      ? roundQty(num(row.qty_content_requested))
+      : roundQty(num(row.qty_buy_requested));
   }
 
   function requestPoQtyValue(row) {
     return requestMode(row && row.request_uom_mode) === 'CONTENT'
-      ? round2(num(row.qty_content_po_requested))
-      : round2(num(row.qty_buy_po_requested));
+      ? roundQty(num(row.qty_content_po_requested))
+      : roundQty(num(row.qty_buy_po_requested));
   }
 
   function requestPlanQty(plan, row, target) {
     var mode = requestMode(row && row.request_uom_mode);
     if (target === 'SR') {
-      return mode === 'CONTENT' ? round2(num(plan.toSrContent)) : round2(num(plan.toSrBuy));
+      return mode === 'CONTENT' ? roundQty(num(plan.toSrContent)) : roundQty(num(plan.toSrBuy));
     }
-    return mode === 'CONTENT' ? round2(num(plan.toPoContent)) : round2(num(plan.toPoBuy));
+    return mode === 'CONTENT' ? roundQty(num(plan.toPoContent)) : roundQty(num(plan.toPoBuy));
   }
 
   function requestSecondarySummary(row) {
@@ -1083,8 +1152,8 @@ if (!function_exists('finance_dreq_location_label')) {
       return '';
     }
     var secondaryValue = mode === 'CONTENT'
-      ? round2(num(row.qty_buy_requested))
-      : round2(num(row.qty_content_requested));
+      ? roundQty(num(row.qty_buy_requested))
+      : roundQty(num(row.qty_content_requested));
     return qtyWithCode(secondaryValue, secondaryCode);
   }
 
@@ -1098,8 +1167,8 @@ if (!function_exists('finance_dreq_location_label')) {
       return '';
     }
     var secondaryValue = mode === 'CONTENT'
-      ? round2(num(row.qty_buy_po_requested))
-      : round2(num(row.qty_content_po_requested));
+      ? roundQty(num(row.qty_buy_po_requested))
+      : roundQty(num(row.qty_content_po_requested));
     return qtyWithCode(secondaryValue, secondaryCode);
   }
 
@@ -1547,7 +1616,7 @@ if (!function_exists('finance_dreq_location_label')) {
     if (verifyPoQtyEl) {
       verifyPoQtyEl.disabled = !(String(row.source_type || '').toUpperCase() === 'WAREHOUSE' && num(row.qty_content_balance) > 0.00001 && hasRequestModeSelection(row));
       if (verifyPoQtyEl.disabled) {
-        verifyPoQtyEl.value = hasRequestModeSelection(row) ? fixed2(requestPoQtyValue(row)) : '';
+        verifyPoQtyEl.value = hasRequestModeSelection(row) ? quantityInput(requestPoQtyValue(row)) : '';
       }
     }
     if (verifyVendorEl) {
@@ -1601,7 +1670,7 @@ if (!function_exists('finance_dreq_location_label')) {
       verifySubtitleEl.textContent = sourceLabel(String(row.source_type || '').toUpperCase()) + ' | ' + packSummary(row);
     }
     if (verifyNoteEl) {
-      verifyNoteEl.textContent = row.line_reviewed ? 'Line sudah pernah direview. Anda bisa cek ulang sebelum simpan akhir.' : 'Line belum direview. Simpan hasil review line ini dulu.';
+      verifyNoteEl.textContent = 'Keputusan langsung disimpan untuk rincian ini. SR/PO dibuat setelah verifikasi berhasil.';
     }
     if (verifyKindEl) {
       verifyKindEl.value = effectiveLineKindLabel(row);
@@ -1628,10 +1697,10 @@ if (!function_exists('finance_dreq_location_label')) {
       verifyModeEl.value = selectedRequestMode(row.request_uom_mode);
     }
     if (verifyQtyEl) {
-      verifyQtyEl.value = hasRequestModeSelection(row) ? fixed2(requestQtyValue(row)) : '';
+      verifyQtyEl.value = hasRequestModeSelection(row) ? quantityInput(requestQtyValue(row)) : '';
     }
     if (verifyPoQtyEl) {
-      verifyPoQtyEl.value = hasRequestModeSelection(row) ? fixed2(requestPoQtyValue(row)) : '';
+      verifyPoQtyEl.value = hasRequestModeSelection(row) ? quantityInput(requestPoQtyValue(row)) : '';
     }
     if (verifyPriceEl) {
       verifyPriceEl.value = fixed2(row.estimated_unit_price || 0);
@@ -1651,8 +1720,10 @@ if (!function_exists('finance_dreq_location_label')) {
   }
 
   function openVerifyModal(idx) {
+    if (!requestLines[idx] || requestLines[idx].review_status !== 'PENDING' || savingDecision) return;
     populateVerifyModal(idx);
     showVerifyModal();
+    document.dispatchEvent(new CustomEvent('procurement-lines-changed'));
   }
 
   function buildDraftRow() {
@@ -1819,64 +1890,43 @@ if (!function_exists('finance_dreq_location_label')) {
   function syncRowTotalsFromRequest(row, requestQty) {
     var factor = num(row.profile_content_per_buy) || 1;
     var mode = requestMode(row && row.request_uom_mode);
-    var safeQty = round2(Math.max(0, num(requestQty)));
+    var safeQty = roundQty(Math.max(0, num(requestQty)));
     if (mode === 'CONTENT') {
       row.qty_content_requested = safeQty;
-      row.qty_buy_requested = round2(safeQty / factor);
+      row.qty_buy_requested = roundQty(safeQty / factor);
     } else {
       row.qty_buy_requested = safeQty;
-      row.qty_content_requested = round2(safeQty * factor);
+      row.qty_content_requested = roundQty(safeQty * factor);
     }
     if (String(row.source_type || '').toUpperCase() !== 'WAREHOUSE') {
-      row.qty_buy_po_requested = round2(row.qty_buy_requested);
-      row.qty_content_po_requested = round2(row.qty_content_requested);
+      row.qty_buy_po_requested = roundQty(row.qty_buy_requested);
+      row.qty_content_po_requested = roundQty(row.qty_content_requested);
       return;
     }
-    row.qty_content_po_requested = round2(Math.max(0, row.qty_content_requested - Math.min(row.qty_content_requested, num(row.qty_content_balance))));
-    row.qty_buy_po_requested = round2(row.qty_content_po_requested / factor);
+    row.qty_content_po_requested = roundQty(Math.max(0, row.qty_content_requested - Math.min(row.qty_content_requested, num(row.qty_content_balance))));
+    row.qty_buy_po_requested = roundQty(row.qty_content_po_requested / factor);
   }
 
-  function syncRowTotalsFromPo(row, poQty, previousPlan) {
+  function syncRowTotalsFromPo(row, poQty) {
     var factor = num(row.profile_content_per_buy) || 1;
-    var sourceType = String(row.source_type || '').toUpperCase();
-    var mode = requestMode(row && row.request_uom_mode);
-    var safeQty = round2(Math.max(0, num(poQty)));
-    if (mode === 'CONTENT') {
-      row.qty_content_po_requested = safeQty;
-      row.qty_buy_po_requested = round2(safeQty / factor);
-    } else {
-      row.qty_buy_po_requested = safeQty;
-      row.qty_content_po_requested = round2(safeQty * factor);
-    }
-    if (sourceType !== 'WAREHOUSE') {
-      row.qty_buy_requested = round2(row.qty_buy_po_requested);
-      row.qty_content_requested = round2(row.qty_content_po_requested);
-      row.qty_content_po_requested = round2(row.qty_content_requested);
-      row.qty_buy_po_requested = round2(row.qty_buy_requested);
-      return;
-    }
-
-    var currentPoContent = round2(num(row.qty_content_po_requested));
-    var srBaseContent = round2(Math.max(0, num(previousPlan && previousPlan.toSrContent)));
-    if (srBaseContent <= 0) {
-      var currentTotalContent = round2(num(row.qty_content_requested));
-      srBaseContent = round2(Math.max(0, currentTotalContent - currentPoContent));
-    }
-    srBaseContent = round2(Math.min(srBaseContent, num(row.qty_content_balance)));
-    row.qty_content_requested = round2(srBaseContent + currentPoContent);
-    row.qty_buy_requested = round2(row.qty_content_requested / factor);
-    row.qty_buy_po_requested = round2(currentPoContent / factor);
+    var total = num(row.qty_content_requested);
+    var content = requestMode(row.request_uom_mode)==='CONTENT' ? num(poQty) : num(poQty)*factor;
+    // PO is a portion of the requested total, never an implicit quantity edit.
+    var minimum = Math.max(0,total-num(row.qty_content_balance));
+    if (row.source_type !== 'WAREHOUSE') minimum = total;
+    row.qty_content_po_requested = roundQty(Math.min(total,Math.max(minimum,content)));
+    row.qty_buy_po_requested = roundQty(row.qty_content_po_requested/factor);
   }
 
   function routePlan(row) {
     var sourceType = String(row.source_type || 'WAREHOUSE').toUpperCase();
-    var requestedContent = round2(num(row.qty_content_requested));
-    var availableContent = round2(num(row.qty_content_balance));
+    var requestedContent = roundQty(num(row.qty_content_requested));
+    var availableContent = roundQty(num(row.qty_content_balance));
     var factor = num(row.profile_content_per_buy) || 1;
-    var explicitPoContent = round2(num(row.qty_content_po_requested) || (num(row.qty_buy_po_requested) * factor));
+    var explicitPoContent = roundQty(num(row.qty_content_po_requested) || (num(row.qty_buy_po_requested) * factor));
 
     if (requestedContent <= 0) {
-      requestedContent = round2(num(row.qty_buy_requested) * factor);
+      requestedContent = roundQty(num(row.qty_buy_requested) * factor);
     }
 
     if (sourceType !== 'WAREHOUSE' || availableContent <= 0) {
@@ -1885,7 +1935,7 @@ if (!function_exists('finance_dreq_location_label')) {
         toSrContent: 0,
         toPoContent: requestedContent,
         toSrBuy: 0,
-        toPoBuy: round2(requestedContent / factor)
+        toPoBuy: roundQty(requestedContent / factor)
       };
     }
 
@@ -1894,14 +1944,14 @@ if (!function_exists('finance_dreq_location_label')) {
       var srContentExplicit = Math.min(Math.max(0, requestedContent - poContentExplicit), availableContent);
       var remainingContent = Math.max(0, requestedContent - srContentExplicit - poContentExplicit);
       if (remainingContent > 0) {
-        poContentExplicit = round2(poContentExplicit + remainingContent);
+        poContentExplicit = roundQty(poContentExplicit + remainingContent);
       }
       return {
         label: poContentExplicit > 0 && srContentExplicit > 0 ? 'SR + PO' : (srContentExplicit > 0 ? 'SR' : 'PO'),
         toSrContent: srContentExplicit,
         toPoContent: poContentExplicit,
-        toSrBuy: round2(srContentExplicit / factor),
-        toPoBuy: round2(poContentExplicit / factor)
+        toSrBuy: roundQty(srContentExplicit / factor),
+        toPoBuy: roundQty(poContentExplicit / factor)
       };
     }
 
@@ -1910,7 +1960,7 @@ if (!function_exists('finance_dreq_location_label')) {
         label: 'SR',
         toSrContent: requestedContent,
         toPoContent: 0,
-        toSrBuy: round2(requestedContent / factor),
+        toSrBuy: roundQty(requestedContent / factor),
         toPoBuy: 0
       };
     }
@@ -1918,9 +1968,9 @@ if (!function_exists('finance_dreq_location_label')) {
     return {
       label: 'SR + PO',
       toSrContent: availableContent,
-      toPoContent: round2(requestedContent - availableContent),
-      toSrBuy: round2(availableContent / factor),
-      toPoBuy: round2((requestedContent - availableContent) / factor)
+      toPoContent: roundQty(requestedContent - availableContent),
+      toSrBuy: roundQty(availableContent / factor),
+      toPoBuy: roundQty((requestedContent - availableContent) / factor)
     };
   }
 
@@ -2168,135 +2218,46 @@ if (!function_exists('finance_dreq_location_label')) {
 
   function renderLines() {
     var tbody = document.getElementById('requestLineRows');
-    if (!tbody) {
-      return;
-    }
+    if (!tbody) return;
     if (!requestLines.length) {
-      tbody.innerHTML = '<tr><td colspan="' + lineColumnCount + '" class="text-center text-muted py-3">Belum ada line pengajuan.</td></tr>';
-      setLinesJson();
-      return;
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Belum ada rincian pengajuan.</td></tr>';
+      setLinesJson(); return;
     }
-
-    var html = '';
-    requestLines.forEach(function (row, idx) {
-      var sourceType = String(row.source_type || 'WAREHOUSE').toUpperCase();
-      var badgeClass = sourceType === 'WAREHOUSE' ? 'success' : (sourceType === 'MANUAL' ? 'warning text-dark' : 'info text-dark');
-      var routeClass = routeBadgeClass(row);
-      var plan = routePlan(row);
-      var selectedMode = selectedRequestMode(row.request_uom_mode);
-      if (!selectedMode) {
-        var autoMode = defaultRequestModeForRow(row);
-        if (autoMode !== '') {
-          row.request_uom_mode = autoMode;
-          selectedMode = autoMode;
-        }
+    tbody.innerHTML = requestLines.map(function (row, idx) {
+      var plan = routePlan(row), mode = selectedRequestMode(row.request_uom_mode);
+      var status = row.review_status || 'PENDING';
+      var label = {PENDING:'Menunggu', VERIFIED:'Terverifikasi', REJECTED:'Ditolak', VOID:'Void'}[status] || status;
+      var badge = status === 'VERIFIED' ? 'success' : (status === 'REJECTED' ? 'danger' : 'warning text-dark');
+      var unit = requestUnitCode(row);
+      var quantity = isVerifyMode
+        ? '<strong>' + esc(qtyWithCode(requestQtyValue(row), unit)) + '</strong>'
+        : '<select aria-label="Satuan request" class="form-select form-select-sm line-request-mode" data-idx="'+idx+'"><option value="">Pilih satuan</option><option value="BUY"'+(mode==='BUY'?' selected':'')+'>Per beli ('+esc(row.profile_buy_uom_code)+')</option><option value="CONTENT"'+(mode==='CONTENT'?' selected':'')+'>Per isi ('+esc(row.profile_content_uom_code)+')</option></select>'
+          + '<input aria-label="Jumlah request" type="number" min="0.01" step="0.01" class="form-control form-control-sm line-request mt-1" data-idx="'+idx+'" value="'+(mode?quantityInput(requestQtyValue(row)):'')+'"'+(mode?'':' disabled')+'>';
+      var usage = isVerifyMode ? esc(usagePurposeLabel(row.usage_purpose))
+        : '<select aria-label="Pemakaian" class="form-select form-select-sm line-usage-purpose" data-idx="'+idx+'">'+renderUsagePurposeOptions(row.usage_purpose)+'</select>';
+      var allocation = '<div><span class="badge bg-'+routeBadgeClass(row)+'">'+esc(routeLabel(row))+'</span></div>'
+        + '<div class="mt-1">SR <strong>'+esc(qtyWithCode(requestPlanQty(plan,row,'SR'),unit))+'</strong></div>'
+        + '<div>PO <strong>'+esc(qtyWithCode(requestPlanQty(plan,row,'PO'),unit))+'</strong></div>';
+      if (!isVerifyMode && row.source_type === 'WAREHOUSE') {
+        allocation += '<label class="small text-muted mt-1">Porsi PO ('+esc(unit)+')</label><input aria-label="Porsi PO" type="number" min="0" step="0.01" class="form-control form-control-sm line-po" data-idx="'+idx+'" value="'+quantityInput(requestPoQtyValue(row))+'"'+(mode?'':' disabled')+'>';
       }
-      var mode = selectedMode || 'BUY';
-      var hasMode = selectedMode !== '';
-      var overStock = sourceType === 'WAREHOUSE' && plan.toPoContent > 0.00001;
-      var canSplitWarehouse = sourceType === 'WAREHOUSE' && num(row.qty_content_balance) > 0.00001;
-      var isDirectPo = plan.toSrContent <= 0.00001 && plan.toPoContent > 0.00001;
-      var requestSummary = requestSecondarySummary(row);
-      var poSummary = poSecondarySummary(row);
-      var requestCaption = requestInputCaption(row, plan);
-      var poCaption = poInputCaption(row, plan);
-      var vendorRequired = requiresVendor(row, plan);
-      var vendorValue = num(row.vendor_id) > 0 ? num(row.vendor_id) : '';
-      var vendorText = row.vendor_name || vendorNameById(vendorValue) || '-';
-      var vendorCellHtml = '';
-      var usageCellHtml = isVerifyMode
-        ? '<td class="dreq-usage-cell"><span class="badge bg-light text-dark border">' + esc(usagePurposeLabel(row.usage_purpose || row.default_usage_purpose)) + '</span></td>'
-        : '<td class="dreq-usage-cell"><select class="form-select form-select-sm line-usage-purpose dreq-usage-select" data-idx="' + idx + '">' + renderUsagePurposeOptions(row.usage_purpose || row.default_usage_purpose) + '</select></td>';
-      var profileMeta = [];
-      if (String(row.profile_brand || '').trim() !== '') {
-        profileMeta.push('Merk: ' + String(row.profile_brand || '').trim());
-      }
-      if (String(row.profile_description || '').trim() !== '') {
-        profileMeta.push(String(row.profile_description || '').trim());
-      }
-      var profileCellHtml = '<td class="dreq-profile-cell"><div class="dreq-profile-title"><strong>' + esc(row.profile_name || '-') + '</strong></div><div class="dreq-profile-meta"><span class="badge bg-' + badgeClass + '">' + esc(sourceLabel(sourceType)) + '</span>' + reviewBadgeHtml(row) + (profileMeta.length ? '<span class="dreq-profile-hint">' + esc(profileMeta.join(' | ')) + '</span>' : '') + '</div>';
+      if (isVerifyMode && requiresVendor(row,plan)) allocation += '<div class="small text-muted mt-1">Vendor: '+esc(row.vendor_name || vendorNameById(row.vendor_id) || 'Belum dipilih')+'</div>';
+      var actions = '<button type="button" class="btn btn-sm btn-outline-danger line-del" data-idx="'+idx+'">Hapus</button>';
       if (isVerifyMode) {
-        var reviewSummary = [];
-        if (String(row.profile_brand || '').trim() !== '') {
-          reviewSummary.push('Merk ' + String(row.profile_brand || '').trim());
-        }
-        if (String(row.profile_description || '').trim() !== '') {
-          reviewSummary.push(String(row.profile_description || '').trim());
-        }
-        reviewSummary.push('Est ' + fixed2(row.estimated_unit_price || 0));
-        profileCellHtml += '<div class="dreq-review-summary small text-muted">' + esc(reviewSummary.join(' | ')) + '</div>';
+        actions = '<span class="badge bg-'+badge+'">'+esc(label)+'</span>';
+        if (status==='PENDING') actions += '<button type="button" class="btn btn-sm btn-outline-success line-verify" data-idx="'+idx+'">Verifikasi</button><button type="button" class="btn btn-sm btn-outline-danger line-decision" data-action="REJECT" data-idx="'+idx+'">Tolak</button>';
+        if (status==='REJECTED') actions += '<button type="button" class="btn btn-sm btn-outline-secondary line-decision" data-action="REOPEN" data-idx="'+idx+'">Buka ulang</button>';
       }
-      profileCellHtml += '</td>';
-      if (canAssignVendor) {
-        if (isVerifyMode) {
-          vendorCellHtml = '<td class="dreq-vendor-cell"><div class="fw-semibold dreq-vendor-title">' + esc(vendorText) + '</div><div class="mt-1"><span class="dreq-vendor-caption ' + (vendorRequired ? 'is-required' : 'is-optional') + '">' + esc(vendorVerifyCaption(row, plan)) + '</span></div></td>';
-        } else {
-          vendorCellHtml = '<td class="dreq-vendor-cell"><div class="dreq-vendor-wrap"><select class="form-select form-select-sm line-vendor dreq-vendor-select" data-idx="' + idx + '"' + (vendorRequired ? '' : ' disabled') + '>'
-            + renderVendorOptions(vendorValue)
-            + '</select><button type="button" class="btn btn-sm btn-outline-primary line-vendor-add dreq-vendor-add" data-idx="' + idx + '" title="Tambah vendor baru">+</button></div></td>';
-        }
-      }
-      var srCellHtml = isDirectPo
-        ? '<div class="form-control form-control-sm dreq-qty-readonly text-center">-</div>'
-        : '<input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + (hasMode ? fixed2(requestPlanQty(plan, row, 'SR')) : '') + '" readonly>';
-      var poInputClass = 'form-control form-control-sm line-po dreq-po-input' + ((canSplitWarehouse && requestPoQtyValue(row) > 0) ? ' is-active-po' : '');
-      var poInputHtml = isVerifyMode
-        ? '<div class="dreq-request-stack"><input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + (hasMode ? fixed2(requestPoQtyValue(row)) : '') + '" readonly>' + (hasMode && poSummary ? '<div class="small text-muted">~ ' + esc(poSummary) + '</div>' : '<div class="small text-muted">' + esc(poCaption) + '</div>') + '</div>'
-        : (canSplitWarehouse
-          ? '<div class="dreq-request-stack"><input type="number" min="0.00" step="0.01" class="' + poInputClass + '" data-idx="' + idx + '" value="' + (hasMode ? fixed2(requestPoQtyValue(row)) : '') + '"' + (hasMode ? '' : ' disabled') + '>' + (hasMode && poSummary ? '<div class="small text-muted">~ ' + esc(poSummary) + '</div>' : '') + '</div>'
-          : '<input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + (hasMode ? fixed2(requestPlanQty(plan, row, 'PO')) : '') + '" readonly>');
-      var requestDisplayHtml = hasMode
-        ? '<div class="fw-semibold">' + esc((mode === 'CONTENT' ? 'ISI' : 'PACK') + ' | ' + qtyWithCode(requestQtyValue(row), requestUnitCode(row))) + '</div>'
-        : '<div class="text-muted">Belum dipilih</div>';
-      var srDisplayHtml = '<div class="fw-semibold">' + (hasMode ? esc(qtyWithCode(requestPlanQty(plan, row, 'SR'), requestUnitCode(row))) : '-') + '</div>';
-      var poDisplayHtml = '<div class="fw-semibold">' + (hasMode ? esc(qtyWithCode(requestPlanQty(plan, row, 'PO'), requestUnitCode(row))) : '-') + '</div>';
-      var requestCellHtml = isVerifyMode
-        ? '<td class="dreq-request-cell"><div class="dreq-request-stack"><div class="fw-semibold">' + (hasMode ? esc((mode === 'CONTENT' ? 'ISI' : 'PACK') + ' | ' + qtyWithCode(requestQtyValue(row), requestUnitCode(row))) : '<span class="text-muted">Belum dipilih</span>') + '</div>' + (hasMode && requestSummary ? '<div class="small text-muted">~ ' + esc(requestSummary) + '</div>' : '<div class="small text-muted">' + esc(requestCaption) + '</div>') + '</div></td>'
-        : '<td class="dreq-request-cell"><div class="dreq-request-stack"><select class="form-select form-select-sm line-request-mode dreq-request-mode" data-idx="' + idx + '"><option value=""' + (!hasMode ? ' selected' : '') + '>Pilih mode input</option><option value="BUY"' + (mode === 'BUY' && hasMode ? ' selected' : '') + '>PACK / UOM Beli (' + esc(row.profile_buy_uom_code || '-') + ')</option><option value="CONTENT"' + (mode === 'CONTENT' && hasMode ? ' selected' : '') + '>ISI (' + esc(row.profile_content_uom_code || '-') + ')</option></select><input type="number" min="0.01" step="0.01" class="form-control form-control-sm line-request dreq-qty-input ' + (overStock ? 'is-overstock' : '') + '" data-idx="' + idx + '" value="' + (hasMode ? fixed2(requestQtyValue(row)) : '') + '"' + (hasMode ? '' : ' disabled') + '>' + (hasMode && requestSummary ? '<div class="small text-muted">~ ' + esc(requestSummary) + '</div>' : '') + '</div></td>';
-      var notesCellHtml = isVerifyMode
-        ? '<td><div class="small">' + esc(row.notes || '-') + '</div></td>'
-        : '<td><input type="text" class="form-control form-control-sm line-notes dreq-notes-input" data-idx="' + idx + '" value="' + esc(row.notes || '') + '" placeholder="Opsional"></td>';
-      var actionCellHtml = isVerifyMode
-        ? '<td><div class="d-grid gap-1"><button type="button" class="btn btn-sm btn-outline-primary line-verify dreq-action-btn" data-idx="' + idx + '">' + (row.line_reviewed ? 'Ulangi' : 'Review') + '</button><button type="button" class="btn btn-sm btn-outline-danger line-del dreq-action-btn" data-idx="' + idx + '">Hapus</button></div></td>'
-        : '<td><button type="button" class="btn btn-sm btn-outline-danger line-del dreq-action-btn" data-idx="' + idx + '">Hapus</button></td>';
-      if (isVerifyMode) {
-        html += '<tr>'
-          + profileCellHtml
-          + '<td data-live-stock-line="' + (idx + 1) + '">Menunggu cek stok…</td>'
-          + '<td>' + esc(effectiveLineKind(row)) + '</td>'
-          + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
-          + vendorCellHtml
-          + '<td class="dreq-uom-cell"><div class="fw-semibold">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</div><div class="small text-muted">' + esc(packSummary(row)) + '</div></td>'
-          + usageCellHtml
-          + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_buy_balance) + '</td>'
-          + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_content_balance) + '</td>'
-          + '<td><div class="dreq-request-stack">' + requestDisplayHtml + (hasMode && requestSummary ? '<div class="small text-muted">~ ' + esc(requestSummary) + '</div>' : '<div class="small text-muted">' + esc(requestCaption) + '</div>') + '</div></td>'
-          + '<td>' + srDisplayHtml + '</td>'
-          + '<td><div class="dreq-request-stack">' + poDisplayHtml + (hasMode && poSummary ? '<div class="small text-muted">~ ' + esc(poSummary) + '</div>' : '<div class="small text-muted">' + esc(poCaption) + '</div>') + '</div></td>'
-          + actionCellHtml
-          + '</tr>';
-      } else {
-        html += '<tr>'
-          + profileCellHtml
-          + '<td data-live-stock-line="' + (idx + 1) + '">Menunggu cek stok…</td>'
-          + '<td>' + esc(effectiveLineKind(row)) + '</td>'
-          + '<td><span class="badge bg-' + routeClass + '">' + esc(routeLabel(row)) + '</span></td>'
-          + vendorCellHtml
-          + '<td class="dreq-uom-cell"><div class="fw-semibold">' + esc(row.profile_buy_uom_code || '-') + ' -> ' + esc(row.profile_content_uom_code || '-') + '</div><div class="small text-muted">' + esc(packSummary(row)) + '</div></td>'
-          + usageCellHtml
-          + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_buy_balance) + '</td>'
-          + '<td class="text-end dreq-stock-cell">' + fixed2(row.qty_content_balance) + '</td>'
-          + requestCellHtml
-          + '<td>' + srCellHtml + '</td>'
-          + '<td>' + poInputHtml + '</td>'
-          + '<td><input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + fixed2(requestPlanQty(plan, row, 'PO')) + '" readonly></td>'
-          + '<td><input type="number" step="0.01" class="form-control form-control-sm dreq-qty-readonly" value="' + fixed2(row.qty_content_requested) + '" readonly></td>'
-          + notesCellHtml
-          + actionCellHtml
-          + '</tr>';
-      }
-    });
-    tbody.innerHTML = html;
+      return '<tr id="dreq-line-'+row.id+'" class="dreq-row-'+status.toLowerCase()+'">'
+        + '<td data-label="Barang / Jenis"><strong>'+esc(row.profile_name || '-')+'</strong><div class="dreq-profile-meta"><span class="badge bg-light text-dark border">'+esc(effectiveLineKindLabel(row))+'</span><span class="small text-muted">'+esc(sourceLabel(row.source_type))+'</span></div><div class="small text-muted mt-1">'+esc([row.profile_brand,row.profile_description].filter(Boolean).join(' / '))+'</div>'+(row.review_notes?'<div class="small text-danger mt-1">'+esc(row.review_notes)+'</div>':'')+'</td>'
+        + '<td data-label="Stok"><div data-live-stock-line="'+(idx+1)+'" class="small">Menunggu cek stok...</div><details class="small mt-2"><summary>Snapshot pengajuan</summary>'+esc(qtyWithCode(row.qty_buy_balance,row.profile_buy_uom_code))+'<br>'+esc(qtyWithCode(row.qty_content_balance,row.profile_content_uom_code))+'</details></td>'
+        + '<td data-label="Jumlah / Satuan">'+quantity+'<div class="small text-muted mt-1">'+esc(requestSecondarySummary(row))+'</div><div class="small text-muted">'+esc(packSummary(row))+'</div></td>'
+        + '<td data-label="Pemakaian">'+usage+'</td>'
+        + '<td data-label="Alokasi SR / PO">'+allocation+'</td>'
+        + '<td data-label="Harga / Catatan"><strong>Rp '+num(row.estimated_unit_price).toLocaleString('id-ID',{maximumFractionDigits:2})+'</strong><div class="small text-muted">per '+esc(row.profile_buy_uom_code || '-')+'</div>'
+          +(isVerifyMode?'<div class="small mt-2">'+esc(row.notes || '-')+'</div>':'<input aria-label="Catatan rincian" class="form-control form-control-sm line-notes mt-2" data-idx="'+idx+'" value="'+esc(row.notes)+'" placeholder="Catatan">')+'</td>'
+        + '<td data-label="Aksi"><div class="dreq-row-actions">'+actions+'</div></td></tr>';
+    }).join('');
     setLinesJson();
   }
 
@@ -2307,7 +2268,7 @@ if (!function_exists('finance_dreq_location_label')) {
     }
     toggleManualCard(allowManual, query);
     if (!rows || !rows.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Tidak ada data.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Tidak ada data.</td></tr>';
       if (allowManual) {
         setSearchMeta('Stok gudang dan katalog tidak menemukan barang. Lanjut input manual untuk diarahkan ke PO.');
       } else {
@@ -2340,13 +2301,11 @@ if (!function_exists('finance_dreq_location_label')) {
       var expDateText = normalized.profile_expired_date ? esc(normalized.profile_expired_date) : '-';
       var lastPurchaseDate = normalized.last_purchase_date ? esc(normalized.last_purchase_date) : '-';
       html += '<tr>'
-        + '<td class="dreq-profile-cell"><strong>' + esc(normalized.profile_name || '-') + '</strong>' + brandText + '<div class="small mt-1"><span class="badge bg-' + badgeClass + '">' + esc(sourceLabel(sourceType)) + '</span></div></td>'
-        + '<td class="small">' + descriptionText + '</td>'
+        + '<td><strong>' + esc(normalized.profile_name || '-') + '</strong>' + brandText + '<div class="small">' + descriptionText + '</div><div class="small mt-1"><span class="badge bg-' + badgeClass + '">' + esc(sourceLabel(sourceType)) + '</span> ' + esc(effectiveLineKindLabel(normalized)) + '</div></td>'
         + '<td class="dreq-uom-cell"><div class="fw-semibold">' + buyCode + ' -> ' + contentCode + '</div><div class="small text-muted">' + esc(packSummary(normalized)) + '</div></td>'
         + '<td class="text-end dreq-stock-cell">' + stockCell + '</td>'
         + '<td class="text-end"><div class="fw-semibold">' + fixed2(priceValue) + '</div><div class="small text-muted">/ ' + buyCode + '</div></td>'
-        + '<td>' + expDateText + '</td>'
-        + '<td>' + lastPurchaseDate + '</td>'
+        + '<td><div>Exp: ' + expDateText + '</div><div class="small text-muted">Beli: ' + lastPurchaseDate + '</div></td>'
         + '<td><button type="button" class="btn btn-sm btn-outline-primary dreq-action-btn search-pick" data-row="' + esc(JSON.stringify(normalized)) + '">Pilih</button></td>'
         + '</tr>';
     });
@@ -2521,6 +2480,17 @@ if (!function_exists('finance_dreq_location_label')) {
   });
 
   document.addEventListener('click', function (event) {
+    var decision = event.target.closest('.line-decision');
+    if (decision && !savingDecision) {
+      decisionIdx = Number(decision.dataset.idx);
+      decisionAction = decision.dataset.action;
+      document.getElementById('dreqDecisionTitle').textContent = decisionAction==='REJECT'?'Tolak rincian':'Buka ulang rincian';
+      document.getElementById('dreqDecisionName').textContent = requestLines[decisionIdx].profile_name;
+      document.getElementById('dreqDecisionReason').value = '';
+      document.getElementById('dreqDecisionError').textContent = '';
+      showModalElement(document.getElementById('dreqDecisionModal'));
+      return;
+    }
     var pick = event.target.closest('.search-pick');
     if (pick) {
       event.preventDefault();
@@ -2642,7 +2612,7 @@ if (!function_exists('finance_dreq_location_label')) {
   }
 
   if (verifyApplyBtn) {
-    verifyApplyBtn.addEventListener('click', function () {
+    verifyApplyBtn.addEventListener('click', async function () {
       var reviewedRow = buildVerifyModalRow();
       if (!reviewedRow) {
         setVerifyAlert('danger', 'Line review tidak ditemukan. Tutup modal lalu buka lagi.');
@@ -2661,11 +2631,29 @@ if (!function_exists('finance_dreq_location_label')) {
         setVerifyAlert('warning', 'Vendor wajib dipilih untuk line yang masuk PO.');
         return;
       }
-      reviewedRow.line_reviewed = true;
-      requestLines[activeVerifyLineIdx] = reviewedRow;
-      renderLines();
-      hideVerifyModal();
-      flash('success', 'Hasil review line disimpan. Lanjutkan ke line berikutnya atau simpan akhir jika semua sudah selesai.');
+      verifyApplyBtn.disabled = true;
+      try {
+        if (!window.ProcurementStockReview) throw new Error('Pemeriksaan stok belum siap.');
+        var confirmation = window.ProcurementStockReview.confirmation();
+        await saveDecision(reviewedRow,'VERIFY',{line:cleanLine(reviewedRow),stock_review:confirmation});
+      } catch (error) { setVerifyAlert('danger',esc(error.message || 'Koneksi gagal. Periksa status rincian dengan memuat ulang halaman.')); }
+      finally { verifyApplyBtn.disabled = false; }
+    });
+  }
+  document.getElementById('dreqDecisionSave').addEventListener('click',async function () {
+    var button = this, reason = document.getElementById('dreqDecisionReason').value.trim();
+    var errorEl = document.getElementById('dreqDecisionError');
+    if (reason.length<3) { errorEl.textContent='Isi alasan minimal 3 karakter.'; return; }
+    button.disabled=true;
+    try { await saveDecision(requestLines[decisionIdx],decisionAction,{reason:reason}); }
+    catch (error) { errorEl.textContent=error.message || 'Koneksi gagal. Muat ulang untuk memeriksa status.'; }
+    finally { button.disabled=false; }
+  });
+  if (verifyModalEl) {
+    ['input','change'].forEach(function (name) {
+      verifyModalEl.addEventListener(name,function (event) {
+        if (!event.target.closest('#procurementStockReview')) document.dispatchEvent(new CustomEvent('procurement-lines-changed'));
+      });
     });
   }
 
@@ -2861,6 +2849,7 @@ if (!function_exists('finance_dreq_location_label')) {
   var form = document.getElementById('divisionRequestForm');
   if (form) {
     form.addEventListener('submit', function (event) {
+      if (isVerifyMode) { event.preventDefault(); return; }
       if (!requestLines.length) {
         event.preventDefault();
         flash('warning', 'Minimal 1 line pengajuan wajib diisi.');
@@ -2903,5 +2892,10 @@ if (!function_exists('finance_dreq_location_label')) {
   applyDivisionDestinationGuard();
   syncManualQtyContent();
   renderLines();
+  if (isVerifyMode && /^#dreq-line-\d+$/.test(window.location.hash)) {
+    var focusId = Number(window.location.hash.replace('#dreq-line-',''));
+    var focusIdx = requestLines.findIndex(function (row) { return row.id===focusId; });
+    if (focusIdx>=0) setTimeout(function () { openVerifyModal(focusIdx); },0);
+  }
 })();
 </script>

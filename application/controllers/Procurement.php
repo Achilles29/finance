@@ -439,8 +439,11 @@ class Procurement extends MY_Controller
 
         $status = strtoupper((string)($detail['header']['status'] ?? 'SUBMITTED'));
         $hasDocs = !empty((array)($detail['links'] ?? []));
-        $canVerify = $scope['can_verify'] && $status === 'SUBMITTED';
-        $canEditOwn = $scope['can_edit_own'] && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs;
+        $canVerify = $scope['can_verify'] && $status !== 'VOID' && array_filter($detail['lines'], static function ($line) use ($status) {
+            return in_array($line['review_status'] ?? ($status === 'SUBMITTED' ? 'PENDING' : $status), ['PENDING','REJECTED'], true);
+        });
+        $hasLineDecisions = (bool)array_filter($detail['lines'], static function ($line) { return !empty($line['reviewed_at']); });
+        $canEditOwn = $scope['can_edit_own'] && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs && !$hasLineDecisions;
         if (!$canVerify && !$canEditOwn) {
             $this->session->set_flashdata('error', 'Pengajuan ini tidak dapat diedit pada status saat ini.');
             redirect('procurement/division-po-sr/detail/' . $id);
@@ -668,9 +671,12 @@ class Procurement extends MY_Controller
 
         $status = strtoupper((string)($detail['header']['status'] ?? 'SUBMITTED'));
         $hasDocs = !empty((array)($detail['links'] ?? []));
-        $canVerify = $scope['can_verify'] && $status === 'SUBMITTED';
-        $canEditOwn = $scope['can_edit_own'] && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs;
-        $canVoid = ($scope['can_verify'] || $canEditOwn) && in_array($status, ['SUBMITTED', 'REJECTED'], true);
+        $canVerify = $scope['can_verify'] && $status !== 'VOID' && array_filter($detail['lines'], static function ($line) use ($status) {
+            return in_array($line['review_status'] ?? ($status === 'SUBMITTED' ? 'PENDING' : $status), ['PENDING','REJECTED'], true);
+        });
+        $hasLineDecisions = (bool)array_filter($detail['lines'], static function ($line) { return !empty($line['reviewed_at']); });
+        $canEditOwn = $scope['can_edit_own'] && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs && !$hasLineDecisions;
+        $canVoid = ($scope['can_verify'] || $canEditOwn) && in_array($status, ['SUBMITTED', 'REJECTED'], true) && !$hasDocs;
 
         $detail['lines'] = $this->Procurement_model->current_stock_rows((array)$detail['lines'], (array)$detail['header']);
 
@@ -680,7 +686,7 @@ class Procurement extends MY_Controller
             'detail' => $detail,
             'can_verify' => $canVerify,
             'can_edit' => $canEditOwn,
-            'can_reject' => $scope['can_verify'] && $status === 'SUBMITTED',
+            'can_reject' => false,
             'can_void' => $canVoid,
             'is_purchase_scope' => $scope['is_purchase'],
             'stock_review_history' => $this->Procurement_model->stock_review_history('REQUEST',$id),
@@ -699,6 +705,9 @@ class Procurement extends MY_Controller
 
     public function division_po_sr_notify(int $id = 0)
     {
+        // A PDF render can outlive a transient browser disconnect. Finish the
+        // idempotent queue write so a second click does not create ambiguity.
+        ignore_user_abort(true);
         if (!$this->require_procurement_mutation_csrf()) return;
         $scope = $this->divisionPoSrScope();
         if (empty($scope['can_view']) || (empty($scope['can_create']) && empty($scope['can_edit_own']) && empty($scope['can_verify']))) {
@@ -725,10 +734,15 @@ class Procurement extends MY_Controller
         try {
             $detail = $this->Procurement_model->get_division_request_detail($id);
             if (!$detail) throw new RuntimeException('Pengajuan tidak ditemukan.');
-            $result = $this->Module_notification_model->enqueue_division($channel, $detail, (int)($this->current_user['id'] ?? 0));
+            $attachment = $channel === 'WA' ? $this->createDivisionNotificationPdf($detail) : [];
+            $result = $this->Module_notification_model->enqueue_division($channel, $detail, (int)($this->current_user['id'] ?? 0), $attachment);
             $this->output->set_content_type('application/json')->set_output(json_encode($result));
-        } catch (RuntimeException $error) {
-            $this->jsonError($error->getMessage(), 422);
+        } catch (Throwable $error) {
+            log_message('error', 'Division PO/SR WA notification failed for request #' . $id . ': ' . $error->getMessage());
+            $message = $error instanceof RuntimeException
+                ? $error->getMessage()
+                : 'PDF pengajuan belum dapat dibuat. Detail teknis telah dicatat untuk diperiksa.';
+            $this->jsonError($message, 422);
         }
     }
 
@@ -771,6 +785,39 @@ class Procurement extends MY_Controller
         $this->output
             ->set_content_type('application/json')
             ->set_output(json_encode($result));
+    }
+
+    public function division_po_sr_line_action(int $id = 0, int $lineId = 0)
+    {
+        if (!$this->require_procurement_mutation_csrf()) return;
+        $scope = $this->divisionPoSrScope();
+        $header = $this->db->select('division_id')->from('pur_division_request')->where('id',$id)->get()->row_array();
+        if (!$scope['can_view'] || !$scope['can_verify'] || !$header || !$this->isDivisionRequestAccessible((int)$header['division_id'],$scope)) {
+            $this->jsonError('Anda tidak memiliki akses memverifikasi rincian pengajuan ini.',403); return;
+        }
+        $payload = $this->requestPayload();
+        $action = $payload['action'] ?? '';
+        if ($lineId<=0 || !is_string($action) || !in_array($action,['VERIFY','REJECT','REOPEN'],true)
+            || ($action==='VERIFY' && !is_array($payload['line'] ?? null))
+            || (isset($payload['line']) && !is_array($payload['line']))
+            || (isset($payload['stock_review']) && !is_array($payload['stock_review']))
+            || (isset($payload['reason']) && !is_string($payload['reason']))) {
+            $this->jsonError('Data keputusan rincian tidak valid.',422); return;
+        }
+        foreach (($payload['line'] ?? []) as $value) {
+            if ($value!==null && !is_scalar($value)) { $this->jsonError('Isian rincian tidak valid.',422); return; }
+        }
+        $debug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->Procurement_model->decide_division_request_line($id,$lineId,$action,$payload,(int)$this->current_user['id'],(string)$this->input->ip_address());
+            $this->output->set_status_header(!empty($result['ok'])?200:422)->set_content_type('application/json')
+                ->set_output(json_encode($result,JSON_INVALID_UTF8_SUBSTITUTE));
+        } catch (Throwable $e) {
+            $this->db->trans_rollback();
+            log_message('error','Division line decision: '.$e->getMessage());
+            $this->jsonError('Keputusan belum dapat disimpan. Muat ulang untuk memeriksa status rincian.',500);
+        } finally { $this->db->db_debug = $debug; }
     }
 
     public function division_po_sr_action(int $id = 0)
@@ -1355,7 +1402,7 @@ class Procurement extends MY_Controller
         file_put_contents($htmlPath, $html);
 
         $fileUrl = 'file:///' . str_replace(' ', '%20', str_replace('\\', '/', $htmlPath));
-        $command = '"' . $browserPath . '" --headless --disable-gpu --allow-file-access-from-files --print-to-pdf="' . $pdfPath . '" --print-to-pdf-no-header "' . $fileUrl . '"';
+        $command = 'timeout 30s "' . $browserPath . '" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --allow-file-access-from-files --print-to-pdf="' . $pdfPath . '" --print-to-pdf-no-header "' . $fileUrl . '"';
         exec($command, $output, $exitCode);
 
         $binary = null;
@@ -1370,6 +1417,13 @@ class Procurement extends MY_Controller
 
     private function resolvePdfBrowserBinary(): ?string
     {
+        // PHP-FPM is intentionally restricted with open_basedir. Checking a
+        // binary below /usr emits a warning that corrupts the JSON response.
+        // The production renderer is provisioned at this stable Linux path.
+        if (PHP_OS_FAMILY !== 'Windows') {
+            return '/usr/bin/google-chrome';
+        }
+
         $candidates = [
             'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
             'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
@@ -1378,12 +1432,42 @@ class Procurement extends MY_Controller
         ];
 
         foreach ($candidates as $candidate) {
-            if (is_file($candidate)) {
+            if (@is_file($candidate)) {
                 return $candidate;
             }
         }
 
         return null;
+    }
+
+    private function createDivisionNotificationPdf(array $detail): array
+    {
+        $header = (array)($detail['header'] ?? []);
+        $id = (int)($header['id'] ?? 0);
+        $lines = (array)($detail['lines'] ?? []);
+        if ($id <= 0 || !$lines) throw new RuntimeException('PDF pengajuan tidak dapat dibuat karena data rincian kosong.');
+        $lineRows = array_map(static function (array $line) use ($header, $id): array {
+            return $line + [
+                'request_id' => $id, 'request_no' => $header['request_no'] ?? '-', 'division_name' => $header['division_name'] ?? '-',
+                'destination_type' => $header['destination_type'] ?? '-', 'needed_date' => $header['needed_date'] ?? '',
+            ];
+        }, $lines);
+        $html = $this->load->view('procurement/division_po_sr_print', [
+            'title' => 'Pengajuan PO / SR ' . (string)($header['request_no'] ?? ''), 'line_rows' => $lineRows,
+            'filters' => ['date_start' => $header['needed_date'] ?? ''], 'printed_at' => date('Y-m-d H:i:s'),
+            'show_print_controls' => false, 'pdf_mode' => true,
+        ], true);
+        $binary = $this->renderDivisionPoSrPdfBinary($html);
+        if ($binary === null) throw new RuntimeException('PDF pengajuan gagal dibuat. Pastikan Google Chrome tersedia di server.');
+        // Keep outgoing documents outside the public asset tree and inside
+        // PHP-FPM's allowed application path.
+        $directory = APPPATH . 'cache/wa-attachments';
+        if (!is_dir($directory) && !@mkdir($directory, 02770, true) && !is_dir($directory)) throw new RuntimeException('Folder lampiran WA tidak dapat dibuat.');
+        $safeNo = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string)($header['request_no'] ?? $id));
+        $name = 'pengajuan-' . trim($safeNo, '-') . '.pdf';
+        $path = $directory . '/' . $id . '-' . date('YmdHis') . '-' . bin2hex(random_bytes(6)) . '.pdf';
+        if (@file_put_contents($path, $binary, LOCK_EX) === false || !@chmod($path, 0640)) throw new RuntimeException('PDF pengajuan tidak dapat disimpan untuk pengiriman WA.');
+        return ['path' => $path, 'name' => $name];
     }
 
     private function resolveCurrentUserDivisionScope(array $allDivisionOptions): array
