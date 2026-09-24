@@ -50,6 +50,7 @@ $expectedRequired = [
     'a1-component-formula-restore',
     'a1-product-bundle-revision-audit',
     'a2-matrix',
+    'a2-component-fifo-value',
     'a2-account-mutation-history',
     'a2-payroll-meal-mode',
     'attendance-auto-ph',

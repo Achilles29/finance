@@ -1,5 +1,7 @@
 # Audit Total Aplikasi Finance dan Roadmap Pengembangan
 
+**24 September 2026 — mismatch nilai component:** [x] samakan biaya saldo dengan alokasi lot pada POS/produksi/adjustment; [x] retur/void membawa biaya yang benar; [x] rebuild hanya bulan aktif, mempertahankan ID dan koreksi nilai; [x] proyeksi harian/opening/hitung fisik diselaraskan; [x] 45 regresi in-memory + 65 pemeriksaan MariaDB disposable, lint dan static PASS. [ ] UAT UI; [ ] repair data historis terpisah, belum dijalankan; [ ] review kegagalan existing hitungan guard/token CSRF pada matriks A2. Tidak mengubah database/config aktif atau artefak release. [Bukti dan checklist](2026-09-24_component_fifo_value_consistency.md).
+
 **23 September 2026 — PDF PO/SR via WA:** [x] perbaiki jalur PDF yang melewatkan pembacaan stok dan salah menandai semua baris non-bahan baku; [x] samakan reader divisi/gudang/catatan dengan unduhan; [x] uji parity HTML/PDF nyata dan pembacaan read-only. [ ] UAT penerimaan PDF baru di grup. [Bukti](2026-09-23_module_notifications.md).
 
 **23 September 2026 — Daily Sales PDF WA:** [x] event/manual send dari laporan sesuai tanggal/outlet; [x] PDF privat, dedup, permission/CSRF/lisensi; [x] uji renderer nyata dan antrean disposable. Pengaturan WA pengguna dipertahankan. [ ] UAT kirim PDF nyata; [ ] tindak lanjut mapping Procurement existing pada gate global. [Bukti/panduan](2026-09-23_module_notifications.md).

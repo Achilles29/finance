@@ -315,7 +315,10 @@ class ComponentLotManager
             }
 
             $unitCost = max(0, round((float)($lot['unit_cost'] ?? 0), 6));
-            $lineCost = round($takeQty * $unitCost, 2);
+            // Price the actual reduction of the lot's carrying value. Rounding
+            // each tiny issue independently otherwise accumulates penny drift.
+            $lineCost = round(round($lotBalance * $unitCost, 2)
+                - round(($lotBalance - $takeQty) * $unitCost, 2), 2);
             $this->ci->db->insert('inv_component_lot_issue_line', [
                 'issue_id' => $issueId,
                 'lot_id' => $lotId,
@@ -369,10 +372,44 @@ class ComponentLotManager
     }
 
     /**
-     * Align lots to a physical-count result that is already recorded in the
-     * component movement ledger. This intentionally does not create an issue
-     * log or a second stock movement: it is a structural lot correction only.
+     * Read-only quote for the existing physical-count lot selection policy.
+     * openingQty/stockQty account for earlier pending reductions in one document.
      */
+    public function quotePhysicalCountReduction(array $identity, float $openingQty, float $stockQty, float $qtyOut): array
+    {
+        $ready = $this->ensureSchema();
+        if (!($ready['ok'] ?? false)) {
+            return $ready;
+        }
+        $lots = $this->findOpenLots($identity);
+        if ($this->lastBuilderQueryError !== null) {
+            return ['ok' => false, 'message' => 'Daftar lot hitung fisik belum dapat dibaca.'];
+        }
+        $lotQty = round(array_sum(array_column($lots, 'qty_balance')), 4);
+        if (abs($lotQty - $openingQty) > 0.0001 || $stockQty > $openingQty + 0.0001 || $qtyOut > $stockQty + 0.0001) {
+            // Existing quantity drift needs the structural reconciliation path;
+            // do not pretend its value is an ordinary quantity reduction.
+            return ['ok' => true, 'matched' => false];
+        }
+        $skip = round(max(0, $openingQty - $stockQty), 4);
+        $remaining = round($qtyOut, 4);
+        $cost = 0.0;
+        // Exactly the same LIFO order as the physical-count structural repair.
+        foreach (array_reverse($lots) as $lot) {
+            $balance = (float)$lot['qty_balance'];
+            $skipped = min($skip, $balance);
+            $skip = round($skip - $skipped, 4);
+            $balance = round($balance - $skipped, 4);
+            $take = min($remaining, $balance);
+            $unit = (float)$lot['unit_cost'];
+            $cost += round(round($balance * $unit, 2) - round(($balance - $take) * $unit, 2), 2);
+            $remaining = round($remaining - $take, 4);
+            if ($remaining <= 0.0001) { break; }
+        }
+        return ['ok' => true, 'matched' => $remaining <= 0.0001, 'total_cost' => round($cost, 2)];
+    }
+
+    /** Align structural lots without posting a second quantity movement. */
     public function reconcileLotsToAuthoritativeBalance(array $payload): array
     {
         $ensure = $this->ensureSchema();
@@ -582,6 +619,7 @@ class ComponentLotManager
         $voided = 0;
         $remaining = $rollbackQty !== null ? round(max(0, $rollbackQty), 4) : null;
         $rolledQty = 0.0;
+        $rolledCost = 0.0;
         $allocations = [];
         foreach ($issueLogs as $log) {
             if ($remaining !== null && $remaining <= 0.0001) {
@@ -609,6 +647,12 @@ class ComponentLotManager
                     continue;
                 }
                 $unitCost = max(0, round((float)($line['unit_cost'] ?? ($lot['unit_cost'] ?? 0)), 6));
+                $newIssueQty = round($qtyOut - $rollbackLineQty, 4);
+                $returnCost = round((float)$line['total_cost'] - round($newIssueQty * $unitCost, 2), 2);
+                // Preserve a legitimate revaluation of the remaining stock.
+                // Returning old-cost stock must not reprice the entire lot.
+                $lotQty = round((float)($lot['qty_balance'] ?? 0), 4);
+                $restoredUnitCost = round((round($lotQty * (float)$lot['unit_cost'], 2) + $returnCost) / ($lotQty + $rollbackLineQty), 6);
                 $rollback = $this->applyLotMutation([
                     'lot_id' => (int)$lot['id'],
                     'location_type' => (string)$lot['location_type'],
@@ -618,7 +662,7 @@ class ComponentLotManager
                     'lot_no' => (string)$lot['lot_no'],
                     'receipt_date' => (string)$lot['receipt_date'],
                     'expiry_date' => $this->normalizeDate((string)($lot['expiry_date'] ?? '')),
-                    'unit_cost' => $unitCost,
+                    'unit_cost' => $restoredUnitCost,
                     'source_module' => $this->nullableString($lot['source_module'] ?? null),
                     'source_table' => $this->nullableString($lot['source_table'] ?? null),
                     'source_id' => $this->nullableInt($lot['source_id'] ?? null),
@@ -629,7 +673,6 @@ class ComponentLotManager
                     return $rollback;
                 }
 
-                $newIssueQty = round($qtyOut - $rollbackLineQty, 4);
                 $this->ci->db->where('id', (int)($line['id'] ?? 0))->update('inv_component_lot_issue_line', [
                     'qty_out' => $newIssueQty,
                     'total_cost' => round($newIssueQty * $unitCost, 2),
@@ -641,15 +684,22 @@ class ComponentLotManager
 
                 $issueRolledQty = round($issueRolledQty + $rollbackLineQty, 4);
                 $rolledQty = round($rolledQty + $rollbackLineQty, 4);
+                $rolledCost = round($rolledCost + $returnCost, 2);
                 if ($remaining !== null) {
                     $remaining = round($remaining - $rollbackLineQty, 4);
                 }
                 $allocations[] = [
                     'issue_id' => (int)($log['id'] ?? 0),
                     'issue_line_id' => (int)($line['id'] ?? 0),
+                    'component_id' => (int)$lot['component_id'],
+                    'uom_id' => (int)$lot['uom_id'],
+                    'location_type' => (string)$lot['location_type'],
+                    'division_id' => $lot['division_id'],
+                    'source_line_id' => $log['source_line_id'] ?? null,
                     'lot_id' => (int)($line['lot_id'] ?? 0),
                     'qty_rolled' => $rollbackLineQty,
                     'qty_remaining' => $newIssueQty,
+                    'total_cost' => $returnCost,
                 ];
             }
 
@@ -690,6 +740,7 @@ class ComponentLotManager
                 'data' => [
                     'issue_count' => $voided,
                     'rolled_qty' => $rolledQty,
+                    'rolled_cost' => $rolledCost,
                     'remaining_qty' => round($remaining, 4),
                     'is_partial' => true,
                     'allocations' => $allocations,
@@ -702,6 +753,7 @@ class ComponentLotManager
             'data' => [
                 'issue_count' => $voided,
                 'rolled_qty' => $rolledQty,
+                'rolled_cost' => $rolledCost,
                 'remaining_qty' => 0.0,
                 'is_partial' => false,
                 'allocations' => $allocations,
@@ -732,10 +784,19 @@ class ComponentLotManager
             return ['ok' => true, 'data' => ['lot_count' => 0]];
         }
 
+        $allocations = [];
         foreach ($lots as $lot) {
+            $lot = $this->findLotById((int)$lot['id'], true);
             if (round((float)($lot['qty_out_total'] ?? 0), 4) > 0.0001) {
                 return ['ok' => false, 'message' => 'Lot output component sudah pernah dipakai sehingga tidak bisa di-void.'];
             }
+            $allocations[] = [
+                'lot_id' => (int)$lot['id'], 'component_id' => (int)$lot['component_id'],
+                'uom_id' => (int)$lot['uom_id'], 'location_type' => (string)$lot['location_type'],
+                'division_id' => $lot['division_id'], 'source_line_id' => $lot['source_line_id'] ?? null,
+                'qty_rolled' => (float)$lot['qty_balance'],
+                'total_cost' => round((float)$lot['qty_balance'] * (float)$lot['unit_cost'], 2),
+            ];
             $notes = trim((string)($lot['source_module'] ?? ''));
             if ($voidNote !== '') {
                 $notes = $notes !== '' ? ($notes . ' | ' . $voidNote) : $voidNote;
@@ -747,7 +808,7 @@ class ComponentLotManager
             ]);
         }
 
-        return ['ok' => true, 'data' => ['lot_count' => count($lots)]];
+        return ['ok' => true, 'data' => ['lot_count' => count($lots), 'allocations' => $allocations]];
     }
 
     public function closeCarryForwardSourceLots(array $payload): array

@@ -49,6 +49,7 @@ function finance_quality_gate_manifest(): array
             ['id' => 'a1-component-formula-restore', 'file' => 'component_formula_restore_smoke.php'],
             ['id' => 'a1-product-bundle-revision-audit', 'file' => 'master_relation_product_bundle_revision_audit_smoke.php'],
             ['id' => 'a2-matrix', 'file' => 'a2_inventory_transaction_matrix_smoke.php'],
+            ['id' => 'a2-component-fifo-value', 'file' => 'component_fifo_value_regression_smoke.php'],
             ['id' => 'a2-account-mutation-history', 'file' => 'a2_account_mutation_history_smoke.php'],
             ['id' => 'a2-payroll-meal-mode', 'file' => 'payroll_meal_mode_contract_smoke.php'],
             ['id' => 'attendance-auto-ph', 'file' => 'attendance_auto_ph_smoke.php'],

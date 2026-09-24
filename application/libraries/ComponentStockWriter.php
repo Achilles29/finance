@@ -228,13 +228,14 @@ class ComponentStockWriter
                     'component_id' => $componentId,
                     'uom_id' => $uomId,
                 ];
-                if ($isPhysicalCount) {
+                if ($isPhysicalCount && !isset($physicalReconcileIdentities[$rebuildKey])) {
                     $physicalReconcileIdentities[$rebuildKey] = [
                         'location_type' => $locationType,
                         'division_id' => $divisionId,
                         'component_id' => $componentId,
                         'uom_id' => $uomId,
                         'source_line_id' => $sourceLineId,
+                        'opening_qty' => (float)($this->load_balance_state($locationType, $divisionId, $componentId, $uomId, $movementDate)['qty_on_hand'] ?? 0),
                     ];
                 }
 
@@ -307,10 +308,22 @@ class ComponentStockWriter
                         $allocations = (array)($lotIssue['data']['allocations'] ?? []);
                     }
 
-                    if ($avgUnitCost <= 0) {
+                    if ($isPhysicalCount && $avgUnitCost <= 0) {
                         $avgUnitCost = $this->current_avg_cost($locationType, $divisionId, $componentId, $uomId);
                     }
                     $qtyForStock = $isPhysicalCount ? $qty : $issuedQty;
+                    $movementCost = $isPhysicalCount ? round($qtyForStock * $avgUnitCost, 2) : (float)$lotIssue['data']['total_cost'];
+                    if ($isPhysicalCount) {
+                        $quote = $this->ci->componentlotmanager->quotePhysicalCountReduction(
+                            $rebuildIdentities[$rebuildKey] + ['reference_date' => $movementDate],
+                            (float)$physicalReconcileIdentities[$rebuildKey]['opening_qty'], $availableStockQty, $qtyForStock
+                        );
+                        if (!($quote['ok'] ?? false)) { throw new RuntimeException($quote['message']); }
+                        if (!empty($quote['matched'])) {
+                            $movementCost = (float)$quote['total_cost'];
+                            $avgUnitCost = $qtyForStock > 0 ? round($movementCost / $qtyForStock, 6) : 0.0;
+                        }
+                    }
                     if ($qtyForStock > 0.0001) {
                         $lotSnapshot = !empty($allocations[0]['lot_no']) ? (string)$allocations[0]['lot_no'] : null;
                         $movementNote = $note;
@@ -323,6 +336,7 @@ class ComponentStockWriter
                             'movement_type' => $movementType,
                             'qty' => $qtyForStock,
                             'unit_cost' => $avgUnitCost,
+                            'total_cost' => $movementCost,
                             'source_module' => 'PRODUCTION_ADJUSTMENT',
                             'source_table' => 'inv_component_adjustment',
                             'source_id' => $sourceId > 0 ? $sourceId : null,
@@ -381,6 +395,11 @@ class ComponentStockWriter
                     $unitCost = isset($line['unit_cost']) ? round((float)$line['unit_cost'], 6) : 0.0;
                     if ($unitCost <= 0) {
                         $unitCost = $this->current_avg_cost($locationType, $divisionId, $componentId, $uomId);
+                    }
+                    if ($isPhysicalCount) {
+                        $physicalReconcileIdentities[$rebuildKey]['inbound_qty'] = (float)($physicalReconcileIdentities[$rebuildKey]['inbound_qty'] ?? 0) + $qtyPlus;
+                        $physicalReconcileIdentities[$rebuildKey]['inbound_value'] = (float)($physicalReconcileIdentities[$rebuildKey]['inbound_value'] ?? 0) + round($qtyPlus * $unitCost, 2);
+                        $physicalReconcileIdentities[$rebuildKey]['inbound_unit_cost'] = round($physicalReconcileIdentities[$rebuildKey]['inbound_value'] / $physicalReconcileIdentities[$rebuildKey]['inbound_qty'], 6);
                     }
                     $lotNo = $this->generate_component_adjustment_lot_no($movementDate, $componentId, $sourceId, (int)$sourceLineId, 'P');
                     $this->post_single_movement([
@@ -449,7 +468,7 @@ class ComponentStockWriter
                     'uom_id' => (int)$identity['uom_id'],
                     'event_date' => $movementDate,
                     'target_qty' => round(max(0, (float)($finalBalance['qty_on_hand'] ?? 0)), 4),
-                    'unit_cost' => round((float)($finalBalance['avg_cost'] ?? 0), 6),
+                    'unit_cost' => round((float)($identity['inbound_unit_cost'] ?? $finalBalance['avg_cost'] ?? 0), 6),
                     'source_table' => 'inv_component_adjustment',
                     'source_id' => $sourceId > 0 ? $sourceId : null,
                     'source_line_id' => $identity['source_line_id'],
@@ -734,14 +753,12 @@ class ComponentStockWriter
                     $lotData = (array)($lotUsage['data'] ?? []);
                     $lotIssueId = !empty($lotData['issue_id']) ? (int)$lotData['issue_id'] : null;
                     $lotIssueNo = trim((string)($lotData['issue_no'] ?? '')) ?: null;
-                    $lotUnitCost = round((float)($lotData['avg_unit_cost'] ?? 0), 6);
-                    if ($lotUnitCost > 0.000001) {
-                        $unitCost = $lotUnitCost;
-                    }
+                    $unitCost = round((float)($lotData['avg_unit_cost'] ?? 0), 6);
                     $firstAllocation = (array)($lotData['allocations'][0] ?? []);
                     $lotNoSnapshot = trim((string)($firstAllocation['lot_no'] ?? '')) ?: null;
                 }
-                $lineCost = round($qty * $unitCost, 2);
+                $lineCost = $planRole !== 'INLINE_COMPONENT_USAGE'
+                    ? round((float)$lotData['total_cost'], 2) : round($qty * $unitCost, 2);
                 if ($planRole !== 'INLINE_COMPONENT_USAGE' && $sourceLineId !== null && $sourceLineId > 0) {
                     $inputTrace = [
                         'unit_cost' => $unitCost,
@@ -770,6 +787,7 @@ class ComponentStockWriter
                     'movement_type' => 'PRODUCTION_OUT',
                     'qty' => $qty,
                     'unit_cost' => $unitCost,
+                    'total_cost' => $lineCost,
                     'source_module' => 'PRODUCTION_BATCH',
                     'source_table' => 'inv_component_batch',
                     'source_id' => $sourceId > 0 ? $sourceId : null,
@@ -1014,7 +1032,7 @@ class ComponentStockWriter
         if ($unitCost < -0.000001) {
             throw new RuntimeException('Biaya unit component tidak boleh negatif. Perbaiki valuasi component sebelum diposting.');
         }
-        $totalCost = round($qty * $unitCost, 2);
+        $totalCost = round((float)($p['total_cost'] ?? ($qty * $unitCost)), 2);
         $reversalOriginType = strtoupper(trim((string)($p['reversal_of_movement_type'] ?? '')));
         if ($reversalOriginType === ''
             && !empty($p['reversal_of_movement_id'])
@@ -1057,8 +1075,7 @@ class ComponentStockWriter
             $valueAfter = round($valueBefore + $totalCost, 2);
             $avgAfter = $qtyAfter > 0 ? round($valueAfter / $qtyAfter, 6) : 0.0;
         } else {
-            $valueOut = round($qtyOut * $avgBefore, 2);
-            $valueAfter = round(max(0, $valueBefore - $valueOut), 2);
+            $valueAfter = round($valueBefore - $totalCost, 2);
             $avgAfter = $qtyAfter > 0 ? round($valueAfter / $qtyAfter, 6) : 0.0;
         }
 
@@ -1159,7 +1176,8 @@ class ComponentStockWriter
             'opening_qty' => $isOpeningSnapshot
                 ? ($row ? round((float)($row['opening_qty'] ?? 0) + $qtyIn, 4) : round($qtyAfter, 4))
                 : ($row ? round((float)($row['opening_qty'] ?? 0), 4) : round($qtyBefore, 4)),
-            'opening_total_value' => $row ? round((float)($row['opening_total_value'] ?? 0), 2) : 0.0,
+            'opening_total_value' => $row ? round((float)($row['opening_total_value'] ?? 0), 2)
+                : round($valueAfter - ($qtyIn > 0 ? $movementValue : -$movementValue), 2),
             'in_qty' => $row ? round((float)($row['in_qty'] ?? 0), 4) : 0.0,
             'in_total_value' => $row ? round((float)($row['in_total_value'] ?? 0), 2) : 0.0,
             'out_qty' => $row ? round((float)($row['out_qty'] ?? 0), 4) : 0.0,
@@ -1185,7 +1203,7 @@ class ComponentStockWriter
             'notes' => trim((string)($movement['notes'] ?? '')) !== '' ? trim((string)$movement['notes']) : ($row['notes'] ?? null),
         ];
         if ($isOpeningSnapshot) {
-            $data['opening_total_value'] = round((float)$data['opening_total_value'] + ($qtyIn * max($avgAfter, 0)), 2);
+            $data['opening_total_value'] = round((float)$data['opening_total_value'] + $movementValue, 2);
         }
 
         switch ($movementType) {
@@ -1895,7 +1913,7 @@ class ComponentStockWriter
                  FROM inv_component_monthly_stock
                  WHERE location_type = ? AND division_id <=> ? AND component_id = ? AND uom_id = ? AND month_key <= ?
                  ORDER BY month_key DESC, updated_at DESC, last_movement_at DESC
-                 LIMIT 1',
+                 LIMIT 1 FOR UPDATE',
                 [$locationType, $divisionId, $componentId, $uomId, $targetMonth]
             )->row_array();
             if (!empty($row)) {

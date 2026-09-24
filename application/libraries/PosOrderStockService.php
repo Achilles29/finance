@@ -1055,6 +1055,7 @@ class PosOrderStockService
 
         $lotIssueId = null;
         $issuedQty = 0.0;
+        $issuedCost = 0.0;
         $lotError = '';
         if (file_exists(APPPATH . 'libraries/ComponentLotManager.php')) {
             $this->ci->load->library('ComponentLotManager');
@@ -1075,6 +1076,7 @@ class PosOrderStockService
             if ($lot['ok'] ?? false) {
                 $lotIssueId = (int)($lot['data']['issue_id'] ?? 0);
                 $issuedQty = round((float)($lot['data']['issued_qty'] ?? $requiredQty), 4);
+                $issuedCost = round((float)($lot['data']['total_cost'] ?? 0), 2);
             } else {
                 $lotError = (string)($lot['message'] ?? 'Lot component usage gagal.');
             }
@@ -1130,6 +1132,10 @@ class PosOrderStockService
         }
 
         $movementQty = $issuedQty;
+        // A single recipe snapshot can span several differently priced lots.
+        // Only the unfulfilled quantity keeps the provisional snapshot cost.
+        $issuedUnitCost = $issuedQty > 0.0001 ? round($issuedCost / $issuedQty, 6) : 0.0;
+        $fullCost = round($issuedCost + $deficitQty * (float)($line['unit_cost_live'] ?? 0), 6);
         $movement = $this->post_component_aggregate_movement([
             'movement_date' => $movementDate,
             'location_type' => $locationType,
@@ -1138,7 +1144,8 @@ class PosOrderStockService
             'uom_id' => (int)($line['required_uom_id'] ?? 0),
             'movement_type' => 'USAGE',
             'qty' => $movementQty,
-            'unit_cost' => round((float)($line['unit_cost_live'] ?? 0), 6),
+            'unit_cost' => $issuedUnitCost,
+            'total_cost' => $issuedCost,
             'source_module' => 'POS',
             'source_table' => 'pos_stock_commit',
             'source_id' => (int)($header['id'] ?? 0),
@@ -1159,11 +1166,11 @@ class PosOrderStockService
             'ok' => true,
             'movement_ref_type' => $lotIssueId ? 'COMPONENT_LOT_ISSUE' : 'COMPONENT_MOVEMENT',
             'movement_ref_id' => $lotIssueId ?: (int)($movement['movement_id'] ?? 0),
-            'unit_cost_live' => round((float)($line['unit_cost_live'] ?? 0), 6),
+            'unit_cost_live' => $requiredQty > 0.0001 ? round($fullCost / $requiredQty, 6) : 0.0,
             // The component lot may only supply a part of the recipe. The
             // remaining requirement is still valued provisionally so the
             // POS HPP represents the complete product sold.
-            'total_cost_live' => round($requiredQty * (float)($line['unit_cost_live'] ?? 0), 6),
+            'total_cost_live' => $fullCost,
             'cost_source' => $deficitId > 0 ? 'DEFICIT_PENDING' : (string)($line['cost_source'] ?? 'LAST_LIVE'),
             'notes' => $deficitId > 0
                 ? ('Stock component diposting sebagian; kekurangan dicatat sebagai defisit stok #' . $deficitId . '.')
@@ -1264,6 +1271,7 @@ class PosOrderStockService
                     'division_id' => $divisionId,
                     'movement_date' => $movementDate,
                     'reversal_source_table' => 'pos_stock_commit_reversal',
+                    'returned_cost' => (float)($lotRollback['data']['rolled_cost'] ?? 0),
                     'reversal_source_id' => (int)($header['id'] ?? 0),
                     'notes' => (string)($meta['notes'] ?? 'Void/refund POS'),
                     'actor_employee_id' => !empty($meta['actor_employee_id']) ? (int)$meta['actor_employee_id'] : 0,
@@ -1853,7 +1861,7 @@ class PosOrderStockService
         $alreadyReversed = 0.0;
         if ($this->ci->db->field_exists('reversal_of_movement_id', 'inv_component_movement_log')) {
             $reversalRow = $this->ci->db
-                ->select('COALESCE(SUM(qty_in), 0) AS total_qty', false)
+                ->select('COALESCE(SUM(qty_in), 0) AS total_qty, COALESCE(SUM(total_cost), 0) AS total_cost', false)
                 ->from('inv_component_movement_log')
                 ->where('reversal_of_movement_id', $movementRowId)
                 ->where('movement_type', 'VOID_REVERSE')
@@ -1872,8 +1880,16 @@ class PosOrderStockService
         if ($effectiveRollback <= 0) {
             return ['ok' => true];
         }
+        if (array_key_exists('returned_cost', $fallbackContext) && abs($effectiveRollback - $reverseQty) > 0.0001) {
+            return ['ok' => false, 'message' => 'Jumlah lot retur tidak sama dengan sisa movement POS. Retur dibatalkan agar saldo tidak bertambah dua kali.'];
+        }
 
         $unitCost = round((float)($row['unit_cost'] ?? 0), 6);
+        $reverseCost = array_key_exists('returned_cost', $fallbackContext)
+            ? round((float)$fallbackContext['returned_cost'], 2)
+            : round((float)($row['total_cost'] ?? ($currentQtyOut * $unitCost)) * ($alreadyReversed + $effectiveRollback) / $currentQtyOut, 2)
+                - round((float)($reversalRow['total_cost'] ?? 0), 2);
+        $unitCost = round($reverseCost / $effectiveRollback, 6);
         $reverse = $this->post_component_aggregate_movement([
             'movement_date' => (string)($fallbackContext['movement_date'] ?? date('Y-m-d')),
             'location_type' => (string)($row['location_type'] ?? ($fallbackContext['location_type'] ?? '')),
@@ -1883,13 +1899,14 @@ class PosOrderStockService
             'movement_type' => 'VOID_REVERSE',
             'qty' => $effectiveRollback,
             'unit_cost' => $unitCost,
+            'total_cost' => $reverseCost,
             'source_module' => 'POS',
             'source_table' => (string)($fallbackContext['reversal_source_table'] ?? 'pos_stock_commit_reversal'),
             'source_id' => (int)($fallbackContext['reversal_source_id'] ?? $commitId),
             'source_line_id' => $commitLineId > 0 ? $commitLineId : null,
             'reversal_of_movement_id' => $movementRowId,
             'reversal_of_movement_type' => (string)($row['movement_type'] ?? 'USAGE'),
-            'movement_value_override' => round($effectiveRollback * $unitCost, 2),
+            'movement_value_override' => $reverseCost,
             'notes' => trim((string)($fallbackContext['notes'] ?? 'Void/refund POS')) . ' | reverse component movement #' . $movementRowId,
             'actor_employee_id' => !empty($fallbackContext['actor_employee_id']) ? (int)$fallbackContext['actor_employee_id'] : 0,
             'allow_negative' => true,
@@ -2391,7 +2408,7 @@ class PosOrderStockService
         $qtyIn = $isIn ? $qty : 0.0;
         $qtyOut = $isIn ? 0.0 : $qty;
         $unitCost = round((float)($p['unit_cost'] ?? 0), 6);
-        $totalCost = round($qty * $unitCost, 2);
+        $totalCost = round((float)($p['total_cost'] ?? ($qty * $unitCost)), 2);
         $allowNegative = !empty($p['allow_negative']);
 
         $row = $this->load_component_balance_snapshot(
@@ -2414,16 +2431,10 @@ class PosOrderStockService
             $valueAfter = round($valueBefore + $totalCost, 2);
             $avgAfter = abs($qtyAfter) > 0.0001 ? round($valueAfter / $qtyAfter, 6) : 0.0;
         } else {
-            $effectiveCost = $avgBefore > 0 ? $avgBefore : $unitCost;
-            $valueAfter = round($valueBefore - round($qtyOut * $effectiveCost, 2), 2);
-            if (abs($qtyAfter) <= 0.0001) {
-                $avgAfter = 0.0;
-                $valueAfter = 0.0;
-            } elseif ($qtyAfter < 0 && $allowNegative) {
-                $avgAfter = $effectiveCost;
-            } else {
-                $avgAfter = round($valueAfter / $qtyAfter, 6);
-            }
+            // FIFO has already priced the issued lots. Do not issue again at
+            // the balance average, or erase a pre-existing value discrepancy.
+            $valueAfter = round($valueBefore - $totalCost, 2);
+            $avgAfter = abs($qtyAfter) > 0.0001 ? round($valueAfter / $qtyAfter, 6) : 0.0;
         }
 
         $now = date('Y-m-d H:i:s');
@@ -2528,7 +2539,8 @@ class PosOrderStockService
             'opening_qty' => $movementType === 'OPENING'
                 ? ($row ? round((float)($row['opening_qty'] ?? 0) + (float)($ctx['qty_in'] ?? 0), 4) : round((float)($ctx['qty_after'] ?? 0), 4))
                 : ($row ? round((float)($row['opening_qty'] ?? 0), 4) : round((float)($ctx['qty_before'] ?? 0), 4)),
-            'opening_total_value' => $row ? round((float)($row['opening_total_value'] ?? 0), 2) : 0.0,
+            'opening_total_value' => $row ? round((float)($row['opening_total_value'] ?? 0), 2)
+                : round((float)$ctx['value_after'] - ((float)$ctx['qty_in'] > 0 ? $movementValue : -$movementValue), 2),
             'in_qty' => $row ? round((float)($row['in_qty'] ?? 0), 4) : 0.0,
             'in_total_value' => $row ? round((float)($row['in_total_value'] ?? 0), 2) : 0.0,
             'out_qty' => $row ? round((float)($row['out_qty'] ?? 0), 4) : 0.0,
