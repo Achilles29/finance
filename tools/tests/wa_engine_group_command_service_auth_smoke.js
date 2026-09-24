@@ -86,7 +86,7 @@ async function main() {
   )(
     async () => {
       missingFetchCalls += 1;
-      return { json: async () => ({ ok: true, message: 'unexpected' }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, message: 'unexpected' }) };
     },
     'https://finance.example.invalid/wa/api/group-command',
     ''
@@ -108,7 +108,7 @@ async function main() {
   )(
     async (url, options) => {
       calls.push({ url, options });
-      return { json: async () => ({ ok: true, message: 'synthetic menu' }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, message: 'synthetic menu' }) };
     },
     'https://finance.example.invalid/wa/api/group-command',
     'synthetic-service-auth-token'
@@ -153,7 +153,7 @@ async function main() {
         }
         return redirectingFetch(redirectedUrl, redirectOptions);
       }
-      return { json: async () => ({ ok: true, message: 'credential leaked' }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, message: 'credential leaked' }) };
     },
     'https://finance.example.invalid/wa/api/group-command',
     'synthetic-redirect-secret'
@@ -175,6 +175,47 @@ async function main() {
       && crossOriginCredentialLeaks.length === 0,
     'redirected callback is rejected without following or leaking the credential cross-origin'
   );
+
+  for (const status of [404, 403, 500]) {
+    const httpCaller = new Function('fetch', 'FINANCE_COMMAND_URL', 'FINANCE_WA_ENGINE_COMMAND_TOKEN',
+      `${callerSource}; return buildGroupCommandReply;`)(
+      async () => ({ ok: false, status, json: async () => ({ message: 'private response body' }) }),
+      'https://finance.example.invalid/wa/api/group-command', 'synthetic-service-auth-token'
+    );
+    let error = '';
+    try { await httpCaller('synthetic@g.us', 'menu'); } catch (err) { error = err.message; }
+    check(error.includes(`HTTP ${status}`) && !error.includes('private response body')
+      && !error.includes('synthetic-service-auth-token'), `HTTP ${status} is observable without leaking response bodies or credentials`);
+  }
+
+  for (const body of [null, {}, { ok: true }, { ok: true, message: 123 }]) {
+    const invalidCaller = new Function('fetch', 'FINANCE_COMMAND_URL', 'FINANCE_WA_ENGINE_COMMAND_TOKEN',
+      `${callerSource}; return buildGroupCommandReply;`)(
+      async () => ({ ok: true, status: 200, json: async () => body }),
+      'https://finance.example.invalid/wa/api/group-command', 'synthetic-service-auth-token'
+    );
+    let rejected = false;
+    try { await invalidCaller('synthetic@g.us', 'menu'); } catch { rejected = true; }
+    check(rejected, 'invalid successful callback response is not silently discarded');
+  }
+
+  let abortTimer;
+  let timerCleared = false;
+  let receivedSignal;
+  const timeoutCaller = new Function('fetch', 'FINANCE_COMMAND_URL', 'FINANCE_WA_ENGINE_COMMAND_TOKEN',
+    'setTimeout', 'clearTimeout', `${callerSource}; return buildGroupCommandReply;`)(
+    async (_url, opts) => {
+      receivedSignal = opts.signal;
+      abortTimer();
+      throw new Error('transport aborted');
+    },
+    'https://finance.example.invalid/wa/api/group-command', 'synthetic-service-auth-token',
+    (callback, ms) => { check(ms === 30000, 'callback has a bounded 30 second timeout'); abortTimer = callback; return 91; },
+    (id) => { timerCleared = id === 91; }
+  );
+  let timedOut = false;
+  try { await timeoutCaller('synthetic@g.us', 'menu'); } catch (err) { timedOut = err.message.includes('timeout'); }
+  check(timedOut && receivedSignal.aborted && timerCleared, 'hung callback is aborted and its timer is always cleared');
 
   check(
     source.includes("const FINANCE_WA_ENGINE_API_TOKEN = String(process.env.FINANCE_WA_ENGINE_API_TOKEN || '').trim();")

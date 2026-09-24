@@ -56,3 +56,26 @@ restart keduanya. Endpoint bersifat fail-closed dan tidak menyediakan overlap
 token lama/baru, jadi lakukan rotasi dalam maintenance window singkat. Jangan
 menambahkan fallback ke `wa_session.bot_api_token`, `WA_TOKEN`, query token,
 `X-Sync-Token`, atau token development lokal.
+
+## Pemeriksaan URL Callback
+
+Di server Namua ini, aplikasi Finance berada di `core.namuacoffee.com`.
+URL callback yang benar adalah
+`https://core.namuacoffee.com/wa/api/group-command`.
+`finance.namuacoffee.com` melayani aplikasi lain, bukan endpoint ini.
+
+Pada 24 September 2026, `FINANCE_COMMAND_URL` di
+`/etc/finance-wa-engine.env` masih mengarah ke domain yang salah. Callback
+perintah grup menerima HTTP 404, sementara notifikasi dan laporan terjadwal
+tetap berhasil karena memakai arah koneksi yang berbeda. URL runtime sudah
+dikoreksi dan engine direstart tanpa menghapus sesi atau mengubah credential.
+
+Environment proses mengalahkan default URL dalam source. Karena itu, Git pull
+saja tidak memperbaiki URL runtime yang salah. Periksa konfigurasi service di
+luar web root dan restart engine setelah mengubahnya. Jangan mencetak token
+untuk diagnosis. Simpan cadangan file konfigurasi di lokasi root-only.
+
+Caller sekarang mencatat kegagalan HTTP, JSON tidak valid, dan pesan kosong
+melalui log command grup, tanpa menulis body respons atau credential. Callback
+dibatasi 30 detik dan tetap menolak redirect; jangan menonaktifkan pemeriksaan
+token atau mengikuti redirect sebagai jalan pintas untuk memperbaiki URL.

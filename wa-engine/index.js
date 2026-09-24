@@ -283,20 +283,40 @@ async function buildGroupCommandReply(groupJid, command) {
     throw new Error('Credential callback command grup Finance belum dikonfigurasi.');
   }
 
-  const resp = await fetch(FINANCE_COMMAND_URL, {
-    method: 'POST',
-    redirect: 'error',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Finance-Group-Command-Token': FINANCE_WA_ENGINE_COMMAND_TOKEN,
-    },
-    body: JSON.stringify({ group_jid: groupJid, command }),
-  });
-  const data = await resp.json().catch(() => null);
-  if (!data || !data.ok || !data.message) {
-    return '';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  try {
+    const resp = await fetch(FINANCE_COMMAND_URL, {
+      method: 'POST',
+      redirect: 'error',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Finance-Group-Command-Token': FINANCE_WA_ENGINE_COMMAND_TOKEN,
+      },
+      body: JSON.stringify({ group_jid: groupJid, command }),
+    });
+    // Report only status, never raw response bodies or service credentials.
+    if (!resp.ok) {
+      throw new Error(`Callback command grup Finance gagal (HTTP ${resp.status}). Periksa FINANCE_COMMAND_URL dan credential callback.`);
+    }
+    const data = await resp.json().catch(() => null);
+    if (!data || typeof data.ok !== 'boolean') {
+      throw new Error('Respons callback command grup Finance bukan JSON yang valid.');
+    }
+    if (!data.ok) return '';
+    if (typeof data.message !== 'string' || !data.message.trim()) {
+      throw new Error('Respons callback command grup Finance tidak berisi pesan balasan.');
+    }
+    return data.message.trim();
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error('Callback command grup Finance timeout setelah 30 detik.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return String(data.message || '').trim();
 }
 
 async function sendMessageWithTimeout(jid, content, timeoutMs = 60000) {

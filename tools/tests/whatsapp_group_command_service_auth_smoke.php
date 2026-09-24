@@ -316,7 +316,18 @@ class CI_Controller
 }
 
 require dirname(__DIR__, 2) . '/application/core/MY_Controller.php';
-require dirname(__DIR__, 2) . '/application/controllers/Whatsapp.php';
+// Keep the real guard behavior, but never read production secrets in a smoke test.
+$fixtureSecretPath = __FILE__ . '.missing-secret';
+if (file_exists($fixtureSecretPath)) throw new RuntimeException('Unexpected smoke secret fixture');
+$fixtureSource = (string) file_get_contents(dirname(__DIR__, 2) . '/application/controllers/Whatsapp.php');
+$fixtureSource = str_replace(
+    "private const WA_ENGINE_SECRET_FILE = '/etc/finance-wa-engine.env';",
+    'private const WA_ENGINE_SECRET_FILE = ' . var_export($fixtureSecretPath, true) . ';',
+    $fixtureSource,
+    $fixtureReplacements
+);
+if ($fixtureReplacements !== 1) throw new RuntimeException('Could not isolate service secret file');
+eval(substr($fixtureSource, strlen('<?php')));
 
 function wa_service_auth_smoke_controller(WaServiceAuthSmokeInput $input): Whatsapp
 {
@@ -573,14 +584,14 @@ $guardBlock = ($guardStart !== false && $guardEnd !== false)
     ? substr($controllerSource, $guardStart, $guardEnd - $guardStart)
     : '';
 wa_service_auth_check(
-    strpos($guardBlock, "getenv(self::WA_GROUP_COMMAND_TOKEN_ENV)") !== false
+    strpos($guardBlock, 'waEngineSecretValue(self::WA_GROUP_COMMAND_TOKEN_ENV)') !== false
         && strpos($guardBlock, 'get_request_header(self::WA_GROUP_COMMAND_TOKEN_CI_HEADER, true)') !== false
         && strpos($guardBlock, "\$this->input->get('token', true)") !== false
         && strpos($guardBlock, 'get_request_header(self::WA_GROUP_COMMAND_LEGACY_CI_HEADER, true)') !== false
         && strpos($guardBlock, 'waSession(') === false
         && strpos($guardBlock, 'bot_api_token') === false
         && strpos($guardBlock, 'local-dev-token') === false,
-    'service guard uses only dedicated process config/new header and explicitly rejects legacy transports'
+    'service guard uses its dedicated secret reader/new header and explicitly rejects legacy transports'
 );
 
 $callBotStart = strpos($controllerSource, 'private function callBotApi(');
@@ -589,11 +600,23 @@ $callBotBlock = ($callBotStart !== false && $callBotEnd !== false)
     ? substr($controllerSource, $callBotStart, $callBotEnd - $callBotStart)
     : '';
 wa_service_auth_check(
-    strpos($callBotBlock, 'getenv(self::WA_ENGINE_API_TOKEN_ENV)') !== false
+    strpos($callBotBlock, 'waEngineSecretValue(self::WA_ENGINE_API_TOKEN_ENV)') !== false
         && strpos($callBotBlock, "self::WA_ENGINE_API_TOKEN_HEADER . ': ' . \$serviceToken") !== false
         && strpos($callBotBlock, '?token=') === false
         && strpos($callBotBlock, 'X-Sync-Token') === false,
     'Finance-to-engine auth uses its separate process credential and header'
+);
+
+$secretStart = strpos($controllerSource, 'private function waEngineSecretValue(');
+$secretEnd = strpos($controllerSource, "\n    private function ", $secretStart + 1);
+$secretBlock = substr($controllerSource, $secretStart, $secretEnd - $secretStart);
+wa_service_auth_check(
+    strpos($secretBlock, 'getenv($key)') !== false
+        && strpos($secretBlock, 'self::WA_ENGINE_SECRET_FILE') !== false
+        && strpos($secretBlock, 'getenv($key)') < strpos($secretBlock, 'self::WA_ENGINE_SECRET_FILE')
+        && strpos($secretBlock, 'waSession(') === false
+        && strpos($secretBlock, 'bot_api_token') === false,
+    'secret reader prefers process configuration then the protected external file, never database credentials'
 );
 
 $buildEnvStart = strpos($controllerSource, 'private function buildEnvString(');
