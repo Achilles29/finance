@@ -55,6 +55,7 @@ final class AuthDivisionScopeSmokeResult
 
 final class AuthDivisionScopeSmokeDb
 {
+    public bool $db_debug = true;
     private ?string $selectedFields = null;
     private ?string $table = null;
     private array $whereConditions = [];
@@ -113,6 +114,18 @@ final class AuthDivisionScopeSmokeDb
 
     public function get(): AuthDivisionScopeSmokeResult
     {
+        if ($this->table === 'auth_session_log s') {
+            // Scope fixtures represent an authenticated, active web session.
+            return new AuthDivisionScopeSmokeResult(
+                ($this->whereConditions['s.id'] ?? null) === 99
+                    && (int)($this->whereConditions['s.user_id'] ?? 0) > 0
+                    && array_key_exists('s.logout_at', $this->whereConditions)
+                    && $this->whereConditions['s.logout_at'] === null
+                    && ($this->whereConditions['u.is_active'] ?? null) === 1
+                    ? [['id' => 99]] : []
+            );
+        }
+
         if ($this->table === 'auth_user' && $this->selectedFields === '1') {
             return new AuthDivisionScopeSmokeResult(
                 $this->userStale ? [['stale' => 1]] : []
@@ -412,6 +425,9 @@ function auth_division_scope_smoke_environment(
 {
     global $authDivisionScopeSmokeEnvironment;
 
+    if (!empty($sessionData['auth_user']) && !array_key_exists('session_log_id', $sessionData)) {
+        $sessionData['session_log_id'] = 99;
+    }
     $session = new AuthDivisionScopeSmokeSession($sessionData);
     $authDivisionScopeSmokeEnvironment = (object)[
         'authModel' => new AuthDivisionScopeSmokeAuthModel($session, $refreshData),

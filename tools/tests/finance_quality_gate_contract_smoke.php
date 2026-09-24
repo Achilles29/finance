@@ -75,6 +75,7 @@ $expectedRequired = [
     'application-user-guide',
     'application-user-guide-client',
     'activity-audit',
+    'auth-stale-session',
     'c2-c4-commercial-foundation',
     'c2-customer-publication',
     'c3-upload-storage',

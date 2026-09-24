@@ -84,6 +84,9 @@ class MY_Controller extends CI_Controller
             redirect('login'); 
         } 
 
+        // File session dapat bertahan setelah database dipulihkan/disalin.
+        // Periksa sebelum permission maupun aksi controller turunan berjalan.
+        $this->_assert_web_session_context($user);
         $this->current_user = $user;
 
         // Muat izin dari session (sudah di-cache saat login)
@@ -105,6 +108,96 @@ class MY_Controller extends CI_Controller
         return $class === 'whatsapp'
             && $method === 'api_group_command'
             && $this->input->method(true) === 'POST';
+    }
+
+    private function _assert_web_session_context($user): void
+    {
+        if ($this->input->is_cli_request()) {
+            return;
+        }
+
+        $userId = is_array($user) ? (int)($user['id'] ?? 0) : 0;
+        $sessionLogId = (int)$this->session->userdata('session_log_id');
+        if ($userId <= 0 || $sessionLogId <= 0) {
+            $this->_reject_web_session(false);
+        }
+
+        $valid = false;
+        $unavailable = false;
+        $previousDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        try {
+            $result = $this->db
+                ->select('s.id')
+                ->from('auth_session_log s')
+                ->join('auth_user u', 'u.id = s.user_id', 'inner')
+                ->where('s.id', $sessionLogId)
+                ->where('s.user_id', $userId)
+                ->where('s.logout_at', null)
+                ->where('u.is_active', 1)
+                ->limit(1)
+                ->get();
+            $unavailable = $result === false;
+            $valid = !$unavailable && $result->num_rows() > 0;
+        } catch (Throwable $e) {
+            $unavailable = true;
+        } finally {
+            $this->db->db_debug = $previousDebug;
+        }
+
+        // Kegagalan query bukan bukti sesi kedaluwarsa. Tutup request tanpa
+        // menghapus sesi atau membocorkan SQL; pengguna dapat mencoba kembali.
+        if ($unavailable) {
+            log_message('error', 'Authenticated session validation temporarily unavailable.');
+            $this->_reject_web_session(true);
+        }
+        if (!$valid) {
+            $this->_reject_web_session(false);
+        }
+    }
+
+    private function _reject_web_session(bool $unavailable): void
+    {
+        $message = $unavailable
+            ? 'Sesi login belum dapat diperiksa. Silakan coba lagi beberapa saat.'
+            : 'Sesi login sudah tidak berlaku. Silakan login ulang.';
+        $loginPath = 'login?reason=session_expired';
+        if (!$unavailable) {
+            // Hanya sesi request ini, bukan seluruh sesi pengguna lainnya.
+            $this->session->sess_destroy();
+            $_SESSION = [];
+            $this->current_user = [];
+            $this->user_perms = [];
+        }
+
+        $accept = (string)$this->input->get_request_header('Accept', false);
+        if ($this->input->is_ajax_request() || stripos($accept, 'application/json') !== false) {
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+            $payload = [
+                'ok' => false,
+                'code' => $unavailable ? 'AUTH_SESSION_VALIDATION_UNAVAILABLE' : 'AUTH_SESSION_EXPIRED',
+                'message' => $message,
+            ];
+            if (!$unavailable) {
+                $payload['login_url'] = site_url($loginPath);
+            }
+            $this->output
+                ->set_status_header($unavailable ? 503 : 401)
+                ->set_content_type('application/json')
+                ->set_output(json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE));
+            $this->output->_display();
+            exit;
+        }
+        if ($unavailable) {
+            show_error($message, 503, 'Layanan sementara tidak tersedia');
+            exit;
+        }
+
+        // Jangan meneruskan POST transaksi lama ke halaman login.
+        redirect($loginPath, 'location', 303);
+        exit;
     }
 
     private function _maybe_refresh_stale_perms(): void
@@ -495,6 +588,9 @@ class MY_Controller extends CI_Controller
         }
         $this->access_event_recorded = true;
 
+        $previousDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        $foreignKeyFailure = false;
         try {
             if (!$this->db->table_exists('aud_access_event')) {
                 return;
@@ -507,7 +603,7 @@ class MY_Controller extends CI_Controller
                 ? $pageCode
                 : null;
             $userAgent = mb_substr(trim((string)$this->input->user_agent()), 0, 255);
-            $this->db->insert('aud_access_event', [
+            $recorded = $this->db->insert('aud_access_event', [
                 'user_id' => $userId,
                 'session_log_id' => max(0, (int)$this->session->userdata('session_log_id')) ?: null,
                 'page_code' => $normalizedPageCode,
@@ -517,8 +613,22 @@ class MY_Controller extends CI_Controller
                 'user_agent' => $userAgent !== '' ? $userAgent : null,
                 'device_label' => $this->access_device_label($userAgent),
             ]);
+            if ($recorded === false) {
+                $error = $this->db->error();
+                $foreignKeyFailure = (int)($error['code'] ?? 0) === 1452;
+                log_message('error', 'Authenticated page access audit could not be recorded.');
+            }
         } catch (Throwable $e) {
+            $foreignKeyFailure = (int)$e->getCode() === 1452;
             log_message('error', 'Authenticated page access audit could not be recorded.');
+        } finally {
+            $this->db->db_debug = $previousDebug;
+        }
+
+        // Parent bisa hilang di antara cek awal dan INSERT (misalnya restore).
+        // Validasi ulang, bukan menghapus FK atau membuat session log palsu.
+        if ($foreignKeyFailure) {
+            $this->_assert_web_session_context($this->current_user);
         }
     }
 

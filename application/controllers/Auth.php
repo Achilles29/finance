@@ -40,9 +40,13 @@ class Auth extends CI_Controller
 
         $businessProfile = $this->Business_profile_model->profile();
         $businessName = trim((string)($businessProfile['display_name'] ?? '')) ?: 'Finance';
+        $errorMessage = $this->session->flashdata('login_error');
+        if (empty($errorMessage) && $this->input->get('reason', true) === 'session_expired') {
+            $errorMessage = 'Sesi login sudah tidak berlaku. Silakan login ulang.';
+        }
         $data = [
             'title'     => 'Login — ' . $businessName,
-            'error_msg' => $this->session->flashdata('login_error'),
+            'error_msg' => $errorMessage,
             'business_profile' => $businessProfile,
         ];
 
