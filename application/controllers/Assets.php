@@ -1850,11 +1850,10 @@ class Assets extends MY_Controller
                 continue;
             }
             $absDir = FCPATH . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-            if (!is_dir($absDir) && !@mkdir($absDir, 0777, true) && !is_dir($absDir)) {
+            if (!is_dir($absDir) && !@mkdir($absDir, 0770, true) && !is_dir($absDir)) {
                 $this->session->set_flashdata('error', 'Folder upload aset tidak bisa dibuat: ' . $absDir);
                 return false;
             }
-            @chmod($absDir, 0777);
             if (!is_writable($absDir)) {
                 $this->session->set_flashdata('error', 'Folder upload aset tidak writable: ' . $absDir);
                 return false;

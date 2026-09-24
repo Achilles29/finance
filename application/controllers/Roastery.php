@@ -546,7 +546,7 @@ class Roastery extends MY_Controller
             $this->session->set_flashdata('error', 'Gagal menyimpan logo SVG.');
             return false;
         }
-        @chmod($target, 0666);
+        @chmod($target, 0644);
 
         return [
             'image_path' => $relativePath,
@@ -787,14 +787,13 @@ class Roastery extends MY_Controller
             }
 
             $absDir = FCPATH . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
-            if (!is_dir($absDir) && !@mkdir($absDir, 0777, true) && !is_dir($absDir)) {
+            if (!is_dir($absDir) && !@mkdir($absDir, 0770, true) && !is_dir($absDir)) {
                 if ($setFlash) {
                     $this->session->set_flashdata('error', 'Folder upload label kopi tidak bisa dibuat: ' . $absDir);
                 }
                 return false;
             }
 
-            @chmod($absDir, 0777);
             if (!is_writable($absDir)) {
                 if ($setFlash) {
                     $this->session->set_flashdata('error', 'Folder upload label kopi tidak writable: ' . $absDir);

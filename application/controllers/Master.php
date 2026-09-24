@@ -1827,9 +1827,6 @@ class Master extends MY_Controller
             return null;
         }
         if (!is_writable($uploadDir)) {
-            @chmod($uploadDir, 0777);
-        }
-        if (!is_writable($uploadDir)) {
             $this->session->set_flashdata('error', 'Folder upload foto produk tidak writable: ' . $uploadDir);
             return null;
         }
