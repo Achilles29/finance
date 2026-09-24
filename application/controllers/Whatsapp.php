@@ -4364,6 +4364,14 @@ class Whatsapp extends MY_Controller
             return ['ok' => false, 'message' => 'Tabel wa_report_schedule belum tersedia.'];
         }
 
+        // A missing report migration must not abort the separate order notification queue.
+        foreach (['run_claim_token', 'run_claimed_at'] as $column) {
+            if (!$this->db->field_exists($column, 'wa_report_schedule')) {
+                log_message('error', 'WA report worker requires 2026-09-02a_wa_report_schedule_claim_lease.sql');
+                return ['ok' => false, 'message' => 'Migrasi pengunci jadwal WA belum diterapkan.'];
+            }
+        }
+
         $today = date('Y-m-d');
         $nowTime = date('H:i:s');
         $retryAfter = date('Y-m-d H:i:s', strtotime('-10 minutes'));

@@ -359,6 +359,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
   const orderDetailCache = new Map();
   let incomingPollBusy = false;
   let incomingBaselineReady = false;
+  let incomingSnapshot = '';
   let audioReady = false;
   const seenIncomingOrderIds = new Set();
   const notifyAudio = document.getElementById('self_order_notify_audio');
@@ -927,6 +928,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
     } catch (error) {
       if (error && error.name === 'AbortError') return;
       if (requestId !== listRequestId) return;
+      incomingSnapshot = ''; // Retry the list on the next poll even if order state is unchanged.
       setListState('error', error.message || 'Order self order tidak dapat dimuat.', true);
     } finally {
       if (requestId === listRequestId) {
@@ -957,6 +959,14 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       qs.set('limit', '20');
       const json = await getJson('<?php echo site_url('pos/self-order/orders/data'); ?>?' + qs.toString());
       const rows = Array.isArray(json.rows) ? json.rows : [];
+      // A QRIS payment changes an existing order, not its ID. Refresh the
+      // verification list on state changes as well as newly created orders.
+      const snapshot = JSON.stringify([json.counts || {}, rows.map((row) => [
+        row.id, row.status, row.flow_code, row.payment_status, row.paid_total,
+        row.stock_commit_status, row.can_verify, row.can_reject, row.grand_total
+      ])]);
+      const changed = snapshot !== incomingSnapshot;
+      incomingSnapshot = snapshot;
       const newRows = [];
       rows.forEach((row) => {
         const orderId = Number(row.id || 0);
@@ -972,6 +982,7 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
       });
       if (!incomingBaselineReady) {
         incomingBaselineReady = true;
+        await loadRows();
         return;
       }
       if (newRows.length) {
@@ -979,8 +990,8 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
         const newest = newRows[0] || {};
         const tableLabel = String(newest.table_no || '').trim() !== '' ? ` | ${newest.table_no}` : '';
         showToast(`Order baru masuk: ${newest.order_no || 'SELF-ORDER'}${tableLabel}`, 'info');
-        loadRows();
       }
+      if (changed) await loadRows();
     } catch (e) {
       // polling failure should not disturb cashier
     } finally {

@@ -10,7 +10,8 @@ $db['default'] = array(
 	'hostname' => '127.0.0.1',
 	'username' => 'root',
 	'password' => '29011989',
-	'database' => 'db_finance',
+	// Canonical database shared with Member and wa-engine. Do not switch to db_finance.
+	'database' => 'db_finance2',
 	'dbdriver' => 'mysqli',
 	'dbprefix' => '',
 	'pconnect' => FALSE,

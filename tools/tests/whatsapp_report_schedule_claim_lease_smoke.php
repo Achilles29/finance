@@ -148,6 +148,13 @@ $markFailed = waLeaseMethod($controller, 'markWaReportScheduleFailed');
 $manual = waLeaseMethod($controller, 'report_schedules');
 $cli = waLeaseMethod($controller, 'api_schedule_run');
 
+waLeaseAssert(
+    strpos($runner, "field_exists(\$column, 'wa_report_schedule')") !== false
+        && strpos($runner, "field_exists(\$column, 'wa_report_schedule')") < strpos($runner, "->from('wa_report_schedule')")
+        && strpos($runner, '2026-09-02a_wa_report_schedule_claim_lease.sql') !== false,
+    'missing claim migration returns before SQL so module order notifications can continue'
+);
+
 waLeaseAssert(strpos($claim, 'bin2hex(random_bytes(16))') !== false, 'production uses random 16-byte token');
 waLeaseAssert(strpos($claim, '$this->db->affected_rows() === 1') !== false, 'production requires exactly one claimed row');
 foreach (['is_active', 'send_time <=', 'last_sent_date', 'last_run_at', 'run_claim_token', 'run_claimed_at'] as $guard) {

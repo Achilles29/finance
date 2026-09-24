@@ -551,6 +551,7 @@ $(function () {
         var baselineReady = false;
         var pollBusy = false;
         var seenOrderIds = {};
+        var verificationReady = {};
         var audioReady = false;
         var audio = null;
 
@@ -633,24 +634,25 @@ $(function () {
                     if (orderId <= 0) {
                         return;
                     }
-                    if (!seenOrderIds[orderId]) {
-                        if (baselineReady) {
+                    var ready = Number(row.can_verify || 0) === 1;
+                    if (!seenOrderIds[orderId] || (ready && !verificationReady[orderId])) {
+                        if (baselineReady || ready) {
                             newRows.push(row);
                         }
                         seenOrderIds[orderId] = true;
                     }
+                    verificationReady[orderId] = ready;
                 });
 
                 if (!baselineReady) {
                     baselineReady = true;
-                    return;
                 }
 
                 if (newRows.length) {
                     var newest = newRows[0] || {};
                     var orderNo = String(newest.order_no || 'ORDER');
                     var tableNo = String(newest.table_no || '').trim();
-                    var message = 'Order baru masuk: ' + orderNo + (tableNo ? ' | ' + tableNo : '');
+                    var message = (Number(newest.can_verify || 0) === 1 ? 'Order perlu verifikasi: ' : 'Order baru masuk: ') + orderNo + (tableNo ? ' | ' + tableNo : '');
                     playAudio();
                     showGlobalNotifyToast(message, cfg.title || 'Order');
                 }

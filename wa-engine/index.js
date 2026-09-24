@@ -14,7 +14,7 @@
  *   DB_HOST    host MySQL (default localhost)
  *   DB_USER    user MySQL (default root)
  *   DB_PASS    password MySQL
- *   DB_NAME    nama database (default db_finance)
+ *   DB_NAME    nama database (default db_finance2)
  */
 
 'use strict';
@@ -110,7 +110,7 @@ const dbConfig = {
   host:             process.env.DB_HOST || '127.0.0.1',
   user:             process.env.DB_USER || 'root',
   password:         process.env.DB_PASS || '',
-  database:         process.env.DB_NAME || 'db_finance',
+  database:         process.env.DB_NAME || 'db_finance2',
   waitForConnections: true,
   connectionLimit:  5,
 };
