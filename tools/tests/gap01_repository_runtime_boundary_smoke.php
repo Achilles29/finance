@@ -114,24 +114,25 @@ $check(in_array('/__pycache__/', $denySegments, true), 'release package excludes
 $check(in_array('.env', $denyBasenames, true), 'release package excludes credential environment files');
 
 $databaseConfig = (string)file_get_contents($root . '/application/config/database.php');
-$userIni = (string)file_get_contents($root . '/.user.ini');
+$userIni = (string)file_get_contents($root . '/.user.ini.example');
 $check(
     preg_match("/'(?:hostname|username|password|database)'\\s*=>\\s*'[^']+'/", $databaseConfig) !== 1,
     'source database config contains no direct connection values'
 );
 $check(
-    str_contains($databaseConfig, "'/var/lib/finance-config/database.php'")
-        && str_contains($databaseConfig, "array('development', 'staging')"),
-    'private database fallback is restricted to staging-like environments'
+    str_contains($databaseConfig, 'config/customer.json')
+        && !str_contains($databaseConfig, '/var/lib/finance-config'),
+    'local database uses the installation-relative resolver, no server-specific PHP fallback'
 );
 $check(
     str_contains($databaseConfig, 'DeploymentConfig::DB_PASSWORD')
-        && str_contains($databaseConfig, '$finance_environment !== \'production\''),
+        && str_contains($databaseConfig, 'ENVIRONMENT !== \'production\''),
     'production database configuration remains resolver-bound and fail-closed'
 );
 $check(
-    str_contains($userIni, '/var/lib/finance-config/'),
-    'web open_basedir permits only the dedicated private configuration root'
+    str_contains($gitignore, '/.user.ini') && str_contains($userIni, 'open_basedir=')
+        && !str_contains($userIni, '/var/lib/finance-config/'),
+    'server-specific PHP restrictions stay local; shared template needs no external secret path'
 );
 
 $shallow = $git(['rev-parse', '--is-shallow-repository']);

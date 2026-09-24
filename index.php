@@ -56,7 +56,12 @@ date_default_timezone_set('Asia/Jakarta'); // Sesuaikan timezone
  * NOTE: If you change these, also change the error_reporting() code below
  */
     require_once __DIR__.'/application/libraries/CustomerLocalConfig.php';
-    $finance_customer_local = CustomerLocalConfig::present(__DIR__);
+    try {
+        $finance_customer_local = CustomerLocalConfig::requiresProduction(__DIR__);
+    } catch (Throwable $configuration_error) {
+        http_response_code(503);
+        exit('Konfigurasi lokal tidak tersedia. Administrator: periksa config/customer.json dan izin filenya.');
+    }
     $finance_customer_package = CustomerLocalConfig::packaged(__DIR__);
     if (CustomerPlatform::portable(__DIR__) && is_file(__DIR__.'/storage/customer-installation.json')) {
         // Installer writes the marker only while draining all participating requests/jobs.

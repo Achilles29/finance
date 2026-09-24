@@ -42,10 +42,10 @@ try {
     finally{putenv('FINANCE_DEPLOYMENT_FILE');putenv('FINANCE_DB_NAME');}
     putenv('FINANCE_DEPLOYMENT_FILE='.$external);putenv('FINANCE_DB_NAME=legacy_environment');
     try {
-        // This test's source checkout has no local file: the historical env > external order remains.
-        $check(DeploymentConfig::snapshotEnvironment()['FINANCE_DB_NAME']==='legacy_environment','legacy environment still overrides external file without local configuration');
+        // Explicit empty fixture root: the working checkout may itself have private local settings.
+        $check(DeploymentConfig::snapshotEnvironment(null, $base.'/no-local')['FINANCE_DB_NAME']==='legacy_environment','legacy environment still overrides external file without local configuration');
         putenv('FINANCE_DB_NAME');
-        $check(DeploymentConfig::snapshotEnvironment()['FINANCE_DB_NAME']==='wrong_database','legacy external-only configuration still loads without local configuration');
+        $check(DeploymentConfig::snapshotEnvironment(null, $base.'/no-local')['FINANCE_DB_NAME']==='wrong_database','legacy external-only configuration still loads without local configuration');
     } finally {putenv('FINANCE_DEPLOYMENT_FILE');putenv('FINANCE_DB_NAME');}
     foreach(['database','base_url','encryption_key','runtime']as$k){$bad=$config;unset($bad[$k]);$save($bad);$reject(fn()=>DeploymentConfig::forRoot($root),'missing '.$k.' rejected');}
     foreach(['host','name','user','password']as$k){$bad=$config;$bad['database'][$k]='';$save($bad);$reject(fn()=>DeploymentConfig::forRoot($root),'blank database '.$k.' rejected');}
@@ -76,7 +76,10 @@ try {
     $reject(fn()=>CustomerDatabase::withConnection($root,static function(){throw new RuntimeException('SIMULATED_FAILURE');}),'simulated failure returns error');
     $check(glob($base.'/state/.installer/connection-*')===[],'temporary credentials also removed after failure');
     $check(!isset($s['FINANCE_LICENSE_PRIVATE_KEY']),'no license private key copied');
-    file_put_contents($root.'/RELEASE-MANIFEST.json','{}');unlink($root.'/config/customer.json');
+    file_put_contents($root.'/RELEASE-MANIFEST.json','{}');
+    $save(['schema'=>1,'scope'=>'database_only','database'=>$config['database']]);
+    $reject(fn()=>CustomerLocalConfig::read($root),'signed/package layout refuses source-server database-only scope even with safe permissions');
+    unlink($root.'/config/customer.json');
     $reject(fn()=>DeploymentConfig::fromSnapshot([])->customerEnvironment($root,[]),'removing local config/context cannot turn package into LEGACY');
     $check(DeploymentConfig::fromSnapshot([])->customerEnvironment($base,[])===[],'legacy source without package markers unchanged');
     echo "All $checks customer local configuration checks passed; no network/database access.\n";

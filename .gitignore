@@ -54,3 +54,5 @@ user_guide_src/cilexer/pycilexer.egg-info/*
 /tests/results/
 # Customer secrets: exact path only; the example and protections remain versioned.
 /config/customer.json
+# PHP restrictions are local to each server; see .user.ini.example before pulling.
+/.user.ini

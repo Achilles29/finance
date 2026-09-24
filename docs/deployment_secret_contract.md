@@ -148,21 +148,33 @@ salinan password tidak tertinggal.
 
 ### Staging tanpa environment PHP-FPM
 
-Server staging ini memakai pilihan file privat agar aplikasi tetap mudah
-dikelola tanpa mengisi environment pool PHP-FPM:
+Sejak 2026-09-24 server source/master ini memakai `config/customer.json`
+di dalam folder Finance, tanpa mengisi environment pool PHP-FPM:
 
 - source `application/config/database.php` hanya menjadi loader dan tidak
   menyimpan hostname, user, password, atau nama database;
-- nilai staging berada di `/var/lib/finance-config/database.php`;
-- directory harus `root:www` mode `0750` dan file `root:www` mode `0640`;
-- `.user.ini` hanya menambahkan `/var/lib/finance-config/` ke `open_basedir`;
+- server lama/source menggunakan `schema: 1`, `scope: "database_only"`, dan
+  objek `database` (contoh: `config/server-database.example.json`);
+- scope ini hanya untuk source **non-package**: mode aplikasi, URL, encryption
+  key, session, dan konteks lisensi yang sudah ada tidak diganti;
+- directory `config/` harus `root:WEB_GROUP` mode `0750` dan file mode `0640`;
+- nginx wajib memblokir `/config` dan `/config/` sebelum file rahasia dibuat;
+  Apache memakai aturan yang sudah tersedia pada `.htaccess`;
+- `.user.ini` adalah file lokal, tidak dilacak Git. Nilai server ini tetap
+  `open_basedir=/www/wwwroot/finance/:/tmp/`, tanpa akses ke folder eksternal;
 - file privat tidak tercatat Git dan tidak masuk artefak release;
-- mode `production` mengabaikan fallback staging dan tetap mewajibkan kontrak
-  environment/secret manager pada bagian berikutnya.
+- paket customer tetap memakai konfigurasi lengkap `FINANCE_CUSTOMER_LOCAL_V1`
+  dari installer. Scope database-only ditolak pada paket/installer;
+- fallback PHP hardcoded `/var/lib/finance-config/database.php` **tidak lagi
+  dibaca otomatis**. Salinan lama dipertahankan untuk recovery saja;
+- tanpa JSON lokal, kompatibilitas environment / `FINANCE_DEPLOYMENT_FILE`
+  tetap berlaku. Konflik nilai database dengan JSON lokal ditolak, tidak
+  memilih koneksi lain secara diam-diam.
 
-Setelah mengubah file privat atau `.user.ini`, admin me-reload PHP-FPM 8.1 dan
-membuka halaman login. Respons normal harus tampil tanpa pesan database. Jangan
-menyalin isi file privat ke tiket, log, chat, atau repository.
+Jangan mengubah file PHP inti untuk mengganti koneksi. Pengaturan database
+diedit hanya di `config/customer.json`. Jangan menyalin isinya ke tiket, log,
+chat, atau repository. Prosedur pindah/pull antarmesin ada di
+`docs/2026-09-24_konfigurasi_lokal_dan_pull_antar_server.md`.
 
 Provision variabel melalui secret manager, container orchestrator, atau
 konfigurasi process manager di luar webroot. Nilai harus masuk ke process

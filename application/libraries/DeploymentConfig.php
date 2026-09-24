@@ -28,15 +28,18 @@ final class DeploymentConfig
      */
     private $environment;
     private $local = false;
+    private $databaseOnly = false;
 
     /**
      * @param array|null $snapshot Explicit values are intended for tests.
      */
-    public function __construct($snapshot = null)
+    public function __construct($snapshot = null, $root = null)
     {
         if ($snapshot === null) {
-            $snapshot = self::snapshotEnvironment();
-            $this->local = CustomerLocalConfig::present(dirname(__DIR__, 2));
+            $root = $root ?? dirname(__DIR__, 2);
+            $snapshot = self::snapshotEnvironment(null, $root);
+            $this->local = CustomerLocalConfig::present($root);
+            $this->databaseOnly = $this->local && CustomerLocalConfig::databaseOnly(CustomerLocalConfig::read($root));
         }
 
         if (!is_array($snapshot)) {
@@ -63,7 +66,7 @@ final class DeploymentConfig
      * @param array|null $names
      * @return array
      */
-    public static function snapshotEnvironment($names = null)
+    public static function snapshotEnvironment($names = null, $root = null)
     {
         if ($names === null) {
             $names = self::allowedNames();
@@ -78,9 +81,11 @@ final class DeploymentConfig
             }
         }
 
-        $root = dirname(__DIR__, 2);
+        $root = $root ?? dirname(__DIR__, 2);
         if (CustomerLocalConfig::present($root)) {
-            return CustomerLocalConfig::merge(CustomerLocalConfig::read($root), $file, $env);
+            $local = CustomerLocalConfig::read($root);
+            CustomerLocalConfig::merge($local, $file, $env); // Conflicting DB sources always fail closed.
+            return CustomerLocalConfig::databaseOnly($local) ? array_replace($file, $env, $local) : $local;
         }
         return array_replace($file, $env);
     }
@@ -95,6 +100,7 @@ final class DeploymentConfig
     public static function forRoot($root)
     {
         $local = CustomerLocalConfig::read($root);
+        if (CustomerLocalConfig::databaseOnly($local)) throw new RuntimeException('CUSTOMER_INSTALL_REQUIRES_COMPLETE_CONFIG');
         return self::fromLocalValues($local);
     }
 
@@ -128,7 +134,7 @@ final class DeploymentConfig
     /** Public signed context stays OUTSIDE source; no private agent key is moved here. */
     public function customerEnvironment($root, array $environment)
     {
-        if ($this->local) {
+        if ($this->local && !$this->databaseOnly) {
             $context = CustomerLocalConfig::runtime($this->environment).'/customer-installation.json';
             if (!empty($environment['FINANCE_CUSTOMER_INSTALLATION_FILE'])
                 && $environment['FINANCE_CUSTOMER_INSTALLATION_FILE'] !== $context) {
