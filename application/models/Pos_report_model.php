@@ -2975,12 +2975,28 @@ class Pos_report_model extends CI_Model
 
     private function daily_sales_shifts(string $date, int $outletId = 0): array
     {
-        $query = $this->db->select('sh.id, sh.shift_no, sh.opened_at, sh.closed_at, sh.status AS shift_status, eo.employee_name AS cashier_name, COALESCE(ss.total_order_count, 0) AS trx_count, COALESCE(ss.total_net_sales, 0) + COALESCE((SELECT SUM(p.net_amount) FROM pos_payment p WHERE p.shift_id = sh.id AND p.payment_type = "DEPOSIT" AND p.payment_status = "PAID"), 0) AS revenue', false)
+        // OPEN shifts have not written their closing snapshot yet. Read live
+        // order aggregates without joining payment lines (which multiply sales).
+        // CLOSED shifts retain the existing audited closing snapshot.
+        $liveOrders = "SELECT COUNT(*) FROM pos_order so WHERE so.shift_id = sh.id AND so.status NOT IN ('DRAFT','PENDING','VOID')";
+        $liveSales = "SELECT SUM(so.grand_total) FROM pos_order so WHERE so.shift_id = sh.id AND so.status NOT IN ('DRAFT','PENDING','VOID')";
+        $query = $this->db->select('sh.id, sh.shift_no, sh.opened_at, sh.closed_at, sh.status AS shift_status,
+                eo.employee_name AS cashier_name, outlet.outlet_name, terminal.terminal_name,
+                CASE WHEN sh.status = "OPEN" THEN (' . $liveOrders . ') ELSE COALESCE(ss.total_order_count, 0) END AS trx_count,
+                CASE WHEN sh.status = "OPEN" THEN COALESCE((' . $liveSales . '), 0) ELSE COALESCE(ss.total_net_sales, 0) END
+                + COALESCE((SELECT SUM(p.net_amount) FROM pos_payment p WHERE p.shift_id = sh.id AND p.payment_type = "DEPOSIT" AND p.payment_status = "PAID"), 0) AS revenue', false)
             ->from('pos_shift sh')
             ->join('org_employee eo', 'eo.id = sh.cashier_open_employee_id', 'left')
+            ->join('pos_outlet outlet', 'outlet.id = sh.outlet_id', 'left')
+            ->join('pos_terminal terminal', 'terminal.id = sh.terminal_id', 'left')
             ->join('pos_shift_summary ss', 'ss.shift_id = sh.id', 'left')
-            ->where('(DATE(sh.opened_at) = ' . $this->db->escape($date) . ' OR DATE(sh.closed_at) = ' . $this->db->escape($date) . ')', null, false)
-            ->order_by('sh.opened_at', 'ASC');
+            ->where('sh.opened_at <', date('Y-m-d', strtotime($date . ' +1 day')) . ' 00:00:00')
+            ->group_start()
+            ->where('sh.closed_at >=', $date . ' 00:00:00')
+            ->or_where('sh.closed_at', null)
+            ->group_end()
+            ->order_by('sh.opened_at', 'ASC')
+            ->order_by('sh.id', 'ASC');
         if ($outletId > 0) {
             $query->where('sh.outlet_id', $outletId);
         }

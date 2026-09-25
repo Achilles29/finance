@@ -6227,26 +6227,56 @@ class Pos_model extends CI_Model
         if ($terminalId <= 0 || !$this->local_record_exists('pos_terminal', $terminalId)) {
             return ['ok' => false, 'message' => 'Device/terminal kasir wajib dipilih.'];
         }
-        if ($openingCash < 0) {
+        if (!is_finite($openingCash) || $openingCash < 0) {
             return ['ok' => false, 'message' => 'Modal awal tidak boleh minus.'];
         }
 
-        foreach ($this->active_cashier_sessions() as $activeSession) {
-            if ((int)($activeSession['terminal_id'] ?? 0) !== $terminalId) {
-                continue;
-            }
-            $cashierName = trim((string)($activeSession['cashier_name'] ?? '')) ?: 'kasir lain';
-            return [
-                'ok' => false,
-                'code' => 'TERMINAL_BUSY',
-                'active_session' => $activeSession,
-                'message' => 'Terminal ini masih dipakai oleh kasir ' . $cashierName . '. Tutup sesi tersebut atau pilih device lain.',
-            ];
-        }
-
-        $now = date('Y-m-d H:i:s');
-        $this->db->trans_begin();
+        $previousDebug = $this->db->db_debug;
+        $this->db->db_debug = false;
+        $started = false;
         try {
+            if (!$this->db->trans_begin()) {
+                throw new RuntimeException('Cashier transaction unavailable.');
+            }
+            $started = true;
+            // Lock existing master rows, including when no session exists yet.
+            // Employee serializes one person's opens; outlet serializes shift
+            // numbering. All session reads follow the locks (fresh snapshot).
+            $employee = $this->db->query('SELECT id FROM org_employee WHERE id = ? FOR UPDATE', [$actorEmployeeId]);
+            $outlet = $this->db->query('SELECT id, is_active FROM pos_outlet WHERE id = ? FOR UPDATE', [$outletId]);
+            $terminal = $this->db->query('SELECT id, outlet_id, is_active FROM pos_terminal WHERE id = ? FOR UPDATE', [$terminalId]);
+            if (!$employee || !$outlet || !$terminal || !$this->db->trans_status()) {
+                throw new RuntimeException('Cashier lock unavailable.');
+            }
+            $employee = $employee->row_array();
+            $outlet = $outlet->row_array();
+            $terminal = $terminal->row_array();
+            if (!$employee || !$outlet || (int)$outlet['is_active'] !== 1) {
+                throw new DomainException('Pegawai atau outlet kasir tidak tersedia. Periksa pengaturan kasir.');
+            }
+            if (!$terminal || (int)$terminal['is_active'] !== 1 || (int)$terminal['outlet_id'] !== $outletId) {
+                throw new DomainException('Pilih terminal aktif yang terdaftar pada outlet ini.');
+            }
+            $existing = $this->find_active_cashier_session($actorEmployeeId);
+            if ($existing) {
+                $this->db->trans_rollback();
+                return ['ok' => true, 'session' => $existing, 'already_open' => true];
+            }
+            foreach ($this->active_cashier_sessions() as $activeSession) {
+                if ((int)($activeSession['terminal_id'] ?? 0) !== $terminalId) {
+                    continue;
+                }
+                $this->db->trans_rollback();
+                $cashierName = trim((string)($activeSession['cashier_name'] ?? '')) ?: 'kasir lain';
+                return [
+                    'ok' => false,
+                    'code' => 'TERMINAL_BUSY',
+                    'active_session' => $activeSession,
+                    'message' => 'Terminal ini masih dipakai oleh kasir ' . $cashierName . '. Pilih terminal lain; sesi kasir tersebut tidak perlu ditutup.',
+                ];
+            }
+
+            $now = date('Y-m-d H:i:s');
             $shiftNo = $this->generate_pos_shift_no($outletId, $now);
             $this->db->insert('pos_shift', [
                 'shift_no' => $shiftNo,
@@ -6301,13 +6331,23 @@ class Pos_model extends CI_Model
             if ($this->db->trans_status() === false) {
                 throw new RuntimeException('Gagal membuka kasir POS.');
             }
-            $this->db->trans_commit();
+            if (!$this->db->trans_commit()) {
+                throw new RuntimeException('Cashier commit failed.');
+            }
+            $started = false;
 
             $session = $this->find_active_cashier_session($actorEmployeeId);
             return ['ok' => true, 'session' => $session, 'session_id' => $sessionId, 'shift_id' => $shiftId];
         } catch (Throwable $e) {
-            $this->db->trans_rollback();
-            return ['ok' => false, 'message' => $e->getMessage()];
+            if ($started) {
+                $this->db->trans_rollback();
+            }
+            log_message('error', 'POS cashier open failed; transaction not completed.');
+            return ['ok' => false, 'message' => $e instanceof DomainException
+                ? $e->getMessage()
+                : 'Sesi kasir belum dapat dibuka. Periksa status sesi lalu coba lagi.'];
+        } finally {
+            $this->db->db_debug = $previousDebug;
         }
     }
 
@@ -12196,7 +12236,8 @@ class Pos_model extends CI_Model
             ', false)
             ->from('pos_order')
             ->where('shift_id', $shiftId)
-            ->where_not_in('status', ['DRAFT', 'PENDING'])
+            // VOID is reported separately, not as a sale/count on closing.
+            ->where_not_in('status', ['DRAFT', 'PENDING', 'VOID'])
             ->get()
             ->row_array() ?: [];
 

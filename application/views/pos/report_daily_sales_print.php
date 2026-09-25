@@ -114,11 +114,12 @@ $outletName = trim((string)($outlet_name ?? ''));
 
   <div class="section">
     <h2>Riwayat Shift</h2>
+      <p class="small text-muted">Sesi aktif diperbarui dari transaksi berjalan; sesi tutup memakai ringkasan penutupan. Angka sesi mencakup seluruh durasi sesi dan DP, bukan subtotal harian. Total harian di atas mengikuti tanggal transaksi.</p>
     <table>
-      <thead><tr><th>No Shift</th><th>Kasir</th><th>Mulai</th><th>Selesai</th><th class="text-center">Status</th><th class="text-end">Trx</th><th class="text-end">Revenue</th></tr></thead>
+      <thead><tr><th>Sesi / Terminal</th><th>Kasir</th><th>Mulai</th><th>Selesai</th><th class="text-center">Status</th><th class="text-end">Trx</th><th class="text-end">Revenue</th></tr></thead>
       <tbody>
       <?php foreach ($shifts as $shift): ?>
-        <tr><td><?php echo html_escape((string)($shift['shift_no'] ?? '-')); ?></td><td><?php echo html_escape((string)($shift['cashier_name'] ?? '-')); ?></td><td><?php echo !empty($shift['opened_at']) ? html_escape(date('H:i', strtotime((string)$shift['opened_at']))) : '-'; ?></td><td><?php echo !empty($shift['closed_at']) ? html_escape(date('H:i', strtotime((string)$shift['closed_at']))) : '-'; ?></td><td class="text-center"><?php echo html_escape((string)($shift['shift_status'] ?? '-')); ?></td><td class="text-end"><?php echo number_format((int)($shift['trx_count'] ?? 0)); ?></td><td class="text-end">Rp <?php echo number_format((float)($shift['revenue'] ?? 0), 0, ',', '.'); ?></td></tr>
+        <tr><td><?php echo html_escape((string)($shift['shift_no'] ?? '-')); ?><br><small><?php echo html_escape((string)($shift['outlet_name'] ?? '-') . ' / ' . (string)($shift['terminal_name'] ?? '-')); ?></small></td><td><?php echo html_escape((string)($shift['cashier_name'] ?? '-')); ?></td><td><?php echo !empty($shift['opened_at']) ? html_escape(date('d/m H:i', strtotime((string)$shift['opened_at']))) : '-'; ?></td><td><?php echo !empty($shift['closed_at']) ? html_escape(date('d/m H:i', strtotime((string)$shift['closed_at']))) : '-'; ?></td><td class="text-center"><?php echo html_escape((string)($shift['shift_status'] ?? '-')); ?></td><td class="text-end"><?php echo number_format((int)($shift['trx_count'] ?? 0)); ?></td><td class="text-end">Rp <?php echo number_format((float)($shift['revenue'] ?? 0), 0, ',', '.'); ?></td></tr>
       <?php endforeach; ?>
       <?php if (empty($shifts)): ?><tr><td colspan="7">Tidak ada shift.</td></tr><?php endif; ?>
       </tbody>

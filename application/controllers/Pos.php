@@ -2852,7 +2852,9 @@ public function self_order_tables_print()
         }
         $result = $this->Pos_model->open_cashier_session($payload, $this->current_actor_employee_id());
         if (!($result['ok'] ?? false)) {
-            $this->json_error((string)($result['message'] ?? 'Gagal membuka kasir POS.'), 422);
+            $this->json_error((string)($result['message'] ?? 'Gagal membuka kasir POS.'), 422, [
+                'code' => (string)($result['code'] ?? ''),
+            ]);
             return;
         }
         $this->json_ok([

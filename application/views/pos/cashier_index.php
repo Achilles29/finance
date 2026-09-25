@@ -5,6 +5,10 @@ $outlets = is_array($filterOptions['outlets'] ?? null) ? $filterOptions['outlets
 $terminals = is_array($filterOptions['terminals'] ?? null) ? $filterOptions['terminals'] : [];
 $cashierBootstrap = is_array($cashier_bootstrap ?? null) ? $cashier_bootstrap : [];
 $activeSession = is_array($cashierBootstrap['active_session'] ?? null) ? $cashierBootstrap['active_session'] : null;
+$occupiedTerminals = [];
+foreach ((array)($cashierBootstrap['active_sessions'] ?? []) as $openSession) {
+  $occupiedTerminals[(int)($openSession['terminal_id'] ?? 0)] = trim((string)($openSession['cashier_name'] ?? '')) ?: 'kasir lain';
+}
 $salesChannels = is_array($cashierBootstrap['sales_channels'] ?? null) ? $cashierBootstrap['sales_channels'] : [];
 $orderReprintPrinters = is_array($cashierBootstrap['order_reprint_printers'] ?? null) ? $cashierBootstrap['order_reprint_printers'] : [];
 $defaultSalesChannelId = !empty($cashierBootstrap['default_sales_channel_id']) ? (int)$cashierBootstrap['default_sales_channel_id'] : 0;
@@ -1403,7 +1407,7 @@ $incomingServerDate = date('Y-m-d');
               <div class="card-body p-4">
                 <div class="cashier-kicker mb-2"><i class="ri-door-open-line"></i>Buka Kasir Dulu</div>
                 <div class="cashier-panel-title mb-1">Mulai sesi kasir</div>
-                <div class="cashier-panel-note mb-3">Pilih outlet, device, lalu masukkan modal awal. Setelah sesi aktif, outlet dan device transaksi akan otomatis terkunci mengikuti sesi ini.</div>
+                <div class="cashier-panel-note mb-3">Pilih terminal yang tersedia dan isi modal awal kasir ini. Kasir lain dapat tetap berjalan pada terminal berbeda; penjualan tergabung di Daily Sales, tetapi tutup kasir dan saldo masing-masing sesi tetap terpisah.</div>
                 <div class="row g-3">
                   <div class="col-md-6">
                     <label class="form-label small text-muted mb-1">Outlet</label>
@@ -1419,9 +1423,11 @@ $incomingServerDate = date('Y-m-d');
                     <select class="form-select" id="cashier_launch_terminal" <?php echo empty($outlets) ? 'disabled' : ''; ?>>
                       <option value="">Pilih Device</option>
                       <?php foreach ($terminals as $terminal): ?>
-                        <option value="<?php echo (int)$terminal['id']; ?>" data-outlet-id="<?php echo (int)($terminal['outlet_id'] ?? 0); ?>" <?php echo $defaultLaunchTerminalId === (int)$terminal['id'] ? 'selected' : ''; ?>><?php echo html_escape((string)$terminal['terminal_name']); ?></option>
+                        <?php $busyCashier = $occupiedTerminals[(int)$terminal['id']] ?? null; ?>
+                        <option value="<?php echo (int)$terminal['id']; ?>" data-outlet-id="<?php echo (int)($terminal['outlet_id'] ?? 0); ?>" <?php echo $busyCashier !== null ? 'disabled' : ($defaultLaunchTerminalId === (int)$terminal['id'] ? 'selected' : ''); ?>><?php echo html_escape((string)$terminal['terminal_name'] . ($busyCashier !== null ? ' — Dipakai ' . $busyCashier : ' — Tersedia')); ?></option>
                       <?php endforeach; ?>
                     </select>
+                    <div class="form-text" id="cashier_terminal_availability" role="status">Terminal yang sedang dipakai tidak dapat dipilih. Gunakan terminal berbeda untuk kasir kedua.</div>
                   </div>
                   <div class="col-md-6">
                     <label class="form-label small text-muted mb-1">Modal Awal</label>
@@ -3117,7 +3123,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const optionOutletId = Number(opt.dataset.outletId || 0);
       const isVisible = outletId === 0 || optionOutletId === 0 || optionOutletId === outletId;
       opt.hidden = !isVisible;
-      if (isVisible) {
+      if (isVisible && !opt.disabled) {
         const optionId = Number(opt.value || 0);
         if (optionId > 0) {
           visibleTerminalIds.push(optionId);
@@ -3126,11 +3132,16 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     const selectedOption = launchTerminal.selectedOptions.length ? launchTerminal.selectedOptions[0] : null;
     const currentTerminalId = Number(launchTerminal.value || 0);
-    const hasVisibleCurrent = !!selectedOption && !selectedOption.hidden && currentTerminalId > 0;
+    const hasVisibleCurrent = !!selectedOption && !selectedOption.hidden && !selectedOption.disabled && currentTerminalId > 0;
     if (!hasVisibleCurrent) {
       const fallbackTerminalId = visibleTerminalIds.length ? Math.min.apply(null, visibleTerminalIds) : 0;
       launchTerminal.value = fallbackTerminalId > 0 ? String(fallbackTerminalId) : '';
     }
+    if (openButton) openButton.disabled = visibleTerminalIds.length === 0;
+    const availability = document.getElementById('cashier_terminal_availability');
+    if (availability) availability.textContent = visibleTerminalIds.length
+      ? visibleTerminalIds.length + ' terminal tersedia. Setiap kasir menggunakan akun pegawai dan terminal berbeda.'
+      : 'Belum ada terminal tersedia pada outlet ini. Daftarkan terminal lain di POS > Outlet + Terminal, atau muat ulang jika terminal sudah ditutup.';
   }
 
   function applyLaunchDefaults() {
@@ -5563,22 +5574,31 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  let cashierOpening = false;
   async function openCashierSession() {
     if (!launchOutlet || !launchTerminal || !launchOpeningCash) return;
-    if (!(await confirmDailyReconGate('OPEN'))) return;
-    const payload = {
-      outlet_id: Number(launchOutlet.value || 0),
-      terminal_id: Number(launchTerminal.value || 0),
-      opening_cash: Number(launchOpeningCash.value || 0),
-      notes: launchNotes ? (launchNotes.value || '') : ''
-    };
-    const json = await postPosTransactionJson('<?php echo site_url('pos/cashier/open'); ?>', payload);
-    if (json.already_open) {
-      alert('Sesi kasir ini sudah aktif. Layar akan dimuat ulang.');
-    } else {
-      alert('Kasir berhasil dibuka. Layar kasir akan dimuat ulang.');
+    if (cashierOpening || !Number(launchTerminal.value) || launchTerminal.selectedOptions[0]?.disabled) return;
+    cashierOpening = true;
+    if (openButton) openButton.disabled = true;
+    try {
+      if (!(await confirmDailyReconGate('OPEN'))) return;
+      const payload = {
+        outlet_id: Number(launchOutlet.value || 0),
+        terminal_id: Number(launchTerminal.value || 0),
+        opening_cash: Number(launchOpeningCash.value || 0),
+        notes: launchNotes ? (launchNotes.value || '') : ''
+      };
+      const json = await postPosTransactionJson('<?php echo site_url('pos/cashier/open'); ?>', payload);
+      if (json.already_open) {
+        alert('Sesi kasir ini sudah aktif. Layar akan dimuat ulang.');
+      } else {
+        alert('Kasir berhasil dibuka. Layar kasir akan dimuat ulang.');
+      }
+      window.location.reload();
+    } finally {
+      cashierOpening = false;
+      filterLaunchTerminalOptions();
     }
-    window.location.reload();
   }
 
   async function closeCashierSession() {
